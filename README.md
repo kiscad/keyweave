@@ -27,6 +27,7 @@ cargo run --locked -p keyweavectl -- doctor
 4. [AGENTS.md](AGENTS.md)：后续开发必须遵守的项目约束。
 5. [项目状态](docs/STATUS.md)：区分规划、实现和实际验证。
 6. [兼容配置示例](examples/karabiner-basic.json)：供后续 C2 行为验收；当前准确诊断未支持的部分。
+7. [当前兼容范围](docs/COMPATIBILITY.zh-CN.md)：已实现字段、拒绝行为和已知偏差。
 
 结论：可以重写规则引擎并移植主要能力。推荐先完成离线引擎和 Linux evdev/uinput 后端，再完成 Windows 用户态版本；Windows 驱动版本是独立工程与发布门槛。不能把 Windows 用户态版描述为 Karabiner 全功能等价版，也不能承诺所有桌面环境都支持应用条件和输入法切换。
 

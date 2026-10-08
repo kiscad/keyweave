@@ -1,4 +1,5 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
+mod unique_json;
 use keyweave_engine::{ConfigSnapshot, Mapping};
 use keyweave_types::*;
 use serde::Serialize;
@@ -109,7 +110,7 @@ pub fn parse_jsonc(text: &str) -> Result<Value, ConfigError> {
             index += 1;
         }
     }
-    Ok(serde_json::from_slice(&output)?)
+    Ok(serde_json::from_slice::<unique_json::UniqueValue>(&output)?.0)
 }
 
 pub fn compile(
@@ -140,6 +141,24 @@ pub fn compile(
         .and_then(Value::as_array)
         .filter(|p| !p.is_empty())
         .ok_or_else(|| structure("/profiles", "expected non-empty profiles array"))?;
+    for (index, candidate) in profiles.iter().enumerate() {
+        let location = format!("/profiles/{index}");
+        let object = candidate
+            .as_object()
+            .ok_or_else(|| structure(&location, "expected profile object"))?;
+        if object
+            .get("selected")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err(structure(
+                &format!("{location}/selected"),
+                "expected boolean",
+            ));
+        }
+        if object.get("name").is_some_and(|value| !value.is_string()) {
+            return Err(structure(&format!("{location}/name"), "expected string"));
+        }
+    }
     let selected: Vec<_> = profiles
         .iter()
         .enumerate()
@@ -175,6 +194,49 @@ pub fn compile(
         disabled: 0,
         count: 0,
     };
+    compiler.reject_unknown_fields(root, "", &["profiles", "keyweave"]);
+    compiler.reject_unknown_fields(
+        profile,
+        &pointer,
+        &[
+            "name",
+            "selected",
+            "simple_modifications",
+            "complex_modifications",
+            "devices",
+            "fn_function_keys",
+            "parameters",
+            "virtual_hid_keyboard",
+            "ignore_pointing_device_events_by_default",
+        ],
+    );
+    for field in ["parameters", "virtual_hid_keyboard"] {
+        if let Some(value) = profile.get(field) {
+            let object = value
+                .as_object()
+                .ok_or_else(|| structure(&format!("{pointer}/{field}"), "expected object"))?;
+            for name in object.keys() {
+                compiler.reject(
+                    &format!("{pointer}/{field}/{}", escape_pointer(name)),
+                    "KW-CAP-001",
+                    "profile hardware/output setting is not implemented",
+                );
+            }
+        }
+    }
+    if let Some(value) = profile.get("ignore_pointing_device_events_by_default") {
+        if !value.is_boolean() {
+            return Err(structure(
+                &format!("{pointer}/ignore_pointing_device_events_by_default"),
+                "expected boolean",
+            ));
+        }
+        compiler.reject(
+            &format!("{pointer}/ignore_pointing_device_events_by_default"),
+            "KW-CAP-001",
+            "pointing-device capture policy is not implemented",
+        );
+    }
     let mut simple = Vec::new();
     if let Some(value) = profile.get("simple_modifications") {
         for (index, item) in array(value, &format!("{pointer}/simple_modifications"))?
@@ -193,9 +255,8 @@ pub fn compile(
         }
     }
     for field in ["devices", "fn_function_keys"] {
-        if profile
-            .get(field)
-            .is_some_and(|v| !v.as_array().is_some_and(Vec::is_empty))
+        if let Some(value) = profile.get(field)
+            && !array(value, &format!("{pointer}/{field}"))?.is_empty()
         {
             compiler.reject(&format!("{pointer}/{field}"), "KW-CAP-001", "device/Fn mapping is not implemented in this build; profile cannot be activated without loss");
         }
@@ -208,11 +269,28 @@ pub fn compile(
                 "expected object",
             )
         })?;
+        compiler.reject_unknown_fields(
+            object,
+            &format!("{pointer}/complex_modifications"),
+            &["rules", "parameters"],
+        );
         if object.get("parameters").is_some_and(|v| !v.is_object()) {
             return Err(structure(
                 &format!("{pointer}/complex_modifications/parameters"),
                 "expected object",
             ));
+        }
+        if let Some(parameters) = object.get("parameters").and_then(Value::as_object) {
+            for name in parameters.keys() {
+                compiler.reject(
+                    &format!(
+                        "{pointer}/complex_modifications/parameters/{}",
+                        escape_pointer(name)
+                    ),
+                    "KW-CAP-001",
+                    "timing parameter is not implemented in this build",
+                );
+            }
         }
         if let Some(rules) = object.get("rules") {
             for (index, rule) in array(rules, &format!("{pointer}/complex_modifications/rules"))?
@@ -230,6 +308,24 @@ pub fn compile(
                     ));
                 }
                 if rule.get("enabled") == Some(&Value::Bool(false)) {
+                    continue;
+                }
+                if rule
+                    .get("description")
+                    .is_some_and(|value| !value.is_string())
+                {
+                    return Err(structure(
+                        &format!("{location}/description"),
+                        "expected string",
+                    ));
+                }
+                let disabled_before = compiler.disabled;
+                compiler.reject_unknown_fields(
+                    rule,
+                    &location,
+                    &["enabled", "description", "manipulators", "eval_js"],
+                );
+                if compiler.disabled != disabled_before {
                     continue;
                 }
                 if rule.contains_key("eval_js") {
@@ -310,6 +406,23 @@ struct Compiler<'a> {
     count: usize,
 }
 impl Compiler<'_> {
+    fn reject_unknown_fields(
+        &mut self,
+        object: &Map<String, Value>,
+        pointer: &str,
+        allowed: &[&str],
+    ) {
+        const METADATA: &[&str] = &["title", "description", "maintainers", "authors", "metadata"];
+        for name in object.keys() {
+            if !allowed.contains(&name.as_str()) && !METADATA.contains(&name.as_str()) {
+                self.reject(
+                    &format!("{pointer}/{}", escape_pointer(name)),
+                    "KW-CAP-001",
+                    "unknown or unsupported functional field; activation refused",
+                );
+            }
+        }
+    }
     fn reject(&mut self, pointer: &str, code: &str, message: &str) {
         self.diagnostics.push(diagnostic(pointer, code, message));
         self.disabled += 1;

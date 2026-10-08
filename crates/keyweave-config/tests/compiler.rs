@@ -135,6 +135,116 @@ fn multi_action_arrays_compile_but_cross_phase_expansion_is_bounded() {
         "/profiles/0/simple_modifications/0/to"
     );
 }
+
+#[test]
+fn functional_fields_at_every_executable_level_refuse_activation() {
+    let cases = [
+        (
+            json!({"profiles":[{}],"global":{"unsafe":"ignored"}}),
+            "/global",
+        ),
+        (
+            json!({"profiles":[{"complex_modification":{}}]}),
+            "/profiles/0/complex_modification",
+        ),
+        (
+            json!({"profiles":[{"parameters":{"delay_milliseconds_before_open_device":1000}}]}),
+            "/profiles/0/parameters/delay_milliseconds_before_open_device",
+        ),
+        (
+            json!({"profiles":[{"virtual_hid_keyboard":{"keyboard_type_v2":"iso"}}]}),
+            "/profiles/0/virtual_hid_keyboard/keyboard_type_v2",
+        ),
+        (
+            json!({"profiles":[{"ignore_pointing_device_events_by_default":false}]}),
+            "/profiles/0/ignore_pointing_device_events_by_default",
+        ),
+        (
+            json!({"profiles":[{"complex_modifications":{"unexpected/rule~":1}}]}),
+            "/profiles/0/complex_modifications/unexpected~1rule~0",
+        ),
+        (
+            json!({"profiles":[{"complex_modifications":{"parameters":{"basic.to_if_alone_timeout_milliseconds":100}}}]}),
+            "/profiles/0/complex_modifications/parameters/basic.to_if_alone_timeout_milliseconds",
+        ),
+        (
+            profile(
+                json!([{"conditions":[],"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"}}]}]),
+            ),
+            "/profiles/0/complex_modifications/rules/0/conditions",
+        ),
+    ];
+    for (value, pointer) in cases {
+        let config = compile_value(value.clone());
+        assert!(!config.executable_without_loss(), "{pointer}");
+        assert_eq!(config.raw, value);
+        assert_eq!(config.diagnostics[0].pointer, pointer);
+    }
+}
+
+#[test]
+fn inactive_rule_and_explicit_metadata_are_preserved_without_execution() {
+    let raw = profile(json!([{"enabled":false,"unknown_future_action":{"execute":"NEVER"}}]));
+    assert!(compile_value(raw).executable_without_loss());
+    let raw = json!({"metadata":{"future_custom_data":42}, "profiles":[{
+        "name":"Metadata", "metadata":{"maintainer_note":"anything"},
+        "complex_modifications":{"metadata":{"custom":true},"rules":[{
+            "description":"test", "metadata":{"custom":1},
+            "manipulators":[{"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"}}]
+        }]}
+    }]});
+    let config = compile_value(raw.clone());
+    assert!(config.executable_without_loss());
+    assert_eq!(config.raw, raw);
+}
+
+#[test]
+fn malformed_profiles_sections_and_descriptions_are_not_ignored() {
+    for raw in [
+        json!({"profiles":[{"selected":true}, false]}),
+        json!({"profiles":[{"selected":true}, {"selected":"yes"}]}),
+        json!({"profiles":[{"selected":true}, {"name":123}]}),
+        json!({"profiles":[{"devices":{}}]}),
+        json!({"profiles":[{"fn_function_keys":null}]}),
+        json!({"profiles":[{"parameters":[]}]}),
+        json!({"profiles":[{"virtual_hid_keyboard":"ansi"}]}),
+        json!({"profiles":[{"ignore_pointing_device_events_by_default":"no"}]}),
+        profile(json!([{"description":123,"manipulators":[]}])),
+    ] {
+        assert!(
+            compile(
+                &raw.to_string(),
+                &BackendCapabilities::offline(),
+                ConfigGeneration(1)
+            )
+            .is_err(),
+            "{raw}"
+        );
+    }
+}
+
+#[test]
+fn duplicate_json_members_are_rejected_including_escaped_equivalents() {
+    for text in [
+        r#"{"profiles":[],"profiles":[{}]}"#,
+        r#"{"profiles":[{"selected":true,"selected":false}]}"#,
+        r#"{"a":1,"\u0061":2}"#,
+        r#"{"metadata":{"a":1,"a":2}}"#,
+    ] {
+        let error = parse_jsonc(text).unwrap_err();
+        assert!(
+            error.to_string().contains("duplicate JSON member"),
+            "{error}"
+        );
+    }
+    assert_eq!(
+        parse_jsonc(
+            r#"[null,true,-9223372036854775808,18446744073709551615,1.25,"雪",{"a":1},{"a":2}]"#
+        )
+        .unwrap(),
+        json!([null,true,i64::MIN,u64::MAX,1.25,"雪",{"a":1},{"a":2}])
+    );
+}
 #[test]
 fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {
     let rules: Value = serde_json::from_str(include_str!(
