@@ -1,0 +1,37 @@
+{
+  "source_commit": "ec2fea8940f7254a748c052a890ee9db7113d9b1",
+  "license": "Unlicense",
+  "comparison": "Key edge semantics only for non-timed cases; original Mach ticks are not assumed to be nanoseconds. Unbalanced up is intentionally ignored by physical normalization.",
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "source_path": "LICENSE.md",
+      "sha256": "6b0382b16279f26ff69014300541967a356a666eb0b91b422f6862f6b7dad17e"
+    },
+    {
+      "path": "input_event_queue/spacebar_to_tab.json",
+      "source_path": "tests/src/manipulator/json/manipulator_manager/input_event_queue/spacebar_to_tab.json",
+      "sha256": "0358d2adf9f0e952f6a818676356a6e692c8d308c6dc2da7bfdfa309de50aa94"
+    },
+    {
+      "path": "expected_event_queue/spacebar_to_tab.json",
+      "source_path": "tests/src/manipulator/json/manipulator_manager/expected_event_queue/spacebar_to_tab.json",
+      "sha256": "10b1ffa5f9141028eb80ce60fbb411b32d8cf0c4197784871b7ac1eac0df0a6b"
+    },
+    {
+      "path": "input_event_queue/spacebar_to_tab_key_up.json",
+      "source_path": "tests/src/manipulator/json/manipulator_manager/input_event_queue/spacebar_to_tab_key_up.json",
+      "sha256": "703d3b57f5474568a49f5b268c1c875bd7c3bd8e0ba4a6b4c55b1a33b65208b3"
+    },
+    {
+      "path": "expected_event_queue/spacebar_to_tab_key_up.json",
+      "source_path": "tests/src/manipulator/json/manipulator_manager/expected_event_queue/spacebar_to_tab_key_up.json",
+      "sha256": "d418130728e198a3bddd9dd82a9bc91de938ae05cbe69d6e88bd600bd1c767da"
+    },
+    {
+      "path": "rules/spacebar_to_tab.json",
+      "source_path": "tests/src/manipulator/json/manipulator_manager/rules/spacebar_to_tab.json",
+      "sha256": "a3d4f19e3706b0763b099927b8b66011648ab912fc314cd3a279dfcc0f6b3850"
+    }
+  ]
+}
