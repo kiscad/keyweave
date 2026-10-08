@@ -8,6 +8,7 @@ fn key(name: &str) -> KeyId {
 }
 fn action(name: &str, modifiers: &[&str]) -> Action {
     Action {
+        conditions: vec![],
         key: key(name),
         repeat: true,
         modifiers: modifiers.iter().map(|name| key(name)).collect(),

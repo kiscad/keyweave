@@ -1,5 +1,7 @@
 //! OS independent event identities. Times are integer monotonic nanoseconds.
+mod context;
 mod key_names;
+pub use context::*;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, str::FromStr};
@@ -162,6 +164,7 @@ pub enum InputEvent {
     Key { key: KeyId, edge: KeyEdge },
     Wheel { horizontal: i32, vertical: i32 },
     PointerMove { x: i32, y: i32 },
+    ContextChanged { context: ContextSnapshot },
     DeviceRemoved,
     Reset,
 }

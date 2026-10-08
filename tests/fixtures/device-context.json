@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "selected": true,
+        "name": "Device context expiry",
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "a"
+                  },
+                  "conditions": [
+                    {
+                      "type": "device_if",
+                      "identifiers": [
+                        {
+                          "vendor_id": 42
+                        }
+                      ]
+                    }
+                  ],
+                  "to": [
+                    {
+                      "key_code": "b",
+                      "modifiers": [
+                        "control"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "context_changed",
+        "context": {
+          "revision": 1,
+          "provider": "synthetic-fixture",
+          "observed_at_ns": 0,
+          "valid_until_ns": 100,
+          "devices": [
+            {
+              "device": {
+                "id": 1,
+                "generation": 1
+              },
+              "properties": {
+                "vendor_id": 42
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 99,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 3,
+      "at_ns": 100,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 4,
+      "at_ns": 101,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 5,
+      "at_ns": 102,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 99,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 99,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 100,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 100,
+      "key": "left_control",
+      "edge": "up"
+    },
+    {
+      "at_ns": 101,
+      "key": "a",
+      "edge": "down"
+    },
+    {
+      "at_ns": 102,
+      "key": "a",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  }
+}

@@ -86,3 +86,18 @@ fn doctor_separates_platform_plan_from_implementation() {
     assert!(result.status.success());
     assert!(String::from_utf8_lossy(&result.stdout).contains("\"hardware_validated\": false"));
 }
+#[test]
+fn device_context_replay_preserves_old_up_after_expiry() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/device-context.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout).contains("\"asserted\": true"));
+}

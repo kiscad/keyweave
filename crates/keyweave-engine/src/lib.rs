@@ -1,5 +1,7 @@
 //! Deterministic remapping. No OS input, file IO, threads or wall clock.
+mod conditions;
 mod modifiers;
+pub use conditions::{Condition, Truth};
 use keyweave_types::*;
 pub use modifiers::{Modifier, ModifierFilter};
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,7 @@ pub struct Action {
     pub key: KeyId,
     pub repeat: bool,
     pub modifiers: Vec<KeyId>,
+    pub conditions: Vec<Condition>,
 }
 impl From<KeyId> for Action {
     fn from(key: KeyId) -> Self {
@@ -27,6 +30,7 @@ impl From<KeyId> for Action {
             key,
             repeat: true,
             modifiers: Vec::new(),
+            conditions: Vec::new(),
         }
     }
 }
@@ -43,6 +47,7 @@ pub struct Mapping {
 #[derive(Clone, Debug)]
 pub struct MappingExtras {
     pub from_modifiers: ModifierFilter,
+    pub conditions: Vec<Condition>,
     pub if_alone: Vec<Action>,
     pub after_key_up: Vec<Action>,
     pub alone_timeout_ns: u64,
@@ -51,6 +56,7 @@ impl Default for MappingExtras {
     fn default() -> Self {
         Self {
             from_modifiers: ModifierFilter::default(),
+            conditions: Vec::new(),
             if_alone: Vec::new(),
             after_key_up: Vec::new(),
             alone_timeout_ns: 1_000_000_000,
@@ -214,6 +220,8 @@ pub enum EngineError {
     DeviceHistoryFull,
     #[error("configuration generation must increase")]
     InvalidGeneration,
+    #[error("invalid, stale or oversized context snapshot")]
+    InvalidContext,
 }
 
 #[derive(Clone, Copy)]
@@ -224,6 +232,8 @@ struct DeviceState {
 
 pub struct Engine {
     config: Arc<ConfigSnapshot>,
+    context: ContextSnapshot,
+    current_device: DeviceInstanceId,
     bounds: BTreeMap<KeyId, usize>,
     reservations: usize,
     suppression_references: usize,
@@ -249,6 +259,11 @@ impl Engine {
                 .chain(&config.complex)
                 .any(|mapping| !mapping.extras.from_modifiers.mandatory.is_empty()),
             suppression_references: 0,
+            context: ContextSnapshot::default(),
+            current_device: DeviceInstanceId {
+                id: 0,
+                generation: 0,
+            },
             bounds: config.expansion_bounds(),
             reservations: 0,
             alone_candidate: None,
@@ -263,6 +278,50 @@ impl Engine {
             now: MonoTime(0),
             next_source: 1,
         }
+    }
+
+    pub fn context_revision(&self) -> u64 {
+        self.context.revision
+    }
+
+    fn conditions_match(&self, conditions: &[Condition]) -> bool {
+        conditions.iter().all(|condition| {
+            condition.evaluate(&self.context, self.current_device, self.now) == Truth::True
+        })
+    }
+
+    fn validate_context(
+        &self,
+        context: &ContextSnapshot,
+        now: MonoTime,
+    ) -> Result<(), EngineError> {
+        let mut identities = BTreeSet::new();
+        if context.revision <= self.context.revision
+            || context.provider.is_empty()
+            || context.provider.len() > 128
+            || context.observed_at_ns > now
+            || context.valid_until_ns < context.observed_at_ns
+            || context.valid_until_ns.0 - context.observed_at_ns.0 > MAX_CONTEXT_LIFETIME_NS
+            || context.devices.as_ref().is_some_and(|devices| {
+                devices.len() > MAX_CONTEXT_DEVICES
+                    || devices.iter().any(|entry| {
+                        !identities.insert(entry.device.id)
+                            || entry
+                                .properties
+                                .device_address
+                                .as_ref()
+                                .is_some_and(|address| address.len() > 256)
+                            || self.devices.get(&entry.device.id).is_some_and(|state| {
+                                state.generation > entry.device.generation
+                                    || (state.generation == entry.device.generation
+                                        && state.removed)
+                            })
+                    })
+            })
+        {
+            return Err(EngineError::InvalidContext);
+        }
+        Ok(())
     }
 
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), EngineError> {
@@ -302,6 +361,11 @@ impl Engine {
         if self.last_seq.is_some_and(|seq| input.seq <= seq) {
             return Err(EngineError::SequenceBackwards);
         }
+        if input.provenance == Provenance::Physical
+            && let InputEvent::ContextChanged { context } = &input.event
+        {
+            self.validate_context(context, input.at_ns)?;
+        }
         self.now = input.at_ns;
         self.last_seq = Some(input.seq);
         let mut step = EngineStep {
@@ -313,7 +377,12 @@ impl Engine {
             step.capture = CaptureDecision::Pass;
             return Ok(step);
         }
+        self.current_device = input.device;
         match input.event {
+            InputEvent::ContextChanged { context } => {
+                self.context = context;
+                step.capture = CaptureDecision::Pass;
+            }
             InputEvent::Reset => step.outputs = self.reset(input.at_ns)?,
             InputEvent::DeviceRemoved => {
                 self.update_device(input.device, true, &mut step.outputs)?;
@@ -490,6 +559,30 @@ impl Engine {
         if removed {
             self.release_device(device, self.now, outputs);
         }
+        if let Some(inventory) = &mut self.context.devices {
+            if removed {
+                inventory.retain(|entry| {
+                    entry.device.id != device.id || entry.device.generation > device.generation
+                });
+            } else if let Some(entry) = inventory
+                .iter_mut()
+                .find(|entry| entry.device.id == device.id)
+            {
+                if entry.device.generation < device.generation {
+                    *entry = DeviceContext {
+                        device,
+                        properties: DeviceProperties::default(),
+                    };
+                }
+            } else if inventory.len() < MAX_CONTEXT_DEVICES {
+                inventory.push(DeviceContext {
+                    device,
+                    properties: DeviceProperties::default(),
+                });
+            } else {
+                self.context.devices = None;
+            }
+        }
         self.devices.insert(
             device.id,
             DeviceState {
@@ -552,6 +645,7 @@ impl Engine {
         let mapping = match stage {
             0 => config.simple.iter().enumerate().find(|(_, mapping)| {
                 mapping.from == key
+                    && self.conditions_match(&mapping.extras.conditions)
                     && mapping
                         .extras
                         .from_modifiers
@@ -560,6 +654,7 @@ impl Engine {
             }),
             1 => config.complex.iter().enumerate().find(|(_, mapping)| {
                 mapping.from == key
+                    && self.conditions_match(&mapping.extras.conditions)
                     && mapping
                         .extras
                         .from_modifiers
@@ -600,7 +695,9 @@ impl Engine {
             self.press_actions(&mapping.to, stage + 1, config, next_source, false, outputs);
         if !mapping
             .to
-            .last()
+            .iter()
+            .rev()
+            .find(|action| self.conditions_match(&action.conditions))
             .is_some_and(|action| action.key.is_modifier())
         {
             self.unhide_modifiers(std::mem::take(&mut suppressed));
@@ -626,6 +723,10 @@ impl Engine {
         tap_all: bool,
         outputs: &mut Vec<OutputIntent>,
     ) -> Vec<Bound> {
+        let actions: Vec<_> = actions
+            .iter()
+            .filter(|action| self.conditions_match(&action.conditions))
+            .collect();
         let mut held = Vec::new();
         for (index, action) in actions.iter().enumerate() {
             let mut modifiers = Vec::new();

@@ -56,7 +56,7 @@ fn unsupported_condition_disables_the_entire_outer_rule() {
     assert!(config.snapshot.complex.is_empty());
     assert_eq!(
         config.diagnostics[0].pointer,
-        "/profiles/0/complex_modifications/rules/0/manipulators/1/conditions"
+        "/profiles/0/complex_modifications/rules/0/manipulators/1/conditions/0/type"
     );
 }
 #[test]
@@ -663,4 +663,76 @@ fn upstream_vk_none_modifier_ordering_matches_original_report_edges() {
     assert_eq!(reset[0].key, "left_option".parse::<KeyId>().unwrap());
     assert_eq!(reset[0].edge, KeyEdge::Up);
     assert_eq!(engine.state(), keyweave_engine::EngineState::default());
+}
+
+#[test]
+fn device_conditions_compile_with_strict_types_and_capabilities() {
+    let raw = profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","conditions":[{"type":"device_unless","identifiers":[{"is_keyboard":false}]}]}],"conditions":[{"type":"device_exists_if","identifiers":[{}, {"vendor_id":42,"product_id":1,"location_id":-1,"device_address":"test","is_built_in_keyboard":false}]}]}]}]),
+    );
+    let config = compile_value(raw.clone());
+    assert!(config.executable_without_loss());
+    assert_eq!(config.raw, raw);
+    let keyweave_engine::Condition::Device {
+        identifiers,
+        exists,
+        ..
+    } = &config.snapshot.complex[0].extras.conditions[0];
+    assert!(*exists);
+    assert_eq!(identifiers.len(), 1);
+    assert_eq!(identifiers[0].location_id, Some(-1));
+    assert_eq!(config.snapshot.complex[0].to[0].conditions.len(), 1);
+    let hook = compile(
+        &raw.to_string(),
+        &BackendCapabilities::windows_hook(),
+        ConfigGeneration(1),
+    )
+    .unwrap();
+    assert!(!hook.executable_without_loss());
+    assert!(hook.snapshot.complex.is_empty());
+}
+#[test]
+fn malformed_device_identifiers_disable_whole_outer_rule_at_exact_pointer() {
+    for (field, value, code) in [
+        ("vendor_id", json!(-1), "KW-CONFIG-001"),
+        ("product_id", json!(4294967296u64), "KW-CONFIG-001"),
+        ("location_id", json!(2147483648u64), "KW-CONFIG-001"),
+        ("is_keyboard", json!(null), "KW-CONFIG-001"),
+        ("device_address", json!("a".repeat(257)), "KW-CONFIG-001"),
+        ("is_touch_bar", json!(false), "KW-CAP-001"),
+        ("unknown/x", json!(true), "KW-CAP-001"),
+    ] {
+        let raw = profile(
+            json!([{"manipulators":[{"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d"}]},
+            {"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"conditions":[{"type":"device_if","identifiers":[{field:value}]}]}]}]),
+        );
+        let config = compile_value(raw);
+        assert!(!config.executable_without_loss());
+        assert!(config.snapshot.complex.is_empty());
+        assert_eq!(config.diagnostics[0].code, code);
+        assert_eq!(
+            config.diagnostics[0].pointer,
+            format!(
+                "/profiles/0/complex_modifications/rules/0/manipulators/1/conditions/0/identifiers/0/{}",
+                field.replace('~', "~0").replace('/', "~1")
+            )
+        );
+    }
+}
+#[test]
+fn empty_identifiers_are_ignored_and_bad_action_conditions_are_not_ignored() {
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"conditions":[{"type":"device_if","identifiers":[{}]}]}]}]),
+    ));
+    let keyweave_engine::Condition::Device { identifiers, .. } =
+        &config.snapshot.complex[0].extras.conditions[0];
+    assert!(identifiers.is_empty());
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","conditions":{}}]}]}]),
+    ));
+    assert!(!config.executable_without_loss());
+    assert_eq!(
+        config.diagnostics[0].pointer,
+        "/profiles/0/complex_modifications/rules/0/manipulators/0/to/0/conditions"
+    );
 }

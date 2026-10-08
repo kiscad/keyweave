@@ -619,6 +619,7 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
         id: "b".into(),
         from: key("b"),
         to: vec![Action {
+            conditions: vec![],
             key: key("c"),
             repeat: false,
             modifiers: vec![],

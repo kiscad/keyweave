@@ -1,6 +1,8 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
-use keyweave_engine::{Action, ConfigSnapshot, Mapping, MappingExtras, Modifier, ModifierFilter};
+use keyweave_engine::{
+    Action, Condition, ConfigSnapshot, Mapping, MappingExtras, Modifier, ModifierFilter,
+};
 use keyweave_types::*;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -453,6 +455,7 @@ impl Compiler<'_> {
                 "to_if_alone",
                 "to_after_key_up",
                 "parameters",
+                "conditions",
             ]
         } else {
             &["from", "to"]
@@ -478,6 +481,8 @@ impl Compiler<'_> {
         let to = self.actions(object.get("to"), &format!("{pointer}/to"), complex)?;
         let extras = MappingExtras {
             from_modifiers,
+            conditions: self
+                .conditions(object.get("conditions"), &format!("{pointer}/conditions"))?,
             if_alone: self.actions(
                 object.get("to_if_alone"),
                 &format!("{pointer}/to_if_alone"),
@@ -554,6 +559,9 @@ impl Compiler<'_> {
             .as_object()
             .cloned()
             .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected output action object"))?;
+        let conditions_value = object.remove("conditions");
+        let conditions =
+            self.conditions(conditions_value.as_ref(), &format!("{pointer}/conditions"))?;
         let repeat = object
             .remove("repeat")
             .map(|value| {
@@ -618,8 +626,140 @@ impl Compiler<'_> {
                 key,
                 repeat,
                 modifiers,
+                conditions,
             })
     }
+    fn conditions(
+        &self,
+        value: Option<&Value>,
+        pointer: &str,
+    ) -> Result<Vec<Condition>, Diagnostic> {
+        let Some(value) = value else {
+            return Ok(Vec::new());
+        };
+        let values = value
+            .as_array()
+            .filter(|values| values.len() <= 256)
+            .ok_or_else(|| {
+                diagnostic(pointer, "KW-CONFIG-001", "expected at most 256 conditions")
+            })?;
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let location = format!("{pointer}/{index}");
+                let object = value.as_object().ok_or_else(|| {
+                    diagnostic(&location, "KW-CONFIG-001", "expected condition object")
+                })?;
+                let kind = object.get("type").and_then(Value::as_str);
+                let (unless, exists) = match kind {
+                    Some("device_if") => (false, false),
+                    Some("device_unless") => (true, false),
+                    Some("device_exists_if") => (false, true),
+                    Some("device_exists_unless") => (true, true),
+                    _ => {
+                        return Err(diagnostic(
+                            &format!("{location}/type"),
+                            "KW-CAP-001",
+                            "condition type is not implemented; entire containing rule disabled",
+                        ));
+                    }
+                };
+                if !self.capabilities.reliable_device_identity {
+                    return Err(diagnostic(
+                        &location,
+                        "KW-CAP-001",
+                        "backend cannot supply reliable device identity/inventory",
+                    ));
+                }
+                for name in object.keys() {
+                    if !["type", "identifiers", "description"].contains(&name.as_str()) {
+                        return Err(diagnostic(
+                            &format!("{location}/{}", escape_pointer(name)),
+                            "KW-CAP-001",
+                            "unsupported condition field",
+                        ));
+                    }
+                }
+                let identifiers = object
+                    .get("identifiers")
+                    .and_then(Value::as_array)
+                    .filter(|values| values.len() <= 256)
+                    .ok_or_else(|| {
+                        diagnostic(
+                            &format!("{location}/identifiers"),
+                            "KW-CONFIG-001",
+                            "expected at most 256 device identifiers",
+                        )
+                    })?;
+                let mut filters = Vec::new();
+                for (index, value) in identifiers.iter().enumerate() {
+                    let location = format!("{location}/identifiers/{index}");
+                    let mut object = value.as_object().cloned().ok_or_else(|| {
+                        diagnostic(
+                            &location,
+                            "KW-CONFIG-001",
+                            "expected device identifier object",
+                        )
+                    })?;
+                    object.remove("description");
+                    for name in object.keys() {
+                        if ![
+                            "vendor_id",
+                            "product_id",
+                            "location_id",
+                            "device_address",
+                            "is_keyboard",
+                            "is_pointing_device",
+                            "is_game_pad",
+                            "is_consumer",
+                            "is_built_in_keyboard",
+                        ]
+                        .contains(&name.as_str())
+                        {
+                            return Err(diagnostic(
+                                &format!("{location}/{}", escape_pointer(name)),
+                                "KW-CAP-001",
+                                "unsupported device identifier field",
+                            ));
+                        }
+                        let valid = match name.as_str() {
+                            "vendor_id" | "product_id" => object[name]
+                                .as_u64()
+                                .is_some_and(|value| u32::try_from(value).is_ok()),
+                            "location_id" => object[name]
+                                .as_i64()
+                                .is_some_and(|value| i32::try_from(value).is_ok()),
+                            "device_address" => object[name]
+                                .as_str()
+                                .is_some_and(|value| value.len() <= 256),
+                            _ => object[name].is_boolean(),
+                        };
+                        if !valid {
+                            return Err(diagnostic(
+                                &format!("{location}/{}", escape_pointer(name)),
+                                "KW-CONFIG-001",
+                                "invalid device identifier type or bounded value",
+                            ));
+                        }
+                    }
+                    let properties: DeviceProperties =
+                        serde_json::from_value(Value::Object(object)).map_err(|_| {
+                            diagnostic(&location, "KW-CONFIG-001", "invalid device identifier")
+                        })?;
+                    if properties.has_constraints() {
+                        filters.push(properties);
+                    }
+                }
+                Ok(Condition::Device {
+                    identifiers: filters,
+                    unless,
+                    exists,
+                })
+            })
+            .collect()
+    }
+
     fn input_key(
         &self,
         value: Option<&Value>,

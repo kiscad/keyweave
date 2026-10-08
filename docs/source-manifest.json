@@ -345,6 +345,12 @@
       "sha256": "a819e0c3ab8b857ee985e32286a27d8bab6dd54a1353ccf49351d1c2a2ddb4ef",
       "bytes": 8,
       "lines": 1
+    },
+    {
+      "path": "src/share/manipulator/conditions/device.hpp",
+      "sha256": "c7a3b4764d86a8d248c5eeb59906b8a8fd402b5a14413ffbd7195f888b2b3809",
+      "bytes": 8665,
+      "lines": 265
     }
   ]
 }

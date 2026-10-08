@@ -18,6 +18,7 @@ fn config(generation: u64, alone: &str, after: &str) -> Arc<ConfigSnapshot> {
             allow_extra_modifiers: true,
             extras: MappingExtras {
                 from_modifiers: ModifierFilter::default(),
+                conditions: vec![],
                 if_alone: vec![key(alone).into()],
                 after_key_up: vec![key(after).into()],
                 alone_timeout_ns: 100_000_000,
