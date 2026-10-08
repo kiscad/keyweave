@@ -133,6 +133,58 @@ pub(crate) fn nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
     }
     Ok(())
 }
+pub(crate) fn pipe_identity(
+    fd: BorrowedFd<'_>,
+    writer: bool,
+) -> io::Result<(libc::dev_t, libc::ino_t)> {
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::zeroed();
+    // SAFETY: aligned stack storage has exactly libc stat's ABI size. fstat
+    // synchronously initializes its fields, retains no pointer, and the borrowed
+    // descriptor stays live. We read no fields on syscall failure.
+    if unsafe { libc::fstat(fd.as_raw_fd(), metadata.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful fstat populated the initialized zero-backed scalar
+    // stat structure. Padding is never read and the result contains no pointers.
+    let metadata = unsafe { metadata.assume_init() };
+    // SAFETY: synchronous scalar flag query on the live borrowed FD; no pointer.
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let access = if writer {
+        libc::O_WRONLY
+    } else {
+        libc::O_RDONLY
+    };
+    if metadata.st_mode & libc::S_IFMT != libc::S_IFIFO
+        || flags & libc::O_ACCMODE != access
+        || flags & libc::O_NONBLOCK == 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected nonblocking pipe with the required direction",
+        ));
+    }
+    Ok((metadata.st_dev, metadata.st_ino))
+}
+
+pub(crate) fn duplicate_progress_pipes(
+    reader: BorrowedFd<'_>,
+    writer: BorrowedFd<'_>,
+) -> io::Result<(std::fs::File, std::fs::File)> {
+    if pipe_identity(reader, false)? == pipe_identity(writer, true)? {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "progress pipes must be distinct",
+        ));
+    }
+    // Only validated pipe endpoints are copied. Standard-library OwnedFd makes
+    // both duplicates CLOEXEC and handles partial-construction cleanup.
+    let reader = std::fs::File::from(reader.try_clone_to_owned()?);
+    let writer = std::fs::File::from(writer.try_clone_to_owned()?);
+    Ok((reader, writer))
+}
 // Keep this path allocation-free: it also runs after fork, before exec.
 fn parent_matches(expected: libc::pid_t) -> io::Result<()> {
     // SAFETY: getppid takes no pointers, performs a synchronous PID query, and
@@ -374,5 +426,71 @@ mod tests {
             .err()
             .unwrap_or_else(|| panic!("unexpected ioctl success"));
         assert_eq!(error.raw_os_error(), Some(libc::ENOTTY));
+    }
+    #[test]
+    fn progress_pipe_copies_are_cloexec_nonblocking_and_owned_without_taking_stdio() {
+        use std::io::{Read, Write};
+        let (reader, mut peer_writer) = io::pipe().unwrap_or_else(|error| panic!("{error}"));
+        let (mut peer_reader, writer) = io::pipe().unwrap_or_else(|error| panic!("{error}"));
+        nonblocking(reader.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        nonblocking(writer.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        let (mut input, mut output) = duplicate_progress_pipes(reader.as_fd(), writer.as_fd())
+            .unwrap_or_else(|error| panic!("{error}"));
+        for fd in [input.as_fd(), output.as_fd()] {
+            // SAFETY: synchronous scalar FD_CLOEXEC query of a live owned File;
+            // this test neither closes, changes nor exports its raw descriptor.
+            let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
+            assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
+        }
+        assert!(pipe_identity(input.as_fd(), false).is_ok());
+        assert!(pipe_identity(output.as_fd(), true).is_ok());
+        assert_eq!(
+            input.read(&mut [0]).err().map(|error| error.kind()),
+            Some(io::ErrorKind::WouldBlock)
+        );
+        peer_writer
+            .write_all(b"c")
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mut bytes = [0];
+        input
+            .read_exact(&mut bytes)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(bytes, *b"c");
+        output
+            .write_all(b"r")
+            .unwrap_or_else(|error| panic!("{error}"));
+        peer_reader
+            .read_exact(&mut bytes)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(bytes, *b"r");
+        drop((input, output));
+        assert!(pipe_identity(reader.as_fd(), false).is_ok());
+        assert!(pipe_identity(writer.as_fd(), true).is_ok());
+    }
+    #[test]
+    fn progress_channel_rejects_blocking_reversed_and_non_pipe_descriptors() {
+        let (reader, writer) = io::pipe().unwrap_or_else(|error| panic!("{error}"));
+        let (other_reader, other_writer) = io::pipe().unwrap_or_else(|error| panic!("{error}"));
+        assert!(duplicate_progress_pipes(reader.as_fd(), other_writer.as_fd()).is_err());
+        nonblocking(reader.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        nonblocking(other_writer.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        assert!(duplicate_progress_pipes(reader.as_fd(), other_writer.as_fd()).is_ok());
+        nonblocking(writer.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        nonblocking(other_reader.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        assert!(duplicate_progress_pipes(writer.as_fd(), other_reader.as_fd()).is_err());
+        let null = File::open("/dev/null").unwrap_or_else(|error| panic!("{error}"));
+        assert!(duplicate_progress_pipes(null.as_fd(), other_writer.as_fd()).is_err());
+    }
+    #[test]
+    fn progress_channel_rejects_same_pipe_loopback_before_copying() {
+        let (reader, writer) = io::pipe().unwrap_or_else(|error| panic!("{error}"));
+        nonblocking(reader.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        nonblocking(writer.as_fd()).unwrap_or_else(|error| panic!("{error}"));
+        let error = duplicate_progress_pipes(reader.as_fd(), writer.as_fd())
+            .err()
+            .unwrap_or_else(|| panic!("loopback accepted"));
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(pipe_identity(reader.as_fd(), false).is_ok());
+        assert!(pipe_identity(writer.as_fd(), true).is_ok());
     }
 }

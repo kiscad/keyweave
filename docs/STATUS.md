@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、340 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、344 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：推进 D06 可执行 worker、完整多设备 neutral/bootstrap 和 consumer-ready；已有键码转换/probe/owned FD/coordinator/supervisor/clock/ppoll/worker-loop 函数，不能重复当作待实现。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：推进 D06 可执行 worker、完整多设备 neutral/bootstrap 和 consumer-ready；已有键码转换/probe/owned FD/coordinator/supervisor/clock/ppoll/worker-loop/继承管道接收，不能重复当作待实现。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -84,3 +84,5 @@ D06 进度监督组件：progress.rs 提供固定 24-byte challenge / 40-byte re
 D06 父线程死亡保护：Supervisor 在最终 pre_exec hook 中通过直接 prctl syscall 设置 SIGKILL，前后核对预计父 PID，传入 KEYWEAVE_SUPERVISOR_PID；hook 无分配/锁/环境读取。worker.rs 的 WorkerParentGuard 在真实进程主线程核验继承信号和父身份，不修复缺失保护，token 不可 Send/Sync。新增 2 个 libtest 子进程测试：创建线程退出后仍存活的父进程未主动 kill，worker 由内核 SIGKILL 并被原 Child 收割；错误父 PID 在 exec 前拒绝。另有独立 main-thread harness 验证正常继承、缺失信号、畸形/缺失环境身份，含错误 PID/错误线程/零 PID 检查。workspace 共 329 个 libtest 测试及该独立 harness 通过；fmt/clippy/source verifier（60 hashes）/Linux C UAPI ABI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。未访问键盘/uinput，未运行 Windows CI。创建线程必须贯穿 worker 生命周期；setuid/setgid/capability exec 和后续 effective/fs credentials 改变可能清除保护，因此启动核验失败必须拒绝、验证后禁止这些变化。ADR-0027 记录证据与约束；生产 worker/OS loop/bootstrap/consumer ready/硬件故障验收以及完整跨平台目标继续保留。
 
 D06 native worker loop：reactor.rs 与 ioctl.rs 接通 CLOCK_MONOTONIC 绝对纳秒和有限 ppoll，最多 67 borrowed FD、固定 readiness 数组、deadline/20ms housekeeping、fresh wake time、EINTR 返回与 HUP/ERR/NVAL 保留。production Runtime 的 crate 内 wait_native 借用 capture/uinput 及 progress endpoints，不复制/导出设备 FD；空闲 writer 不监听可写。worker.rs 提供 run_worker：主线程保护重验、端点 NONBLOCK、receive→poll→publish→wait，系统/协议/Runtime 故障先关闭 capture 再有限 submitted recovery，保留原错误；finish_recovery 无等待/新心跳。新增 5 个 reactor 和 6 个 worker/runtime 测试，包含真实匿名管道满缓冲/关闭、实际时钟/有限超时、输入与等待故障后的输出释放顺序、错误 challenge 不进入引擎、紧急 deadline 驱动。workspace 340 个 libtest 测试及原 main-thread harness 通过，fmt/clippy/source verifier（60 hashes）/Linux C UAPI ABI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。没有打开键盘/uinput，设备运行部分仍为 mock；native ppoll 与时钟通过真实系统调用验证，EINTR 分支未做信号注入，Windows CI 未运行。已有执行函数不等于可部署服务；可执行 worker 与 inherited pipe 接收、完整多设备启动事务/桌面 ready、热插拔/LED/session/GUI/Windows/driver 仍待做，D05 gate 保留。详见 ADR-0028。
+
+D06 inherited worker channels：WorkerStartup 在真实 main、打开设备前核验父保护与正 u64 run ID，fstat/F_GETFL 检查 stdin/stderr 是不同 FIFO、读写方向匹配且 NONBLOCK；仅复制已验证的进度管道为 owned CLOEXEC File，构建 ProgressClient 并提供 consuming into_parts。每个进程单次 claim，Drop 或创建失败以后不重试；原标准流继续保留，退出以实际 Child status 为证。未接管 0/2 的裸 FD、未复制设备 FD，也未给普通 heartbeat 续约。新增 3 个真实管道/所有权测试和 1 个 ID 边界测试；独立 main harness 扩展正常接收、错误线程、重复 claim/Drop 后重领拒绝、保护跨普通 exec 保留时 malformed run ID 拒绝。workspace 344 个 libtest 测试及该 harness 通过，fmt/clippy/60-source verifier/原 evdev-uinput C UAPI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。构造与复制管道实际读写已验证，完整设备 bootstrap/可执行 worker/consumer ready/Windows CI 和真机仍未完成；harness 原始协议响应不等于生产 Runtime 完整启动验收，见 ADR-0029。完整目标继续。

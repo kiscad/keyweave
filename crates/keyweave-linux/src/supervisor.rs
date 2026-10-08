@@ -70,7 +70,7 @@ impl Supervisor {
         command
             .stdin(Stdio::from(worker_reader))
             .stderr(Stdio::from(worker_writer));
-        command.env("KEYWEAVE_PROGRESS_RUN_ID", run_id.to_string());
+        command.env(crate::worker::RUN_ENV, run_id.to_string());
         let parent = std::process::id();
         command.env(crate::worker::PARENT_ENV, parent.to_string());
         crate::ioctl::command_parent_death(&mut command, parent)?;

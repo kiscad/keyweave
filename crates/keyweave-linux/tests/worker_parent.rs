@@ -8,7 +8,7 @@ fn main() {
         progress::{CHALLENGE_BYTES, Challenge, Policy, Receipt},
         runtime::RuntimePhase,
         supervisor::{Supervisor, SupervisorStatus},
-        worker::WorkerParentGuard,
+        worker::{WorkerParentGuard, WorkerStartup},
     };
     use keyweave_types::MonoTime;
     use std::{
@@ -19,7 +19,18 @@ fn main() {
     const MODE: &str = "KEYWEAVE_PARENT_TEST_MODE";
     const PARENT: &str = "KEYWEAVE_SUPERVISOR_PID";
     if let Ok(mode) = std::env::var(MODE) {
-        if mode != "verified" {
+        if mode == "relay_bad_run" {
+            // Test-only normal exec before startup handoff or device opening.
+            // Preserve the inherited kernel guard while replacing one env value
+            // without unsafe process-wide environment mutation.
+            use std::os::unix::process::CommandExt;
+            let error = Command::new(std::env::current_exe().unwrap())
+                .env(MODE, "bad_run")
+                .env("KEYWEAVE_PROGRESS_RUN_ID", "+1")
+                .exec();
+            panic!("test exec failed: {error}");
+        }
+        if mode != "verified" && mode != "bad_run" {
             let error = WorkerParentGuard::from_supervisor_environment().unwrap_err();
             assert_eq!(
                 error.raw_os_error(),
@@ -45,13 +56,46 @@ fn main() {
             Some(libc::ECANCELED)
         );
         let errno = std::thread::spawn(move || {
-            WorkerParentGuard::verify(parent)
+            let guard_error = WorkerParentGuard::verify(parent)
                 .unwrap_err()
-                .raw_os_error()
+                .raw_os_error();
+            let startup_error = WorkerStartup::from_supervisor_environment()
+                .err()
+                .unwrap()
+                .raw_os_error();
+            (guard_error, startup_error)
         })
         .join()
         .unwrap();
-        assert_eq!(errno, Some(libc::EPERM));
+        assert_eq!(errno, (Some(libc::EPERM), Some(libc::EPERM)));
+        if mode == "verified" {
+            let startup = WorkerStartup::from_supervisor_environment().unwrap();
+            assert_eq!(startup.guard().parent_pid(), parent);
+            assert_eq!(startup.run_id(), 57);
+            assert_eq!(
+                WorkerStartup::from_supervisor_environment()
+                    .err()
+                    .unwrap()
+                    .kind(),
+                io::ErrorKind::AlreadyExists
+            );
+            let (owned_guard, client) = startup.into_parts();
+            assert_eq!(owned_guard.parent_pid(), parent);
+            drop(client);
+            assert_eq!(
+                WorkerStartup::from_supervisor_environment()
+                    .err()
+                    .unwrap()
+                    .kind(),
+                io::ErrorKind::AlreadyExists
+            );
+            // The raw protocol fixture below deliberately exercises original
+            // stdio after dropping copies; production uses only ProgressClient.
+        } else {
+            let error = WorkerStartup::from_supervisor_environment().err().unwrap();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(error.to_string().contains("KEYWEAVE_PROGRESS_RUN_ID"));
+        }
         let mut bytes = [0; CHALLENGE_BYTES];
         let mut read = 0;
         let end = Instant::now() + Duration::from_secs(3);
@@ -94,6 +138,21 @@ fn main() {
         std::thread::sleep(Duration::from_millis(1));
     };
     assert!(status.success(), "worker main-thread verification failed");
+    let mut supervisor =
+        Supervisor::spawn(fixture("relay_bad_run"), 57, Policy::default(), MonoTime(0)).unwrap();
+    let end = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let SupervisorStatus::Exited { status, reason } = supervisor.poll(MonoTime(0)).unwrap() {
+            assert!(
+                status.success(),
+                "bad run ID was not rejected before handoff"
+            );
+            assert_eq!(reason, None);
+            break;
+        }
+        assert!(Instant::now() < end);
+        std::thread::sleep(Duration::from_millis(1));
+    }
     assert!(
         fixture("missing")
             .env(PARENT, std::process::id().to_string())
@@ -116,7 +175,7 @@ fn main() {
             .success()
     );
     println!(
-        "worker_parent: verified main-thread guard, missing protection, malformed and absent identity passed (no device access)"
+        "worker_parent: guard/startup channels, duplicate claim, malformed run ID, missing protection and malformed/absent parent identity passed (no device access)"
     );
 }
 #[cfg(not(target_os = "linux"))]
