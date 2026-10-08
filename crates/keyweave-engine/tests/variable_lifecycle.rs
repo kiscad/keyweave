@@ -15,6 +15,8 @@ fn set(name: &str, value: Option<VariableValue>, up: Option<VariableValue>) -> A
             },
         }),
         repeat: true,
+        lazy: false,
+        halt: false,
         modifiers: vec![],
         conditions: vec![],
     }

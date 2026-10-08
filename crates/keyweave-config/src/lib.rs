@@ -387,14 +387,9 @@ pub fn compile(
     if let Err(error) = snapshot.variable_names() {
         compiler.reject("/profiles", "KW-LIMIT-001", &error.to_string());
     }
-    let bounds = snapshot.expansion_bounds();
+    let bounds = snapshot.output_bounds();
     for mapping in snapshot.simple.iter().chain(&snapshot.complex) {
-        if bounds
-            .get(&mapping.from)
-            .copied()
-            .unwrap_or(1)
-            .saturating_mul(2)
-            > keyweave_engine::MAX_OUTPUTS_PER_EVENT
+        if bounds.get(&mapping.from).copied().unwrap_or(10) > keyweave_engine::MAX_OUTPUTS_PER_EVENT
         {
             compiler.reject(
                 &format!("{}/to", mapping.id),
@@ -674,6 +669,23 @@ impl Compiler<'_> {
             })
             .transpose()?
             .unwrap_or(true);
+        let mut boolean = |field: &str| -> Result<bool, Diagnostic> {
+            object
+                .remove(field)
+                .map(|value| {
+                    value.as_bool().ok_or_else(|| {
+                        diagnostic(
+                            &format!("{pointer}/{field}"),
+                            "KW-CONFIG-001",
+                            "expected boolean action option",
+                        )
+                    })
+                })
+                .transpose()
+                .map(|value| value.unwrap_or(false))
+        };
+        let lazy = boolean("lazy")?;
+        let halt = boolean("halt")?;
         let mut modifiers = std::collections::BTreeSet::new();
         if let Some(value) = object.remove("modifiers") {
             let location = format!("{pointer}/modifiers");
@@ -737,6 +749,8 @@ impl Compiler<'_> {
         Ok(Action {
             target,
             repeat,
+            lazy,
+            halt,
             modifiers,
             conditions,
         })

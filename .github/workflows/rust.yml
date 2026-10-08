@@ -26,3 +26,4 @@ jobs:
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/held.json --assert
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/delayed.json --assert
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/delayed-pending.json --assert
+      - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/lazy-halt.json --assert

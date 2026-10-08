@@ -11,6 +11,8 @@ fn action(name: &str, modifiers: &[&str]) -> Action {
         conditions: vec![],
         target: ActionTarget::Key(key(name)),
         repeat: true,
+        lazy: false,
+        halt: false,
         modifiers: modifiers.iter().map(|name| key(name)).collect(),
     }
 }

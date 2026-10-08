@@ -41,13 +41,14 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 3. 按下确定映射和 generation，松开完成原 binding；热更新 invalidates 新匹配，不丢弃 active。
 4. physical Repeat 不创建新 owner；未知 up 不释放其他来源。新连接 generation 不接旧 timer。
 5. 输出使用 owner set/引用计数，temporary modifier suppression、physical modifiers、locks、sticky/lazy 不混用。普通键多来源改良需独立 golden/ADR。
-6. mandatory/optional/any 按原定义，缺省 optional 不能等于 any；临时释放 mandatory 后按正确顺序恢复。
-7. to_if_alone 是上游语义而非泛用 tap-hold：严格 `< timeout`；其他 key_down/button/wheel 可取消，纯移动在该语义下不取消。
-8. held_down/delayed_action/simultaneous 使用可撤销 deadline 与明确边界/顺序。held 的原 up 撤销任务；delayed 的原 up 保留 pending binding，需直到 invoked/canceled/设备撤销完成才释放预算。不要用 wall-clock sleep 掩盖事件顺序错误。运行时先交付到期 TimerFired，再给普通物理事件分配统一 seq；CancellationPending 需分批 CancelDelayed 后重试。Reset 直接检查 deadline/pending 队列为空，不只检查旧回调无输出。
-9. 组合键超时回放包含原 down/up 并保持顺序；down/up order、any/all、跨设备与打断有测试。
-10. 条件 Unknown 不使 unless 成真；不支持的必要 condition/action 禁用整条规则并提供 JSON Pointer 诊断。
-11. eval_js、expression、to_if_other_key_pressed 等延期字段必须识别并诊断。导入/验证绝不运行脚本或 shell。
-12. own virtual / injected provenance 在 backend 分类，不靠近时间戳键码去重猜来源，不把输出再次送捕获端。
+6. 显式 lazy 只延迟标准 modifier 的输出；halt 的作用域是原 rule binding，当前数组与已安排的 up 必须完成，后续批次共享 halt 状态。
+7. mandatory/optional/any 按原定义，缺省 optional 不能等于 any；临时释放 mandatory 后按正确顺序恢复。
+8. to_if_alone 是上游语义而非泛用 tap-hold：严格 `< timeout`；其他 key_down/button/wheel 可取消，纯移动在该语义下不取消。
+9. held_down/delayed_action/simultaneous 使用可撤销 deadline 与明确边界/顺序。held 的原 up 撤销任务；delayed 的原 up 保留 pending binding，需直到 invoked/canceled/设备撤销完成才释放预算。不要用 wall-clock sleep 掩盖事件顺序错误。运行时先交付到期 TimerFired，再给普通物理事件分配统一 seq；CancellationPending 需分批 CancelDelayed 后重试。Reset 直接检查 deadline/pending 队列为空，不只检查旧回调无输出。
+10. 组合键超时回放包含原 down/up 并保持顺序；down/up order、any/all、跨设备与打断有测试。
+11. 条件 Unknown 不使 unless 成真；不支持的必要 condition/action 禁用整条规则并提供 JSON Pointer 诊断。
+12. eval_js、expression、to_if_other_key_pressed 等延期字段必须识别并诊断。导入/验证绝不运行脚本或 shell。
+13. own virtual / injected provenance 在 backend 分类，不靠近时间戳键码去重猜来源，不把输出再次送捕获端。
 
 ## 平台和故障恢复
 

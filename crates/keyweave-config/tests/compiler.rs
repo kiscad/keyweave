@@ -278,7 +278,7 @@ fn malformed_or_unsupported_new_action_options_disable_whole_rule() {
     for value in [
         json!({"type":"basic","from":{"key_code":"a","modifiers":{"mandatory":["caps_lock"]}},"to":{"key_code":"b"}}),
         json!({"type":"basic","from":{"key_code":"a","modifiers":{"optional":["any","fn"]}},"to":{"key_code":"b"}}),
-        json!({"type":"basic","from":{"key_code":"a"},"to_if_alone":[{"key_code":"b","halt":true}]}),
+        json!({"type":"basic","from":{"key_code":"a"},"to_if_alone":[{"key_code":"b","halt":"true"}]}),
         json!({"type":"basic","from":{"key_code":"a"},"to_after_key_up":false}),
         json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":-1}}),
         json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":0.5}}),
@@ -1060,4 +1060,49 @@ fn singleton_action_diagnostics_point_to_existing_object_members() {
         "/profiles/0/complex_modifications/rules/0/manipulators/0/to_delayed_action/to_if_invoked/set_variable/value"
     );
     assert!(config.raw.pointer(&config.diagnostics[0].pointer).is_some());
+}
+
+#[test]
+fn lazy_and_halt_compile_for_every_action_batch() {
+    let action = json!({"key_code":"left_control","lazy":true,"halt":true});
+    let rule = json!({"type":"basic","from":{"key_code":"a"},
+        "to":[action.clone()],"to_if_alone":action.clone(),
+        "to_after_key_up":[action.clone()],"to_if_held_down":action.clone(),
+        "to_delayed_action":{"to_if_invoked":action.clone(),"to_if_canceled":[action]}});
+    let config = compile_value(profile(json!([{"manipulators":[rule]}])));
+    assert!(config.executable_without_loss(), "{:?}", config.diagnostics);
+    let mapping = &config.snapshot.complex[0];
+    let delayed = mapping.extras.delayed.as_ref().unwrap();
+    for actions in [
+        &mapping.to,
+        &mapping.extras.if_alone,
+        &mapping.extras.after_key_up,
+        &mapping.extras.if_held_down,
+        &delayed.if_invoked,
+        &delayed.if_canceled,
+    ] {
+        assert_eq!(actions.len(), 1);
+        assert!(actions[0].lazy && actions[0].halt);
+    }
+}
+#[test]
+fn malformed_lazy_and_halt_disable_outer_rule_with_existing_pointer() {
+    for field in ["lazy", "halt"] {
+        for value in [json!(null), json!("true"), json!(1), json!([])] {
+            let rule = json!({"type":"basic","from":{"key_code":"a"},
+                "to_delayed_action":{"to_if_canceled":{"key_code":"b",field:value}}});
+            let config = compile_value(profile(json!([{"manipulators":[
+                {"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d"}]},rule]}])));
+            assert!(!config.executable_without_loss());
+            assert!(config.snapshot.complex.is_empty());
+            assert_eq!(config.diagnostics[0].code, "KW-CONFIG-001");
+            assert_eq!(
+                config.diagnostics[0].pointer,
+                format!(
+                    "/profiles/0/complex_modifications/rules/0/manipulators/1/to_delayed_action/to_if_canceled/{field}"
+                )
+            );
+            assert!(config.raw.pointer(&config.diagnostics[0].pointer).is_some());
+        }
+    }
 }

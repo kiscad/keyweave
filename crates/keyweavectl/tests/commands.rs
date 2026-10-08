@@ -170,3 +170,18 @@ fn delayed_replay_asserts_invoked_canceled_and_pending_lifetimes() {
         }
     }
 }
+
+#[test]
+fn lazy_and_halt_replay_preserves_current_batch_and_pending_modifiers() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/lazy-halt.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

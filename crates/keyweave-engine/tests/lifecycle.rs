@@ -622,6 +622,8 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
             conditions: vec![],
             target: ActionTarget::Key(key("c")),
             repeat: false,
+            lazy: false,
+            halt: false,
             modifiers: vec![],
         }],
         allow_extra_modifiers: false,

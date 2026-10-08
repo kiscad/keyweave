@@ -7,7 +7,10 @@ pub use modifiers::{Modifier, ModifierFilter};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use thiserror::Error;
 
@@ -21,6 +24,8 @@ pub const MAX_PERSISTENT_SUPPRESSION_REFERENCES: usize = 16_384;
 pub struct Action {
     pub target: ActionTarget,
     pub repeat: bool,
+    pub lazy: bool,
+    pub halt: bool,
     pub modifiers: Vec<KeyId>,
     pub conditions: Vec<Condition>,
 }
@@ -29,6 +34,8 @@ impl From<KeyId> for Action {
         Self {
             target: ActionTarget::Key(key),
             repeat: true,
+            lazy: false,
+            halt: false,
             modifiers: Vec::new(),
             conditions: Vec::new(),
         }
@@ -165,6 +172,55 @@ impl ConfigSnapshot {
             })
             .max()
             .unwrap_or(0)
+    }
+
+    pub fn output_bounds(&self) -> BTreeMap<KeyId, usize> {
+        let raw = self.expansion_bounds();
+        let mut bounds = BTreeMap::<KeyId, usize>::new();
+        let weights = |actions: &[Action]| {
+            actions
+                .iter()
+                .map(|action| 1usize.saturating_add(action.modifiers.len()))
+                .fold(0usize, usize::saturating_add)
+        };
+        for mapping in &self.complex {
+            let tokens = raw.get(&mapping.from).copied().unwrap_or(1);
+            let normal = weights(&mapping.to);
+            let held = weights(&mapping.extras.if_held_down);
+            let buffered = mapping
+                .extras
+                .delayed
+                .as_ref()
+                .is_some_and(DelayedAction::enabled)
+                || !mapping.extras.if_alone.is_empty()
+                || !mapping.extras.from_modifiers.mandatory.is_empty();
+            let edges = tokens
+                .saturating_mul(2)
+                .saturating_add(if buffered { 0 } else { 8 })
+                .max(
+                    normal
+                        .saturating_add(held)
+                        .saturating_mul(2)
+                        .saturating_add(8),
+                );
+            bounds
+                .entry(mapping.from)
+                .and_modify(|bound| *bound = (*bound).max(edges))
+                .or_insert(edges);
+        }
+        for mapping in &self.simple {
+            let edges = raw
+                .get(&mapping.from)
+                .copied()
+                .unwrap_or(1)
+                .saturating_mul(2)
+                .saturating_add(8);
+            bounds
+                .entry(mapping.from)
+                .and_modify(|bound| *bound = (*bound).max(edges))
+                .or_insert(edges);
+        }
+        bounds
     }
 
     fn variable_references(&self) -> impl Iterator<Item = (&str, Option<&VariableValue>)> {
@@ -324,6 +380,7 @@ enum Bound {
         stage: usize,
         index: usize,
         children: Vec<Bound>,
+        halted: Arc<AtomicBool>,
         down_at: MonoTime,
         deadline: Option<(MonoTime, DeadlineToken)>,
         alone: bool,
@@ -413,6 +470,7 @@ struct DeadlineTask {
 
 #[derive(Clone)]
 struct DelayedPayload {
+    halted: Arc<AtomicBool>,
     stage: usize,
     index: usize,
     modifiers_at_down: BTreeSet<KeyId>,
@@ -429,6 +487,7 @@ pub struct Engine {
     context: ContextSnapshot,
     current_device: DeviceInstanceId,
     bounds: BTreeMap<KeyId, usize>,
+    output_bounds: BTreeMap<KeyId, usize>,
     reservations: usize,
     suppression_references: usize,
     may_consume_modifiers: bool,
@@ -476,6 +535,7 @@ impl Engine {
                 generation: 0,
             },
             bounds: config.expansion_bounds(),
+            output_bounds: config.output_bounds(),
             reservations: 0,
             alone_candidate: None,
             config,
@@ -611,6 +671,7 @@ impl Engine {
             self.variables.entry(name).or_insert(None);
         }
         self.bounds = config.expansion_bounds();
+        self.output_bounds = config.output_bounds();
         self.may_consume_modifiers = config
             .simple
             .iter()
@@ -713,8 +774,8 @@ impl Engine {
                 && !self.delayed.is_empty()
                 && (self
                     .cancellation_budget()
-                    .saturating_add(self.bounds.get(&key).copied().unwrap_or(1))
                     .saturating_mul(2)
+                    .saturating_add(self.output_bounds.get(&key).copied().unwrap_or(10))
                     > MAX_OUTPUTS_PER_EVENT
                     || (!self.pending.is_empty()
                         && (self.active.len().saturating_add(self.pending.len()) >= MAX_BINDINGS
@@ -787,7 +848,8 @@ impl Engine {
                     }
                     let bound = self.bounds.get(&key).copied().unwrap_or(1);
                     if self.active.len().saturating_add(self.pending.len()) >= MAX_BINDINGS
-                        || bound.saturating_mul(2) > MAX_OUTPUTS_PER_EVENT
+                        || self.output_bounds.get(&key).copied().unwrap_or(10)
+                            > MAX_OUTPUTS_PER_EVENT
                         || self.reservations.saturating_add(bound) > MAX_OUTPUT_OWNERS
                         || self.next_source.checked_add(bound as u64).is_none()
                         || (self.may_consume_modifiers
@@ -1024,7 +1086,11 @@ impl Engine {
                 payload.stage + 1,
                 config,
                 next_source,
-                (&payload.modifiers_at_down, &payload.consumed),
+                (
+                    &payload.modifiers_at_down,
+                    &payload.consumed,
+                    &payload.halted,
+                ),
                 outputs,
             );
         }
@@ -1035,10 +1101,10 @@ impl Engine {
         stage: usize,
         config: &ConfigSnapshot,
         next_source: &mut u64,
-        modifiers: (&BTreeSet<KeyId>, &BTreeSet<KeyId>),
+        modifiers: (&BTreeSet<KeyId>, &BTreeSet<KeyId>, &AtomicBool),
         outputs: &mut Vec<OutputIntent>,
     ) {
-        let (modifiers_at_down, consumed) = modifiers;
+        let (modifiers_at_down, consumed, halted) = modifiers;
         let targets = self
             .current_modifiers()
             .difference(modifiers_at_down)
@@ -1057,7 +1123,7 @@ impl Engine {
             temporary.push((key, source));
         }
         let mandatory_scope = self.hide_modifiers(consumed);
-        self.press_actions(actions, stage, config, next_source, true, outputs);
+        self.press_actions(actions, stage, config, next_source, (true, halted), outputs);
         self.unhide_modifiers(mandatory_scope);
         for (key, source) in temporary.into_iter().rev() {
             self.remove_owner(key, source);
@@ -1111,6 +1177,7 @@ impl Engine {
             deadline,
             consumed,
             suppressed,
+            halted,
             ..
         } = bound
         else {
@@ -1140,7 +1207,7 @@ impl Engine {
                 *stage + 1,
                 config,
                 next_source,
-                false,
+                (false, halted),
                 outputs,
             );
             if !last_is_modifier {
@@ -1387,8 +1454,15 @@ impl Engine {
             .rev()
             .find(|action| self.conditions_match(&action.conditions))
             .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
-        let children =
-            self.press_actions(&mapping.to, stage + 1, config, next_source, false, outputs);
+        let halted = Arc::new(AtomicBool::new(false));
+        let children = self.press_actions(
+            &mapping.to,
+            stage + 1,
+            config,
+            next_source,
+            (false, &halted),
+            outputs,
+        );
         if !last_is_modifier {
             self.unhide_modifiers(std::mem::take(&mut suppressed));
         }
@@ -1428,6 +1502,7 @@ impl Engine {
             self.delayed.insert(
                 token,
                 DelayedPayload {
+                    halted: Arc::clone(&halted),
                     stage,
                     index,
                     modifiers_at_down: modifiers_at_down.clone(),
@@ -1440,6 +1515,7 @@ impl Engine {
             index,
             children,
             deadline,
+            halted,
             down_at: self.now,
             alone: true,
             modifiers_at_down,
@@ -1454,9 +1530,13 @@ impl Engine {
         stage: usize,
         config: &ConfigSnapshot,
         next_source: &mut u64,
-        tap_all: bool,
+        policy: (bool, &AtomicBool),
         outputs: &mut Vec<OutputIntent>,
     ) -> Vec<Bound> {
+        let (tap_all, halted) = policy;
+        if halted.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
         let actions: Vec<_> = actions
             .iter()
             .filter(|action| self.conditions_match(&action.conditions))
@@ -1468,7 +1548,9 @@ impl Engine {
                 modifiers.push(self.press_stage(
                     KeyRequest {
                         key: *key,
-                        lazy_down: tap_all || !action.key().is_some_and(KeyId::is_modifier),
+                        lazy_down: tap_all
+                            || action.lazy
+                            || !action.key().is_some_and(KeyId::is_modifier),
                         lazy_up: true,
                     },
                     stage,
@@ -1478,10 +1560,19 @@ impl Engine {
                 ));
             }
             let child = match &action.target {
-                ActionTarget::Key(key) => {
-                    self.press_stage((*key).into(), stage, config, next_source, outputs)
-                }
+                ActionTarget::Key(key) => self.press_stage(
+                    KeyRequest {
+                        key: *key,
+                        lazy_down: action.lazy,
+                        lazy_up: action.lazy,
+                    },
+                    stage,
+                    config,
+                    next_source,
+                    outputs,
+                ),
                 ActionTarget::SetVariable(variable) => {
+                    self.sync_modifiers(outputs);
                     let key_up_value = match &variable.operation {
                         VariableOperation::Set {
                             value,
@@ -1503,6 +1594,9 @@ impl Engine {
                     }
                 }
             };
+            if action.halt {
+                halted.store(true, Ordering::Relaxed);
+            }
             if !tap_all && action.repeat && index + 1 == actions.len() {
                 held.push(child);
             } else {
@@ -1550,6 +1644,7 @@ impl Engine {
                 stage,
                 index,
                 children,
+                halted,
                 down_at,
                 deadline,
                 alone,
@@ -1579,7 +1674,7 @@ impl Engine {
                             stage + 1,
                             config,
                             next_source,
-                            (&modifiers_at_down, &consumed),
+                            (&modifiers_at_down, &consumed, &halted),
                             outputs,
                         );
                     }
@@ -1589,7 +1684,7 @@ impl Engine {
                         stage + 1,
                         config,
                         next_source,
-                        true,
+                        (true, &halted),
                         outputs,
                     );
                     self.unhide_modifiers(mandatory_scope);
