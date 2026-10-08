@@ -60,9 +60,22 @@ pub struct Mapping {
 }
 
 #[derive(Clone, Debug)]
+pub struct DelayedAction {
+    pub if_invoked: Vec<Action>,
+    pub if_canceled: Vec<Action>,
+    pub delay_ns: u64,
+}
+impl DelayedAction {
+    fn enabled(&self) -> bool {
+        !self.if_invoked.is_empty() || !self.if_canceled.is_empty()
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct MappingExtras {
     pub from_modifiers: ModifierFilter,
     pub conditions: Vec<Condition>,
+    pub delayed: Option<DelayedAction>,
     pub if_held_down: Vec<Action>,
     pub held_threshold_ns: u64,
     pub if_alone: Vec<Action>,
@@ -74,6 +87,7 @@ impl Default for MappingExtras {
         Self {
             from_modifiers: ModifierFilter::default(),
             conditions: Vec::new(),
+            delayed: None,
             if_held_down: Vec::new(),
             held_threshold_ns: 500_000_000,
             if_alone: Vec::new(),
@@ -92,6 +106,12 @@ impl Mapping {
                     + usize::from(!self.extras.after_key_up.is_empty())
                     + usize::from(!self.extras.if_held_down.is_empty()))
             + usize::from(!self.extras.if_held_down.is_empty())
+            + usize::from(
+                self.extras
+                    .delayed
+                    .as_ref()
+                    .is_some_and(DelayedAction::enabled),
+            ) * (9 + usize::from(mandatory) * 8)
     }
     fn actions(&self) -> impl Iterator<Item = &Action> + '_ {
         self.to
@@ -99,6 +119,12 @@ impl Mapping {
             .chain(&self.extras.if_held_down)
             .chain(&self.extras.if_alone)
             .chain(&self.extras.after_key_up)
+            .chain(
+                self.extras
+                    .delayed
+                    .iter()
+                    .flat_map(|delayed| delayed.if_invoked.iter().chain(&delayed.if_canceled)),
+            )
     }
 }
 
@@ -118,12 +144,25 @@ impl ConfigSnapshot {
             complex: Vec::new(),
         }
     }
-    fn max_held_threshold(&self) -> u64 {
+    fn max_deadline_delay(&self) -> u64 {
         self.simple
             .iter()
             .chain(&self.complex)
-            .filter(|mapping| !mapping.extras.if_held_down.is_empty())
-            .map(|mapping| mapping.extras.held_threshold_ns)
+            .map(|mapping| {
+                let held = if mapping.extras.if_held_down.is_empty() {
+                    0
+                } else {
+                    mapping.extras.held_threshold_ns
+                };
+                held.max(
+                    mapping
+                        .extras
+                        .delayed
+                        .as_ref()
+                        .filter(|delayed| delayed.enabled())
+                        .map_or(0, |delayed| delayed.delay_ns),
+                )
+            })
             .max()
             .unwrap_or(0)
     }
@@ -189,6 +228,19 @@ impl ConfigSnapshot {
             }
         }
         Ok(names)
+    }
+    fn validate_timed_stages(&self) -> Result<(), EngineError> {
+        if self.simple.iter().any(|mapping| {
+            !mapping.extras.if_held_down.is_empty()
+                || mapping
+                    .extras
+                    .delayed
+                    .as_ref()
+                    .is_some_and(DelayedAction::enabled)
+        }) {
+            return Err(EngineError::InvalidMapping);
+        }
+        Ok(())
     }
     fn references_variable(&self, name: &str) -> bool {
         self.variable_references()
@@ -301,6 +353,12 @@ pub struct EngineState {
     pub pressed_outputs: Vec<KeyId>,
     pub binding_generations: Vec<ConfigGeneration>,
     pub pending_deadlines: usize,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub pending_bindings: usize,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -328,11 +386,15 @@ pub enum EngineError {
     InvalidContext,
     #[error("invalid variable name, value or action")]
     InvalidVariable,
+    #[error("held and delayed actions require a complex mapping")]
+    InvalidMapping,
     #[error("a due deadline must be delivered before this physical event")]
     DeadlinePending,
+    #[error("cancel delayed tasks individually before this down to keep output bounded")]
+    CancellationPending,
     #[error("deadline is early or not the earliest scheduled token")]
     InvalidDeadline,
-    #[error("held deadline would overflow monotonic time")]
+    #[error("deadline would overflow monotonic time")]
     TimeOverflow,
 }
 
@@ -346,6 +408,15 @@ struct DeviceState {
 struct DeadlineTask {
     identity: (DeviceInstanceId, KeyId),
     stage: usize,
+    delayed: bool,
+}
+
+#[derive(Clone)]
+struct DelayedPayload {
+    stage: usize,
+    index: usize,
+    modifiers_at_down: BTreeSet<KeyId>,
+    consumed: BTreeSet<KeyId>,
 }
 
 pub struct Engine {
@@ -353,6 +424,8 @@ pub struct Engine {
     variables: BTreeMap<String, Option<VariableValue>>,
     deadlines: BTreeMap<(MonoTime, DeadlineToken), DeadlineTask>,
     current_identity: (DeviceInstanceId, KeyId),
+    delayed: BTreeMap<DeadlineToken, DelayedPayload>,
+    pending: BTreeMap<(DeviceInstanceId, KeyId), ActiveBinding>,
     context: ContextSnapshot,
     current_device: DeviceInstanceId,
     bounds: BTreeMap<KeyId, usize>,
@@ -373,6 +446,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, EngineError> {
+        config.validate_timed_stages()?;
         let variables = config
             .variable_names()?
             .into_iter()
@@ -381,6 +455,8 @@ impl Engine {
         Ok(Self {
             variables,
             deadlines: BTreeMap::new(),
+            delayed: BTreeMap::new(),
+            pending: BTreeMap::new(),
             current_identity: (
                 DeviceInstanceId {
                     id: 0,
@@ -518,6 +594,7 @@ impl Engine {
         if config.generation <= self.config.generation {
             return Err(EngineError::InvalidGeneration);
         }
+        config.validate_timed_stages()?;
         let names = config.variable_names()?;
         if self
             .variables
@@ -550,6 +627,7 @@ impl Engine {
             pressed_outputs: self.emitted.iter().copied().collect(),
             binding_generations: self.active.values().map(|b| b.generation).collect(),
             pending_deadlines: self.deadlines.len(),
+            pending_bindings: self.pending.len(),
         }
     }
     pub fn tracked_devices(&self) -> usize {
@@ -577,12 +655,16 @@ impl Engine {
                     .deadlines
                     .iter()
                     .find(|((_, candidate), _)| *candidate == token)
-                    .and_then(|(_, task)| self.active.get(&task.identity))
+                    .and_then(|(_, task)| {
+                        self.active
+                            .get(&task.identity)
+                            .or_else(|| self.pending.get(&task.identity))
+                    })
                     .is_some_and(|binding| {
                         input
                             .at_ns
                             .0
-                            .checked_add(binding.config.max_held_threshold())
+                            .checked_add(binding.config.max_deadline_delay())
                             .is_none()
                     })
                 {
@@ -606,6 +688,44 @@ impl Engine {
                 return Err(EngineError::DeadlinePending);
             }
         }
+        if input.provenance == Provenance::Physical {
+            if let InputEvent::CancelDelayed { token } = input.event {
+                if self.deadlines.values().any(|task| task.delayed)
+                    && self
+                        .next_deadline()
+                        .is_some_and(|(at, _)| at <= input.at_ns)
+                {
+                    return Err(EngineError::DeadlinePending);
+                }
+                if self
+                    .deadlines
+                    .iter()
+                    .any(|((_, candidate), task)| *candidate == token && !task.delayed)
+                {
+                    return Err(EngineError::InvalidDeadline);
+                }
+            }
+            if let InputEvent::Key {
+                key,
+                edge: KeyEdge::Down,
+            } = input.event
+                && !self.active.contains_key(&(input.device, key))
+                && !self.delayed.is_empty()
+                && (self
+                    .cancellation_budget()
+                    .saturating_add(self.bounds.get(&key).copied().unwrap_or(1))
+                    .saturating_mul(2)
+                    > MAX_OUTPUTS_PER_EVENT
+                    || (!self.pending.is_empty()
+                        && (self.active.len().saturating_add(self.pending.len()) >= MAX_BINDINGS
+                            || self
+                                .reservations
+                                .saturating_add(self.bounds.get(&key).copied().unwrap_or(1))
+                                > MAX_OUTPUT_OWNERS)))
+            {
+                return Err(EngineError::CancellationPending);
+            }
+        }
         self.now = input.at_ns;
         self.last_seq = Some(input.seq);
         let mut step = EngineStep {
@@ -619,9 +739,13 @@ impl Engine {
         }
         self.current_device = input.device;
         match input.event {
+            InputEvent::CancelDelayed { token } => {
+                step.capture = CaptureDecision::Pass;
+                self.execute_delayed(token, false, &mut step.outputs);
+            }
             InputEvent::TimerFired { token } => {
                 step.capture = CaptureDecision::Pass;
-                self.fire_held(token, &mut step.outputs);
+                self.fire_deadline(token, &mut step.outputs);
             }
             InputEvent::ContextChanged { context } => {
                 self.context = context;
@@ -655,13 +779,14 @@ impl Engine {
                     return Err(EngineError::RetiredDevice);
                 }
                 let identity = (input.device, key);
+                self.current_identity = identity;
                 if edge == KeyEdge::Down && !self.active.contains_key(&identity) {
-                    let max_threshold = self.config.max_held_threshold();
+                    let max_threshold = self.config.max_deadline_delay();
                     if input.at_ns.0.checked_add(max_threshold).is_none() {
                         return Err(EngineError::TimeOverflow);
                     }
                     let bound = self.bounds.get(&key).copied().unwrap_or(1);
-                    if self.active.len() >= MAX_BINDINGS
+                    if self.active.len().saturating_add(self.pending.len()) >= MAX_BINDINGS
                         || bound.saturating_mul(2) > MAX_OUTPUTS_PER_EVENT
                         || self.reservations.saturating_add(bound) > MAX_OUTPUT_OWNERS
                         || self.next_source.checked_add(bound as u64).is_none()
@@ -686,7 +811,7 @@ impl Engine {
                         }
                         let bound = self.bounds.get(&key).copied().unwrap_or(1);
                         self.cancel_alone();
-                        self.deadlines.clear();
+                        self.cancel_tasks(None, &mut step.outputs);
                         self.current_identity = identity;
                         let mut next_source = self.next_source;
                         self.next_source += bound as u64;
@@ -719,13 +844,17 @@ impl Engine {
                         }
                         if let Some(mut binding) = self.active.remove(&identity) {
                             self.release_bound(
-                                binding.bound,
+                                std::mem::replace(&mut binding.bound, Bound::Suppressed),
                                 &binding.config,
                                 &mut binding.next_source,
                                 true,
                                 &mut step.outputs,
                             );
-                            self.reservations -= binding.reservation;
+                            if self.has_tasks(identity) {
+                                self.pending.insert(identity, binding);
+                            } else {
+                                self.reservations -= binding.reservation;
+                            }
                             if !self
                                 .active
                                 .keys()
@@ -746,7 +875,197 @@ impl Engine {
         Ok(step)
     }
 
-    fn fire_held(&mut self, token: DeadlineToken, outputs: &mut Vec<OutputIntent>) {
+    pub fn next_delayed(&self) -> Option<DeadlineToken> {
+        self.deadlines
+            .iter()
+            .find(|(_, task)| task.delayed)
+            .map(|((_, token), _)| *token)
+    }
+    fn has_tasks(&self, identity: (DeviceInstanceId, KeyId)) -> bool {
+        self.deadlines
+            .values()
+            .any(|task| task.identity == identity)
+    }
+    fn cancellation_budget(&self) -> usize {
+        self.deadlines
+            .values()
+            .filter(|task| task.delayed)
+            .map(|task| task.identity)
+            .collect::<BTreeSet<_>>()
+            .iter()
+            .filter_map(|identity| {
+                self.active
+                    .get(identity)
+                    .or_else(|| self.pending.get(identity))
+            })
+            .map(|binding| binding.reservation)
+            .sum()
+    }
+    fn take_delayed(&mut self, token: DeadlineToken) -> Option<(DeadlineTask, DelayedPayload)> {
+        let deadline = self
+            .deadlines
+            .keys()
+            .find(|(_, candidate)| *candidate == token)
+            .copied()?;
+        let task = *self.deadlines.get(&deadline)?;
+        if !task.delayed {
+            return None;
+        }
+        let payload = self.delayed.remove(&token)?;
+        self.deadlines.remove(&deadline);
+        Some((task, payload))
+    }
+    fn execute_delayed(
+        &mut self,
+        token: DeadlineToken,
+        invoked: bool,
+        outputs: &mut Vec<OutputIntent>,
+    ) {
+        let Some((task, payload)) = self.take_delayed(token) else {
+            return;
+        };
+        let was_active = self.active.contains_key(&task.identity);
+        let Some(mut binding) = self
+            .active
+            .remove(&task.identity)
+            .or_else(|| self.pending.remove(&task.identity))
+        else {
+            return;
+        };
+        let previous_device = self.current_device;
+        let previous_identity = self.current_identity;
+        self.current_device = task.identity.0;
+        self.current_identity = task.identity;
+        self.delayed_actions(
+            &payload,
+            invoked,
+            &binding.config,
+            &mut binding.next_source,
+            outputs,
+        );
+        if was_active {
+            self.active.insert(task.identity, binding);
+        } else if self.has_tasks(task.identity) {
+            self.pending.insert(task.identity, binding);
+        } else {
+            self.reservations -= binding.reservation;
+        }
+        if !self
+            .active
+            .keys()
+            .any(|(device, _)| *device == task.identity.0)
+        {
+            self.sync_modifiers(outputs);
+        }
+        self.current_device = previous_device;
+        self.current_identity = previous_identity;
+    }
+    fn cancel_tasks(&mut self, stage: Option<usize>, outputs: &mut Vec<OutputIntent>) {
+        let tasks: Vec<_> = self
+            .deadlines
+            .iter()
+            .filter(|(_, task)| stage.is_none_or(|stage| task.stage == stage))
+            .map(|(deadline, task)| (*deadline, *task))
+            .collect();
+        for (deadline, task) in tasks {
+            if task.delayed {
+                self.execute_delayed(deadline.1, false, outputs);
+            } else {
+                self.deadlines.remove(&deadline);
+            }
+        }
+    }
+    fn cancel_stage(
+        &mut self,
+        stage: usize,
+        config: &ConfigSnapshot,
+        next_source: &mut u64,
+        outputs: &mut Vec<OutputIntent>,
+    ) {
+        let tasks: Vec<_> = self
+            .deadlines
+            .iter()
+            .filter(|(_, task)| task.stage == stage)
+            .map(|(deadline, task)| (*deadline, *task))
+            .collect();
+        for (deadline, task) in tasks {
+            if task.delayed && task.identity == self.current_identity {
+                if let Some((_, payload)) = self.take_delayed(deadline.1) {
+                    self.delayed_actions(&payload, false, config, next_source, outputs);
+                }
+            } else if task.delayed {
+                self.execute_delayed(deadline.1, false, outputs);
+            } else {
+                self.deadlines.remove(&deadline);
+            }
+        }
+    }
+    fn delayed_actions(
+        &mut self,
+        payload: &DelayedPayload,
+        invoked: bool,
+        config: &ConfigSnapshot,
+        next_source: &mut u64,
+        outputs: &mut Vec<OutputIntent>,
+    ) {
+        let mapping = if payload.stage == 0 {
+            &config.simple[payload.index]
+        } else {
+            &config.complex[payload.index]
+        };
+        if let Some(delayed) = &mapping.extras.delayed {
+            let actions = if invoked {
+                &delayed.if_invoked
+            } else {
+                &delayed.if_canceled
+            };
+            self.snapshot_actions(
+                actions,
+                payload.stage + 1,
+                config,
+                next_source,
+                (&payload.modifiers_at_down, &payload.consumed),
+                outputs,
+            );
+        }
+    }
+    fn snapshot_actions(
+        &mut self,
+        actions: &[Action],
+        stage: usize,
+        config: &ConfigSnapshot,
+        next_source: &mut u64,
+        modifiers: (&BTreeSet<KeyId>, &BTreeSet<KeyId>),
+        outputs: &mut Vec<OutputIntent>,
+    ) {
+        let (modifiers_at_down, consumed) = modifiers;
+        let targets = self
+            .current_modifiers()
+            .difference(modifiers_at_down)
+            .copied()
+            .collect();
+        let suppressed = self.hide_modifiers(&targets);
+        let mut temporary = Vec::new();
+        for key in modifiers_at_down
+            .difference(&self.current_modifiers())
+            .copied()
+            .collect::<Vec<_>>()
+        {
+            let source = SourceToken(*next_source);
+            *next_source += 1;
+            self.owners.entry(key).or_default().insert(source);
+            temporary.push((key, source));
+        }
+        let mandatory_scope = self.hide_modifiers(consumed);
+        self.press_actions(actions, stage, config, next_source, true, outputs);
+        self.unhide_modifiers(mandatory_scope);
+        for (key, source) in temporary.into_iter().rev() {
+            self.remove_owner(key, source);
+        }
+        self.unhide_modifiers(suppressed);
+    }
+
+    fn fire_deadline(&mut self, token: DeadlineToken, outputs: &mut Vec<OutputIntent>) {
         let Some((deadline, identity)) = self
             .deadlines
             .first_key_value()
@@ -755,6 +1074,14 @@ impl Engine {
         else {
             return;
         };
+        if self
+            .deadlines
+            .get(&deadline)
+            .is_some_and(|task| task.delayed)
+        {
+            self.execute_delayed(token, true, outputs);
+            return;
+        }
         self.deadlines.remove(&deadline);
         if let Some(mut binding) = self.active.remove(&identity) {
             self.current_device = identity.0;
@@ -853,6 +1180,8 @@ impl Engine {
             *value = None;
         }
         self.deadlines.clear();
+        self.delayed.clear();
+        self.pending.clear();
         self.owners.clear();
         self.hidden.clear();
         self.emitted.clear();
@@ -942,6 +1271,27 @@ impl Engine {
         {
             self.alone_candidate = None;
         }
+        let tokens: Vec<_> = self
+            .deadlines
+            .iter()
+            .filter(|(_, task)| task.identity.0 == device)
+            .map(|(deadline, _)| *deadline)
+            .collect();
+        for deadline in tokens {
+            self.deadlines.remove(&deadline);
+            self.delayed.remove(&deadline.1);
+        }
+        let pending: Vec<_> = self
+            .pending
+            .keys()
+            .filter(|(source, _)| *source == device)
+            .copied()
+            .collect();
+        for identity in pending {
+            if let Some(binding) = self.pending.remove(&identity) {
+                self.reservations -= binding.reservation;
+            }
+        }
         let keys: Vec<_> = self
             .active
             .keys()
@@ -978,7 +1328,7 @@ impl Engine {
         outputs: &mut Vec<OutputIntent>,
     ) -> Bound {
         if stage <= 1 {
-            self.deadlines.retain(|_, task| task.stage != stage);
+            self.cancel_stage(stage, config, next_source, outputs);
         }
         let key = request.key;
         let modifiers_at_down = self.current_modifiers();
@@ -1056,10 +1406,35 @@ impl Engine {
                 DeadlineTask {
                     identity: self.current_identity,
                     stage,
+                    delayed: false,
                 },
             );
             Some(deadline)
         };
+        if let Some(delayed) = &mapping.extras.delayed
+            && delayed.enabled()
+        {
+            let token = DeadlineToken(*next_source);
+            *next_source += 1;
+            let deadline = (MonoTime(self.now.0.saturating_add(delayed.delay_ns)), token);
+            self.deadlines.insert(
+                deadline,
+                DeadlineTask {
+                    identity: self.current_identity,
+                    stage,
+                    delayed: true,
+                },
+            );
+            self.delayed.insert(
+                token,
+                DelayedPayload {
+                    stage,
+                    index,
+                    modifiers_at_down: modifiers_at_down.clone(),
+                    consumed: consumed.clone(),
+                },
+            );
+        }
         Bound::Rule {
             stage,
             index,
@@ -1199,41 +1574,14 @@ impl Engine {
                         && !mapping.extras.if_alone.is_empty()
                         && self.now.0 - down_at.0 < mapping.extras.alone_timeout_ns
                     {
-                        let targets = self
-                            .current_modifiers()
-                            .difference(&modifiers_at_down)
-                            .copied()
-                            .collect();
-                        let suppressed = self.hide_modifiers(&targets);
-                        let mut temporary = Vec::new();
-                        for key in modifiers_at_down
-                            .difference(&self.current_modifiers())
-                            .copied()
-                            .collect::<Vec<_>>()
-                        {
-                            let source = SourceToken(*next_source);
-                            *next_source += 1;
-                            self.owners.entry(key).or_default().insert(source);
-                            temporary.push(OwnedKey {
-                                key,
-                                source,
-                                lazy_up: true,
-                            });
-                        }
-                        let mandatory_scope = self.hide_modifiers(&consumed);
-                        self.press_actions(
+                        self.snapshot_actions(
                             &mapping.extras.if_alone,
                             stage + 1,
                             config,
                             next_source,
-                            true,
+                            (&modifiers_at_down, &consumed),
                             outputs,
                         );
-                        self.unhide_modifiers(mandatory_scope);
-                        for owned in temporary.into_iter().rev() {
-                            self.remove_owner(owned.key, owned.source);
-                        }
-                        self.unhide_modifiers(suppressed);
                     }
                     let mandatory_scope = self.hide_modifiers(&consumed);
                     self.press_actions(

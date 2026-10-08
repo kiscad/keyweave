@@ -12,7 +12,7 @@
 | D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 4 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
-| D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held deadlines 已实现，其他 conditions、delayed/simultaneous 等字段仍拒绝；ADR-0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
+| D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
 | Linux / Windows 用户态后端 | 未开始 | 尚无程序 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：实现 D05 delayed_action/simultaneous 及显式 lazy/halt/hold duration，然后进入 Linux 后端。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：实现 D05 simultaneous 及显式 lazy/halt/hold duration，然后进入 Linux 后端。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -48,3 +48,5 @@ D05 typed variables：types/variables.rs、ActionTarget、Bound::Variable、规�
 D05 held_down：MappingExtras.if_held_down/held_threshold_ns、Bound deadline、SourceToken 预留、按时间/token 有序的 deadline map 与 TimerFired 控制输入。阈值时释放原 to 再执行 held；提前 up、新 key/button、同阶段派生 down、移除/Reset 取消；热更新原任务/原配置保留，回调使用原设备与当前动作条件。Engine.next_deadline 提供时间/token，普通物理输入前需先交付到期任务（DeadlinePending 不推进 seq/time），零阈值与晚交付语义见 ADR-0011。新增 12 个 engine、2 个 compiler、1 个 CLI 测试，总计 132 个通过；held 回放断言替换顺序与 stale 回调无输出。fmt/clippy/workspace tests、source verifier（60 个 hash；held.hpp 原已固定）通过；无硬件抓取/实际 OS timer 或 Windows CI，Ubuntu 24.04.4 / Rust 1.97.1。按住输出/变量/scopes 纳入预算和 capabilities。delayed、simultaneous、hold duration 仍拒绝，完整后端/session/GUI/驱动与发布未完成。
 
 D05 Reset 修正：立即清空 deadline map，防止旧回调到达前以 DeadlinePending 阻挡输入。新增回归测试证明 pending_deadlines=0、next_deadline=None 与阈值后普通输入可用；133 个 workspace tests、fmt/clippy 通过。旧回调无输出不能单独证明 Reset 队列已清空，前版证据不足已由直接状态检查补齐。
+
+D05 delayed_action：complex/basic 的 to_if_invoked/to_if_canceled 与 delay 参数；原 up 后保留 pending binding、旧配置、cursor 与 reservation，单分支完成后回收。新 key/button/同阶段派生 down 执行 canceled，repeat/移动/滚轮不取消；source down 的 modifier 快照恢复、mandatory scope、执行时条件、旧设备身份与 idle flush 已实现。增加 CancelDelayed/next_delayed 控制接口，宏+新 down 超过单事件预算或 pending 占满 binding/owner 容量时先分批取消；CancellationPending 不推进 seq/time。新增 14 个 engine、4 个 compiler、1 个 CLI 测试，总计 152 个通过；delayed/delayed-pending 两回放验证完整路径和未结束任务状态，CLI 返回 next_deadline。压力案例验证 996/994 edges 分开处理、2000 次 pending 回收及 4096 binding 容量；单对象动作 JSON Pointer 不再生成不存在的 /0。fmt/clippy/workspace tests、source verifier（60 个 hash；delayed.hpp 原已固定）通过。Ubuntu 24.04.4 / Rust 1.97.1，Windows CI/硬件/实际 timer 后端未运行；上游原 expected 不修改、macOS 测试未执行。ADR-0012 描述控制接口及 neutral 刷新偏差。simultaneous、显式 lazy/halt/hold duration、平台后端/session/GUI/driver/发布仍未完成。

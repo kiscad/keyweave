@@ -147,3 +147,26 @@ fn held_replay_uses_explicit_deadline_and_ignores_stale_callback() {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+#[test]
+fn delayed_replay_asserts_invoked_canceled_and_pending_lifetimes() {
+    for fixture in [
+        "tests/fixtures/delayed.json",
+        "tests/fixtures/delayed-pending.json",
+    ] {
+        let result = cli(&["replay", "--fixture", fixture, "--assert"]);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        if fixture.contains("pending") {
+            let value: serde_json::Value = serde_json::from_slice(&result.stdout)
+                .unwrap_or_else(|error| panic!("invalid CLI JSON: {error}"));
+            assert_eq!(value["state"]["pending_bindings"], 1);
+            assert_eq!(
+                value["next_deadline"],
+                serde_json::json!({"at_ns":5000000,"token":2})
+            );
+        }
+    }
+}

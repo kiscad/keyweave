@@ -1,8 +1,8 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
 use keyweave_engine::{
-    Action, ActionTarget, Condition, ConfigSnapshot, InputSourceFilter, Mapping, MappingExtras,
-    Modifier, ModifierFilter, Pattern,
+    Action, ActionTarget, Condition, ConfigSnapshot, DelayedAction, InputSourceFilter, Mapping,
+    MappingExtras, Modifier, ModifierFilter, Pattern,
 };
 use keyweave_types::*;
 use serde::Serialize;
@@ -196,6 +196,7 @@ pub fn compile(
         diagnostics: Vec::new(),
         disabled: 0,
         count: 0,
+        delayed_delay_ns: 500_000_000,
         held_threshold_ns: 500_000_000,
         alone_timeout_ns: 1_000_000_000,
         pattern_count: std::cell::Cell::new(0),
@@ -302,6 +303,12 @@ pub fn compile(
             &format!("{pointer}/complex_modifications/parameters"),
         ) {
             compiler.held_threshold_ns = threshold;
+        }
+        if let Ok(Some(delay)) = delayed_delay(
+            object.get("parameters"),
+            &format!("{pointer}/complex_modifications/parameters"),
+        ) {
+            compiler.delayed_delay_ns = delay;
         }
         if let Some(rules) = object.get("rules") {
             for (index, rule) in array(rules, &format!("{pointer}/complex_modifications/rules"))?
@@ -423,6 +430,7 @@ struct Compiler<'a> {
     diagnostics: Vec<Diagnostic>,
     disabled: usize,
     count: usize,
+    delayed_delay_ns: u64,
     held_threshold_ns: u64,
     alone_timeout_ns: u64,
     pattern_count: std::cell::Cell<usize>,
@@ -466,6 +474,7 @@ impl Compiler<'_> {
                 "from",
                 "to",
                 "description",
+                "to_delayed_action",
                 "to_if_held_down",
                 "to_if_alone",
                 "to_after_key_up",
@@ -506,6 +515,12 @@ impl Compiler<'_> {
             ));
         }
         let extras = MappingExtras {
+            delayed: self.delayed_action(
+                object.get("to_delayed_action"),
+                object.get("parameters"),
+                &format!("{pointer}/to_delayed_action"),
+                &format!("{pointer}/parameters"),
+            )?,
             from_modifiers,
             conditions: self
                 .conditions(object.get("conditions"), &format!("{pointer}/conditions"))?,
@@ -536,6 +551,9 @@ impl Compiler<'_> {
             .unwrap_or(self.alone_timeout_ns),
         };
         if !object.contains_key("to")
+            && extras.delayed.as_ref().is_none_or(|delayed| {
+                delayed.if_invoked.is_empty() && delayed.if_canceled.is_empty()
+            })
             && extras.if_held_down.is_empty()
             && extras.if_alone.is_empty()
             && extras.after_key_up.is_empty()
@@ -553,6 +571,43 @@ impl Compiler<'_> {
             allow_extra_modifiers: !complex,
             extras,
         })
+    }
+    fn delayed_action(
+        &self,
+        value: Option<&Value>,
+        parameters: Option<&Value>,
+        pointer: &str,
+        parameter_pointer: &str,
+    ) -> Result<Option<DelayedAction>, Diagnostic> {
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        let object = value.as_object().ok_or_else(|| {
+            diagnostic(pointer, "KW-CONFIG-001", "expected delayed_action object")
+        })?;
+        for name in object.keys() {
+            if !["to_if_invoked", "to_if_canceled"].contains(&name.as_str()) {
+                return Err(diagnostic(
+                    &format!("{pointer}/{}", escape_pointer(name)),
+                    "KW-CAP-001",
+                    "unsupported delayed_action field",
+                ));
+            }
+        }
+        Ok(Some(DelayedAction {
+            if_invoked: self.actions(
+                object.get("to_if_invoked"),
+                &format!("{pointer}/to_if_invoked"),
+                true,
+            )?,
+            if_canceled: self.actions(
+                object.get("to_if_canceled"),
+                &format!("{pointer}/to_if_canceled"),
+                true,
+            )?,
+            delay_ns: delayed_delay(parameters, parameter_pointer)?
+                .unwrap_or(self.delayed_delay_ns),
+        }))
     }
     fn actions(
         &self,
@@ -588,7 +643,14 @@ impl Compiler<'_> {
         values
             .iter()
             .enumerate()
-            .map(|(i, value)| self.output_action(value, &format!("{pointer}/{i}")))
+            .map(|(i, value)| {
+                let location = if to.is_array() {
+                    format!("{pointer}/{i}")
+                } else {
+                    pointer.to_owned()
+                };
+                self.output_action(value, &location)
+            })
             .collect()
     }
     fn output_action(&self, value: &Value, pointer: &str) -> Result<Action, Diagnostic> {
@@ -1194,6 +1256,13 @@ impl Compiler<'_> {
         }
         Ok(key)
     }
+}
+fn delayed_delay(value: Option<&Value>, pointer: &str) -> Result<Option<u64>, Diagnostic> {
+    alone_timeout(value, pointer)?;
+    Ok(value
+        .and_then(|value| value.get("basic.to_delayed_action_delay_milliseconds"))
+        .and_then(Value::as_u64)
+        .map(|milliseconds| milliseconds * 1_000_000))
 }
 fn held_threshold(value: Option<&Value>, pointer: &str) -> Result<Option<u64>, Diagnostic> {
     alone_timeout(value, pointer)?;

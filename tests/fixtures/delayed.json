@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "selected": true,
+        "complex_modifications": {
+          "parameters": {
+            "basic.to_delayed_action_delay_milliseconds": 5
+          },
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "a"
+                  },
+                  "to": [
+                    {
+                      "key_code": "b"
+                    }
+                  ],
+                  "to_delayed_action": {
+                    "to_if_invoked": [
+                      {
+                        "key_code": "c"
+                      }
+                    ],
+                    "to_if_canceled": [
+                      {
+                        "key_code": "d"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 1000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 3,
+      "at_ns": 5000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "timer_fired",
+        "token": 2
+      }
+    },
+    {
+      "seq": 4,
+      "at_ns": 6000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 5,
+      "at_ns": 7000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "e",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 6,
+      "at_ns": 8000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 7,
+      "at_ns": 9000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "e",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 8,
+      "at_ns": 11000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "timer_fired",
+        "token": 14
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 0,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 1000000,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 5000000,
+      "key": "c",
+      "edge": "down"
+    },
+    {
+      "at_ns": 5000000,
+      "key": "c",
+      "edge": "up"
+    },
+    {
+      "at_ns": 6000000,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 7000000,
+      "key": "d",
+      "edge": "down"
+    },
+    {
+      "at_ns": 7000000,
+      "key": "d",
+      "edge": "up"
+    },
+    {
+      "at_ns": 7000000,
+      "key": "e",
+      "edge": "down"
+    },
+    {
+      "at_ns": 8000000,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 9000000,
+      "key": "e",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0,
+    "pending_bindings": 0
+  }
+}

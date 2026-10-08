@@ -2,7 +2,7 @@
 
 用 Rust 开发、面向 Linux 与 Windows 的键盘映射工具。名称取自“编织按键行为”，是本项目的工作名称，尚未核验商标或包名可用性。
 
-当前已实现 Rust workspace、标准 HID 键名、JSONC 验证、基础映射、多动作序列、轻触独立/松开动作、设备/应用/输入源条件与有效期上下文、typed variables 模式切换、按住 deadline、确定性离线回放、多来源输出所有权及持键热更新。系统后端、完整高级规则、GUI 和驱动仍在开发，进度见 STATUS。原始 `../Karabiner-Elements/` 保持不变。
+当前已实现 Rust workspace、标准 HID 键名、JSONC 验证、基础映射、多动作序列、轻触独立/松开动作、设备/应用/输入源条件与有效期上下文、typed variables 模式切换、按住与延迟 deadline、确定性离线回放、多来源输出所有权及持键热更新。系统后端、完整高级规则、GUI 和驱动仍在开发，进度见 STATUS。原始 `../Karabiner-Elements/` 保持不变。
 
 ## 构建与使用
 
@@ -19,6 +19,8 @@ cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/device-cont
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/text-context.json --assert
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/variables.json --assert
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/held.json --assert
+cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/delayed.json --assert
+cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/delayed-pending.json --assert
 cargo run --locked -p keyweavectl -- doctor
 ```
 

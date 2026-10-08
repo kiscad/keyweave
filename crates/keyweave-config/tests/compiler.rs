@@ -941,3 +941,123 @@ fn held_actions_participate_in_output_capabilities_and_cross_phase_bounds() {
             .any(|diagnostic| diagnostic.code == "KW-LIMIT-001")
     );
 }
+#[test]
+fn delayed_parameters_inherit_override_and_pure_delayed_rules_compile() {
+    let raw = json!({"profiles":[{"complex_modifications":{"parameters":{"basic.to_delayed_action_delay_milliseconds":250},"rules":[{"manipulators":[
+        {"type":"basic","from":{"key_code":"a"},"to_delayed_action":{"to_if_invoked":[{"key_code":"b"}]}},
+        {"type":"basic","from":{"key_code":"c"},"parameters":{"basic.to_delayed_action_delay_milliseconds":0},"to":[],"to_delayed_action":{"to_if_canceled":{"set_variable":{"name":"cancel","value":true,"key_up_value":false}}}}
+    ]}]}}]});
+    let config = compile_value(raw);
+    assert!(config.executable_without_loss());
+    assert!(config.snapshot.complex[0].to.is_empty());
+    assert_eq!(
+        config.snapshot.complex[0]
+            .extras
+            .delayed
+            .as_ref()
+            .unwrap()
+            .delay_ns,
+        250_000_000
+    );
+    assert_eq!(
+        config.snapshot.complex[1]
+            .extras
+            .delayed
+            .as_ref()
+            .unwrap()
+            .delay_ns,
+        0
+    );
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"to_delayed_action":{}}]}]),
+    ));
+    assert!(config.executable_without_loss());
+    assert_eq!(
+        config.snapshot.complex[0]
+            .extras
+            .delayed
+            .as_ref()
+            .unwrap()
+            .delay_ns,
+        500_000_000
+    );
+}
+#[test]
+fn delayed_errors_disable_the_whole_rule_at_nested_pointers() {
+    for (delayed, suffix, code) in [
+        (json!({"unknown/x":[]}), "/unknown~1x", "KW-CAP-001"),
+        (
+            json!({"to_if_invoked":true}),
+            "/to_if_invoked",
+            "KW-CONFIG-001",
+        ),
+        (
+            json!({"to_if_canceled":[{"shell_command":"echo forbidden"}]}),
+            "/to_if_canceled/0",
+            "KW-CAP-001",
+        ),
+    ] {
+        let config = compile_value(profile(
+            json!([{"manipulators":[{"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d"}]},
+            {"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"to_delayed_action":delayed}]}]),
+        ));
+        assert!(!config.executable_without_loss());
+        assert!(config.snapshot.complex.is_empty());
+        assert_eq!(config.diagnostics[0].code, code);
+        assert_eq!(
+            config.diagnostics[0].pointer,
+            format!(
+                "/profiles/0/complex_modifications/rules/0/manipulators/1/to_delayed_action{suffix}"
+            )
+        );
+    }
+}
+#[test]
+fn delayed_branches_participate_in_capability_name_and_expansion_checks() {
+    let raw = profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"to_delayed_action":{"to_if_invoked":[{"consumer_key_code":"mute"}]}}]}]),
+    );
+    let config = compile(
+        &raw.to_string(),
+        &BackendCapabilities::windows_hook(),
+        ConfigGeneration(1),
+    )
+    .unwrap();
+    assert!(!config.executable_without_loss());
+    assert!(config.snapshot.complex.is_empty());
+    let actions: Vec<_> = (0..256)
+        .map(|_| json!({"key_code":"c","modifiers":["control"]}))
+        .collect();
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[],"to_delayed_action":{"to_if_invoked":actions,"to_if_canceled":[{"set_variable":{"name":"cancel","value":true}}]}}]}]),
+    ));
+    assert!(!config.executable_without_loss());
+    assert!(
+        config
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "KW-LIMIT-001")
+    );
+    assert!(config.snapshot.variable_names().unwrap().contains("cancel"));
+}
+#[test]
+fn singleton_action_diagnostics_point_to_existing_object_members() {
+    for field in ["to", "to_if_alone", "to_if_held_down"] {
+        let rule = json!({"type":"basic","from":{"key_code":"a"},"to":[],field:{"key_code":"b","repeat":"bad"}});
+        let config = compile_value(profile(json!([{"manipulators":[rule]}])));
+        assert!(!config.executable_without_loss());
+        assert_eq!(
+            config.diagnostics[0].pointer,
+            format!("/profiles/0/complex_modifications/rules/0/manipulators/0/{field}/repeat")
+        );
+        assert!(config.raw.pointer(&config.diagnostics[0].pointer).is_some());
+    }
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[],"to_delayed_action":{"to_if_invoked":{"set_variable":{"name":"x","value":null}}}}]}]),
+    ));
+    assert_eq!(
+        config.diagnostics[0].pointer,
+        "/profiles/0/complex_modifications/rules/0/manipulators/0/to_delayed_action/to_if_invoked/set_variable/value"
+    );
+    assert!(config.raw.pointer(&config.diagnostics[0].pointer).is_some());
+}

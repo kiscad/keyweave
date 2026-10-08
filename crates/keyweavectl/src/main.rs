@@ -224,7 +224,7 @@ fn run(command: Command) -> Result<()> {
                 }
             }
             print_json(
-                json!({"mode":"offline_synthetic_no_device_access", "asserted":assert_expected, "outputs":outputs, "state":state}),
+                json!({"mode":"offline_synthetic_no_device_access", "asserted":assert_expected, "outputs":outputs, "state":state, "next_deadline":engine.next_deadline().map(|(at,token)| json!({"at_ns":at,"token":token}))}),
             )?;
         }
         Command::ImportKarabiner {
@@ -246,7 +246,7 @@ fn run(command: Command) -> Result<()> {
             println!("Wrote lossless editable copy; no configuration activated");
         }
         Command::Doctor => print_json(
-            json!({"os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "version":env!("CARGO_PKG_VERSION"), "implemented":["offline_replay","basic_key_mapping","jsonc","hot_snapshot_binding","output_ownership","typed_variables","held_deadlines","context_conditions"], "linux_input_present":Path::new("/dev/input").is_dir(), "linux_uinput_present":Path::new("/dev/uinput").exists(), "hardware_validated":false, "platform_backends_implemented":false}),
+            json!({"os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "version":env!("CARGO_PKG_VERSION"), "implemented":["offline_replay","basic_key_mapping","jsonc","hot_snapshot_binding","output_ownership","typed_variables","held_deadlines","delayed_actions","context_conditions"], "linux_input_present":Path::new("/dev/input").is_dir(), "linux_uinput_present":Path::new("/dev/uinput").exists(), "hardware_validated":false, "platform_backends_implemented":false}),
         )?,
         Command::KeyNames => print_json(KeyId::standard_names())?,
     }

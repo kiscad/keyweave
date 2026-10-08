@@ -167,6 +167,7 @@ pub struct DeadlineToken(pub u64);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputEvent {
+    CancelDelayed { token: DeadlineToken },
     TimerFired { token: DeadlineToken },
     Key { key: KeyId, edge: KeyEdge },
     Wheel { horizontal: i32, vertical: i32 },

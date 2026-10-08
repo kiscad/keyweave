@@ -12,9 +12,11 @@
 | to.modifiers | 标准左右修饰与抽象组（左侧）；字符串/数组（最多 64 名），去重并按上游 modifier 枚举顺序；any 无动作；modifier/key 均进入下一阶段；普通主键 scope lazy up，末主键是 modifier 则 scope 持有到原 up |
 | to_if_alone / to_after_key_up | 键与修饰作用域完整轻触；正常 up 先释放主动作，再 alone，再 after；alone 严格小于超时，新 key/button down 和非零 wheel 取消，move 不取消；lazy 恢复 down 时八个 HID 修饰键；拔除/Reset 取消宏 |
 | to_if_held_down | 阈值先释放正常 to，再执行 held；最后输出持有至原 up；当前动作条件+原配置/设备；其他新 key/button 或同阶段派生 down 取消未触发任务，move/wheel/repeat 不取消；held 不自动取消 alone |
+| to_delayed_action | complex/basic 的 to_if_invoked/to_if_canceled（对象或数组），默认 500ms；up 后继续等待；新 key/button 或同阶段派生 down 先执行 canceled；到期 invoked；两者单次完整轻触，不替换普通 to；保留旧配置/down 修饰快照与当前动作条件 |
+| pending 与取消 | up 后的任务保留 pending binding/cursor/reservation；最后任务完成回收；Reset/remove/代际替换直接撤销无宏；大取消宏+新 down 超预算或需回收 pending 容量时 CancellationPending，按 next_delayed 单独 CancelDelayed 后重试 |
 | deadline 控制 | 显式 TimerFired{token}、Engine.next_deadline 时间/token；阈值时 timer 在普通物理事件前，Reset/remove 优先取消；提前/乱序拒绝，stale 无输出；晚交付按实际时间执行；单次一个任务，ADR-0011 |
 | 设备归零 | 已知物理 up 后该设备不再有 binding 时提交 pending modifier 状态；未知 up 不推断归零；拔除结束后也刷新；不等同于 OS lost-input/submitted 故障恢复 |
-| basic timing parameters | 四个已知时间参数整数 0..=86400000ms；默认 alone=1000ms，支持规则 override；alone 与 held 有执行行为（held 默认 500ms），其余保存待相应规则字段实现 |
+| basic timing parameters | 四个已知时间参数整数 0..=86400000ms；默认 alone=1000ms，支持规则 override；alone、held、delayed 有执行行为（held/delayed 默认 500ms），simultaneous 参数保存待规则字段实现 |
 | 持键更新 | 已持键完成旧输出，之后的 down 用新 generation；Repeat 不重新执行宏 |
 | 多来源相同输出 | owner 引用集合，防止他人持键被中间 tap/up 打断；ADR-0002 说明上游兼容差异 |
 | 设备代际 | 每个 id 仅保留最高 generation/removed；旧移除幂等忽略，旧 key/wheel/move 拒绝；4096 身份上限，Reset 保留历史；ADR-0005 描述容量恢复契约 |
@@ -35,7 +37,7 @@
 | 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。windows-hook 拒绝设备条件；两个后端尚无实现，声明只用于提前检查 |
 
 
-尚未实现：delayed/simultaneous、expression/系统变量、显式 lazy/halt/hold_down、布局/锁状态、真实上下文 provider、Unicode 条件正则与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，不能将它等同于支持显式 to.lazy。
+尚未实现：simultaneous、expression/系统变量、显式 lazy/halt/hold_down、布局/锁状态、真实上下文 provider、Unicode 条件正则与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，不能将它等同于支持显式 to.lazy。
 
 展开限额、不同来源 tap 冲突见 ADR-0003；轻触/松开生命周期与预算见 ADR-0004；实现与测试状态见 STATUS。不要通过删除不支持字段生成看似可执行的导入结果。
 
@@ -44,3 +46,5 @@
 变量浮点/超 i64/null/对象、expression/key_up_expression、set_variable 与另一个目标同置、非键 modifier scope、simple 非键目标都拒绝。动作 conditions 在同一 to 数组执行前整批筛选；变量赋值可影响随后阶段的规则匹配及后续物理事件。CLI fixture 可给 expected_variables（需 --assert），输出及变量断言失败消息不导出实际值。
 
 held 展开、future macros/suppression/deadline token 在原 down 一并预留；超限/时间溢出在改变输出前拒绝。上下文更新可先于同刻 timer，以便使用新属性；普通 key/wheel/move 遇到未交付到期 timer 会返回 DeadlinePending，运行时先按顺序 fire，再提交原事件。纯 held 规则可以没有普通 to。
+
+延迟任务 active+pending 总量受同一 4096 binding/16384 reservation 上限保护；设备 idle 后延迟宏完成会刷新 latent modifiers，此恢复选择见 ADR-0012。EngineState.pending_bindings 描述松开后等待的任务，0 时省略序列化；replay next_deadline 给出 at_ns/token。CancelDelayed 不可抢先绕过已到期 timer；未知旧 token 无输出。按住/延迟仅属于 complex/basic，直接构造的 simple timed IR 也拒绝。单对象动作的诊断 pointer 指向对象成员，数组才含 /索引。
