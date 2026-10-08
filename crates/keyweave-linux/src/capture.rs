@@ -14,6 +14,9 @@ pub struct OutputNodeReady<'a> {
     input_syspath: &'a Path,
 }
 impl<'a> OutputNodeReady<'a> {
+    pub(crate) fn spec(&self) -> &DeviceSpec {
+        self.spec
+    }
     #[cfg(any(target_os = "linux", test))]
     pub(crate) fn verify(
         spec: &'a DeviceSpec,
@@ -137,7 +140,7 @@ impl<S: CaptureSource> CaptureDevice<S> {
     fn source(&mut self) -> Result<&mut S, CaptureError> {
         self.source.as_mut().ok_or(CaptureError::Closed)
     }
-    fn check_neutral(&mut self) -> Result<bool, CaptureError> {
+    pub(crate) fn check_neutral(&mut self) -> Result<bool, CaptureError> {
         let bits = self.source()?.pressed_keys().map_err(CaptureError::Query)?;
         if bits.count() != usize::from(KEY_MAX) + 1
             || bits.codes().any(|code| {
@@ -151,16 +154,14 @@ impl<S: CaptureSource> CaptureDevice<S> {
         }
         Ok(bits.is_empty())
     }
-    /// Runtime must also establish consumer readiness, config output coverage and
-    /// progress supervision. This operation queries then grabs then queries again.
-    pub fn arm(&mut self, output: &OutputNodeReady<'_>) -> Result<ArmResult, CaptureError> {
+    pub(crate) fn validate_output(&self, output: &OutputNodeReady<'_>) -> Result<(), CaptureError> {
         if self.phase == CapturePhase::Closed {
             return Err(CaptureError::Closed);
         }
         if self.phase != CapturePhase::Standby {
             return Err(CaptureError::InvalidPhase);
         }
-        let node = self.source()?.probe();
+        let node = self.source.as_ref().ok_or(CaptureError::Closed)?.probe();
         if node.input_syspath == output.input_syspath {
             return Err(CaptureError::OwnOutput);
         }
@@ -179,6 +180,12 @@ impl<S: CaptureSource> CaptureDevice<S> {
         {
             return Err(CaptureError::MissingOutputKey(code));
         }
+        Ok(())
+    }
+    /// Runtime must also establish consumer readiness, config output coverage and
+    /// progress supervision. This operation queries then grabs then queries again.
+    pub fn arm(&mut self, output: &OutputNodeReady<'_>) -> Result<ArmResult, CaptureError> {
+        self.validate_output(output)?;
         if !self.check_neutral()? {
             return Ok(ArmResult::WaitingNeutral);
         }

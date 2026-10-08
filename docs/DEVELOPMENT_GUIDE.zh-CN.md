@@ -247,7 +247,7 @@ Capturing -> Faulted -> Releasing -> Disabled
 
 输出创建且可工作后才捕获。启用时先查询/观察当前按住状态，等待所有参与捕获的键释放，避免缺失 down 和幽灵 up。切换 profile 不强制等待 neutral：旧 binding 保持，新 down 用新快照；大规模 backend/seat 切换则 drain/reset。
 
-恢复次序：停止新动作 → 取消 timers/宏 → 尽力释放已提交输出 → 释放独占/切入物理透传 → 清状态与旧 generation → 记录恢复原因 → 等待 neutral 后才再次启用。输出端已失效时，必须先恢复物理输入，不能无限等待无法发送的 key_up。
+恢复次序：停止新动作 → 立即释放独占/切入物理透传 → 取消 timers/宏 → 根据 submitted 账本有限释放已提交输出 → 销毁失效输出并清状态与旧 generation → 记录恢复原因 → 通过输出 ready 与 neutral 后才再次启用。不能等待无法发送的 key_up 才恢复物理输入；未知接受量不猜测 up，先关闭捕获，再销毁唯一输出设备后清账本。当前 Linux Runtime 固定采用输入先于输出的顺序，见 ADR-0024/0030。
 
 紧急退出由设备捕获层检查一个不可被规则覆盖的物理组合，如 Ctrl+Alt+Shift+F12，保持 1 秒退出；是否涉及 Fn 由设备能力决定。另有 `keyweavectl pause`、停止服务与 broker/驱动 watchdog。恢复组合必须在 mapping engine 之前识别，不依赖 GUI、IPC 回应或任意脚本。
 
