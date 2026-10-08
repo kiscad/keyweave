@@ -1,6 +1,7 @@
 //! Deterministic remapping. No OS input, file IO, threads or wall clock.
 mod conditions;
 mod modifiers;
+pub mod timeline;
 pub use conditions::{Condition, InputSourceFilter, Pattern, Truth};
 use keyweave_types::*;
 pub use modifiers::{Modifier, ModifierFilter};

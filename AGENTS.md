@@ -24,6 +24,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 
 ## 模块与代码约束
 
+- StageTimeline 只负责有界延后工作，取消会返回未执行 payload；actor 区分尚未执行预算和已执行 owner，不可为取消的 down 编造 up。同刻外部控制/父子阶段优先级仍需明确；现有组件不代表 hold duration 已接入。
 - engine/types 必须脱离 OS、GUI、文件系统、系统实时时钟、IPC；所有时间显式注入，可完全确定性回放。
 - config 读取 AST、保留元数据、编译严格 IR；OS capabilities 参与编译。runtime 接收不可变快照。
 - 后端、session、协议、GUI 有清晰依赖方向；按真实实现再拆 crate，不创建大量没有行为的空包。
