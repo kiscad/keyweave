@@ -1,4 +1,4 @@
-//! The private Linux ioctl/file-flag FFI boundary; no arbitrary public requests.
+//! Private Linux device/file-flag/process-lifecycle FFI; no arbitrary requests.
 #![allow(unsafe_code)]
 use std::{
     io,
@@ -132,6 +132,83 @@ pub(crate) fn nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+// Keep this path allocation-free: it also runs after fork, before exec.
+fn parent_matches(expected: libc::pid_t) -> io::Result<()> {
+    // SAFETY: getppid takes no pointers, performs a synchronous PID query, and
+    // is async-signal-safe. A parent outside this PID namespace (0) is rejected.
+    if unsafe { libc::getppid() } != expected {
+        return Err(io::Error::from_raw_os_error(libc::ECANCELED));
+    }
+    Ok(())
+}
+pub(crate) fn command_parent_death(
+    command: &mut std::process::Command,
+    expected: u32,
+) -> io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    let expected = libc::pid_t::try_from(expected)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))?;
+    // SAFETY: capture only a PID scalar. The hook queries getppid, executes a
+    // direct Linux syscall, and constructs only inline raw-errno io::Errors.
+    // It neither allocates, locks, accesses environment, nor touches inherited
+    // library objects. Registration is in the parent, after all caller hooks.
+    unsafe {
+        command.pre_exec(move || {
+            parent_matches(expected)?;
+            // SAFETY: PR_SET_PDEATHSIG accepts a signal scalar and unused zero
+            // arguments, with no pointers. Supply native-word variadic values
+            // and all six syscall argument slots. The libc syscall trampoline
+            // enters the kernel directly without allocation or library locks.
+            let result = libc::syscall(
+                libc::SYS_prctl,
+                libc::PR_SET_PDEATHSIG as libc::c_ulong,
+                libc::SIGKILL as libc::c_ulong,
+                0 as libc::c_ulong,
+                0 as libc::c_ulong,
+                0 as libc::c_ulong,
+                0 as libc::c_ulong,
+            );
+            if result < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            parent_matches(expected)
+        });
+    }
+    Ok(())
+}
+pub(crate) fn verify_parent_death(expected: u32) -> io::Result<()> {
+    let expected = libc::pid_t::try_from(expected)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))?;
+    // SAFETY: synchronous scalar identity queries; no pointers or mutation.
+    let main_thread = unsafe { libc::gettid() == libc::getpid() };
+    if !main_thread {
+        return Err(io::Error::from_raw_os_error(libc::EPERM));
+    }
+    parent_matches(expected)?;
+    let mut signal: libc::c_int = 0;
+    // SAFETY: GET writes exactly one aligned, exclusively borrowed initialized
+    // int synchronously, and retains no pointer. Other arguments are zero.
+    let result = unsafe {
+        libc::prctl(
+            libc::PR_GET_PDEATHSIG,
+            &mut signal as *mut libc::c_int,
+            0 as libc::c_ulong,
+            0 as libc::c_ulong,
+            0 as libc::c_ulong,
+        )
+    };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if signal != libc::SIGKILL {
+        return Err(io::Error::from_raw_os_error(libc::EPERM));
+    }
+    parent_matches(expected)
 }
 pub(crate) fn evdev_grab(fd: BorrowedFd<'_>, grabbed: bool) -> io::Result<()> {
     scalar(fd, request(1, 0x90, 4), u32::from(grabbed))

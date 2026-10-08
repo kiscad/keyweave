@@ -20,3 +20,7 @@ unsafe_code = "deny"
 [lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
+
+[[test]]
+name = "worker_parent"
+harness = false

@@ -17,3 +17,5 @@ pub mod runtime;
 pub mod supervisor;
 #[cfg(target_os = "linux")]
 pub mod uinput;
+#[cfg(target_os = "linux")]
+pub mod worker;

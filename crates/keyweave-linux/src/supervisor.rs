@@ -42,6 +42,9 @@ pub struct Supervisor {
 impl Supervisor {
     /// Command must be a fixed trusted worker, with no inherited device FDs.
     /// Its stdin/stderr are replaced by a private nonblocking binary channel.
+    /// The creating thread must live until the worker exits: Linux parent-death
+    /// SIGKILL is installed before exec. Worker main must verify its inherited
+    /// guard before opening devices; credential-changing exec is unsupported.
     pub fn spawn(
         mut command: Command,
         run_id: u64,
@@ -68,6 +71,9 @@ impl Supervisor {
             .stdin(Stdio::from(worker_reader))
             .stderr(Stdio::from(worker_writer));
         command.env("KEYWEAVE_PROGRESS_RUN_ID", run_id.to_string());
+        let parent = std::process::id();
+        command.env(crate::worker::PARENT_ENV, parent.to_string());
+        crate::ioctl::command_parent_death(&mut command, parent)?;
         let child = command.spawn()?;
         // Drop Command here so the parent retains no worker endpoint or duplicate stdio.
         drop(command);
@@ -210,6 +216,7 @@ impl Drop for Supervisor {
 mod tests {
     use super::*;
     use crate::progress::Challenge;
+    use std::os::unix::process::ExitStatusExt;
     fn command(mode: &str) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
@@ -377,5 +384,43 @@ mod tests {
                 ..
             }
         ));
+    }
+    #[test]
+    fn creator_thread_exit_kills_worker_even_while_parent_process_lives() {
+        let mut supervisor = std::thread::spawn(|| {
+            let mut supervisor =
+                Supervisor::spawn(command("stall"), 12, Policy::default(), MonoTime(0)).unwrap();
+            wait_until(&mut supervisor, MonoTime(0), |value| {
+                value.progress_epoch() == 1
+            });
+            supervisor
+        })
+        .join()
+        .unwrap();
+        // Ownership was moved out of the creator: Supervisor::drop did not run
+        // there. Reap directly, avoiding poll's channel-failure kill fallback.
+        let end = Instant::now() + Duration::from_secs(3);
+        let status = loop {
+            if let Some(status) = supervisor.child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                Instant::now() < end,
+                "kernel parent-death guard did not terminate worker"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        supervisor.exit = Some(status);
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
+        assert_eq!(supervisor.reason, None);
+        assert!(!supervisor.kill_sent);
+    }
+    #[test]
+    fn mismatched_parent_rejects_spawn_before_worker_exec() {
+        let mut command = command("startup_stall");
+        crate::ioctl::command_parent_death(&mut command, 0).unwrap_err();
+        crate::ioctl::command_parent_death(&mut command, std::process::id() + 1).unwrap();
+        let error = command.spawn().unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ECANCELED));
     }
 }

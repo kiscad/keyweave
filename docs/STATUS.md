@@ -9,11 +9,11 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、329 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
-| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD、故障分类和单设备 grab 准入事务；有显式时钟的 IO coordinator，尚无 OS 循环/bootstrap/watchdog，未做成功硬件创建/抓取 |
+| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD、故障分类和单设备 grab 准入事务；有显式时钟的 IO coordinator、challenge 监督与 pre_exec 父线程死亡保护；尚无 OS 循环/bootstrap/生产 worker，未做成功硬件创建/抓取 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
 | 目标平台硬件、权限、故障恢复、性能 | 未执行 | 后续专用测试系统验证 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：推进 D06 Linux 键码转换、设备 probe 与 evdev/uinput FD 接入；继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：推进 D06 生产 worker/OS clock 与事件等待、完整多设备 neutral/bootstrap 和 consumer-ready；已有键码转换/probe/owned FD/coordinator/supervisor，不能重复当作待实现。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -80,3 +80,5 @@ D06 物理紧急退出：emergency.rs 的每设备七位检测器与 Runtime 接
 D06 恢复顺序修正：OutputQueue recover 先排所有非 modifier up（包含 Consumer page），再排标准 modifier，避免原始 HID 排序提前释放 Ctrl 等作用域。新增 Consumer mute + Control 的短恢复测试，workspace 共 313 个通过，fmt/clippy 通过。此修改不改变普通 intent FIFO/accepted prefix，具体见 ADR-0014 补充。仍为离线验证，硬件与 Windows 未执行。
 
 D06 进度监督组件：progress.rs 提供固定 24-byte challenge / 40-byte receipt、run/request/epoch/phase 校验、启动/租约期限与 ProgressClient。worker 接收请求时保存 Runtime epoch baseline，后续真实 poll 才能响应；partial/WouldBlock 保留原帧，不能用 heartbeat 或旧缓存进度续约。Linux supervisor.rs 通过两条非阻塞匿名管道启动并独占 Child，超时/协议/通道故障只 kill 自己创建的 worker，KillRequested 与 try_wait 确认的 Exited 分开；正常结束收割，Drop 仅 25ms 有限 fallback。私有 ioctl.rs 新增 fcntl flags，保留现有 flags，无设备 FD 副本或网络依赖。新增 6 个协议、3 个 Runtime client、4 个真实子进程行为测试与 1 个 fixture 入口，workspace 共 327 个通过；fmt/clippy/60-source verifier/Linux UAPI ABI probe 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。真实子进程测试证实 engine loop 停止响应而后台线程存活时会终止并取得 exit status；它们不打开键盘/uinput。UnixStream send 被 sandbox 拒绝后改用 pipes 并通过，未升级权限。生产 worker/OS 循环/bootstrap、监督者死亡保护与硬件故障恢复仍未接入，Windows CI 未运行；不得描述为无人值守服务已可部署，见 ADR-0026。
+
+D06 父线程死亡保护：Supervisor 在最终 pre_exec hook 中通过直接 prctl syscall 设置 SIGKILL，前后核对预计父 PID，传入 KEYWEAVE_SUPERVISOR_PID；hook 无分配/锁/环境读取。worker.rs 的 WorkerParentGuard 在真实进程主线程核验继承信号和父身份，不修复缺失保护，token 不可 Send/Sync。新增 2 个 libtest 子进程测试：创建线程退出后仍存活的父进程未主动 kill，worker 由内核 SIGKILL 并被原 Child 收割；错误父 PID 在 exec 前拒绝。另有独立 main-thread harness 验证正常继承、缺失信号、畸形/缺失环境身份，含错误 PID/错误线程/零 PID 检查。workspace 共 329 个 libtest 测试及该独立 harness 通过；fmt/clippy/source verifier（60 hashes）/Linux C UAPI ABI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。未访问键盘/uinput，未运行 Windows CI。创建线程必须贯穿 worker 生命周期；setuid/setgid/capability exec 和后续 effective/fs credentials 改变可能清除保护，因此启动核验失败必须拒绝、验证后禁止这些变化。ADR-0027 记录证据与约束；生产 worker/OS loop/bootstrap/consumer ready/硬件故障验收以及完整跨平台目标继续保留。
