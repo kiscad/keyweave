@@ -14,6 +14,8 @@ pub enum Mode {
     Paused,
     Running,
     Recovering,
+    /// Acceptance is unknown; retain the last known ledger until backend destruction.
+    Quarantined,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +53,10 @@ pub enum OutputError {
     InvalidAcknowledgment,
     #[error("submission identity space exhausted")]
     IdentityExhausted,
+    #[error("output backend is quarantined")]
+    Quarantined,
+    #[error("backend destruction requires prior quarantine")]
+    NotQuarantined,
 }
 
 /// This ledger tracks API-accepted events, never delivery to a target application.
@@ -99,6 +105,9 @@ impl OutputQueue {
     }
     /// Call only after the runtime's physical neutral/capture gate succeeds.
     pub fn resume(&mut self) -> Result<(), OutputError> {
+        if self.mode == Mode::Quarantined {
+            return Err(OutputError::Quarantined);
+        }
         if self.flight.is_some() {
             return Err(OutputError::InFlight);
         }
@@ -150,6 +159,9 @@ impl OutputQueue {
         Ok(())
     }
     pub fn begin_due(&mut self, now: MonoTime) -> Result<Option<Submission>, OutputError> {
+        if self.mode == Mode::Quarantined {
+            return Err(OutputError::Quarantined);
+        }
         if self.flight.is_some() {
             return Err(OutputError::InFlight);
         }
@@ -184,6 +196,26 @@ impl OutputQueue {
         id: SubmissionId,
         accepted: usize,
     ) -> Result<Acknowledgment, OutputError> {
+        self.finish_submission(id, accepted, true)
+    }
+    /// A known prefix with an incomplete native frame must force recovery even
+    /// when every semantic edge was accepted. Caller owns the frame flush gate.
+    pub fn acknowledge_incomplete(
+        &mut self,
+        id: SubmissionId,
+        accepted: usize,
+    ) -> Result<Acknowledgment, OutputError> {
+        self.finish_submission(id, accepted, false)
+    }
+    fn finish_submission(
+        &mut self,
+        id: SubmissionId,
+        accepted: usize,
+        frame_complete: bool,
+    ) -> Result<Acknowledgment, OutputError> {
+        if self.mode == Mode::Quarantined {
+            return Err(OutputError::Quarantined);
+        }
         let Some((current, count)) = self.flight else {
             return Err(OutputError::InvalidAcknowledgment);
         };
@@ -204,9 +236,11 @@ impl OutputQueue {
             }
         }
         self.flight = None;
-        if accepted < count {
+        if accepted < count || !frame_complete {
             if self.mode == Mode::Running {
                 self.recover();
+            } else if self.mode == Mode::Recovering && self.queue.is_empty() {
+                self.mode = Mode::Paused;
             }
             return Ok(Acknowledgment::RecoveryRequired);
         }
@@ -218,11 +252,33 @@ impl OutputQueue {
     /// Stop capture before requesting recovery. A live submission must first be
     /// reconciled; no reset may pretend unknown API acceptance was zero.
     pub fn begin_recovery(&mut self, now: MonoTime) -> Result<(), OutputError> {
+        if self.mode == Mode::Quarantined {
+            return Err(OutputError::Quarantined);
+        }
         if self.flight.is_some() {
             return Err(OutputError::InFlight);
         }
         self.advance(now)?;
         self.recover();
+        Ok(())
+    }
+    /// Freeze without inventing a zero-length acknowledgment. The submitted set
+    /// now represents only the last *known* prefix, not the complete device state.
+    pub fn quarantine(&mut self) {
+        self.mode = Mode::Quarantined;
+    }
+    /// Call only after the backend has actually been destroyed and cannot accept
+    /// any old in-flight work. Device removal clears virtual pressed state. IDs
+    /// remain monotonic so delayed acknowledgments cannot match new submissions.
+    pub fn backend_destroyed(&mut self) -> Result<(), OutputError> {
+        if self.mode != Mode::Quarantined {
+            return Err(OutputError::NotQuarantined);
+        }
+        self.flight = None;
+        self.queue.clear();
+        self.desired.clear();
+        self.submitted.clear();
+        self.mode = Mode::Paused;
         Ok(())
     }
     fn recover(&mut self) {

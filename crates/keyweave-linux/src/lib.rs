@@ -7,6 +7,7 @@ mod ioctl;
 pub mod keys;
 pub mod output;
 pub mod probe;
+pub mod pump;
 pub mod read;
 #[cfg(target_os = "linux")]
 pub mod uinput;

@@ -282,3 +282,63 @@ fn projected_pressed_capacity_is_checked_even_when_batch_ends_neutral() {
     );
     assert_eq!(queue.desired().len(), MAX_PRESSED_KEYS);
 }
+
+#[test]
+fn all_edges_without_native_frame_completion_discards_future_plans() {
+    let mut queue = running();
+    queue
+        .enqueue(&[edge("a", KeyEdge::Down, 0), edge("a", KeyEdge::Up, 100)])
+        .unwrap();
+    let batch = queue.begin_due(MonoTime(0)).unwrap().unwrap();
+    assert_eq!(
+        queue.acknowledge_incomplete(batch.id, 1).unwrap(),
+        Acknowledgment::RecoveryRequired
+    );
+    assert_eq!(queue.next_deadline(), Some(MonoTime(0)));
+    assert!(queue.desired().is_empty());
+    let up = queue.begin_due(MonoTime(0)).unwrap().unwrap();
+    assert_eq!(up.edges, [edge("a", KeyEdge::Up, 0)]);
+    assert_eq!(
+        queue.acknowledge_incomplete(up.id, 1).unwrap(),
+        Acknowledgment::RecoveryRequired
+    );
+    assert_eq!(queue.mode(), Mode::Paused);
+}
+#[test]
+fn unknown_acceptance_freezes_ledger_until_actual_backend_destruction() {
+    let mut queue = running();
+    queue.enqueue(&[edge("a", KeyEdge::Down, 0)]).unwrap();
+    let first = queue.begin_due(MonoTime(0)).unwrap().unwrap();
+    queue.acknowledge(first.id, 1).unwrap();
+    queue.enqueue(&[edge("a", KeyEdge::Up, 1)]).unwrap();
+    let uncertain = queue.begin_due(MonoTime(1)).unwrap().unwrap();
+    queue.quarantine();
+    assert!(queue.submitted().contains(&key("a")));
+    assert_eq!(queue.queued_edges(), 1);
+    assert_eq!(
+        queue.acknowledge(uncertain.id, 0),
+        Err(OutputError::Quarantined)
+    );
+    assert_eq!(
+        queue.acknowledge_incomplete(uncertain.id, 1),
+        Err(OutputError::Quarantined)
+    );
+    assert_eq!(queue.resume(), Err(OutputError::Quarantined));
+    assert_eq!(
+        queue.begin_recovery(MonoTime(1)),
+        Err(OutputError::Quarantined)
+    );
+    assert_eq!(queue.begin_due(MonoTime(1)), Err(OutputError::Quarantined));
+    queue.backend_destroyed().unwrap();
+    assert!(queue.submitted().is_empty());
+    assert_eq!(queue.mode(), Mode::Paused);
+    queue.resume().unwrap();
+    queue.enqueue(&[edge("b", KeyEdge::Down, 2)]).unwrap();
+    let next = queue.begin_due(MonoTime(2)).unwrap().unwrap();
+    assert_ne!(uncertain.id, next.id);
+    assert_eq!(
+        queue.acknowledge(uncertain.id, 1),
+        Err(OutputError::InvalidAcknowledgment)
+    );
+    assert_eq!(queue.backend_destroyed(), Err(OutputError::NotQuarantined));
+}

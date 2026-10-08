@@ -17,6 +17,7 @@ clap = { version = "=4.6.4", features = ["derive"] }
 keyweave-types = { path = "crates/keyweave-types" }
 keyweave-engine = { path = "crates/keyweave-engine" }
 keyweave-config = { path = "crates/keyweave-config" }
+keyweave-output = { path = "crates/keyweave-output" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

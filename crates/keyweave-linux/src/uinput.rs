@@ -93,6 +93,9 @@ impl UinputDevice {
     pub fn input_syspath(&self) -> &Path {
         &self.input_syspath
     }
+    pub fn spec(&self) -> &DeviceSpec {
+        &self.spec
+    }
     pub fn state(&self) -> OutputState {
         self.state
     }
@@ -108,9 +111,13 @@ impl UinputDevice {
         &mut self,
         edges: &[NativeKey],
     ) -> io::Result<Result<FrameWrite, WriteError>> {
-        if self.state != OutputState::Recovery || edges.iter().any(|edge| edge.value != 0) {
+        if !matches!(self.state, OutputState::Ready | OutputState::Recovery)
+            || edges.iter().any(|edge| edge.value != 0)
+        {
             return Err(io::Error::other("invalid output recovery"));
         }
+        self.spec.validate(edges)?;
+        self.state = OutputState::Recovery;
         self.write(edges)
     }
     fn write(&mut self, edges: &[NativeKey]) -> io::Result<Result<FrameWrite, WriteError>> {
