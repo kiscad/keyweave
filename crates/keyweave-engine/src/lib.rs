@@ -19,10 +19,15 @@ pub const MAX_PERSISTENT_SUPPRESSION_REFERENCES: usize = 16_384;
 pub struct Action {
     pub key: KeyId,
     pub repeat: bool,
+    pub modifiers: Vec<KeyId>,
 }
 impl From<KeyId> for Action {
     fn from(key: KeyId) -> Self {
-        Self { key, repeat: true }
+        Self {
+            key,
+            repeat: true,
+            modifiers: Vec::new(),
+        }
     }
 }
 
@@ -92,7 +97,8 @@ impl ConfigSnapshot {
         for mapping in &self.complex {
             let count = mapping
                 .actions()
-                .count()
+                .map(|action| 1usize.saturating_add(action.modifiers.len()))
+                .fold(0, usize::saturating_add)
                 .saturating_add(mapping.scope_budget())
                 .max(1);
             complex
@@ -104,7 +110,8 @@ impl ConfigSnapshot {
         for mapping in &self.simple {
             let count = mapping
                 .actions()
-                .map(|action| complex.get(&action.key).copied().unwrap_or(1))
+                .flat_map(|action| action.modifiers.iter().chain(std::iter::once(&action.key)))
+                .map(|key| complex.get(key).copied().unwrap_or(1))
                 .fold(0, usize::saturating_add)
                 .saturating_add(mapping.scope_budget());
             bounds
@@ -120,6 +127,23 @@ impl ConfigSnapshot {
 struct OwnedKey {
     key: KeyId,
     source: SourceToken,
+    lazy_up: bool,
+}
+
+#[derive(Clone, Copy)]
+struct KeyRequest {
+    key: KeyId,
+    lazy_down: bool,
+    lazy_up: bool,
+}
+impl From<KeyId> for KeyRequest {
+    fn from(key: KeyId) -> Self {
+        Self {
+            key,
+            lazy_down: false,
+            lazy_up: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -349,8 +373,13 @@ impl Engine {
                         self.next_source += bound as u64;
                         self.reservations += bound;
                         let config = Arc::clone(&self.config);
-                        let held =
-                            self.press_stage(key, 0, &config, &mut next_source, &mut step.outputs);
+                        let held = self.press_stage(
+                            key.into(),
+                            0,
+                            &config,
+                            &mut next_source,
+                            &mut step.outputs,
+                        );
                         self.active.insert(
                             identity,
                             ActiveBinding {
@@ -378,6 +407,13 @@ impl Engine {
                                 &mut step.outputs,
                             );
                             self.reservations -= binding.reservation;
+                            if !self
+                                .active
+                                .keys()
+                                .any(|(device, _)| *device == input.device)
+                            {
+                                self.sync_modifiers(&mut step.outputs);
+                            }
                         }
                     }
                     KeyEdge::Repeat => {
@@ -494,6 +530,7 @@ impl Engine {
                 self.reservations -= binding.reservation;
             }
         }
+        self.sync_modifiers(outputs);
     }
     fn cancel_alone(&mut self) {
         if let Some(identity) = self.alone_candidate.take()
@@ -504,12 +541,13 @@ impl Engine {
     }
     fn press_stage(
         &mut self,
-        key: KeyId,
+        request: KeyRequest,
         stage: usize,
         config: &ConfigSnapshot,
         next_source: &mut u64,
         outputs: &mut Vec<OutputIntent>,
     ) -> Bound {
+        let key = request.key;
         let modifiers_at_down = self.current_modifiers();
         let mapping = match stage {
             0 => config.simple.iter().enumerate().find(|(_, mapping)| {
@@ -530,18 +568,27 @@ impl Engine {
             }),
             _ => {
                 if key.usage == 0 {
+                    self.sync_modifiers(outputs);
                     return Bound::Suppressed;
                 }
                 // The physical down reserved tokens for every possible down/up
                 // action across both stages, including later alone/up actions.
                 let source = SourceToken(*next_source);
                 *next_source += 1;
-                self.press(key, source, self.now, outputs);
-                return Bound::Leaf(OwnedKey { key, source });
+                if request.lazy_down && key.is_modifier() {
+                    self.owners.entry(key).or_default().insert(source);
+                } else {
+                    self.press(key, source, self.now, outputs);
+                }
+                return Bound::Leaf(OwnedKey {
+                    key,
+                    source,
+                    lazy_up: request.lazy_up,
+                });
             }
         };
         let Some((index, mapping)) = mapping else {
-            return self.press_stage(key, stage + 1, config, next_source, outputs);
+            return self.press_stage(request, stage + 1, config, next_source, outputs);
         };
         let consumed = mapping
             .extras
@@ -581,11 +628,34 @@ impl Engine {
     ) -> Vec<Bound> {
         let mut held = Vec::new();
         for (index, action) in actions.iter().enumerate() {
-            let child = self.press_stage(action.key, stage, config, next_source, outputs);
+            let mut modifiers = Vec::new();
+            for key in &action.modifiers {
+                modifiers.push(self.press_stage(
+                    KeyRequest {
+                        key: *key,
+                        lazy_down: tap_all || !action.key.is_modifier(),
+                        lazy_up: true,
+                    },
+                    stage,
+                    config,
+                    next_source,
+                    outputs,
+                ));
+            }
+            let child = self.press_stage(action.key.into(), stage, config, next_source, outputs);
             if !tap_all && action.repeat && index + 1 == actions.len() {
                 held.push(child);
             } else {
                 self.release_bound(child, config, next_source, true, outputs);
+            }
+            if !tap_all && index + 1 == actions.len() && action.key.is_modifier() {
+                // Modifier scope up follows the main modifier up.
+                modifiers.append(&mut held);
+                held = modifiers;
+            } else {
+                for modifier in modifiers {
+                    self.release_bound(modifier, config, next_source, true, outputs);
+                }
             }
         }
         held
@@ -600,7 +670,13 @@ impl Engine {
         outputs: &mut Vec<OutputIntent>,
     ) {
         match bound {
-            Bound::Leaf(owned) => self.release(owned.key, owned.source, self.now, outputs),
+            Bound::Leaf(owned) => {
+                if owned.lazy_up && owned.key.is_modifier() {
+                    self.remove_owner(owned.key, owned.source);
+                } else {
+                    self.release(owned.key, owned.source, self.now, outputs);
+                }
+            }
             Bound::Suppressed => {}
             Bound::Rule {
                 stage,
@@ -632,9 +708,6 @@ impl Engine {
                             .copied()
                             .collect();
                         let suppressed = self.hide_modifiers(&targets);
-                        for key in &targets {
-                            self.sync_key(*key, outputs);
-                        }
                         let mut temporary = Vec::new();
                         for key in modifiers_at_down
                             .difference(&self.current_modifiers())
@@ -643,8 +716,12 @@ impl Engine {
                         {
                             let source = SourceToken(*next_source);
                             *next_source += 1;
-                            self.press(key, source, self.now, outputs);
-                            temporary.push(OwnedKey { key, source });
+                            self.owners.entry(key).or_default().insert(source);
+                            temporary.push(OwnedKey {
+                                key,
+                                source,
+                                lazy_up: true,
+                            });
                         }
                         let mandatory_scope = self.hide_modifiers(&consumed);
                         self.press_actions(
@@ -657,12 +734,9 @@ impl Engine {
                         );
                         self.unhide_modifiers(mandatory_scope);
                         for owned in temporary.into_iter().rev() {
-                            self.release(owned.key, owned.source, self.now, outputs);
+                            self.remove_owner(owned.key, owned.source);
                         }
                         self.unhide_modifiers(suppressed);
-                        if !targets.is_empty() {
-                            self.sync_modifiers(outputs);
-                        }
                     }
                     let mandatory_scope = self.hide_modifiers(&consumed);
                     self.press_actions(
@@ -696,6 +770,13 @@ impl Engine {
         _now: MonoTime,
         outputs: &mut Vec<OutputIntent>,
     ) {
+        self.remove_owner(key, source);
+        if key.is_modifier() {
+            self.sync_modifiers(outputs);
+        }
+        self.sync_key(key, outputs);
+    }
+    fn remove_owner(&mut self, key: KeyId, source: SourceToken) {
         if let Some(owners) = self.owners.get_mut(&key) {
             owners.remove(&source);
             if owners.is_empty() {
@@ -703,10 +784,6 @@ impl Engine {
             }
         }
         self.hidden.remove(&(key, source));
-        if key.is_modifier() {
-            self.sync_modifiers(outputs);
-        }
-        self.sync_key(key, outputs);
     }
     fn hide_modifiers(&mut self, keys: &BTreeSet<KeyId>) -> Vec<(KeyId, SourceToken)> {
         let mut suppressed = Vec::new();

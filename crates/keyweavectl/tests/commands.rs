@@ -51,6 +51,20 @@ fn mandatory_modifier_replay_preserves_lazy_restoration() {
     );
 }
 #[test]
+fn output_shortcuts_replay_includes_modifier_scopes_for_up_macros() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/output-shortcuts.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+#[test]
 fn caps_tap_alone_example_validates_without_accessing_hardware() {
     let result = cli(&[
         "validate",

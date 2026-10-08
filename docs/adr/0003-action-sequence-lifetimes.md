@@ -6,7 +6,7 @@
 
 选择：引擎依次按阶段执行每个动作，前面的动作完成 down/up，最后一个动作将持有的输出交还物理 binding。每个最终输出生命周期分配独立 SourceToken。匹配顺序保持数组首匹配，输出只进入后续阶段一次。物理重复不重新播放序列，松开沿旧 binding 释放，不重新查当前配置。
 
-证据：固定上游 `src/share/manipulator/manipulators/basic/event_sender.hpp` 的 `post_events_at_key_down`，条件 `it != end - 1 || !to->get_repeat()` 决定即时 up；最后 repeat 动作登记在 `events_at_key_up`。当前支持默认 repeat 与 `repeat:false` 键动作；to.modifiers、hold_down 等选项仍准确拒绝，不能宣称完整实现该函数。
+证据：固定上游 `src/share/manipulator/manipulators/basic/event_sender.hpp` 的 `post_events_at_key_down`，条件 `it != end - 1 || !to->get_repeat()` 决定即时 up；最后 repeat 动作登记在 `events_at_key_up`。当前支持默认 repeat 与 `repeat:false`、标准 to.modifiers（ADR-0007）；显式 lazy/halt、hold_down 等选项仍准确拒绝，不能宣称完整实现该函数。
 
 动作 IR 为 `Action { key, repeat }`，替代纯键列表；repeat 必须是布尔，默认为 true。extra/up 动作无论 repeat 值都完成轻触。repeat:false 只改变该动作的释放时机，不提前结束其所属阶段 rule，所以子阶段的 after-up 宏仍等输入 up；上游最后 modifier 的 consumed modifier 恢复条件不依赖 repeat，仍保持到原输入 up。
 

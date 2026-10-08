@@ -37,6 +37,36 @@
       "path": "modifier-matching.jsonc",
       "source_path": "tests/src/manipulator_types/json/from_modifiers_definitions.jsonc",
       "sha256": "d2f6ee85930f1e6285e49ca28cc74024a66604b89a8630f78a4f90ed8c48fb4e"
+    },
+    {
+      "path": "output-modifiers/rules.json",
+      "source_path": "tests/src/post_event_to_virtual_devices/json/rules/from_modifier.json",
+      "sha256": "7040e123dea7837c18fbb531021ed768212073966b7dc83dd4f7fda77bb246a3"
+    },
+    {
+      "path": "output-modifiers/input.json",
+      "source_path": "tests/src/post_event_to_virtual_devices/json/input_event_queue/modifier_modifier_to_modifier_key_1.json",
+      "sha256": "15cb8758575cd574a7d2d0b4883c7d856f2d3b6d01616cc0d802d2efb2a70004"
+    },
+    {
+      "path": "output-modifiers/expected.json",
+      "source_path": "tests/src/post_event_to_virtual_devices/json/expected_post_event_to_virtual_devices_queue/modifier_modifier_to_modifier_key_1.json",
+      "sha256": "f708db8b2bf2c7fcfe5d28719efa9e2ca6fc8375538484aa980092fdaa92afc4"
+    },
+    {
+      "path": "vk-none/rules.jsonc",
+      "source_path": "tests/src/post_event_to_virtual_devices/json/rules/vk_none.jsonc",
+      "sha256": "b03d515ac7119554f0e7894d7c6075c539212f9176478a7280554306922cb70e"
+    },
+    {
+      "path": "vk-none/input.jsonc",
+      "source_path": "tests/src/post_event_to_virtual_devices/json/input_event_queue/vk_none_1.jsonc",
+      "sha256": "0164096d9cd4088e9e5bffa3ea20354035178638043e45eb8958bd5d19b1d3f2"
+    },
+    {
+      "path": "vk-none/expected.json",
+      "source_path": "tests/src/post_event_to_virtual_devices/json/expected_post_event_to_virtual_devices_queue/vk_none_1.json",
+      "sha256": "b49d1640cb311c721b794f8ce20ab3899cd2ba16241908a011db3abff90ad206"
     }
   ]
 }

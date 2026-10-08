@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "name": "Output shortcuts",
+        "selected": true,
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "a",
+                    "modifiers": {
+                      "optional": [
+                        "any"
+                      ]
+                    }
+                  },
+                  "to": [
+                    {
+                      "key_code": "b",
+                      "modifiers": [
+                        "control"
+                      ]
+                    }
+                  ],
+                  "to_after_key_up": [
+                    {
+                      "key_code": "d",
+                      "modifiers": [
+                        "shift"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 100000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 0,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 0,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "left_control",
+      "edge": "up"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "left_shift",
+      "edge": "down"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "d",
+      "edge": "down"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "d",
+      "edge": "up"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "left_shift",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  }
+}

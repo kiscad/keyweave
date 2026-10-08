@@ -14,6 +14,7 @@ cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/basic.json 
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/sequence.json --assert
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/tap-alone.json --assert
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/modifiers.json --assert
+cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/output-shortcuts.json --assert
 cargo run --locked -p keyweavectl -- doctor
 ```
 

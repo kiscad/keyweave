@@ -411,6 +411,95 @@ fn repeat_option_is_typed_and_extra_actions_still_complete_as_taps() {
         );
     }
 }
+
+#[test]
+fn output_modifier_names_are_ordered_deduplicated_and_groups_choose_left() {
+    let config = compile_value(profile(json!([{"manipulators":[{
+        "type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","modifiers":["shift","control","shift","any"]}]
+    }]}])));
+    assert!(config.executable_without_loss());
+    assert_eq!(
+        config.snapshot.complex[0].to[0].modifiers,
+        vec![
+            "left_control".parse::<KeyId>().unwrap(),
+            "left_shift".parse().unwrap()
+        ]
+    );
+    for value in [
+        json!(["fn"]),
+        json!(["caps_lock"]),
+        json!([false]),
+        json!(42),
+    ] {
+        let config = compile_value(profile(json!([{"manipulators":[{
+            "type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","modifiers":value}]
+        }]}])));
+        assert!(!config.executable_without_loss());
+        assert!(config.diagnostics[0].pointer.starts_with(
+            "/profiles/0/complex_modifications/rules/0/manipulators/0/to/0/modifiers"
+        ));
+    }
+}
+
+#[test]
+fn upstream_output_modifier_case_matches_report_edges_for_selected_standard_rule() {
+    let rules: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/upstream/output-modifiers/rules.json"
+    ))
+    .unwrap();
+    // Preserve the entire original rule file; compile only the standard branch
+    // exercised by this case. Other branches require Fn and are not claimed.
+    let selected = rules
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| {
+            rule["from"]["key_code"] == "right_command" && rule["to"][0]["key_code"] == "f7"
+        })
+        .unwrap();
+    let config = compile_value(profile(json!([{"manipulators":[selected]}])));
+    assert!(config.executable_without_loss());
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/upstream/output-modifiers/input.json"
+    ))
+    .unwrap();
+    let expected: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/upstream/output-modifiers/expected.json"
+    ))
+    .unwrap();
+    let mut engine = Engine::new(Arc::new(config.snapshot));
+    let mut actual_edges = Vec::new();
+    for (index, input) in inputs.as_array().unwrap().iter().enumerate() {
+        let edge = if input["event_type"] == "key_down" {
+            KeyEdge::Down
+        } else {
+            KeyEdge::Up
+        };
+        let step = engine
+            .handle(InputEnvelope {
+                seq: index as u64 + 1,
+                at_ns: MonoTime(index as u64),
+                device: DeviceInstanceId {
+                    id: input["device_id"].as_u64().unwrap(),
+                    generation: 1,
+                },
+                provenance: Provenance::Physical,
+                event: InputEvent::Key {
+                    key: input["event"]["momentary_switch_event"]["key_code"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                    edge,
+                },
+            })
+            .unwrap();
+        actual_edges.extend(step.outputs.into_iter().map(|out| (out.key, out.edge)));
+    }
+    let expected_edges = upstream_keyboard_report_edges(&expected);
+    assert_eq!(actual_edges, expected_edges);
+    assert_eq!(engine.state(), keyweave_engine::EngineState::default());
+}
 #[test]
 fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {
     let rules: Value = serde_json::from_str(include_str!(
@@ -473,4 +562,105 @@ fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {
         .collect();
     assert_eq!(actual, expected);
     assert!(engine.state().pressed_outputs.is_empty());
+}
+
+fn upstream_keyboard_report_edges(reports: &Value) -> Vec<(KeyId, KeyEdge)> {
+    use std::collections::BTreeSet;
+    let mut previous = BTreeSet::new();
+    let mut expected_edges = Vec::new();
+    for report in reports.as_array().unwrap() {
+        assert_eq!(report["type"], "keyboard_input");
+        let keyboard = &report["keyboard_input"];
+        let mut pressed: BTreeSet<KeyId> = keyboard["modifiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap().parse().unwrap())
+            .collect();
+        pressed.extend(keyboard["keys"].as_array().unwrap().iter().map(|value| {
+            value["key_code"]
+                .as_str()
+                .unwrap()
+                .parse::<KeyId>()
+                .unwrap()
+        }));
+        // This original oracle changes one key per report, so edge order is
+        // unambiguous. Never infer nanoseconds from its Mach time_stamp values.
+        assert_eq!(pressed.symmetric_difference(&previous).count(), 1);
+        expected_edges.extend(
+            previous
+                .difference(&pressed)
+                .copied()
+                .map(|key| (key, KeyEdge::Up)),
+        );
+        expected_edges.extend(
+            pressed
+                .difference(&previous)
+                .copied()
+                .map(|key| (key, KeyEdge::Down)),
+        );
+        previous = pressed;
+    }
+    expected_edges
+}
+
+#[test]
+fn upstream_vk_none_modifier_ordering_matches_original_report_edges() {
+    let rules = parse_jsonc(include_str!(
+        "../../../tests/fixtures/upstream/vk-none/rules.jsonc"
+    ))
+    .unwrap();
+    let config = compile_value(profile(json!([{"manipulators":rules}])));
+    assert!(config.executable_without_loss());
+    let inputs = parse_jsonc(include_str!(
+        "../../../tests/fixtures/upstream/vk-none/input.jsonc"
+    ))
+    .unwrap();
+    let expected = parse_jsonc(include_str!(
+        "../../../tests/fixtures/upstream/vk-none/expected.json"
+    ))
+    .unwrap();
+    let mut engine = Engine::new(Arc::new(config.snapshot));
+    let mut outputs = Vec::new();
+    for (index, input) in inputs.as_array().unwrap().iter().enumerate() {
+        assert_eq!(input["event_type"], "key_down");
+        let step = engine
+            .handle(InputEnvelope {
+                seq: index as u64 + 1,
+                at_ns: MonoTime(index as u64),
+                device: DeviceInstanceId {
+                    id: input["device_id"].as_u64().unwrap(),
+                    generation: 1,
+                },
+                provenance: Provenance::Physical,
+                event: InputEvent::Key {
+                    key: input["event"]["momentary_switch_event"]["key_code"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                    edge: KeyEdge::Down,
+                },
+            })
+            .unwrap();
+        outputs.extend(
+            step.outputs
+                .into_iter()
+                .map(|output| (output.key, output.edge)),
+        );
+    }
+    assert_eq!(outputs, upstream_keyboard_report_edges(&expected));
+    // The immutable upstream case stops with its final modifier still held.
+    assert_eq!(
+        engine.state().pressed_outputs,
+        vec!["left_option".parse::<KeyId>().unwrap()]
+    );
+    assert_eq!(engine.state().bindings, 1);
+    let reset = engine
+        .reset(MonoTime(inputs.as_array().unwrap().len() as u64))
+        .unwrap();
+    assert_eq!(reset.len(), 1);
+    assert_eq!(reset[0].key, "left_option".parse::<KeyId>().unwrap());
+    assert_eq!(reset[0].edge, KeyEdge::Up);
+    assert_eq!(engine.state(), keyweave_engine::EngineState::default());
 }

@@ -567,8 +567,58 @@ impl Compiler<'_> {
             })
             .transpose()?
             .unwrap_or(true);
+        let mut modifiers = std::collections::BTreeSet::new();
+        if let Some(value) = object.remove("modifiers") {
+            let location = format!("{pointer}/modifiers");
+            let is_array = value.is_array();
+            let values: Vec<_> = if let Some(items) = value.as_array() {
+                items.iter().collect()
+            } else if value.is_string() {
+                vec![&value]
+            } else {
+                return Err(diagnostic(
+                    &location,
+                    "KW-CONFIG-001",
+                    "expected modifier string or array",
+                ));
+            };
+            if values.len() > 64 {
+                return Err(diagnostic(
+                    &location,
+                    "KW-LIMIT-001",
+                    "modifier list exceeds 64 names",
+                ));
+            }
+            for (index, value) in values.iter().enumerate() {
+                let location = if is_array {
+                    format!("{location}/{index}")
+                } else {
+                    location.clone()
+                };
+                let name = value.as_str().ok_or_else(|| {
+                    diagnostic(&location, "KW-CONFIG-001", "expected modifier name")
+                })?;
+                modifiers.insert(Modifier::named(name).ok_or_else(|| {
+                    diagnostic(
+                        &location,
+                        "KW-CAP-001",
+                        format!(
+                            "modifier {name} is unknown or requires unimplemented lock/vendor state"
+                        ),
+                    )
+                })?);
+            }
+        }
+        let modifiers = modifiers
+            .into_iter()
+            .filter_map(|modifier| modifier.keys().first().copied())
+            .collect();
         self.key(Some(&Value::Object(object)), pointer)
-            .map(|key| Action { key, repeat })
+            .map(|key| Action {
+                key,
+                repeat,
+                modifiers,
+            })
     }
     fn input_key(
         &self,

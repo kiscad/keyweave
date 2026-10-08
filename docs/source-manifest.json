@@ -149,6 +149,12 @@
       "lines": 365
     },
     {
+      "path": "src/share/event_queue/utility.hpp",
+      "sha256": "562f47eed3a0d94656733dabbb7ba58f95fbe524ef835ae341ec72ba69175bf9",
+      "bytes": 9914,
+      "lines": 214
+    },
+    {
       "path": "src/share/hid_device_events_monitor.hpp",
       "sha256": "8e794a3e6f37349a1e98445f0b5c9a232823347e9bb4bb5e591d15170913164f",
       "bytes": 7851,
@@ -269,6 +275,12 @@
       "lines": 796
     },
     {
+      "path": "src/share/manipulator/manipulators/shared_event_sender.hpp",
+      "sha256": "ac5ca8ef64939dc0a4c11e458269ac0aaaa41d67c643a534a366b9a584ba703a",
+      "bytes": 4056,
+      "lines": 99
+    },
+    {
       "path": "src/share/manipulator/types/from_modifiers_definition.hpp",
       "sha256": "5aed3189492771c1f351522b8e0b22f730283fd5cea29ff27221fadc91e6ff5e",
       "bytes": 4829,
@@ -285,6 +297,12 @@
       "sha256": "66d52be172c190c50c9b0cdb77fcb4f9ee7b1c631af9e438103dc06583f5e895",
       "bytes": 3931,
       "lines": 144
+    },
+    {
+      "path": "src/share/manipulator/types/to_event_definition.hpp",
+      "sha256": "52a5ad7b04d400948df57089fc6cadd86d7cf2e1e59ea34722aef578e871af79",
+      "bytes": 6579,
+      "lines": 208
     },
     {
       "path": "src/share/monitor/configuration_monitor.hpp",

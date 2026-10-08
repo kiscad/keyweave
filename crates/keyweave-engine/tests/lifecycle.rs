@@ -621,6 +621,7 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
         to: vec![Action {
             key: key("c"),
             repeat: false,
+            modifiers: vec![],
         }],
         allow_extra_modifiers: false,
         extras: MappingExtras {
