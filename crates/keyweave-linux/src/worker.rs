@@ -1,4 +1,12 @@
-//! Main-thread startup verification; no device is opened by this module.
+//! Guarded main-thread execution; no device is opened by this module.
+use crate::{
+    capture::CaptureSource,
+    progress::{ClientError, ProgressClient},
+    pump::FrameBackend,
+    reactor::MonotonicClock,
+    runtime::{Runtime, RuntimeError, RuntimePhase, StopReason},
+};
+use keyweave_types::MonoTime;
 use std::{io, marker::PhantomData, rc::Rc};
 
 pub(crate) const PARENT_ENV: &str = "KEYWEAVE_SUPERVISOR_PID";
@@ -34,4 +42,80 @@ impl WorkerParentGuard {
     pub fn parent_pid(&self) -> u32 {
         self.parent
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WorkerError {
+    #[error("worker OS boundary failed: {0}")]
+    System(#[from] io::Error),
+    #[error(transparent)]
+    Progress(#[from] ClientError),
+    #[error(transparent)]
+    Runtime(#[from] RuntimeError),
+    #[error("worker wait endpoint failed: {0:?}")]
+    Endpoint(StopReason),
+}
+pub(crate) struct WorkerWake {
+    pub at_ns: MonoTime,
+    pub failure: Option<StopReason>,
+}
+
+/// Run an already admitted production Runtime on this guarded main thread.
+/// Own nonblocking, unbuffered progress endpoints; no backend FD is duplicated.
+/// This does not perform device discovery, readiness or capture admission.
+pub fn run_worker<R, W>(
+    runtime: Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+    client: ProgressClient<R, W>,
+    guard: &WorkerParentGuard,
+) -> Result<StopReason, WorkerError>
+where
+    R: io::Read + std::os::fd::AsFd,
+    W: io::Write + std::os::fd::AsFd,
+{
+    let _verified = WorkerParentGuard::verify(guard.parent_pid())?;
+    for request in client.wait_requests() {
+        crate::ioctl::nonblocking(request.fd)?;
+    }
+    run_with_wait(runtime, client, |runtime, client, clock| {
+        runtime.wait_native(client, clock)
+    })
+}
+
+pub(crate) fn run_with_wait<S, B, R, W, F>(
+    mut runtime: Runtime<S, B>,
+    mut client: ProgressClient<R, W>,
+    mut wait: F,
+) -> Result<StopReason, WorkerError>
+where
+    S: CaptureSource,
+    B: FrameBackend,
+    R: io::Read,
+    W: io::Write,
+    F: FnMut(&Runtime<S, B>, &ProgressClient<R, W>, &mut MonotonicClock) -> io::Result<WorkerWake>,
+{
+    let mut clock = MonotonicClock::new();
+    let result = (|| {
+        let mut now = clock.now()?;
+        loop {
+            client.receive(&runtime)?;
+            runtime.poll(now)?;
+            client.publish(&runtime)?;
+            if runtime.phase() == RuntimePhase::Stopped {
+                return Ok(runtime.stop_reason().unwrap_or(StopReason::ControlFault));
+            }
+            let wake = wait(&runtime, &client, &mut clock)?;
+            now = wake.at_ns;
+            if let Some(reason) = wake.failure {
+                runtime.external_fault(reason);
+                return Err(WorkerError::Endpoint(reason));
+            }
+        }
+    })();
+    if result.is_err() {
+        // Close capture before recovery, without further wait or publication.
+        // Use the last accepted Runtime time, never a fabricated new deadline.
+        runtime.external_fault(StopReason::ControlFault);
+        runtime.finish_recovery();
+    }
+    result
 }

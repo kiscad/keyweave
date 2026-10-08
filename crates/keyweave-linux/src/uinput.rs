@@ -93,6 +93,9 @@ impl UinputDevice {
     pub fn input_syspath(&self) -> &Path {
         &self.input_syspath
     }
+    pub(crate) fn wait_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.file.as_fd()
+    }
     /// Verify the actual virtual event node before a capture admission attempt.
     /// This does not acknowledge desktop consumers or permit grabbing itself.
     pub fn verify_output_node(

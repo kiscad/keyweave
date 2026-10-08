@@ -267,6 +267,32 @@ pub struct ProgressClient<R: Read, W: Write> {
     response: Option<Pending>,
 }
 impl<R: Read, W: Write> ProgressClient<R, W> {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn wait_requests(&self) -> [crate::reactor::WaitRequest<'_>; 2]
+    where
+        R: std::os::fd::AsFd,
+        W: std::os::fd::AsFd,
+    {
+        use crate::reactor::{Interest, WaitRequest};
+        [
+            WaitRequest {
+                fd: self.reader.as_fd(),
+                interest: if self.ticket.is_none() && self.response.is_none() {
+                    Interest::Read
+                } else {
+                    Interest::Errors
+                },
+            },
+            WaitRequest {
+                fd: self.writer.as_fd(),
+                interest: if self.response.is_some() {
+                    Interest::Write
+                } else {
+                    Interest::Errors
+                },
+            },
+        ]
+    }
     pub fn new(reader: R, writer: W, run_id: u64) -> Result<Self, ClientError> {
         if run_id == 0 {
             return Err(ProgressError::Policy.into());

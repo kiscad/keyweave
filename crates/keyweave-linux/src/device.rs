@@ -118,6 +118,9 @@ impl EvdevDevice {
     pub fn probe(&self) -> &Probe {
         &self.probe
     }
+    pub(crate) fn wait_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.file.as_fd()
+    }
     pub(crate) fn set_grab(&self, grabbed: bool) -> io::Result<()> {
         ioctl::evdev_grab(self.file.as_fd(), grabbed)
     }

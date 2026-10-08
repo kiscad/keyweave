@@ -513,6 +513,21 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         self.stop(StopReason::Pause);
         Ok(())
     }
+    #[cfg(target_os = "linux")]
+    pub(crate) fn external_fault(&mut self, reason: StopReason) {
+        if self.phase == RuntimePhase::Active {
+            self.stop(reason);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    pub(crate) fn finish_recovery(&mut self) {
+        for _ in 0..MAX_RECOVERY_POLLS {
+            if self.phase != RuntimePhase::Recovering {
+                break;
+            }
+            let _ = self.poll(self.now);
+        }
+    }
     /// Admission failures leave the active configuration and bindings untouched.
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
         if self.phase != RuntimePhase::Active {
@@ -521,6 +536,61 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         validate_config(&config, self.output.spec().ok_or(RuntimeError::Stopped)?)?;
         self.engine.activate(config)?;
         Ok(())
+    }
+}
+#[cfg(target_os = "linux")]
+impl Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice> {
+    pub(crate) fn wait_native<R, W>(
+        &self,
+        client: &crate::progress::ProgressClient<R, W>,
+        clock: &mut crate::reactor::MonotonicClock,
+    ) -> std::io::Result<crate::worker::WorkerWake>
+    where
+        R: std::io::Read + std::os::fd::AsFd,
+        W: std::io::Write + std::os::fd::AsFd,
+    {
+        use crate::reactor::{self, Interest, WaitRequest};
+        let mut requests = Vec::with_capacity(reactor::MAX_WAIT_FDS);
+        // Control slots stay at 0/1; all subsequent slots belong to devices.
+        requests.extend(client.wait_requests());
+        for input in &self.inputs {
+            if let Some(fd) = input.capture.wait_fd() {
+                requests.push(WaitRequest {
+                    fd,
+                    interest: Interest::Read,
+                });
+            }
+        }
+        let output_index = requests.len();
+        if let Some(fd) = self.output.wait_fd() {
+            // Normal output deadlines are already immediate when due. Do not
+            // watch a permanently writable uinput when there is no queued work.
+            requests.push(WaitRequest {
+                fd,
+                interest: Interest::Errors,
+            });
+        }
+        let wake = reactor::wait(
+            clock,
+            &requests,
+            self.next_wakeup(),
+            reactor::HOUSEKEEPING_NS,
+        )?;
+        let failure = (0..requests.len())
+            .find(|index| wake.readiness(*index).is_some_and(|ready| ready.fault()))
+            .map(|index| {
+                if index < 2 {
+                    StopReason::ControlFault
+                } else if index == output_index {
+                    StopReason::OutputFault
+                } else {
+                    StopReason::InputFault
+                }
+            });
+        Ok(crate::worker::WorkerWake {
+            at_ns: wake.at_ns,
+            failure,
+        })
     }
 }
 impl<S: CaptureSource, B: FrameBackend> Drop for Runtime<S, B> {
@@ -1421,6 +1491,273 @@ mod tests {
         assert_eq!(second.baseline, 2);
         assert_eq!(second.epoch, 3);
         assert_eq!(second.challenge.id, 2);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_pipe_hangup_stops_capture_before_releasing_submitted_keys() {
+        use crate::{
+            progress::{Challenge, ProgressClient, Receipt},
+            reactor,
+            worker::{WorkerError, WorkerWake, run_with_wait},
+        };
+        use std::{
+            io::{Read, Write},
+            os::fd::AsFd,
+        };
+        let (reader, mut parent_writer) = io::pipe().unwrap();
+        let (mut parent_reader, writer) = io::pipe().unwrap();
+        crate::ioctl::nonblocking(reader.as_fd()).unwrap();
+        crate::ioctl::nonblocking(writer.as_fd()).unwrap();
+        parent_writer
+            .write_all(&Challenge { run_id: 7, id: 1 }.encode())
+            .unwrap();
+        let mut parent_writer = Some(parent_writer);
+        let client = ProgressClient::new(reader, writer, 7).unwrap();
+        let (runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        let result = run_with_wait(runtime, client, |runtime, client, clock| {
+            assert_eq!(runtime.progress_epoch(), 1);
+            assert!(runtime.submitted().contains(&"b".parse().unwrap()));
+            drop(parent_writer.take());
+            let wake = reactor::wait(
+                clock,
+                &client.wait_requests(),
+                runtime.next_wakeup(),
+                reactor::HOUSEKEEPING_NS,
+            )?;
+            assert!(wake.readiness(0).unwrap().hangup);
+            Ok(WorkerWake {
+                at_ns: wake.at_ns,
+                failure: Some(StopReason::ControlFault),
+            })
+        });
+        assert!(matches!(
+            result,
+            Err(WorkerError::Endpoint(StopReason::ControlFault))
+        ));
+        let mut bytes = [0; 40];
+        parent_reader.read_exact(&mut bytes).unwrap();
+        let receipt = Receipt::decode(&bytes).unwrap();
+        assert_eq!(
+            (receipt.baseline, receipt.epoch, receipt.phase),
+            (0, 1, RuntimePhase::Active)
+        );
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::Submit(vec![NativeKey { code: 48, value: 1 }], false),
+                Call::InputClose(1),
+                Call::Submit(vec![NativeKey { code: 48, value: 0 }], true),
+                Call::OutputClose
+            ]
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_wait_failure_recovers_without_republishing_or_rereading_input() {
+        use crate::{
+            progress::{Challenge, ProgressClient},
+            worker::{WorkerError, run_with_wait},
+        };
+        let (runtime, trace) = make_runtime(vec![vec![frame(30, 1), frame(30, 0)]], config(1, "b"));
+        let bytes = Rc::new(RefCell::new(Vec::new()));
+        let client = ProgressClient::new(
+            io::Cursor::new(Challenge { run_id: 7, id: 1 }.encode()),
+            ProgressWriter {
+                bytes: bytes.clone(),
+                chunk: 40,
+                block_once: false,
+            },
+            7,
+        )
+        .unwrap();
+        let result = run_with_wait(runtime, client, |_, _, _| {
+            Err(io::Error::from_raw_os_error(libc::EIO))
+        });
+        assert!(
+            matches!(result, Err(WorkerError::System(error)) if error.raw_os_error() == Some(libc::EIO))
+        );
+        assert_eq!(bytes.borrow().len(), 40);
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::Submit(vec![NativeKey { code: 48, value: 1 }], false),
+                Call::InputClose(1),
+                Call::Submit(vec![NativeKey { code: 48, value: 0 }], true),
+                Call::OutputClose
+            ]
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_bad_challenge_closes_input_before_any_engine_or_wait_work() {
+        use crate::{
+            progress::{Challenge, ClientError, ProgressClient},
+            worker::{WorkerError, run_with_wait},
+        };
+        let (runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        let bytes = Rc::new(RefCell::new(Vec::new()));
+        let client = ProgressClient::new(
+            io::Cursor::new(Challenge { run_id: 8, id: 1 }.encode()),
+            ProgressWriter {
+                bytes: bytes.clone(),
+                chunk: 40,
+                block_once: false,
+            },
+            7,
+        )
+        .unwrap();
+        let result = run_with_wait(runtime, client, |_, _, _| {
+            panic!("invalid protocol must not enter wait")
+        });
+        assert!(matches!(
+            result,
+            Err(WorkerError::Progress(ClientError::Protocol(_)))
+        ));
+        assert!(bytes.borrow().is_empty());
+        assert_eq!(
+            *trace.borrow(),
+            vec![Call::InputClose(1), Call::OutputClose]
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_deadline_wake_drives_emergency_and_finite_recovery() {
+        use crate::{
+            progress::ProgressClient,
+            worker::{WorkerWake, run_with_wait},
+        };
+        use std::os::fd::AsFd;
+        let (reader, _parent_writer) = io::pipe().unwrap();
+        crate::ioctl::nonblocking(reader.as_fd()).unwrap();
+        let (runtime, trace) = make_runtime(
+            vec![vec![emergency_frame(&[29, 56, 42, 88], 1)]],
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        );
+        let client = ProgressClient::new(reader, io::sink(), 7).unwrap();
+        let mut waits = 0;
+        let result = run_with_wait(runtime, client, |runtime, _, _| {
+            waits += 1;
+            assert!(waits <= MAX_RECOVERY_POLLS + 1);
+            Ok(WorkerWake {
+                at_ns: runtime.next_wakeup().unwrap(),
+                failure: None,
+            })
+        })
+        .unwrap();
+        assert_eq!(result, StopReason::Emergency);
+        let calls = trace.borrow();
+        let close = calls
+            .iter()
+            .position(|call| matches!(call, Call::InputClose(_)))
+            .unwrap();
+        let recovery = calls
+            .iter()
+            .position(|call| matches!(call, Call::Submit(_, true)))
+            .unwrap();
+        assert!(close < recovery);
+        assert_eq!(calls.last(), Some(&Call::OutputClose));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_runtime_read_fault_retains_original_error_and_finishes_recovery() {
+        use crate::{
+            progress::ProgressClient,
+            worker::{WorkerError, WorkerWake, run_with_wait},
+        };
+        use std::os::fd::AsFd;
+        let (reader, _parent_writer) = io::pipe().unwrap();
+        crate::ioctl::nonblocking(reader.as_fd()).unwrap();
+        let (runtime, trace) = make_runtime(
+            vec![vec![
+                frame(30, 1),
+                Err(io::Error::from_raw_os_error(libc::EIO)),
+            ]],
+            config(1, "b"),
+        );
+        let client = ProgressClient::new(reader, io::sink(), 7).unwrap();
+        let mut waits = 0;
+        let result = run_with_wait(runtime, client, |_, _, clock| {
+            waits += 1;
+            Ok(WorkerWake {
+                at_ns: clock.now()?,
+                failure: None,
+            })
+        });
+        assert_eq!(waits, 1);
+        assert!(
+            matches!(result, Err(WorkerError::Runtime(RuntimeError::Capture(CaptureError::Read(error)))) if error.raw_os_error() == Some(libc::EIO))
+        );
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::Submit(vec![NativeKey { code: 48, value: 1 }], false),
+                Call::InputClose(1),
+                Call::Submit(vec![NativeKey { code: 48, value: 0 }], true),
+                Call::OutputClose
+            ]
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pending_progress_watches_write_only_until_original_frame_is_flushed() {
+        use crate::{
+            progress::{Challenge, ProgressClient},
+            reactor::Interest,
+        };
+        use std::{
+            io::{Read, Write},
+            os::fd::AsFd,
+        };
+        let (reader, mut parent_writer) = io::pipe().unwrap();
+        let (mut parent_reader, mut writer) = io::pipe().unwrap();
+        for fd in [reader.as_fd(), writer.as_fd(), parent_reader.as_fd()] {
+            crate::ioctl::nonblocking(fd).unwrap();
+        }
+        let mut full = false;
+        for _ in 0..256 {
+            match writer.write(&[0; 4096]) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    full = true;
+                    break;
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        assert!(full, "pipe buffer exceeded test bound");
+        parent_writer
+            .write_all(&Challenge { run_id: 7, id: 1 }.encode())
+            .unwrap();
+        let (mut runtime, _) = make_runtime(vec![vec![]], config(1, "b"));
+        let mut client = ProgressClient::new(reader, writer, 7).unwrap();
+        assert_eq!(
+            client.wait_requests().map(|request| request.interest),
+            [Interest::Read, Interest::Errors]
+        );
+        client.receive(&runtime).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        assert!(!client.publish(&runtime).unwrap());
+        assert_eq!(
+            client.wait_requests().map(|request| request.interest),
+            [Interest::Errors, Interest::Write]
+        );
+        let mut drained = false;
+        for _ in 0..256 {
+            match parent_reader.read(&mut [0; 4096]) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    drained = true;
+                    break;
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        assert!(drained);
+        assert!(client.flush().unwrap());
+        assert_eq!(
+            client.wait_requests().map(|request| request.interest),
+            [Interest::Read, Interest::Errors]
+        );
     }
     #[test]
     fn progress_client_rejects_wrong_run_and_skipped_challenge_without_writing() {

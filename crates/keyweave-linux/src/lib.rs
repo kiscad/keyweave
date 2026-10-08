@@ -11,6 +11,8 @@ pub mod output;
 pub mod probe;
 pub mod progress;
 pub mod pump;
+#[cfg(target_os = "linux")]
+pub mod reactor;
 pub mod read;
 pub mod runtime;
 #[cfg(target_os = "linux")]

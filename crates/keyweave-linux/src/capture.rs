@@ -254,6 +254,9 @@ pub struct EvdevSource {
 }
 #[cfg(target_os = "linux")]
 impl CaptureDevice<EvdevSource> {
+    pub(crate) fn wait_fd(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        self.source.as_ref().map(|source| source.device.wait_fd())
+    }
     pub fn open(path: &Path) -> io::Result<Self> {
         Ok(Self::new(EvdevSource {
             device: crate::device::EvdevDevice::open(path)?,

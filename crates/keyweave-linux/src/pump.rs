@@ -61,6 +61,14 @@ pub struct OutputPump<B: FrameBackend> {
     phase: Phase,
     now: MonoTime,
 }
+#[cfg(target_os = "linux")]
+impl OutputPump<crate::uinput::UinputDevice> {
+    pub(crate) fn wait_fd(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        self.backend
+            .as_ref()
+            .map(crate::uinput::UinputDevice::wait_fd)
+    }
+}
 impl<B: FrameBackend> OutputPump<B> {
     pub fn new(backend: B) -> Self {
         Self {

@@ -1,4 +1,4 @@
-//! Private Linux device/file-flag/process-lifecycle FFI; no arbitrary requests.
+//! Private Linux device/file-flag/process/clock/wait FFI; no arbitrary requests.
 #![allow(unsafe_code)]
 use std::{
     io,
@@ -209,6 +209,84 @@ pub(crate) fn verify_parent_death(expected: u32) -> io::Result<()> {
         return Err(io::Error::from_raw_os_error(libc::EPERM));
     }
     parent_matches(expected)
+}
+pub(crate) fn monotonic_now() -> io::Result<u64> {
+    let mut time = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: exclusively borrowed, aligned initialized timespec lives for the
+    // synchronous CLOCK_MONOTONIC query. Kernel/libc retains no pointer.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut time) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let seconds = u64::try_from(time.tv_sec).ok();
+    let nanos = u64::try_from(time.tv_nsec)
+        .ok()
+        .filter(|value| *value < 1_000_000_000);
+    seconds
+        .zip(nanos)
+        .and_then(|(seconds, nanos)| seconds.checked_mul(1_000_000_000)?.checked_add(nanos))
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid monotonic clock"))
+}
+pub(crate) fn wait_ready(
+    requests: &[crate::reactor::WaitRequest<'_>],
+    timeout_ns: u64,
+) -> io::Result<Option<[i16; crate::reactor::MAX_WAIT_FDS]>> {
+    use crate::reactor::{Interest, MAX_WAIT_FDS, MAX_WAIT_NS};
+    if requests.len() > MAX_WAIT_FDS || timeout_ns > MAX_WAIT_NS {
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
+    let mut descriptors = [libc::pollfd {
+        fd: -1,
+        events: 0,
+        revents: 0,
+    }; MAX_WAIT_FDS];
+    for (slot, request) in descriptors.iter_mut().zip(requests) {
+        slot.fd = request.fd.as_raw_fd();
+        slot.events = match request.interest {
+            Interest::Errors => 0,
+            Interest::Read => libc::POLLIN,
+            Interest::Write => libc::POLLOUT,
+        };
+    }
+    let timeout = libc::timespec {
+        tv_sec: (timeout_ns / 1_000_000_000) as libc::time_t,
+        tv_nsec: (timeout_ns % 1_000_000_000) as libc::c_long,
+    };
+    // SAFETY: descriptors is initialized aligned stack storage with exactly
+    // requests.len() live borrowed FDs; owners cannot be mutated/closed through
+    // these borrows during this call. libc ppoll synchronously updates only
+    // that prefix, borrows the valid finite timespec, and retains no pointers.
+    // Null sigmask leaves the thread signal mask unchanged.
+    let result = unsafe {
+        libc::ppoll(
+            descriptors.as_mut_ptr(),
+            requests.len() as libc::nfds_t,
+            &timeout,
+            std::ptr::null(),
+        )
+    };
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        return if error.kind() == io::ErrorKind::Interrupted {
+            Ok(None)
+        } else {
+            Err(error)
+        };
+    }
+    if result as usize
+        != descriptors[..requests.len()]
+            .iter()
+            .filter(|slot| slot.revents != 0)
+            .count()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid ppoll readiness count",
+        ));
+    }
+    Ok(Some(descriptors.map(|slot| slot.revents)))
 }
 pub(crate) fn evdev_grab(fd: BorrowedFd<'_>, grabbed: bool) -> io::Result<()> {
     scalar(fd, request(1, 0x90, 4), u32::from(grabbed))
