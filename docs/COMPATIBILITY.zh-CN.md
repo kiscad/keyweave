@@ -13,6 +13,7 @@
 | basic timing parameters | 四个已知时间参数整数 0..=86400000ms；默认 alone=1000ms，支持规则 override；当前只有 alone 有执行行为，其余保存待相应规则字段实现 |
 | 持键更新 | 已持键完成旧输出，之后的 down 用新 generation；Repeat 不重新执行宏 |
 | 多来源相同输出 | owner 引用集合，防止他人持键被中间 tap/up 打断；ADR-0002 说明上游兼容差异 |
+| 设备代际 | 每个 id 仅保留最高 generation/removed；旧移除幂等忽略，旧 key/wheel/move 拒绝；4096 身份上限，Reset 保留历史；ADR-0005 描述容量恢复契约 |
 | 未实现动作/条件 | 禁用整条外层 rule，保留 AST 与 JSON Pointer 诊断；validate/import/replay 不允许有损激活 |
 | disabled rule | enabled=false 的内容保留，不编译、不执行；未知未来动作也不执行 |
 | metadata | 根、profile、complex、外层 rule 允许 title/description/maintainers/authors/metadata；任意自定义数据放 metadata；不解释这些内容 |

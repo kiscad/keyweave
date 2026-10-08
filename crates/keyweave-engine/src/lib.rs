@@ -10,6 +10,7 @@ use thiserror::Error;
 pub const MAX_BINDINGS: usize = 4096;
 pub const MAX_OUTPUTS_PER_EVENT: usize = 1024;
 pub const MAX_OUTPUT_OWNERS: usize = 16_384;
+pub const MAX_DEVICE_IDENTITIES: usize = 4096;
 
 #[derive(Clone, Debug)]
 pub struct Mapping {
@@ -168,8 +169,16 @@ pub enum EngineError {
     RetiredDevice,
     #[error("bounded engine resource exhausted; runtime must reset and bypass")]
     ResourceLimit,
+    #[error("device identity history exhausted; reset outputs, drain input and restart engine")]
+    DeviceHistoryFull,
     #[error("configuration generation must increase")]
     InvalidGeneration,
+}
+
+#[derive(Clone, Copy)]
+struct DeviceState {
+    generation: u64,
+    removed: bool,
 }
 
 pub struct Engine {
@@ -181,8 +190,7 @@ pub struct Engine {
     owners: BTreeMap<KeyId, BTreeSet<SourceToken>>,
     hidden: BTreeMap<(KeyId, SourceToken), usize>,
     emitted: BTreeSet<KeyId>,
-    latest_devices: BTreeMap<u64, u64>,
-    retired: BTreeSet<DeviceInstanceId>,
+    devices: BTreeMap<u64, DeviceState>,
     last_seq: Option<u64>,
     now: MonoTime,
     next_source: u64,
@@ -199,8 +207,7 @@ impl Engine {
             owners: BTreeMap::new(),
             hidden: BTreeMap::new(),
             emitted: BTreeSet::new(),
-            latest_devices: BTreeMap::new(),
-            retired: BTreeSet::new(),
+            devices: BTreeMap::new(),
             last_seq: None,
             now: MonoTime(0),
             next_source: 1,
@@ -225,6 +232,9 @@ impl Engine {
             pending_deadlines: 0,
         }
     }
+    pub fn tracked_devices(&self) -> usize {
+        self.devices.len()
+    }
 
     pub fn handle(&mut self, input: InputEnvelope) -> Result<EngineStep, EngineError> {
         if input.at_ns < self.now {
@@ -247,26 +257,27 @@ impl Engine {
         match input.event {
             InputEvent::Reset => step.outputs = self.reset(input.at_ns)?,
             InputEvent::DeviceRemoved => {
-                self.retired.insert(input.device);
-                self.release_device(input.device, input.at_ns, &mut step.outputs);
+                self.update_device(input.device, true, &mut step.outputs)?;
             }
             InputEvent::Wheel {
                 horizontal,
                 vertical,
             } => {
+                self.update_device(input.device, false, &mut step.outputs)?;
                 step.capture = CaptureDecision::Pass;
                 if horizontal != 0 || vertical != 0 {
                     self.cancel_alone();
                 }
             }
-            InputEvent::PointerMove { .. } => step.capture = CaptureDecision::Pass,
+            InputEvent::PointerMove { .. } => {
+                self.update_device(input.device, false, &mut step.outputs)?;
+                step.capture = CaptureDecision::Pass;
+            }
             InputEvent::Key { key, edge } => {
-                if self.retired.contains(&input.device)
-                    || self
-                        .latest_devices
-                        .get(&input.device.id)
-                        .is_some_and(|generation| *generation > input.device.generation)
-                {
+                if self.devices.get(&input.device.id).is_some_and(|state| {
+                    state.generation > input.device.generation
+                        || (state.generation == input.device.generation && state.removed)
+                }) {
                     return Err(EngineError::RetiredDevice);
                 }
                 let identity = (input.device, key);
@@ -280,24 +291,7 @@ impl Engine {
                         return Err(EngineError::ResourceLimit);
                     }
                 }
-                if self
-                    .latest_devices
-                    .get(&input.device.id)
-                    .is_some_and(|generation| *generation < input.device.generation)
-                {
-                    let old: Vec<_> = self
-                        .active
-                        .keys()
-                        .map(|(dev, _)| *dev)
-                        .filter(|dev| dev.id == input.device.id && *dev != input.device)
-                        .collect();
-                    for dev in old {
-                        self.retired.insert(dev);
-                        self.release_device(dev, input.at_ns, &mut step.outputs);
-                    }
-                }
-                self.latest_devices
-                    .insert(input.device.id, input.device.generation);
+                self.update_device(input.device, false, &mut step.outputs)?;
                 match edge {
                     KeyEdge::Down => {
                         if self.active.contains_key(&identity) {
@@ -378,6 +372,48 @@ impl Engine {
         self.reservations = 0;
         self.alone_candidate = None;
         Ok(outputs)
+    }
+
+    fn update_device(
+        &mut self,
+        device: DeviceInstanceId,
+        removed: bool,
+        outputs: &mut Vec<OutputIntent>,
+    ) -> Result<(), EngineError> {
+        if let Some(previous) = self.devices.get(&device.id).copied() {
+            if previous.generation > device.generation
+                || (previous.generation == device.generation && previous.removed)
+            {
+                return if removed {
+                    Ok(())
+                } else {
+                    Err(EngineError::RetiredDevice)
+                };
+            }
+            if previous.generation < device.generation {
+                self.release_device(
+                    DeviceInstanceId {
+                        id: device.id,
+                        generation: previous.generation,
+                    },
+                    self.now,
+                    outputs,
+                );
+            }
+        } else if self.devices.len() >= MAX_DEVICE_IDENTITIES {
+            return Err(EngineError::DeviceHistoryFull);
+        }
+        if removed {
+            self.release_device(device, self.now, outputs);
+        }
+        self.devices.insert(
+            device.id,
+            DeviceState {
+                generation: device.generation,
+                removed,
+            },
+        );
+        Ok(())
     }
 
     fn release_device(

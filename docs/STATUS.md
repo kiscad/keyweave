@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 4 crates、Cargo.lock、固定 1.97.1、45 个本机行为测试通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 4 crates、Cargo.lock、固定 1.97.1、50 个本机行为测试通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；具体修饰组、timers 等选项仍准确拒绝；ADR-0003/0004 |
@@ -28,5 +28,7 @@
 D03 最新检查：config/src/lib.rs 与 unique_json.rs；新增 4 个行为测试覆盖所有配置执行层的未知字段、JSON Pointer 转义、禁用规则保留、所有 profile 的基本类型、重复 JSON 成员与数值/Unicode 往返。上述 fmt/clippy/workspace tests 通过，总计 32 个。global/UI 设置暂未分类，明确拒绝；inactive profile 的完整功能字段在切换时重新编译，当前不声称已验证其可激活。
 
 D04/D05 最新检查：引擎阶段 binding 树、SourceToken 区间预留、临时 suppression/已提交 pressed set 分离；增加 9 个引擎、3 个配置、1 个 CLI 测试，总计 45 个测试通过。时间为确定性纳秒，未执行任何硬件抓取。仅 alone 的 up 时检查已实现，held/delayed/simultaneous deadline 引擎仍待做。已知四个 basic 参数检查与保留，具体作用见 COMPATIBILITY。
+
+D02/D04 设备记录修正：engine update_device 只保存每个 id 最高 generation/removed，4096 身份硬限额；旧移除幂等、旧 wheel/move 拒绝、新代际移除释放旧 owner。新增 5 个测试（含 10000 次同 id 重连、身份容量、Reset 保护），fmt/clippy/workspace tests 通过，总计 50 个。实际热插拔与完整 runtime 容量恢复尚未实现，见 ADR-0005。
 
 后续更新必须记录：任务编号、实现文件、运行命令、目标 OS/build、结果、剩余限制。规划、mock/回放通过、编译通过、真机行为通过分别表述。

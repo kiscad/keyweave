@@ -454,3 +454,133 @@ fn expansion_limit_is_checked_before_any_output_changes() {
         vec![("left_control".into(), KeyEdge::Up)]
     );
 }
+
+#[test]
+fn stale_remove_cannot_release_the_new_connection() {
+    let mut engine = Engine::new(snapshot(1, "b"));
+    engine.handle(event(1, 1, 1, "a", KeyEdge::Down)).unwrap();
+    engine.handle(event(2, 1, 2, "a", KeyEdge::Down)).unwrap();
+    let before = engine.state();
+    let mut removed = event(3, 1, 1, "a", KeyEdge::Up);
+    removed.event = InputEvent::DeviceRemoved;
+    assert!(engine.handle(removed).unwrap().outputs.is_empty());
+    assert_eq!(engine.state(), before);
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(4, 1, 2, "a", KeyEdge::Up))
+                .unwrap()
+                .outputs
+        ),
+        vec![("b".into(), KeyEdge::Up)]
+    );
+}
+
+#[test]
+fn newer_remove_retires_old_binding_even_without_a_down_from_new_connection() {
+    let mut engine = Engine::new(snapshot(1, "b"));
+    engine.handle(event(1, 1, 1, "a", KeyEdge::Down)).unwrap();
+    let mut removed = event(2, 1, 2, "a", KeyEdge::Up);
+    removed.event = InputEvent::DeviceRemoved;
+    assert_eq!(
+        edges(&engine.handle(removed.clone()).unwrap().outputs),
+        vec![("b".into(), KeyEdge::Up)]
+    );
+    removed.seq = 3;
+    removed.at_ns = MonoTime(3);
+    assert!(engine.handle(removed).unwrap().outputs.is_empty());
+    assert_eq!(
+        engine
+            .handle(event(4, 1, 1, "a", KeyEdge::Down))
+            .unwrap_err(),
+        EngineError::RetiredDevice
+    );
+    assert_eq!(
+        engine
+            .handle(event(5, 1, 2, "a", KeyEdge::Down))
+            .unwrap_err(),
+        EngineError::RetiredDevice
+    );
+    assert_eq!(engine.state(), EngineState::default());
+    assert_eq!(
+        engine
+            .handle(event(6, 1, 3, "a", KeyEdge::Down))
+            .unwrap()
+            .outputs
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn repeated_reconnects_store_only_latest_generation() {
+    let mut engine = Engine::new(snapshot(1, "b"));
+    for generation in 1..=10_000 {
+        let seq = generation * 2;
+        engine
+            .handle(event(seq, 1, generation, "a", KeyEdge::Down))
+            .unwrap();
+        let mut removed = event(seq + 1, 1, generation, "a", KeyEdge::Up);
+        removed.event = InputEvent::DeviceRemoved;
+        assert_eq!(engine.handle(removed).unwrap().outputs.len(), 1);
+        assert_eq!(engine.tracked_devices(), 1);
+        assert_eq!(engine.state(), EngineState::default());
+    }
+}
+
+#[test]
+fn stale_wheel_and_move_are_rejected_after_reconnection() {
+    let mut engine = Engine::new(snapshot(1, "b"));
+    engine.handle(event(1, 1, 2, "a", KeyEdge::Down)).unwrap();
+    for (index, activity) in [
+        InputEvent::Wheel {
+            horizontal: 0,
+            vertical: 1,
+        },
+        InputEvent::PointerMove { x: 1, y: 1 },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut input = event(index as u64 + 2, 1, 1, "a", KeyEdge::Down);
+        input.event = activity;
+        assert_eq!(
+            engine.handle(input).unwrap_err(),
+            EngineError::RetiredDevice
+        );
+        assert_eq!(engine.state().output_owners, 1);
+    }
+}
+
+#[test]
+fn identity_history_has_a_hard_limit_and_reset_keeps_retired_protection() {
+    let mut engine = Engine::new(snapshot(1, "b"));
+    for id in 1..=MAX_DEVICE_IDENTITIES as u64 {
+        let mut input = event(id, id, 1, "a", KeyEdge::Down);
+        input.event = InputEvent::Wheel {
+            horizontal: 0,
+            vertical: 0,
+        };
+        assert!(engine.handle(input).unwrap().outputs.is_empty());
+    }
+    let seq = MAX_DEVICE_IDENTITIES as u64 + 1;
+    let mut input = event(seq, seq, 1, "a", KeyEdge::Down);
+    input.event = InputEvent::PointerMove { x: 1, y: 0 };
+    assert_eq!(
+        engine.handle(input).unwrap_err(),
+        EngineError::DeviceHistoryFull
+    );
+    assert_eq!(engine.tracked_devices(), MAX_DEVICE_IDENTITIES);
+    assert!(engine.reset(MonoTime(seq + 1)).unwrap().is_empty());
+    assert_eq!(engine.tracked_devices(), MAX_DEVICE_IDENTITIES);
+    let mut removed = event(seq + 2, 1, 1, "a", KeyEdge::Up);
+    removed.event = InputEvent::DeviceRemoved;
+    engine.handle(removed).unwrap();
+    engine.reset(MonoTime(seq + 3)).unwrap();
+    assert_eq!(
+        engine
+            .handle(event(seq + 4, 1, 1, "a", KeyEdge::Down))
+            .unwrap_err(),
+        EngineError::RetiredDevice
+    );
+}
