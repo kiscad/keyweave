@@ -23,3 +23,7 @@
 backend 写入接受数量不明确时必须隔离并恢复物理输入，不能伪造 accepted=0；永久输出故障不能无限等待 up 才恢复物理输入。这里的 recover 重试接口不代替 watchdog/租约/故障策略。Windows UIPI/安全桌面或设备失联仍需各平台处理。
 
 11 个调度测试与 1 个 engine 联合测试覆盖未来 up/FIFO、部分接受的全部前缀、失败丢弃新 append、恢复重试、实际 down 清理、在途/旧 token、单调时钟、repeat、队列/按下键容量与 atomic rejection。暂不连接 CLI replay，保持现有 EngineState 的 intent 语义明确。
+
+## 恢复释放顺序修正（2026-10-08）
+
+recover 对所有非标准 modifier 的 submitted 键先排 up（含 Consumer page），再排标准左右 modifier up；每组内部保留稳定 HID 排序。不能依赖 page/usage 全局排序：Consumer page 比键盘 page 大，会使 Ctrl 等先于消费键松开。只改变按实际 submitted owners 构建的恢复批次；普通 intent FIFO 和 short accepted prefix 语义保持。新增 Consumer mute + Control 的部分恢复测试，证明第一次短恢复只清消费键，剩余修饰 up 在第二批完成。

@@ -342,3 +342,38 @@ fn unknown_acceptance_freezes_ledger_until_actual_backend_destruction() {
     );
     assert_eq!(queue.backend_destroyed(), Err(OutputError::NotQuarantined));
 }
+
+#[test]
+fn recovery_releases_consumer_key_before_modifier_and_short_return_preserves_scope() {
+    let mut queue = running();
+    queue
+        .enqueue(&[
+            edge("left_control", KeyEdge::Down, 0),
+            edge("consumer:mute", KeyEdge::Down, 0),
+            edge("consumer:mute", KeyEdge::Up, 100),
+            edge("left_control", KeyEdge::Up, 100),
+        ])
+        .unwrap();
+    let down = queue.begin_due(MonoTime(0)).unwrap().unwrap();
+    queue.acknowledge(down.id, 2).unwrap();
+    queue.begin_recovery(MonoTime(1)).unwrap();
+    let cleanup = queue.begin_due(MonoTime(1)).unwrap().unwrap();
+    assert_eq!(
+        cleanup.edges,
+        [
+            edge("consumer:mute", KeyEdge::Up, 1),
+            edge("left_control", KeyEdge::Up, 1)
+        ]
+    );
+    assert_eq!(
+        queue.acknowledge(cleanup.id, 1).unwrap(),
+        Acknowledgment::RecoveryRequired
+    );
+    assert!(queue.submitted().contains(&key("left_control")));
+    assert!(!queue.submitted().contains(&key("consumer:mute")));
+    let rest = queue.begin_due(MonoTime(2)).unwrap().unwrap();
+    assert_eq!(rest.edges, [edge("left_control", KeyEdge::Up, 1)]);
+    queue.acknowledge(rest.id, 1).unwrap();
+    assert_eq!(queue.mode(), Mode::Paused);
+    assert!(queue.submitted().is_empty());
+}

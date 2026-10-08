@@ -56,6 +56,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 ## 平台和故障恢复
 
 - OutputPump 独占 backend/queue；缺少 REPORT 即使 accepted==count 也 acknowledge_incomplete，先 flush 后恢复 ups。UnknownAcceptance/非法 receipt 冻结 flight，drop 唯一设备后才 backend_destroyed；Quarantined submitted 仅为最后已知 prefix。Detached/Recovery 不自动 resume，真实 capture stop/ready/neutral 由 runtime 落实。
+- submitted 恢复批次先释放所有非 modifier（含 Consumer page），再释放标准 modifier；不能按原始 HID 全局排序让消费键晚于 Ctrl up。短恢复只留下未接受的 up，保持原组顺序。
 - keyweave-output 跟踪 desired 与已接受的 submitted；短返回只确认已接受的语义边沿前缀，在途未知接受量不可 reset。恢复完成 Paused，runtime 显式通过物理 neutral gate 后才 resume。
 - 输出已准备好才抓物理输入，启用/重连等待 neutral。抓取前保留可恢复路径。
 - device remove 只释放其 owners，撤销所属 timers/宏；output failure、queue overflow、引擎停滞都进入显式恢复。

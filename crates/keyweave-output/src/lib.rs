@@ -284,12 +284,20 @@ impl OutputQueue {
     fn recover(&mut self) {
         self.queue.clear();
         self.desired.clear();
-        for key in &self.submitted {
-            self.queue.push_back(OutputIntent {
-                at_ns: self.now,
-                key: *key,
-                edge: KeyEdge::Up,
-            });
+        // Consumer-page keys sort after keyboard modifiers by raw HID identity;
+        // release all non-modifiers first so shortcut scope survives their up.
+        for modifier in [false, true] {
+            for key in self
+                .submitted
+                .iter()
+                .filter(|key| key.is_modifier() == modifier)
+            {
+                self.queue.push_back(OutputIntent {
+                    at_ns: self.now,
+                    key: *key,
+                    edge: KeyEdge::Up,
+                });
+            }
         }
         self.mode = if self.queue.is_empty() {
             Mode::Paused
