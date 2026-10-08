@@ -1,6 +1,7 @@
 //! Explicit-clock, bounded IO coordinator. Does not open devices or spawn threads.
 use crate::{
     capture::{CaptureDevice, CaptureError, CapturePhase, CaptureSource},
+    emergency::{EmergencyChord, EmergencyError},
     events::{self, Event, FrameDecoder, Notice, ProtocolError},
     keys::{self, IdentityPolicy, KeyError, KeyNormalizer, NormalizedKey},
     output::{DeviceSpec, RepeatPolicy},
@@ -25,6 +26,7 @@ pub enum RuntimePhase {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
     Pause,
+    Emergency,
     InputFault,
     InputLost,
     EngineFault,
@@ -34,6 +36,10 @@ pub enum StopReason {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error(transparent)]
+    Emergency(#[from] EmergencyError),
+    #[error("no captured device can produce the emergency chord")]
+    EmergencyUnavailable,
     #[error(transparent)]
     Capture(#[from] CaptureError),
     #[error(transparent)]
@@ -79,6 +85,7 @@ struct Input<S: CaptureSource> {
     capture: CaptureDevice<S>,
     decoder: FrameDecoder,
     normalizer: KeyNormalizer,
+    emergency: EmergencyChord,
 }
 pub struct Runtime<S: CaptureSource, B: FrameBackend> {
     inputs: Vec<Input<S>>,
@@ -156,6 +163,13 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                     return Err(RuntimeError::InvalidStartup);
                 }
             }
+            if !inputs.iter().any(|(_, input)| {
+                input
+                    .probe()
+                    .is_some_and(|probe| EmergencyChord::supported(&probe.capabilities.keys))
+            }) {
+                return Err(RuntimeError::EmergencyUnavailable);
+            }
             if backend.spec().repeat() != RepeatPolicy::Kernel {
                 return Err(RuntimeError::RepeatPolicy);
             }
@@ -188,6 +202,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                     capture,
                     decoder: FrameDecoder::new(),
                     normalizer: KeyNormalizer::new(IdentityPolicy::CanonicalEvdev),
+                    emergency: EmergencyChord::new(),
                 })
                 .collect(),
             output,
@@ -232,6 +247,11 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 .map(|(at, _)| at)
                 .into_iter()
                 .chain(self.output.ledger().next_deadline())
+                .chain(
+                    self.inputs
+                        .iter()
+                        .filter_map(|input| input.emergency.next_deadline()),
+                )
                 .min(),
         }
     }
@@ -311,6 +331,17 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 if self.raw.len() + count > events::MAX_NATIVE_BATCH {
                     return Err(ProtocolError::Capacity.into());
                 }
+                for notice in &notices {
+                    if let Notice::Frame(frame) = notice {
+                        for event in frame.iter().filter(|event| event.kind == events::EV_KEY) {
+                            self.inputs[index].emergency.observe(
+                                event.code,
+                                event.value,
+                                self.now,
+                            )?;
+                        }
+                    }
+                }
                 for notice in notices {
                     if let Notice::Frame(frame) = notice {
                         self.raw.extend(
@@ -326,6 +357,12 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         }
     }
     fn active_poll(&mut self) -> Result<usize, RuntimeError> {
+        for input in &mut self.inputs {
+            if input.emergency.advance(self.now)? {
+                self.stop(StopReason::Emergency);
+                return Ok(0);
+            }
+        }
         let mut work = 0;
         if self.pending_keys() == 0
             && !self
@@ -393,6 +430,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         for input in &mut self.inputs {
             input.capture.close();
             input.normalizer.reset();
+            input.emergency.reset();
             input.decoder = FrameDecoder::new();
         }
         self.raw.clear();
@@ -450,6 +488,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             Err(error) => {
                 let reason = match &error {
                     RuntimeError::InputLost => StopReason::InputLost,
+                    RuntimeError::Emergency(_) => StopReason::ControlFault,
                     RuntimeError::Capture(_)
                     | RuntimeError::Protocol(_)
                     | RuntimeError::Key(_)
@@ -1114,5 +1153,184 @@ mod tests {
                 vec![Call::InputClose(1), Call::InputClose(2), Call::OutputClose]
             );
         }
+    }
+    fn emergency_frame(codes: &[u16], value: i32) -> io::Result<ReadBatch> {
+        Ok(ReadBatch::Events(
+            codes
+                .iter()
+                .map(|code| Event::output(1, *code, value))
+                .chain([Event::output(0, 0, 0)])
+                .collect(),
+        ))
+    }
+    #[test]
+    fn emergency_cannot_be_overridden_by_rules_that_swallow_every_chord_key() {
+        let config = Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "swallow emergency".into(),
+            complex: vec![],
+            simple: ["left_control", "left_alt", "left_shift", "f12"]
+                .into_iter()
+                .map(|name| Mapping {
+                    id: name.into(),
+                    from: name.parse().unwrap(),
+                    to: vec![],
+                    allow_extra_modifiers: true,
+                    extras: Default::default(),
+                })
+                .collect(),
+        });
+        let (mut runtime, trace) =
+            make_runtime(vec![vec![emergency_frame(&[29, 56, 42, 88], 1)]], config);
+        runtime.poll(MonoTime(0)).unwrap();
+        assert!(submits(&trace).is_empty());
+        assert_eq!(
+            runtime.next_wakeup(),
+            Some(MonoTime(crate::emergency::HOLD_NS))
+        );
+        runtime
+            .poll(MonoTime(crate::emergency::HOLD_NS - 1))
+            .unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+        let report = runtime.poll(MonoTime(crate::emergency::HOLD_NS)).unwrap();
+        assert_eq!(report.work, 0);
+        assert_eq!(runtime.stop_reason(), Some(StopReason::Emergency));
+        assert_eq!(runtime.phase(), RuntimePhase::Recovering);
+        assert_eq!(trace.borrow()[0], Call::InputClose(1));
+        runtime.poll(MonoTime(crate::emergency::HOLD_NS)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        assert_eq!(trace.borrow().last(), Some(&Call::OutputClose));
+    }
+    #[test]
+    fn emergency_release_before_threshold_cancels_and_repress_restarts() {
+        let hold = crate::emergency::HOLD_NS;
+        let (mut runtime, _) = make_runtime(
+            vec![vec![
+                emergency_frame(&[97, 100, 54, 88], 1),
+                frame(88, 0),
+                frame(88, 1),
+            ]],
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.poll(MonoTime(hold - 1)).unwrap();
+        assert!(runtime.next_wakeup().is_none());
+        runtime.poll(MonoTime(hold)).unwrap();
+        assert_eq!(runtime.next_wakeup(), Some(MonoTime(2 * hold)));
+        runtime.poll(MonoTime(2 * hold - 1)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+        runtime.poll(MonoTime(2 * hold)).unwrap();
+        assert_eq!(runtime.stop_reason(), Some(StopReason::Emergency));
+    }
+    #[test]
+    fn emergency_does_not_combine_keys_from_two_devices() {
+        let (mut runtime, _) = make_runtime(
+            vec![vec![emergency_frame(&[29, 56, 42], 1)], vec![frame(88, 1)]],
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.poll(MonoTime(1)).unwrap();
+        assert!(runtime.next_wakeup().is_none());
+        runtime
+            .poll(MonoTime(2 * crate::emergency::HOLD_NS))
+            .unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+    }
+    #[test]
+    fn emergency_wins_over_same_time_held_timer_and_queued_release() {
+        let hold = crate::emergency::HOLD_NS;
+        let cfg = Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "same deadline".into(),
+            simple: vec![],
+            complex: vec![Mapping {
+                id: "f12".into(),
+                from: "f12".parse().unwrap(),
+                to: vec!["b".parse::<KeyId>().unwrap().into()],
+                allow_extra_modifiers: true,
+                extras: keyweave_engine::MappingExtras {
+                    if_held_down: vec!["c".parse::<KeyId>().unwrap().into()],
+                    held_threshold_ns: hold,
+                    ..Default::default()
+                },
+            }],
+        });
+        let (mut runtime, trace) = make_runtime(
+            vec![vec![emergency_frame(&[29, 56, 42, 88], 1), frame(88, 0)]],
+            cfg,
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        assert_eq!(runtime.engine.next_deadline().unwrap().0, MonoTime(hold));
+        runtime.poll(MonoTime(hold)).unwrap();
+        assert_eq!(runtime.stop_reason(), Some(StopReason::Emergency));
+        assert!(runtime.engine.next_deadline().is_none());
+        assert!(
+            !submits(&trace)
+                .iter()
+                .flat_map(|(edges, _)| edges)
+                .any(|edge| edge.code == 46)
+        );
+        assert_eq!(trace.borrow().last(), Some(&Call::InputClose(1)));
+    }
+    #[test]
+    fn incomplete_frame_cannot_arm_and_time_overflow_stops_capture() {
+        let hold = crate::emergency::HOLD_NS;
+        let (mut runtime, _) = make_runtime(
+            vec![vec![Ok(ReadBatch::Events(
+                [29, 56, 42, 88]
+                    .into_iter()
+                    .map(|code| Event::output(1, code, 1))
+                    .collect(),
+            ))]],
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        assert!(runtime.next_wakeup().is_none());
+        runtime.poll(MonoTime(hold)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+        let (mut runtime, trace) = make_runtime(
+            vec![vec![emergency_frame(&[29, 56, 42, 88], 1)]],
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        );
+        assert!(matches!(
+            runtime.poll(MonoTime(u64::MAX)),
+            Err(RuntimeError::Emergency(EmergencyError::TimeOverflow))
+        ));
+        assert_eq!(runtime.stop_reason(), Some(StopReason::ControlFault));
+        assert_eq!(trace.borrow()[0], Call::InputClose(1));
+        assert!(submits(&trace).is_empty());
+    }
+    #[test]
+    fn startup_rejects_capture_without_a_reachable_physical_emergency_chord() {
+        let (_, backend, trace) = resources(vec![]);
+        let output = probe(backend.path.to_str().unwrap());
+        let proof = OutputNodeReady::verify(&backend.spec, &backend.path, &output).unwrap();
+        let mut physical = probe("/sys/devices/mock/input/input1");
+        physical.capabilities.keys = bits(768, &[113]);
+        let mut input = CaptureDevice::new(Source {
+            id: 1,
+            probe: physical,
+            reads: VecDeque::new(),
+            trace: trace.clone(),
+        });
+        input.arm(&proof).unwrap();
+        assert!(matches!(
+            Runtime::new(
+                vec![(
+                    DeviceInstanceId {
+                        id: 1,
+                        generation: 1
+                    },
+                    input
+                )],
+                backend,
+                Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)))
+            ),
+            Err(RuntimeError::EmergencyUnavailable)
+        ));
+        assert_eq!(
+            *trace.borrow(),
+            vec![Call::InputClose(1), Call::OutputClose]
+        );
     }
 }

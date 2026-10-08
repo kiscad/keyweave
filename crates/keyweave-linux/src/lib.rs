@@ -2,6 +2,7 @@
 pub mod capture;
 #[cfg(target_os = "linux")]
 pub mod device;
+pub mod emergency;
 pub mod events;
 #[cfg(target_os = "linux")]
 mod ioctl;
