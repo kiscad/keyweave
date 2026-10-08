@@ -13,6 +13,7 @@ fn action(name: &str, modifiers: &[&str]) -> Action {
         repeat: true,
         lazy: false,
         halt: false,
+        hold_down_ns: 0,
         modifiers: modifiers.iter().map(|name| key(name)).collect(),
     }
 }

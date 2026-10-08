@@ -151,6 +151,7 @@ fn old_config_and_cursor_survive_up_reload_and_variable_macro() {
         repeat: true,
         lazy: false,
         halt: false,
+        hold_down_ns: 0,
         modifiers: vec![],
         conditions: vec![],
     }];

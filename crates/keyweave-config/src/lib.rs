@@ -751,6 +751,7 @@ impl Compiler<'_> {
             repeat,
             lazy,
             halt,
+            hold_down_ns: 0,
             modifiers,
             conditions,
         })

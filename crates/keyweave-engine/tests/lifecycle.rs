@@ -624,6 +624,7 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
             repeat: false,
             lazy: false,
             halt: false,
+            hold_down_ns: 0,
             modifiers: vec![],
         }],
         allow_extra_modifiers: false,

@@ -343,6 +343,7 @@ fn halted_variable_finishes_its_up_value_after_reload() {
             },
         }),
         halt: true,
+        hold_down_ns: 0,
         ..key("b").into()
     };
     let mut rule = mapping("a", vec![action]);

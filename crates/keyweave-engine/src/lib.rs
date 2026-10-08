@@ -1,4 +1,5 @@
 //! Deterministic remapping. No OS input, file IO, threads or wall clock.
+pub mod action_plan;
 mod conditions;
 mod modifiers;
 pub mod timeline;
@@ -27,6 +28,7 @@ pub struct Action {
     pub repeat: bool,
     pub lazy: bool,
     pub halt: bool,
+    pub hold_down_ns: u64,
     pub modifiers: Vec<KeyId>,
     pub conditions: Vec<Condition>,
 }
@@ -37,6 +39,7 @@ impl From<KeyId> for Action {
             repeat: true,
             lazy: false,
             halt: false,
+            hold_down_ns: 0,
             modifiers: Vec::new(),
             conditions: Vec::new(),
         }
@@ -287,6 +290,15 @@ impl ConfigSnapshot {
         Ok(names)
     }
     fn validate_timed_stages(&self) -> Result<(), EngineError> {
+        if self
+            .simple
+            .iter()
+            .chain(&self.complex)
+            .flat_map(Mapping::actions)
+            .any(|action| action.hold_down_ns != 0)
+        {
+            return Err(EngineError::UnsupportedActionTiming);
+        }
         if self.simple.iter().any(|mapping| {
             !mapping.extras.if_held_down.is_empty()
                 || mapping
@@ -446,6 +458,8 @@ pub enum EngineError {
     InvalidVariable,
     #[error("held and delayed actions require a complex mapping")]
     InvalidMapping,
+    #[error("action duration requires the deferred stage actor, which is not yet connected")]
+    UnsupportedActionTiming,
     #[error("a due deadline must be delivered before this physical event")]
     DeadlinePending,
     #[error("cancel delayed tasks individually before this down to keep output bounded")]
