@@ -19,6 +19,7 @@ pub struct EvdevDevice {
     file: File,
     layout: Layout,
     probe: Probe,
+    device_number: (u32, u32),
 }
 fn error(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -101,6 +102,7 @@ impl EvdevDevice {
         Ok(Self {
             file,
             layout,
+            device_number: (libc::major(dev), libc::minor(dev)),
             probe: Probe {
                 id,
                 name,
@@ -120,6 +122,9 @@ impl EvdevDevice {
     }
     pub(crate) fn wait_fd(&self) -> std::os::fd::BorrowedFd<'_> {
         self.file.as_fd()
+    }
+    pub(crate) fn device_number(&self) -> (u32, u32) {
+        self.device_number
     }
     pub(crate) fn set_grab(&self, grabbed: bool) -> io::Result<()> {
         ioctl::evdev_grab(self.file.as_fd(), grabbed)

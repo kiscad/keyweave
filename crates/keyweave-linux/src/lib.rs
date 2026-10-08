@@ -3,6 +3,8 @@ pub mod activation;
 pub mod capture;
 #[cfg(target_os = "linux")]
 pub mod device;
+#[cfg(target_os = "linux")]
+pub mod discovery;
 pub mod emergency;
 pub mod events;
 #[cfg(target_os = "linux")]

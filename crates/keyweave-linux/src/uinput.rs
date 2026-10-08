@@ -93,6 +93,32 @@ impl UinputDevice {
     pub fn input_syspath(&self) -> &Path {
         &self.input_syspath
     }
+    /// Discover only our own event node. None means registration is incomplete;
+    /// success verifies identity/capabilities, not desktop consumer readiness.
+    pub fn discover_output_node(&self) -> io::Result<Option<crate::device::EvdevDevice>> {
+        if self.state != OutputState::Ready {
+            return Err(io::Error::other("output is not ready for node discovery"));
+        }
+        let Some(candidate) =
+            crate::discovery::locate_event(&self.input_syspath, Path::new("/dev/input"))?
+        else {
+            return Ok(None);
+        };
+        let node = match crate::device::EvdevDevice::open(&candidate.path) {
+            Ok(node) => node,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if node.device_number() != candidate.device_number {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "output event device number mismatch",
+            ));
+        }
+        self.verify_output_node(&node)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        Ok(Some(node))
+    }
     pub(crate) fn wait_fd(&self) -> std::os::fd::BorrowedFd<'_> {
         self.file.as_fd()
     }

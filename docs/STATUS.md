@@ -1,6 +1,6 @@
 # 项目状态
 
-更新日期：2026-10-08。
+更新日期：2026-10-09。
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、356 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、366 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -88,3 +88,5 @@ D06 native worker loop：reactor.rs 与 ioctl.rs 接通 CLOCK_MONOTONIC 绝对�
 D06 inherited worker channels：WorkerStartup 在真实 main、打开设备前核验父保护与正 u64 run ID，fstat/F_GETFL 检查 stdin/stderr 是不同 FIFO、读写方向匹配且 NONBLOCK；仅复制已验证的进度管道为 owned CLOEXEC File，构建 ProgressClient 并提供 consuming into_parts。每个进程单次 claim，Drop 或创建失败以后不重试；原标准流继续保留，退出以实际 Child status 为证。未接管 0/2 的裸 FD、未复制设备 FD，也未给普通 heartbeat 续约。新增 3 个真实管道/所有权测试和 1 个 ID 边界测试；独立 main harness 扩展正常接收、错误线程、重复 claim/Drop 后重领拒绝、保护跨普通 exec 保留时 malformed run ID 拒绝。workspace 344 个 libtest 测试及该 harness 通过，fmt/clippy/60-source verifier/原 evdev-uinput C UAPI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。构造与复制管道实际读写已验证，完整设备 bootstrap/可执行 worker/consumer ready/Windows CI 和真机仍未完成；harness 原始协议响应不等于生产 Runtime 完整启动验收，见 ADR-0029。完整目标继续。
 
 D06 多设备捕获事务：activation.rs 的 CaptureGroup 独占最多 64 个输入与配置，验证 count/unique ID/path/Standby/Engine 可执行性；每次 arm 在任何 query/grab 前全组检查虚拟身份/能力/配置输出/Kernel repeat/紧急组合，之后全部 neutral→逐设备 guard arm→全部最终 neutral。WaitingNeutral 回滚所有已抓取前缀；任何错误回滚并关闭全部输入，保留主设备错误及有限多 rollback failures，失败后不可复用；Armed 消费移交 Runtime，未准入/后端身份不一致失败均输入先于输出关闭。capture.rs 将原纯准入检查与 state query 分开，单设备语义不变。新增 12 个测试，workspace 共 356 个 libtest 测试及独立 main-thread harness 通过；fmt/clippy/source verifier（60 hashes）/原 evdev-uinput C ABI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。全部新设备行为使用 mock，未抓取真实键盘/uinput，Windows CI 未运行。OutputNodeReady 仍不证明 consumer ready，跨设备 query/grab 不原子且 EVIOCGKEY arming 窗口可能丢 tap；组不能被描述为完整可部署 bootstrap，见 ADR-0030。可执行 worker/发现虚拟 event node/桌面 ready/热插拔/LED/session/GUI/Windows/driver 与 D05 余项仍待完成。
+
+D06 owned output node discovery（2026-10-09）：discovery.rs/ UinputDevice::discover_output_node 从 owned canonical input syspath 定位唯一 eventN，最多 64 entries/33 bytes dev 属性，拒绝越界 symlink/歧义/错误类型与 major；实际 EvdevDevice 打开后比较 FD major/minor 与公告，再核验虚拟 parent/完整能力。NodeDiscovery 默认 2s deadline、20ms retry，最多 5s、最小间隔 1ms，完成/故障不重领；生产 poll_uinput 在 probe 前后取实际单调时钟，迟到节点 Drop，不以固定 sleep 当 ready。新增 10 个时间/mock probe/临时文件系统测试，workspace 366 个 libtest 测试及独立 main-thread harness 通过，fmt/clippy/60-source verifier/原 evdev-uinput C ABI probe/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。没有创建或打开系统输入设备；实际节点成功打开/创建仍未验收，Windows CI 未运行。节点身份 ready 不等于桌面消费者 ready，完整 bootstrap/可执行 worker/consumer provider/其他平台及原余项继续保留，见 ADR-0031。
