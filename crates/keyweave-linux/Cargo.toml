@@ -12,8 +12,12 @@ keyweave-types.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.176"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
 
 [dev-dependencies]
 keyweave-engine.workspace = true
