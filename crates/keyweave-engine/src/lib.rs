@@ -2,6 +2,7 @@
 pub mod action_plan;
 mod conditions;
 mod modifiers;
+pub mod terminal_actor;
 pub mod timeline;
 pub use conditions::{Condition, InputSourceFilter, Pattern, Truth};
 use keyweave_types::*;
@@ -289,13 +290,14 @@ impl ConfigSnapshot {
         }
         Ok(names)
     }
-    fn validate_timed_stages(&self) -> Result<(), EngineError> {
-        if self
-            .simple
-            .iter()
-            .chain(&self.complex)
-            .flat_map(Mapping::actions)
-            .any(|action| action.hold_down_ns != 0)
+    fn validate_timed_stages(&self, allow_action_timing: bool) -> Result<(), EngineError> {
+        if !allow_action_timing
+            && self
+                .simple
+                .iter()
+                .chain(&self.complex)
+                .flat_map(Mapping::actions)
+                .any(|action| action.hold_down_ns != 0)
         {
             return Err(EngineError::UnsupportedActionTiming);
         }
@@ -520,7 +522,13 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, EngineError> {
-        config.validate_timed_stages()?;
+        Self::new_inner(config, false)
+    }
+    fn new_inner(
+        config: Arc<ConfigSnapshot>,
+        allow_action_timing: bool,
+    ) -> Result<Self, EngineError> {
+        config.validate_timed_stages(allow_action_timing)?;
         let variables = config
             .variable_names()?
             .into_iter()
@@ -666,10 +674,17 @@ impl Engine {
     }
 
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), EngineError> {
+        self.activate_inner(config, false)
+    }
+    fn activate_inner(
+        &mut self,
+        config: Arc<ConfigSnapshot>,
+        allow_action_timing: bool,
+    ) -> Result<(), EngineError> {
         if config.generation <= self.config.generation {
             return Err(EngineError::InvalidGeneration);
         }
-        config.validate_timed_stages()?;
+        config.validate_timed_stages(allow_action_timing)?;
         let names = config.variable_names()?;
         if self
             .variables

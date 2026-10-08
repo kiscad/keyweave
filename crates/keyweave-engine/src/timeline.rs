@@ -190,6 +190,13 @@ impl<T> StageTimeline<T> {
     pub fn next_deadline(&self) -> Option<MonoTime> {
         self.first().map(|(at, _, _)| at)
     }
+    pub fn advance(&mut self, now: MonoTime) -> Result<(), TimelineError> {
+        if now < self.now {
+            return Err(TimelineError::TimeReversed);
+        }
+        self.now = now;
+        Ok(())
+    }
     pub fn pop_due(&mut self, now: MonoTime) -> Result<Option<DueEvent<T>>, TimelineError> {
         if now < self.now {
             return Err(TimelineError::TimeReversed);
@@ -219,7 +226,7 @@ impl<T> StageTimeline<T> {
     ) -> Vec<StageEvent<T>> {
         self.discard_where(|event| event.device == device && event.source == source)
     }
-    fn discard_where(
+    pub(crate) fn discard_where(
         &mut self,
         mut matches: impl FnMut(&StageEvent<T>) -> bool,
     ) -> Vec<StageEvent<T>> {

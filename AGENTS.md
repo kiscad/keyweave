@@ -24,6 +24,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 
 ## 模块与代码约束
 
+- TerminalActor 只执行 Output 阶段，arena 的 up 释放保存 Bound；新批次来自当前 Arc，已接收批次保留旧快照。input_up 先 drain due，Reset/remove 控制优先。512 planned/emitted keys 预算包括已完成批次 latent modifier；普通 Engine/CLI 的 duration gate 仍保留。
 - action_plan 是已过滤批次的纯计划器，BatchId/slot 由 actor 分配，down/up 复用保存 binding；halt 仍关联原 rule binding，不以批次替代。当前递归 Engine 拒绝非零 hold_down_ns，配置 duration gate 只有在 actor 接入及回放验收后才能解除。
 - StageTimeline 只负责有界延后工作，取消会返回未执行 payload；actor 区分尚未执行预算和已执行 owner，不可为取消的 down 编造 up。同刻外部控制/父子阶段优先级仍需明确；现有组件不代表 hold duration 已接入。
 - engine/types 必须脱离 OS、GUI、文件系统、系统实时时钟、IPC；所有时间显式注入，可完全确定性回放。

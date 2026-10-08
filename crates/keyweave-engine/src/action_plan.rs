@@ -10,10 +10,10 @@ use thiserror::Error;
 
 pub const MAX_ACTION_DURATION_NS: u64 = 86_400_000_000_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BatchId(pub u64);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ActionSlot {
     pub batch: BatchId,
     pub index: u16,
@@ -42,13 +42,22 @@ pub struct PlanOrigin {
 
 #[derive(Clone, Debug)]
 pub struct ActionPlan {
-    pub events: Vec<StageEvent<PlannedAction>>,
+    pub(crate) events: Vec<StageEvent<PlannedAction>>,
     /// Up commands that must wait for original input up; duration never replaces it.
-    pub release_on_input_up: Vec<PlannedAction>,
-    pub ends_at: MonoTime,
-    origin: PlanOrigin,
+    pub(crate) release_on_input_up: Vec<PlannedAction>,
+    pub(crate) ends_at: MonoTime,
+    pub(crate) origin: PlanOrigin,
 }
 impl ActionPlan {
+    pub fn events(&self) -> &[StageEvent<PlannedAction>] {
+        &self.events
+    }
+    pub fn releases(&self) -> &[PlannedAction] {
+        &self.release_on_input_up
+    }
+    pub fn ends_at(&self) -> MonoTime {
+        self.ends_at
+    }
     pub fn input_up_events(&self, at: MonoTime) -> Vec<StageEvent<PlannedAction>> {
         self.release_on_input_up
             .iter()

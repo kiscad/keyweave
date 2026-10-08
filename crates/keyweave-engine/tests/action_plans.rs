@@ -25,7 +25,7 @@ fn origin(start: u64) -> PlanOrigin {
     }
 }
 fn summary(plan: &ActionPlan) -> Vec<(u64, String, KeyEdge)> {
-    plan.events
+    plan.events()
         .iter()
         .map(|event| {
             let name = match &event.payload.target {
@@ -48,13 +48,13 @@ fn duration_advances_tapped_up_and_all_later_actions_but_held_last_waits_for_inp
             (60, "c".into(), KeyEdge::Down)
         ]
     );
-    assert_eq!(plan.ends_at, MonoTime(60));
-    assert_eq!(plan.release_on_input_up.len(), 1);
+    assert_eq!(plan.ends_at(), MonoTime(60));
+    assert_eq!(plan.releases().len(), 1);
     let up = plan.input_up_events(MonoTime(30));
     assert_eq!(up[0].at_ns, MonoTime(60));
     assert_eq!(up[0].payload.target, ActionTarget::Key(key("c")));
     assert_eq!(up[0].payload.edge, KeyEdge::Up);
-    assert_eq!(plan.events[2].payload.slot, up[0].payload.slot);
+    assert_eq!(plan.events()[2].payload.slot, up[0].payload.slot);
 }
 #[test]
 fn all_extra_actions_are_taps_and_duration_sums_instead_of_running_in_parallel() {
@@ -68,8 +68,8 @@ fn all_extra_actions_are_taps_and_duration_sums_instead_of_running_in_parallel()
             (260, "c".into(), KeyEdge::Up)
         ]
     );
-    assert!(plan.release_on_input_up.is_empty());
-    assert_eq!(plan.ends_at, MonoTime(260));
+    assert!(plan.releases().is_empty());
+    assert_eq!(plan.ends_at(), MonoTime(260));
 }
 #[test]
 fn repeat_false_last_action_is_tapped_at_its_duration() {
@@ -80,7 +80,7 @@ fn repeat_false_last_action_is_tapped_at_its_duration() {
         summary(&plan),
         [(0, "b".into(), KeyEdge::Down), (5, "b".into(), KeyEdge::Up)]
     );
-    assert!(plan.release_on_input_up.is_empty());
+    assert!(plan.releases().is_empty());
 }
 #[test]
 fn scope_up_waits_for_tapped_main_up_and_next_action_reuses_no_slots() {
@@ -99,9 +99,9 @@ fn scope_up_waits_for_tapped_main_up_and_next_action_reuses_no_slots() {
             (50, "c".into(), KeyEdge::Down)
         ]
     );
-    assert!(plan.events[0].payload.lazy && plan.events[1].payload.lazy);
-    assert_eq!(plan.events[0].payload.slot, plan.events[4].payload.slot);
-    assert_ne!(plan.events[2].payload.slot, plan.events[6].payload.slot);
+    assert!(plan.events()[0].payload.lazy && plan.events()[1].payload.lazy);
+    assert_eq!(plan.events()[0].payload.slot, plan.events()[4].payload.slot);
+    assert_ne!(plan.events()[2].payload.slot, plan.events()[6].payload.slot);
 }
 #[test]
 fn last_modifier_scopes_survive_repeat_false_main_tap_until_original_up() {
@@ -117,13 +117,13 @@ fn last_modifier_scopes_survive_repeat_false_main_tap_until_original_up() {
             (50, "left_control".into(), KeyEdge::Up)
         ]
     );
-    assert!(!plan.events[0].payload.lazy);
-    assert_eq!(plan.release_on_input_up.len(), 1);
+    assert!(!plan.events()[0].payload.lazy);
+    assert_eq!(plan.releases().len(), 1);
     assert_eq!(
-        plan.release_on_input_up[0].target,
+        plan.releases()[0].target,
         ActionTarget::Key(key("left_shift"))
     );
-    assert!(plan.release_on_input_up[0].lazy);
+    assert!(plan.releases()[0].lazy);
 }
 #[test]
 fn explicit_lazy_and_halt_are_main_down_options_and_do_not_truncate_current_array() {
@@ -132,11 +132,11 @@ fn explicit_lazy_and_halt_are_main_down_options_and_do_not_truncate_current_arra
     a.halt = true;
     a.modifiers = vec![key("left_shift")];
     let plan = plan_actions(&[a, action("b", 0)], origin(0), true).unwrap();
-    assert_eq!(plan.events.len(), 6);
-    assert!(plan.events[0].payload.lazy);
-    assert!(plan.events[1].payload.lazy && plan.events[1].payload.halt);
-    assert!(plan.events[2].payload.lazy && !plan.events[2].payload.halt);
-    assert_eq!(plan.events[4].payload.target, ActionTarget::Key(key("b")));
+    assert_eq!(plan.events().len(), 6);
+    assert!(plan.events()[0].payload.lazy);
+    assert!(plan.events()[1].payload.lazy && plan.events()[1].payload.halt);
+    assert!(plan.events()[2].payload.lazy && !plan.events()[2].payload.halt);
+    assert_eq!(plan.events()[4].payload.target, ActionTarget::Key(key("b")));
 }
 #[test]
 fn variable_down_and_up_share_slot_and_preserve_typed_up_value() {
@@ -149,10 +149,10 @@ fn variable_down_and_up_share_slot_and_preserve_typed_up_value() {
         },
     });
     let plan = plan_actions(&[a.clone()], origin(10), true).unwrap();
-    assert_eq!(plan.events[0].payload.target, a.target);
-    assert_eq!(plan.events[1].payload.target, a.target);
-    assert_eq!(plan.events[0].payload.slot, plan.events[1].payload.slot);
-    assert_eq!(plan.events[1].at_ns, MonoTime(60));
+    assert_eq!(plan.events()[0].payload.target, a.target);
+    assert_eq!(plan.events()[1].payload.target, a.target);
+    assert_eq!(plan.events()[0].payload.slot, plan.events()[1].payload.slot);
+    assert_eq!(plan.events()[1].at_ns, MonoTime(60));
 }
 #[test]
 fn plan_runs_through_timeline_at_each_scheduled_time_with_original_provenance() {
@@ -160,7 +160,7 @@ fn plan_runs_through_timeline_at_each_scheduled_time_with_original_provenance() 
     let plan = plan_actions(&[action("b", 50), action("c", 0)], source.clone(), false).unwrap();
     let mut queue = StageTimeline::new();
     queue.observe_device(source.device, false).unwrap();
-    queue.enqueue(plan.events.clone()).unwrap();
+    queue.enqueue(plan.events().to_vec()).unwrap();
     let down = queue.pop_due(MonoTime(0)).unwrap().unwrap();
     assert_eq!(down.event.payload.target, ActionTarget::Key(key("b")));
     assert!(queue.pop_due(MonoTime(49)).unwrap().is_none());
@@ -208,8 +208,8 @@ fn invalid_time_capacity_and_scope_fail_before_any_plan_is_returned() {
 #[test]
 fn empty_plan_has_no_phantom_outputs_or_original_up() {
     let plan = plan_actions(&[], origin(5), true).unwrap();
-    assert!(plan.events.is_empty() && plan.release_on_input_up.is_empty());
-    assert_eq!(plan.ends_at, MonoTime(5));
+    assert!(plan.events().is_empty() && plan.releases().is_empty());
+    assert_eq!(plan.ends_at(), MonoTime(5));
 }
 #[test]
 fn duration_ir_cannot_silently_execute_on_the_recursive_engine() {
@@ -240,7 +240,7 @@ fn separate_batches_from_same_physical_source_have_distinct_saved_slots() {
     let mut next = origin(0);
     next.batch = BatchId(2);
     let b = plan_actions(&[action("b", 0)], next, false).unwrap();
-    assert_eq!(a.events[0].source, b.events[0].source);
-    assert_ne!(a.events[0].payload.slot, b.events[0].payload.slot);
-    assert_eq!(a.events[0].payload.slot, a.release_on_input_up[0].slot);
+    assert_eq!(a.events()[0].source, b.events()[0].source);
+    assert_ne!(a.events()[0].payload.slot, b.events()[0].payload.slot);
+    assert_eq!(a.events()[0].payload.slot, a.releases()[0].slot);
 }
