@@ -1,0 +1,521 @@
+# KeyWeave 开发指导文档
+
+版本：设计草案 1.0。日期：2026-10-08。读者：实现本项目的 Coding Agent、代码审查者和平台测试人员。
+
+本文件中的“必须”是项目实施约束，“建议”是可通过 ADR 修改的初始选择，“目标”是待验证指标。所有 API 草图、命令和目录树均描述未来实现，不代表已经存在的可执行软件。源码证据见 [SOURCE_AUDIT](SOURCE_AUDIT.zh-CN.md)，实施工作单见 [IMPLEMENTATION_BACKLOG](IMPLEMENTATION_BACKLOG.zh-CN.md)。
+
+## 1. 可行性结论与产品边界
+
+**可以用 Rust 重写并支持 Windows/Linux。应移植规则语义和设备生命周期，而不是逐文件翻译 C++/Swift。** Karabiner 的独占输入、规则处理和虚拟输出三部分在 macOS 上由不同技术承担。规则处理基本可以跨平台；设备捕获、输出、桌面上下文、服务安装必须重新实现。
+
+| 部分 | 判断 | 实施方式 |
+| --- | --- | --- |
+| 类型、配置、规则、时间调度、回放 | 可行性高 | 纯 Rust，脱离操作系统可测试 |
+| Linux 键盘映射、按设备规则 | 可行性高 | evdev 读取与独占，uinput 输出 |
+| Windows 普通桌面、全局键盘规则 | 可行性高，但能力有限 | 低级键盘 Hook 与 SendInput |
+| Windows 可靠按设备拦截 | 可行但风险高 | 键盘过滤驱动或经过验证的第三方驱动适配 |
+| Windows 虚拟 HID | 可行但需要内核工程 | VHF HID source driver；不能解决物理输入屏蔽问题 |
+| Windows 全 Rust 内核驱动 | 可以研究，不能预先承诺生产成熟度 | `windows-drivers-rs` 原型验证、单独构建与发布评审 |
+| macOS SwiftUI、IOKit、DriverKit 代码直接复用 | 不适合 | 作为行为参考；不引入主程序链接依赖 |
+| Wayland 全桌面通用的前台应用判断 | 不应承诺 | 独立桌面适配器与能力探测 |
+
+Linux 的用户空间虚拟输入有官方内核接口支持，Rust 重映射项目 Kanata 也提供了跨平台实践。这是路线可行性的佐证，不是 KeyWeave 已达到相同性能或覆盖面的证明。[Linux uinput 文档](https://kernel.org/doc/html/latest/input/uinput.html)、[Kanata 官方仓库](https://github.com/jtroo/kanata)。
+
+Windows 的 Rust 驱动生态在核验时仍明确不推荐生产使用。因此分清两种承诺：**应用、引擎和 Linux 后端使用 Rust 是合理基线；Windows 驱动也全 Rust，需要通过研究门槛。** 若原型失败，保持用户态版可用，记录失败原因；可以评估最小 KMDF C/C++ 桥接层，但不得悄悄改变 Rust 实现目标，也不得把该替代方案记为已选定。[Microsoft windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs)。
+
+### 1.1 第一版范围
+
+首个可发布版本以 Linux 为主，Windows 提供标明限制的用户态后端。两者共享：简单映射、左右修饰键、`mandatory/optional`、有序输出、轻触单独动作、按住动作、组合键、变量层、规则条件、热更新、暂停和故障恢复。Linux 提供可靠设备识别；Windows 用户态仅提供全局规则和设备查看。
+
+GUI 在 CLI、引擎和后端稳定后实现。优先让用户能导入已有配置、查看不能支持的字段，并运行熟悉的规则。宏、鼠标、输入法、脚本、表达式和驱动按独立任务交付。
+
+第一版不包含：macOS 新后端、Touch Bar/多点触控扩展、游戏手柄摇杆、所有 Apple vendor usage 的等价行为、系统登录前自定义映射、Windows 安全桌面、SAS（Ctrl+Alt+Delete）映射、反作弊兼容保证、完整 JavaScript/ExprTk 兼容性。
+
+“读取到一个字段”和“正确执行这个字段”必须分开统计。接受导入不能静默忽略功能性字段；一条规则的必要条件或动作不可实现时，默认禁用整条规则并返回诊断。
+
+### 1.2 能力矩阵
+
+符号：A = 计划支持且有明确平台路径；B = 有限制、需要实机测试；R = 研究阶段；— = 本版本不支持。不是当前实现状态。
+
+| 能力 | Linux evdev/uinput | Windows Hook | Windows 驱动路线 |
+| --- | --- | --- | --- |
+| 普通键、左右修饰键、全局规则 | A | A | A |
+| 可靠区分事件来自哪把键盘 | A | — | R |
+| 原始事件在目标应用前被屏蔽 | A，设备独占 | B，普通消息路径 | R，依过滤层次验证 |
+| 变量层、tap/hold、simultaneous | A | A，需计时与拦截测试 | A，由用户态引擎处理 |
+| 原始设备身份在目标应用中保持 | —，虚拟设备输出 | —，注入事件 | —，VHF 为新身份 |
+| 媒体键、鼠标按钮、相对移动 | A，后续里程碑 | B，单独能力表 | R，需额外报告/过滤链路 |
+| 应用条件 | B，X11/桌面适配器 | A，进程上下文 | A，通过会话 agent |
+| 输入源条件与切换 | B，桌面/IME 分别适配 | B，HKL/TSF 区别 | B，仍靠会话 agent |
+| Wayland 原生应用的基础映射 | A，内核层路径 | 不适用 | 不适用 |
+| 锁屏、登录界面、VT、多座席 | B，初期暂停映射 | —，不承诺 | R，产品策略待定 |
+| Raw Input/游戏的行为 | B，需要针对应用验证 | —，不保证等价 | R，仍需实测 |
+| 崩溃后保持物理键盘可输入 | 必须验收 | 必须验收，有注入状态限制 | 必须由驱动看门狗验收 |
+
+Linux 独占设备会影响所有读取该设备的消费者。uinput 输出再由桌面处理，不能因此推断任意 GNOME/KDE/Sway 功能都可用。Windows 虚拟输入也不等于物理键盘：身份、报告格式、目标应用策略都会影响结果。
+
+## 2. 从 macOS 实现提炼的设计要求
+
+### 2.1 真实流水线
+
+本地版本是 `CoreService` 架构，不应按旧版本的 `src/core/grabber` 路径编写移植工作单。源码中的管线为：
+
+```mermaid
+flowchart LR
+    H[IOKit HID 设备与报告] --> Q[merged_input_event_queue]
+    T[CGEventTap 键盘回退] --> Q
+    Q --> D[按设备键码修正]
+    D --> S[简单映射]
+    S --> C[复杂规则]
+    C --> F[Fn 功能键策略]
+    F --> P[输出状态与队列]
+    P --> V[DriverKit 虚拟 HID 服务]
+    P --> U[ConsoleUserServer 用户动作]
+    E[应用 输入源 变量 设备环境] --> Q
+```
+
+E01–E10（证据编号见源码分析）说明：每一阶段有自己的队列状态；规则不是无状态查表；`original_event`、事件有效性、虚拟事件标记、延迟时间共同参与处理。
+
+KeyWeave 保留阶段顺序：设备修正 → 简单映射 → 复杂规则 → 平台功能键策略 → 输出账本。功能键策略默认保持 F1–F24；不自动套用 macOS 的 F10/mute 等默认策略。
+
+### 2.2 必须保留或明确偏离的语义
+
+1. **按下与松开配对。** 按下时保存原始来源、规则代次与输出动作；松开时用这个记录，不重新匹配新配置、新应用条件或新修饰状态。
+2. **规则顺序。** 同一阶段按配置数组顺序处理。事件被消费后，后续规则不能再消费它。后续阶段仍能处理前阶段输出；不能把多阶段映射错误合并成单次全局匹配。
+3. **设备规则优先。** 简单映射中的设备项先于全局项。不能用 HashMap 遍历顺序作为优先级。
+4. **修饰匹配。** `mandatory` 要存在，`optional` 允许额外修饰；缺省 optional 不表示任意。`mandatory:any` 与 `optional:any` 含义不同。左右键与抽象 `shift/control/option/command` 分开。
+5. **消费 mandatory 修饰。** 输出动作可能临时释放输入的 mandatory 修饰，再在正确时机恢复。只把输出键换掉会造成错误快捷键。
+6. **轻触不是通用 tap-hold 算法。** 上游 `to_if_alone` 在松开时检查 alone 和严格小于超时；别的键按下、鼠标按钮/滚轮可取消 alone，纯指针移动在该函数中不取消。不可用任意 tap-hold 库替代而不做差分。
+7. **按住动作。** `to_if_held_down` 使用计时任务，可能替换已按下的 `to` 输出。另一个 key_down 的取消行为和原键松开后 active 记录失效都要覆盖，不能只检查按住总时长。
+8. **延迟动作。** `to_delayed_action` 的触发/取消语义基于后续 key_down；不是简单的“原键 key_up 即取消”。计时器同样参与事件顺序。
+9. **组合键。** 在阈值窗口中收集输入，处理 down/up 顺序、任意/全部松开、被其他键打断和超时回放。上游允许跨设备收集不同键；第一版若限制同设备，必须作为显式兼容偏差报告。
+10. **热更新。** 旧规则不接新按下，但仍完成已有按键生命周期。`invalidate` 不等于清空 active。配置解析错误保留上次有效快照。
+11. **设备移除。** 释放其拥有的输出、修饰和按钮，取消该设备任务，移除规则实例；不能影响其他设备仍持有的同一输出键。
+12. **回注防循环。** 优先靠可靠来源标识避免读取自己的虚拟设备或注入事件；禁止只按“键码+几毫秒”去重，误伤真实快速输入。
+13. **同时刻排序。** 只在明确同一批/时间戳且策略启用时处理：修饰 down 在普通 down 前、普通 up 在修饰 up 前；不重排真实跨批事件。
+14. **状态类别。** 物理按住、输出按住、系统锁定、sticky/lazy 修饰不同。CapsLock/NumLock 的物理按下和锁定状态不能用一个 bool 表示。
+15. **最新源码额外能力。** `to_if_other_key_pressed`、to 内条件、`hold_down_milliseconds` 别名、`eval_js`、expression、`send_user_command` 都存在；首版可延期，但不能漏报。
+
+KeyWeave 建议有意改善普通输出键的多来源所有权：上游 `key_event_dispatcher` 对普通键按 usage 去重，不是通用引用计数；新实现按来源/规则实例计数，避免两把键盘输出相同键时提前释放。此处需 ADR 和独立 golden，不能声称与上游逐事件完全一致。
+
+## 3. 跨平台架构
+
+### 3.1 进程和权限边界
+
+```mermaid
+flowchart TB
+    UI[非特权 GUI 与 keyweavectl] --> IPC[本地 IPC 控制面]
+    A[当前会话 agent: 应用 输入法 用户动作] --> IPC
+    IPC --> R[运行时: 配置快照 单线程引擎 调度]
+    R --> B[平台后端]
+    B --> L[Linux input/uinput]
+    B --> W[Windows Hook/SendInput 会话进程]
+    B --> D[可选 Windows 过滤驱动与虚拟 HID]
+```
+
+建议 Linux 初期是明确选择键盘的前台进程；稳定后分为受控设备 broker 与非特权 runtime/session agent。broker 持有独占输入与 uinput，runtime 发有限输出指令。broker 监控引擎进度并可关闭设备句柄恢复输入。不能由另一个进程保留抓取 FD 的副本，否则 runtime 被杀不释放独占。
+
+broker 与 runtime 的输出 IPC 要测试延迟和有界队列，别为了进程拆分破坏顺序。如果原型证明此拆分不合适，可以让 broker 包含引擎，以 supervisor 检查实际事件循环进度；通过 ADR 记录选择和权限约束。
+
+Windows Hook 运行于用户交互会话及消息循环线程，不能直接放在 Session 0 服务中处理桌面输入。驱动版的系统服务负责驱动通信，每个交互会话 agent 负责上下文和用户动作；同一设备同时只能属于一个已授权的会话/seat 租约。
+
+GUI 不直接持有捕获句柄；关闭 GUI 不停止映射。所有 shell/应用启动/输入法切换由当前用户 session agent 执行；root/SYSTEM 不执行导入配置里的命令。
+
+### 3.2 建议 Cargo workspace
+
+以下为未来布局；本次没有生成空 Cargo 包。
+
+```text
+keyweave/
+  AGENTS.md
+  docs/                         # 设计、ADR、状态、平台测试记录
+  crates/
+    keyweave-types/              # KeyId、DeviceId、时间、事件与能力
+    keyweave-config/             # JSON/JSONC AST、诊断、IR 编译、导入
+    keyweave-engine/             # 纯状态机、阶段、输出所有权、deadline
+    keyweave-backend/            # 平台契约；不引入具体 OS API
+    keyweave-backend-linux/      # evdev/uinput、设备发现、FD 生命周期
+    keyweave-backend-windows/    # Win32 Hook、SendInput、可选驱动客户端
+    keyweave-runtime/            # 引擎循环、热更新、租约、恢复
+    keyweave-protocol/           # 有版本 IPC DTO，与驱动 ABI 分离
+    keyweave-session/            # 应用/输入源上下文、用户动作
+    keyweavectl/                 # validate/import/replay/doctor/pause
+    keyweave-ui/                 # 后续 Rust GUI
+  tests/fixtures/                # 脱敏合成回放、上游来源说明
+  tools/                        # 导入 fixture、校验、性能测量
+  packaging/linux/              # systemd/udev/包模板
+  packaging/windows/            # 安装器、服务/会话启动、卸载
+  drivers/windows/              # 单独 WDK workspace，不入默认构建
+```
+
+依赖方向：types ← config/engine/backend/protocol ← OS backend/session ← runtime/CLI/UI。engine 不依赖 backend、IPC、GUI、系统时间或文件系统；config 编译器可使用 engine 公共 IR，反向依赖禁止。
+
+初期只建 types/config/engine/CLI，避免一开始维护十几个空包。平台模块按真实实现再拆包。Windows driver 工程不参与 `cargo test --workspace`，Linux 机器不能因此需要 WDK。
+
+### 3.3 Rust 技术选择
+
+| 任务 | 建议 | 选择理由与限制 |
+| --- | --- | --- |
+| 序列化、错误、CLI | serde/serde_json、thiserror、clap | 不在事件热路径做 JSON 解析 |
+| JSONC | 独立 JSONC 解析器或经测试的预处理 | 不用正则删注释，保留行列与 JSON Pointer |
+| 规则匹配 | Rust regex；预编译索引 | ECMAScript 正则并非等价，拒绝不支持语法 |
+| Linux 输入 | evdev + rustix；必要时受控 ioctl | 确认 raw/synchronized 模式与 uinput API |
+| Windows API | windows/windows-sys | 用窄的安全包装封装所有 FFI |
+| 控制面 | Unix socket / Windows named pipe | 本地连接、OS 身份校验，默认不开放 TCP |
+| 配置监视 | notify | 处理 replace/rename、去抖、完整快照 |
+| 日志 | tracing | 默认不记录键序列；限速与结构化诊断 |
+| GUI | egui/eframe 原型 | Rust UI，中文字体、可访问性、托盘另做验收 |
+| 测试与基准 | proptest、cargo-fuzz、criterion | 纯引擎确定性回放优先 |
+
+这些是候选依赖，D01 任务才锁定版本和 MSRV，提交 Cargo.lock 与固定工具链；不要从文档猜测“最新版”。核验接口的入口：[evdev crate 文档](https://docs.rs/evdev/latest/evdev/)、[Microsoft Rust Windows bindings](https://microsoft.github.io/windows-docs-rs/doc/windows/)、[egui 官方 crate 文档](https://docs.rs/egui/latest/egui/)。
+
+异步运行时可用于配置/IPC/session，不强制纯引擎使用 Tokio。使用一个事件执行者维护可变状态；禁止对每个键启动 async task，禁止把状态散在多个 `Arc<Mutex<_>>` 中。
+
+## 4. 平台无关事件模型与引擎契约
+
+### 4.1 稳定键码与设备身份
+
+`KeyId` 使用语义上的 HID usage page + usage，外加显式厂商/平台扩展。物理键不使用 Unicode 字符；不要把 Linux KEY_*、Windows VK_* 当统一键码。各后端做完整表转换，无法转换时保留 native 数据并报告能力限制。
+
+兼容别名：`left_command` → HID Left GUI → Windows Win / Linux Super；`left_option` → HID Left Alt；`return_or_enter` 与 keypad enter 区分；`delete_or_backspace` 是 Backspace，`delete_forward` 是 Delete。这只是物理语义转换，不会自动把 Cmd+C 改成 Ctrl+C。
+
+`DeviceId` 包含本次连接的 generation，重插不能误关联旧 key_up。持久 `DeviceSelector` 使用 VID/PID、总线、序列号（若存在）、路径/接口；无序列号时显示“按型号”和“按端口”的取舍。不要假设所有设备都有唯一序列号，或 Windows/Linux 的 location_id 与 macOS 可互换。
+
+### 4.2 事件示意
+
+```rust
+// 设计草图，不是已实现 API。
+struct InputEnvelope {
+    seq: u64,
+    time: MonoTime,                 // 注入时钟，以会话起点计纳秒
+    device: DeviceInstanceId,       // 包含连接 generation
+    provenance: Provenance,        // Physical / OurVirtual / OtherInjected
+    batch: Option<BatchId>,
+    native: Option<NativeEnvelope>, // 未映射时可无损转发
+    event: InputEvent,
+}
+enum InputEvent {
+    Key { key: KeyId, edge: KeyEdge }, // Down / Up / Repeat
+    Pointer(PointerDelta),
+    DeviceAdded(DeviceInfo),
+    DeviceRemoved(DeviceInstanceId),
+    ContextChanged(ContextSnapshot),
+    LockStateChanged(LockState),
+    ConfigActivated(ConfigGeneration),
+    BackendFault(BackendFault),
+    Reset(ResetReason),
+}
+struct EngineStep {
+    capture: CaptureDecision,
+    outputs: Vec<OutputIntent>,
+    effects: Vec<UserEffect>,
+    next_deadline: Option<MonoTime>,
+}
+```
+
+还需要阶段内部事件：`original`、`current`、`consumed`、`lazy`、rule instance、source token、logical time。外部输入与内部变换事件分开；变换不返回捕获端，不形成 a→b→a 无限循环。
+
+建议纯引擎 API：`handle(event, now) -> EngineStep`、`advance_to(now) -> EngineStep`、`activate(snapshot)`、`reset(reason)`。`next_deadline` 给运行时，不在引擎中 sleep。运行时输入和定时任务都带 seq；同一时间边界的优先顺序必须通过 fixture 定义。
+
+### 4.3 时间、缓冲与顺序
+
+使用单调时钟。上游 Mach absolute ticks 不能原样当纳秒；fixture 有明确单位，转换时防截断误差。Linux 尽量设置 evdev 的 monotonic 时钟；Windows 用高精度单调计时，不能把 32-bit message time 直接当长期时钟。
+
+调度用最小堆，任务键为 `(deadline, seq, token_generation)`。失效任务通过 token 撤销；配置/设备切换不能让旧 timer 修改新实例。规则中的持续时长是逻辑时间，注入实际时间另记；不能承诺恰在 500 ms 的实际桌面投递。
+
+初始资源边界建议：单个配置 8 MiB、规则实例总数 4096、单个动作序列 256、单来源未决事件 1024、输入队列 8192、deadline 数 8192。数字需在 D04/M01 实测后调整；溢出是显式故障和恢复事件，不丢 key_up。禁止对任意导入表达式提供无界计算。
+
+只让参与 simultaneous 的键承担等待窗口，普通规则立即处理；共享队列可能被窗口影响时须测量阻塞范围。超时保留原顺序回放，不能“补发按下”后忘记已经缓冲的松开。
+
+### 4.4 输出所有权与按键生命周期
+
+每次 physical down 分配 `SourceToken`，匹配规则创建 `ActiveBinding`：记录来源、配置代次、规则实例、被消费修饰、已输出键、松开动作和 timers。物理 repeat 不创建新 binding；未知 up 不减少其他来源引用。
+
+逻辑输出以 `(virtual_target, KeyId)` 为键，owner set 或等价引用计数决定 0→1 down、1→0 up。输出所有者包含设备 generation、rule instance、macro token。临时修饰 suppression 另建账本：既知道按住来源，也知道哪些来源被规则暂时隐藏；不能用“整个 Shift 全局设 false”实现。
+
+为了发快捷键而临时释放修饰的操作是有序的独立事务；一串输出按 down/up 和 hold 时间调度，尊重 `repeat:false`、`lazy`、`halt`。相同键输出碰撞不能靠“SendInput 系统会处理”解决。
+
+输出状态分为 desired、submitted、confirmed（若后端支持）。API 返回成功不意味着目标应用已收到。部分写入/SendInput 短返回时按实际提交更新账本，再恢复；不可把整批标记成功。
+
+### 4.5 抓取与故障状态机
+
+```text
+Disabled -> Observing -> PreparingOutput -> WaitingNeutral -> Capturing
+Capturing -> Draining -> Disabled
+Capturing -> Faulted -> Releasing -> Disabled
+```
+
+输出创建且可工作后才捕获。启用时先查询/观察当前按住状态，等待所有参与捕获的键释放，避免缺失 down 和幽灵 up。切换 profile 不强制等待 neutral：旧 binding 保持，新 down 用新快照；大规模 backend/seat 切换则 drain/reset。
+
+恢复次序：停止新动作 → 取消 timers/宏 → 尽力释放已提交输出 → 释放独占/切入物理透传 → 清状态与旧 generation → 记录恢复原因 → 等待 neutral 后才再次启用。输出端已失效时，必须先恢复物理输入，不能无限等待无法发送的 key_up。
+
+紧急退出由设备捕获层检查一个不可被规则覆盖的物理组合，如 Ctrl+Alt+Shift+F12，保持 1 秒退出；是否涉及 Fn 由设备能力决定。另有 `keyweavectl pause`、停止服务与 broker/驱动 watchdog。恢复组合必须在 mapping engine 之前识别，不依赖 GUI、IPC 回应或任意脚本。
+
+## 5. Linux 后端实现
+
+### 5.1 输入与输出路径
+
+使用 `/dev/input/event*` 读取；先过滤目标键盘，打开、查询类型/能力与当前按键，创建 uinput 键盘，确认准备好后 `EVIOCGRAB`。显式选择的未抓取设备维持物理输入，不能同时再虚拟转发导致双输入。
+
+`EV_KEY` 的 1/0/2 分别是 down/up/repeat，`SYN_REPORT` 是批次边界，`SYN_DROPPED` 后必须丢弃直到下一报告并查询状态恢复。[Linux input event-codes](https://docs.kernel.org/input/event-codes.html)。
+
+读取层可以选择 evdev 的同步恢复实现，但必须确定封装层是否已经处理 `SYN_DROPPED`，不可二次补发。在 raw 模式要显式实现补偿。读取/注入使用非阻塞 FD 与 poll/epoll，错误中包括 ENODEV/HUP、EAGAIN、EINTR 与短写。
+
+uinput 能力集合包括当前规则可能输出的键及选中设备需透传的能力；键盘与指针先分开。首次只抓键盘事件接口，**不抓混合触控板或多点触控接口**。选择混合设备时拒绝并说明未支持的事件，不静默吞弃 EV_ABS/EV_SW/FF。
+
+配置加入不在虚拟设备能力集合内的新键时：先准备新输出设备、按账本 drain 旧目标、切换后销毁旧设备；不能期望创建后任意扩展 uinput capability。首版可预声明所有支持的 keyboard/consumer keys，仍需明确 unsupported usage。
+
+输出必须按帧发送 `SYN_REPORT`。虚拟设备用固定项目标识、创建时记录的 sysfs identity 排除；名称匹配仅为辅助手段。发现自身设备必须在任何自动抓取之前排除。
+
+### 5.2 自动重复、LED 和热插拔
+
+重复策略必须明确只存在一个来源。建议把 uinput/桌面产生的重复作为键盘输出的主要重复来源，对物理 EV_KEY=2 归一为 Repeat 供引擎判断，不额外造 down；VT、X11、Wayland 的重复行为分别验证。`repeat:false` 输出使用有界 down/up，不留下可被桌面重复的持续按住。若设备事件驱动重复模式更适合，作为独立能力与 ADR，不混用。
+
+LED 反馈从虚拟设备/会话状态回到允许控制 LED 的物理键盘。读物理 LED 需要正确读写权限；不能在每个 CapsLock down 本地盲目 toggle。无法获得系统锁状态时报告 Unknown，不能把 stale bool 当真。
+
+用 udev/sysfs 或稳定等价方案发现设备；每个 event node 有生命周期 ID。同一复合键盘的 keyboard/consumer 接口与物理 parent 建立关系，避免 VID/PID 同时匹配多个接口引起重复消费。重插后等待 neutral，再启用；删除事件优先触发 device reset。
+
+内核 evdev 的 release 路径会释放 grab，但这仅恢复未来物理事件，不能自动补全用户态已输出的虚拟按住状态。需要关闭虚拟设备与恢复协议、崩溃测试一起验收。[Linux evdev 源码](https://github.com/torvalds/linux/blob/master/drivers/input/evdev.c)。
+
+### 5.3 权限、会话和发布
+
+原型先在测试机前台显式选择键盘；不写 `chmod 666 /dev/input/*`，不把所有用户加入 input 组作为默认安装行为。设备 broker 限定 keyboard allowlist 和当前 seat，udev/systemd 权限按发行版验证。没有发行版验证的模板不能默认安装。
+
+root broker 只做设备管理、有限事件传送与恢复，不执行脚本或任意文件请求。输入数据和 IPC 都有上限。unit 的 sandbox 需要允许真实 `/dev/input` 和 `/dev/uinput`，不能盲开 `PrivateDevices=yes` 后声称可用。
+
+初期只支持 seat0 当前已登录会话；锁屏、注销、VT 切换、会话未知时释放抓取并禁用用户动作。获知锁屏并不在所有桌面都可靠，能力状态要保守；无法确定会话状态时暂停配置相关动作。
+
+不要默认把 `logind.TakeControl/TakeDevice` 当普通辅助程序的权限捷径；它需要 session controller，可能与 compositor 冲突。可以监听登录/seat 变化，设备授权通过 broker 路径；后续另行验证与 logind/seatd 的集成。[systemd login1 官方接口](https://raw.githubusercontent.com/systemd/systemd/main/man/org.freedesktop.login1.xml)。
+
+基础映射位于 compositor 之前，Wayland 客户端权限不直接决定此路径；前台应用、窗口标题和 IME 是另一条路径。首版分别测试 GNOME Wayland、KDE Wayland、X11；Sway 可后续。GNOME/KDE 非通用协议部分用自愿安装的扩展/插件适配，未安装则禁用相关规则。
+
+## 6. Windows 后端实现
+
+### 6.1 用户态版的准确承诺
+
+使用 `WH_KEYBOARD_LL` 和 `SendInput`，在普通交互桌面映射。低级 Hook 可消费事件，但有处理超时被静默移除的风险；SendInput 受 UIPI 限制，只允许向同等或更低完整性级别注入，并且返回值不能单独证明失败是 UIPI。[LowLevelKeyboardProc](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc)、[SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)。
+
+Hook 回调没有 Raw Input 的可靠设备句柄。Raw Input 可用于设备查看，不用时间戳匹配去猜 Hook 事件来自哪把键盘，也不把 `RIDEV_NOLEGACY` 描述为其他程序的全局输入屏蔽。因此 `device_if/device_unless` 在 Hook backend 上缺少可信设备上下文时禁用整条相关规则。[KBDLLHOOKSTRUCT](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-kbdllhookstruct)、[Raw Input 官方模型](https://learn.microsoft.com/en-us/windows/win32/inputdev/about-raw-input)。
+
+Windows Hook MVP 暂限普通键盘用途。Raw Input 程序、独占游戏、反作弊、管理员应用、远程输入、安全桌面不能宣称等价支持；实际通过的程序列入兼容记录。管理员启动不是通用解法，不作为默认操作要求。
+
+### 6.2 回调、计时与注入
+
+Hook 安装线程必须有消息循环。初版选择**同一消息线程拥有纯引擎**：回调做有界状态处理和同步 capture 决策；timers、配置发布、上下文都投递到同一线程。规则编译/正则编译、文件访问、IPC 等待、日志 IO、GUI 和用户动作在其他线程完成。回调不得等待工作线程返回拦截结果。
+
+首版建议启用后捕获整个已支持的标准键盘流（包含修饰键），未匹配规则由统一输出层透传；切入此模式前等待 neutral。这样输出账本能掌握标准修饰的完整生命周期。不是把全部事件都捕获：项目注入、其他程序注入、未支持 native 事件明确 bypass。后续若采用按候选键捕获的优化，必须另证实旁路修饰与映射修饰的所有权/碰撞，不直接沿用完整捕获账本。多把键盘同键重叠时 Hook 缺设备身份，不能保证与 Linux owner 语义一致。
+
+SendInput/消息派发可能引起回调重入：自身 marker 检查必须在借用引擎状态之前完成；不得在持有 `&mut Engine` 或锁时重入再次取得它。可先取得 EngineStep、结束引擎借用，再有界提交输出。递归标记 bypass、配置消息和定时消息都要有重入测试。
+
+被缓冲的 simultaneous 输入必须在回调返回时决定消费；之后超时由定时任务回放。仅把事件排队后返回 pass-through 再做异步映射会产生原始+映射双输入，不能采用。
+
+初期允许的配置有严格复杂度预算；回调超预算或运行时无法继续时进入 drain/bypass。缺少可靠 Hook 移除通知，doctor 不能宣称句柄仍存在就说明 Hook 正常；需要进度监控与受控探针/人工恢复。禁止频繁无条件重装 Hook 掩盖设计问题。
+
+注入优先 `KEYEVENTF_SCANCODE`，正确处理 extended flags、key_up、左右修饰和布局。PrintScreen/Pause 等 E0/E1 特殊序列单独测试，不能从一个扫描码推断完整兼容。媒体键、Unicode 文本注入与物理键映射是独立能力。
+
+对自身输出设置 `dwExtraInfo` 标识，回调按 injected flag 与项目 marker 分类。本身输出直接放行；其他应用 injected 事件默认放行且不重映射。marker 不是 IPC 安全凭证，也不能证明事件恶意或可信。
+
+每个 physical down 保存捕获/放行策略，直到 up；热更新不能让被屏蔽的 down 配上放行的 up。对于未捕获输入，engine 只观察物理状态，不重复注入；输出账本不擅自释放 OS 中由其他来源按住的修饰。触发键输出的键与未捕获物理键相同也要有碰撞测试。
+
+SendInput 返回的已提交数量、进程退出、桌面切换和系统注入状态要区分。崩溃后 Hook 通常不再拦截，但已经注入的按住不保证自动释放。session supervisor 尽力在同一桌面按输出记录释放并暂停，下一次 neutral 后恢复；跨安全桌面无法可靠发送时如实标注限制。
+
+### 6.3 驱动版路线：先过滤，后决定输出方式
+
+物理输入过滤和虚拟输出是两个不同问题。VHF 可提供虚拟 HID，当前官方路径为内核 HID source driver；**VHF 自己不能阻止真实键盘继续输出**。[Microsoft VHF](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/virtual-hid-framework--vhf-)。
+
+评估两种输出路线：过滤器截获后由受控 reinjection 路径送回类栈；或过滤器截获，用户态引擎处理，独立 VHF 输出。前者可能更简单但输出范围较窄，后者可支持键盘/consumer/pointer 不同集合，却增加驱动和身份管理。D10 的原型结果决定，不能同时捕获两路后产生重复事件。
+
+Microsoft Kbfiltr 是 PS/2 上层过滤器示例，提供服务回调挂接和 raw PDO 通信参考。它不是可直接安装覆盖 USB/蓝牙/I2C 的完整方案；USB/Bluetooth/HID 和 PS/2 必须按实际栈验证。[Microsoft Kbfiltr 官方样例](https://learn.microsoft.com/en-us/samples/microsoft/windows-driver-samples/keyboard-input-wdf-filter-driver-kbfiltr/)。
+
+驱动最小职责：按 device instance 识别输入、有界捕获队列、经过权限验证的 IOCTL、正常透传、输出端/租约维护与故障恢复。规则匹配、JSON、应用条件、宏、脚本全部在用户态，不在 DISPATCH_LEVEL 做计算或等待用户态。
+
+驱动 callback 只复制预分配包、计数和决策；不阻塞、不访问 pageable memory、不解引用未经长度验证的用户指针。传输队列使用固定宽度 POD、ABI version、sequence、generation、device ID，读写都有 ACK 和流控。禁止直接把 Rust struct 内存布局作为 ABI。
+
+建议先实现“无客户端时透传”的过滤原型，再做捕获租约。heartbeat 必须由实际引擎处理循环更新；后台线程仍活着不能证明映射线程没卡死。原型目标：heartbeat 间隔 100 ms、500 ms 内失效恢复；这是设计目标，实测后记录。
+
+最困难的恢复场景是**原 down 已被消费、连接在物理 up 前断开**。不能只把后续 up 放行：需保存物理状态与虚拟输出状态，清虚拟按住，并定义透传基线。若恢复会丢失正在按住的快捷键，宁可明确要求用户释放并重新按下，也不能保留 Ctrl/Alt 卡住。做 down/up/repeat、中途切换、积压队列和重连的完整测试。
+
+IOCTL 和 named pipe 只接受指定 service SID/当前会话权限；客户端死掉后驱动自行恢复，不能依赖 GUI 发 ungrab。队列满、ABI 不符、输出端断开时切入恢复模式，绝不永久吞掉键盘输入。
+
+### 6.4 Rust 驱动与分发门槛
+
+驱动 crate 使用 `no_std`，独立工具链/WDK/bindings，FFI 逐项审查 IRQL、对象生命周期、锁序和 panic 处理。不可把用户态 serde、Tokio 或通用 allocator 直接放进 callback。`panic=abort` 并不意味着内核发生 panic 没有严重后果；生产路径必须避免。
+
+D10 必须证明：能构建、测试签名加载、PnP/电源稳定、Verifier 通过、正常透传与服务崩溃恢复、至少两把 USB 键盘区分及蓝牙实测。缺任一核心证明，Windows 用户态版本继续交付，驱动标为研究中。
+
+生产分发还需签名账户、证书、适用的 attestation/WHCP 路线、Secure Boot/HVCI 验证、安装回滚与卸载。微软当前文档要求提交相关账户具有关联 EV 证书；开发时重新核验，不能把测试签名等同于正式可分发。[Microsoft 驱动签名要求](https://learn.microsoft.com/en-us/windows-hardware/drivers/dashboard/code-signing-reqs)。
+
+禁止把关闭 Secure Boot、禁用系统完整性保护或卸载其他键盘驱动作为正常安装流程。测试驱动在隔离测试系统中加载；开发主机保持输入恢复通道。第三方驱动只作可替换适配器候选，先核验授权、维护、支持系统与签名，不默认依赖。
+
+## 7. 配置兼容和导入策略
+
+### 7.1 配置格式与编译
+
+保留 Karabiner 的 `profiles`、`selected`、`simple_modifications`、`complex_modifications.rules/manipulators` 形状。原始输入 AST 保留未知字段供导出/诊断；可执行 IR 严格验证。KeyWeave 扩展集中在 `keyweave` namespace，带 `schema_version`，不向上游字段插入不同含义。
+
+编译步骤：读取大小/owner 校验 → JSONC parse → 结构和参数检查 → 标准键名解析 → 平台能力校验 → 正则/动作预编译 → 保留数组顺序建立索引 → 生成 immutable snapshot 与 diagnostics → 原子激活。
+
+未知显示元数据可保留并提示；未知 action/condition/type/key 必须导致规则不能执行。配置整体有语法或结构错误则拒绝发布，保留 last-known-good。导入工具可以产出显式禁用规则的可编辑副本，但不自动激活有损转换。
+
+诊断最少包含 code、severity、JSON Pointer、rule ID、原因、后端、修复建议。例如：`KW-CAP-001 /profiles/0/.../conditions/0: device_if requires reliable_device_identity; windows-hook 不支持；整条规则已禁用`。机器模式输出 JSON，GUI 展示同一诊断。
+
+热更新监听目录和文件 rename，去抖 100–300 ms（目标），一次读完整文件，重复 hash 不重新发布。写入采用同目录临时文件、flush 与原子替换；Windows rename/replace 权限和占用单独验证。解析失败或权限失败不可悄悄使用默认映射。
+
+### 7.2 兼容等级与字段分期
+
+| 等级 | 内容 | 验收 |
+| --- | --- | --- |
+| C0 | simple、标准键名/consumer 名解析、profiles/selected | 对应上游 fixture + 本地往返 |
+| C1 | basic/from/to、mandatory/optional、to_after_key_up、to 内 conditions | 顺序、修饰恢复、键生命周期 golden |
+| C2 | to_if_alone/held_down/delayed_action、simultaneous 全部选项、variables | 边界、取消、设备移除、虚拟时间 |
+| C3 | device、app、input_source、keyboard_type、event_changed、sticky/lazy/repeat/halt、鼠标相关 | 每个平台逐项支持表 |
+| C4 | to_if_other_key_pressed、expression、eval_js、用户动作扩展 | 独立研究/兼容套件，不阻塞首版 |
+
+不支持 C4 时，也必须识别其存在并返回诊断，尤其不能丢掉 expression 条件后让规则无条件执行。
+
+初始时间参数沿用上游：simultaneous=50 ms、alone timeout=1000 ms、held_down=500 ms、delayed_action=500 ms。`to_if_alone` 使用 `< timeout` 边界；simultaneous 的包含边界按原实现和 fixture。每个参数都有全局/规则局部覆盖与范围验证。
+
+### 7.3 应用、输入源与 Apple 特性
+
+macOS bundle identifier 无通用映射。导入时保留原条件并禁用，用户显式提供映射表，例如 bundle id → Windows executable 或 Linux app_id。Windows executable 匹配规范化路径与明确大小写规则；Linux X11 的 WM_CLASS 与 Wayland app_id 分开，不混成同一个字段。
+
+`frontmost_application` 上游使用 regex_search 而不是完整字符串匹配。Rust regex 不支持所有 C++ ECMAScript 特性；对 look-around/backreference 等给出诊断或显式转换，别为了“兼容”引入热路径灾难性回溯。
+
+上下文携带 timestamp、provider、freshness 和 Unknown。任一必要条件未知时，整条规则不匹配，包括 `unless`；**未知不能被取反成真**。这是保守的跨平台选择，与上游个别缺失上下文行为可能不同，需记录兼容偏差。
+
+Windows HKL 表示布局，不完整表示 IME mode；选输入源不等于打开/关闭输入法。Linux 的 IBus、Fcitx5、XKB/桌面设置是不同 provider，不能靠盲发 Alt+Shift 实现强制选择某个语言。第一版只在已实现 provider 上支持相应条件/动作。
+
+部分 Wayland compositor 可通过 wlr foreign-toplevel 的 app_id/activated 状态提供上下文；它不是全桌面保证。不要将 ext-foreign-toplevel-list 的窗口列表直接等同于焦点接口。[wlr protocol 原始定义](https://raw.githubusercontent.com/swaywm/wlr-protocols/master/unstable/wlr-foreign-toplevel-management-unstable-v1.xml)。
+
+`fn` 常由键盘固件处理，不一定有可见输入事件；Apple Fn/vendor keys、Touch Bar 与 macOS 系统 Fn 偏好默认报平台不支持。`keyboard_type_if` 的 ANSI/ISO/JIS 可通过设备/用户设置适配，不能据 Linux layout 自动等同物理键盘类型。
+
+shell `/bin/sh -c`、`osascript`、`open`、AppleScript 不自动翻译为 PowerShell/CMD。首版导入保留但禁用；后续 native action 采用 `program + args`，明确 shell opt-in，仅由用户 agent 执行，带超时、进程数和输出长度限制。
+
+### 7.4 JavaScript 与表达式
+
+本地上游支持规则 `eval_js` 和 `.js` 资产生成 manipulators，表达式由 ExprTk 求值。这些是不同语言。第一版不执行 JavaScript，不把任意 JS 解释为热路径规则，不假装 Rust 表达式库与 ExprTk 完全相同。
+
+后续优先提供“在原环境导出生成 JSON，再导入”的手动路径。若实现 JS，单独用户权限工作进程、限制 CPU/内存/输出、禁用未授权 filesystem/network、只返回 JSON，再走同一编译管线；运行时不得执行导入脚本。任何语言支持必须有兼容 corpus 和资源上限。
+
+## 8. IPC、用户动作和观测
+
+Linux Unix socket 使用目录权限、peer credentials；Windows named pipe 用 ACL、SID、session ID，拒绝 remote clients。系统 broker/driver 不接受任意设备路径、任意用户身份、任意程序路径请求；服务加载配置要校验大小、owner、实际 FD 内容和授权，防 symlink/路径竞态。
+
+协议有 hello(version, capabilities)、request_id、session generation、bounded frame、timeout 和明确错误。MVP 可用 length-prefixed JSON（上限 1 MiB），输入热路径后续可用固定 DTO；不要先暴露 TCP API。
+
+建议控制操作：status/capabilities、list_devices、validate_config、activate_config、select_profile、pause/resume、get_diagnostics、subscribe_metrics。activate 是有结果的事务，返回 applied generation；GUI 收到成功才显示“已应用”。resume 需要输出正常和 neutral，不是一个无条件 bool。
+
+用户动作请求携带 action ID、rule/generation、session lease；session 切换后旧请求作废。配置导入、验证和诊断期间绝不启动 shell。规则触发用户动作不阻塞映射，队列满时报告动作失败，保持按键生命周期完整。
+
+默认日志只记录配置代次、设备生命周期、错误类别、队列水位、延迟统计。Event Viewer 是显式开启的会话功能，显示 physical → normalized → rule → output，默认仅内存、有界、会话结束清空。录像式原始按键记录不作为故障日志自动启用。
+
+建议 CLI（尚未实现）：
+
+```text
+keyweavectl validate --config PATH --backend linux-evdev --format json
+keyweavectl import-karabiner --input PATH --output COPY --report REPORT
+keyweavectl replay --fixture CASE --assert
+keyweavectl devices --backend linux-evdev
+keyweavectl doctor
+keyweavectl pause
+keyweavectl resume
+```
+
+## 9. 测试体系与发布标准
+
+### 9.1 上游语义回放
+
+上游 `tests/src/manipulator/json/` 有规则、输入队列、预期中间事件和虚拟 HID 输出，`tests/src/share/manipulator_helper.hpp` 使用伪时间。优先导入这些数据，别仅翻译解析器单元测试。
+
+导入器固定源 commit，保留原数据、manifest、校验和与转换报告。mach ticks/毫秒、enum 编码、虚拟 report、上游测试的特殊 Fn stage 显式转换；不能误认为每个 fixture 都代表整个默认 daemon 配置。无法支持的案例分类 skip，写原因，不计入通过数。
+
+分两层比较：中间事件语义（来源、key/down/up、变量、消费、时序），以及由上游报告推导的逻辑输出状态。系统输出 report 的布局不要求跨平台字节相同。语义有意改变（输出所有权、Unknown 条件）使用独立 KeyWeave golden。
+
+本环境没有运行 macOS 上游测试；原项目 CMake 链接 Apple framework。后续若有 Mac runner，可生成补充 oracle，但 Rust engine 的 CI 不依赖 Mac。
+
+### 9.2 必须覆盖的合成场景
+
+| 类别 | 最少场景 |
+| --- | --- |
+| 基础与顺序 | a→b，a→[b,c]，简单输出再被复杂阶段处理，第一匹配优先 |
+| 修饰 | 左右区分、mandatory:any、optional:any、额外修饰拒绝、临时释放恢复 |
+| 生命周期 | down 后换 profile/应用/输入源仍正确 up，未知 up、重复 down、repeat |
+| 多设备 | 两来源输出同键、一个设备拔出、VID/PID 相同、连接 ID 复用 |
+| alone/hold | 阈值前后及等于、其他键/鼠标按钮/滚轮、纯移动、松开后 timer 不触发 |
+| delayed | invoked/canceled、原键已松开、另一个 down、配置更换、取消仅一次 |
+| simultaneous | 阈值内/外、down/up strict/inverse、any/all、被打断、重叠规则、跨设备 |
+| 输出 | lazy/repeat:false/halt、同键碰撞、部分发送失败、CapsLock/NumLock 反馈 |
+| 运行时 | 解析错误保留旧快照、rename replace、queue full、deadline stale、reset |
+| 平台 | Linux SYN_DROPPED、混合接口；Windows E0/E1、外部 injected、UIPI、Hook 停滞 |
+
+性质测试：任何 Reset 完成后 engine 的 active bindings、owners 和 timers 为空；输出账本不会负数；有正常释放的来源不会永久持有输出；新设备 generation 不接收旧任务；相同输入/时钟/上下文获得相同输出。有限 reset 恢复时间单独测试，不能只证明“最终会结束”。
+
+fuzz 配置/协议/native packet 边界，限制深度、分配和执行时间。FFI 安全包装用 Miri/静态检查能验证的部分验证；真实 Hook/驱动不能由 Miri 代替。
+
+### 9.3 平台与故障验证
+
+Linux：x86_64 为首发；ARM64 后续。实际 GNOME/KDE Wayland 与 X11，USB/蓝牙、至少两键盘、复合 consumer interface、ISO/JIS、睡眠/恢复、热拔插、VT/注销/锁屏。WSL 不作为直接控制 Windows 物理键盘的 Linux 测试环境。container CI 可做编译/纯引擎；uinput 集成需要专用权限和目标内核，不能用 mock 充当实测。
+
+Windows：Windows 11 x64 首发目标，明确测试 build；ARM64/Windows 10 暂不承诺。普通和提升权限程序、不同布局/中文 IME、桌面切换、RDP、多个用户会话、睡眠。驱动测试加 USB/蓝牙/PS2（若硬件存在）、PnP、电源、Secure Boot/HVCI、Verifier、安装升级回滚和完整卸载。
+
+故障注入包括 kill runtime、kill broker/client、堵塞引擎循环而 heartbeat 线程仍活、输出端断开、队列满、配置损坏、驱动句柄异常。Linux 测虚拟设备消失与物理输入恢复；Windows 测注入按住释放，不能只测进程消失。
+
+原型目标（非已测结果）：engine 简单规则 P99 < 100 μs；不需等待的 backend 到提交 P99 < 5 ms；恢复物理输入 < 1 s；空闲 CPU < 1%，无 UI RSS < 50 MiB。需记录硬件、OS/build、规则数、采样数、测量边界和压力条件。组合键的主动等待、实际 USB/显示延迟不混入 engine 指标，也不隐藏。
+
+### 9.4 CI 与发行
+
+纯 Rust CI：fmt、clippy、workspace tests、doc tests、Linux/Windows 各自编译、fixtures coverage、依赖/许可证清单。driver CI 在独立 Windows WDK runner；实机测试记录与构建检查分栏。
+
+发布前必须提供恢复与卸载说明、支持/不支持字段清单、安装升级事务、配置备份、依赖许可证/SBOM、二进制校验和和签名策略。自动更新第一版关闭，先完成手动升级回滚；UI 不更新正在运行的驱动文件。
+
+源仓库主许可证是 Unlicense。第三方依赖与 companion driver 有各自许可证；不要由根 LICENSE 推断全部可任意复制。新项目建议双 MIT/Apache-2.0，但在选定前标为待决定，不生成误导性许可证；复制上游 fixture 时保存其来源和适用许可证。Kanata/keyd/KMonad 仅作设计参考；引用代码需另外审查其许可证。
+
+## 10. 里程碑、依赖与执行方式
+
+关键路径：D00 证据固定 → D01 workspace → D02 键码 → D03 配置 → D04 核心映射 → D05 时间规则 → D06 Linux → D07 生命周期恢复 → D08 Windows Hook → D09 会话与 GUI/发布。Windows driver 的 D10 可在共享协议冻结后独立研究，失败不阻塞 Linux。
+
+| 里程碑 | 主要交付 | 进入下一阶段的门槛 |
+| --- | --- | --- |
+| M0 证据与风险原型 | baseline/fixtures manifest、能力/ADR、Linux 透传与 Windows Hook 演示 | 无双输入；清楚恢复；不宣称完整映射 |
+| M1 离线引擎 | types/config/engine、validate/replay、C0/C1 | 生命周期、顺序、热更新测试通过 |
+| M2 高级规则 | C2、变量、定时、组合键、诊断 | 上游可支持 corpus 逐项通过，无失衡输出 |
+| M3 Linux MVP | evdev/uinput、设备选择、CLI、故障恢复 | 真机双键盘、拔出/崩溃、Wayland/X11 验收 |
+| M4 Windows 用户态 MVP | Hook/SendInput、全局规则、限制诊断 | 普通桌面无循环/双输入，短发送与停滞恢复 |
+| M5 产品 Beta | session/应用条件、GUI、安装包、C3 部分 | 用户动作权限、安装卸载、能力矩阵一致 |
+| M6 Windows 驱动研究 | 过滤原型、租约、Rust 工具链、输出方式 ADR | 实机与分发门槛；未通过保持 research |
+| M7 高级扩展 | 指针/IME、C4、平台矩阵扩展 | 每个功能独立 fixture/平台验收 |
+
+工程量仅为规划估算：熟悉 Rust/系统输入的一名工程师，离线核心及 Linux MVP 约 10–16 人周；Windows 用户态增量约 4–8 人周；session、GUI、安装和 beta 稳定约 6–10 人周；生产级 Windows driver 另需 12–24+ 人周与驱动经验。部分工作可重叠，不是日历交付承诺；证书/认证/硬件等待不计入编码时间。
+
+每个 Coding Agent 任务开始：读取 AGENTS、STATUS 和对应工作单；定位证据函数；确认依赖已完成；实现最小完整切片；添加行为测试；跑相关检查；更新状态与实际平台证据。没有 Cargo workspace 时先执行 D01，不能声称 `cargo test` 已通过。
+
+若源版本变化、Rust driver gate 失败、桌面上下文能力缺失或安全恢复验收失败，优先收窄公开能力，记录 ADR/诊断/未完成项；不要在 GUI 中隐藏缺失能力或以 mock 结果替代系统验证。
+
+## 11. 首个 Coding Agent 可直接执行的任务
+
+执行 D00/D01：固定上游 commit 和 fixture 来源，创建 Rust types/config/engine/CLI 最小 workspace。实现 `a → b` 与 CapsLock→Ctrl（单独轻触动作留到 D05）的纯回放，补齐按下后换配置、未知 up、两个来源映射同键和 Reset 的测试。`replay` 使用合成数据，不读取真实键盘。输出配置诊断骨架与 schema_version 设计，更新 STATUS。
+
+通过后再执行 D02–D05 补齐标准键码和高级规则。没有离线所有权、generation 和 Reset 证明之前，不启用全局抓取。Linux 早期后端实验只能用于明确选择的测试设备和透传/恢复路径，不当作生产支持。
+
+## 12. 配置实例与可执行行为规格
+
+[示例配置](../examples/karabiner-basic.json) 保留上游配置形状：a→b，以及 CapsLock 按住为左 Ctrl、单独轻触为 Escape。它是未来 C2 验收样本，当前没有程序可加载；导入时还必须查询具体后端能力。该规则在按下时先输出 Ctrl，松开时再判断是否发 Escape；不是“等 500 ms 才输出 Ctrl”的另一种 tap-hold 行为。
+
+示例预期（为简明只写逻辑输出，不含内部 lazy 事件和实际 report）：
+
+| 输入/控制事件（ms） | 预期逻辑输出或状态 |
+| --- | --- |
+| 0: a down；20: a up | 0: b down；20: b up |
+| 0: CapsLock down；100: CapsLock up | Ctrl down；Ctrl up；Escape down/up，按顺序提交 |
+| 0: CapsLock down；100: a down；150: a up；200: CapsLock up | Ctrl down；b down/up；Ctrl up；不发 Escape |
+| CapsLock down 后 profile 改为 CapsLock→Shift，随后原 CapsLock up | 松开旧 Ctrl；不凭空发送 Shift up；下一次 down 才输出 Shift |
+| CapsLock down 持续到 1000 ms 恰好再 up | Ctrl up；不发 Escape（alone 要严格小于 1000） |
+| D1 a down；D2 a down；D1 a up；D2 a up | b 只在第一来源 down 时按下，在最后来源 up 时松开（KeyWeave 改良语义） |
+| D1 a down；拔出 D1 | 释放 b；销毁 D1 generation 的 binding/timer |
+| 模拟 SendInput/uinput 写出失败 | 按实际 submitted 数更新，恢复物理输入；不继续盲吞输入 |
+
+上述同键多来源案例主要由离线引擎/Linux/driver 验证；Windows Hook 对来源无法辨识，必须在能力和测试报告中标限制。
+
+建议 replay case 文件包含 `schema_version`、source manifest、backend capabilities、初始 config/context/devices、按 `at_ns + seq` 排序的 inputs/control/deadline advances、expected outputs/effects/final state。fixture 用合成事件；D01 确定并提交正式 schema 后再生成实例，避免将上游 JSON enum 编码当成公开 API。
+
+单个案例失败要打印第一处差异的输入 seq、rule/stage、配置 generation、expected/actual、owner 和 pending deadline 摘要。不得只显示整份 JSON 不同，也不得通过舍弃时序字段让测试“兼容”。只有针对浮点/Mach 转换的已说明容差可以用于源 fixture 适配；新 fixture 时间用整数，不引入无说明的时间 epsilon。

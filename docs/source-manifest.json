@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "analysis_date": "2026-10-08",
+  "timezone": "Asia/Shanghai",
+  "source_root": "../../Karabiner-Elements",
+  "head": "ec2fea8940f7254a748c052a890ee9db7113d9b1",
+  "version": "16.3.11",
+  "initial_worktree_clean": true,
+  "review_method": "Static review of selected core paths and upstream test harness, plus targeted official platform documentation verification. No runtime validation. File hashes identify the snapshot, not exhaustive full-file audit coverage.",
+  "submodules": [
+    {
+      "path": "vendor/Karabiner-DriverKit-VirtualHIDDevice",
+      "gitlink": "9036bc771259ff8d61341f4d1b7072b954fdb2fa",
+      "initialized": false,
+      "internal_source_reviewed": false
+    },
+    {
+      "path": "vendor/cpm-cmake-package-lock",
+      "gitlink": "312906cf09a5fe414d466741380eedf11309e2e1",
+      "initialized": false,
+      "internal_source_reviewed": false
+    }
+  ],
+  "files": [
+    {
+      "path": ".gitmodules",
+      "sha256": "d88a2c6fd7eaf2ce7ec075f7e6fcb8ee73c5c5aac1a6ae306c52b6d9b7f7bc46",
+      "bytes": 330,
+      "lines": 6
+    },
+    {
+      "path": "LICENSE.md",
+      "sha256": "6b0382b16279f26ff69014300541967a356a666eb0b91b422f6862f6b7dad17e",
+      "bytes": 1211,
+      "lines": 24
+    },
+    {
+      "path": "README.md",
+      "sha256": "bfa983a428e3688197c3969c8cfbce914a3e0a6de78cca325344422597a3896b",
+      "bytes": 5983,
+      "lines": 150
+    },
+    {
+      "path": "src/apps/ConsoleUserServer/include/console_user_server/components_manager.hpp",
+      "sha256": "9a76a484295270a00abd82a391915bf66915f785f48900e402170343801425e2",
+      "bytes": 15944,
+      "lines": 377
+    },
+    {
+      "path": "src/apps/ConsoleUserServer/include/console_user_server/shell_command_handler.hpp",
+      "sha256": "a0e30f94d0204f4a12c46ba465017790f572ef020cd762f760fbceeee3f8c1c7",
+      "bytes": 1832,
+      "lines": 59
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/components_manager.hpp",
+      "sha256": "99af745182b83c1655d7d760a4d7af08fe31787710202ae87e3bfa96ae479c5e",
+      "bytes": 3943,
+      "lines": 128
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/device_grabber.hpp",
+      "sha256": "aad49fed92ec8a36dfb77fb30fe6cf89308cf38a9fcd35833ffa798e31ec7e8c",
+      "bytes": 55100,
+      "lines": 1274
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/device_grabber_details/device_key_code_manipulator_manager.hpp",
+      "sha256": "3391f77d5dfe4d59da8aa40a974fccf58af5b3f74a07aa49723e1dd2db39655a",
+      "bytes": 2394,
+      "lines": 61
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/device_grabber_details/entry.hpp",
+      "sha256": "d4871941efa837e1974777195e6af6fe2affb53382cd093cb31541144f182353",
+      "bytes": 14231,
+      "lines": 358
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/device_grabber_details/fn_function_keys_manipulator_manager.hpp",
+      "sha256": "654f98df323cb6b7a0a7535eec0463ba1b4593291ab2ee591813fe623c01b108",
+      "bytes": 13546,
+      "lines": 332
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/device_grabber_details/simple_modifications_manipulator_manager.hpp",
+      "sha256": "4e6ba3da9105c2c8cc183629969f89ad20c0c358173ec7b2039609aefa1a79ef",
+      "bytes": 5237,
+      "lines": 143
+    },
+    {
+      "path": "src/apps/CoreService/include/core_service/daemon/receiver.hpp",
+      "sha256": "0bbf2c1fbbb9be3b85f1c249486fbde20b8dd14a083994660d3c86647b8f438f",
+      "bytes": 33303,
+      "lines": 857
+    },
+    {
+      "path": "src/apps/CoreService/project.yml",
+      "sha256": "6d9955f483f8382634876781216faec0c3013305d88df42f591d059f11856563",
+      "bytes": 1758,
+      "lines": 46
+    },
+    {
+      "path": "src/share/complex_modifications_assets_file.hpp",
+      "sha256": "9326bb01d77af98238900d5f9f37460304c666f8c5f7d0230df0ba97bbfdbfcd",
+      "bytes": 6535,
+      "lines": 165
+    },
+    {
+      "path": "src/share/core_configuration/core_configuration.hpp",
+      "sha256": "a04916da336d7fbe5e857505d359fec60f19b2dbd709ecca5ec9405f611f9509",
+      "bytes": 11792,
+      "lines": 342
+    },
+    {
+      "path": "src/share/core_configuration/details/profile/complex_modifications_parameters.hpp",
+      "sha256": "63e6db342dd09ec344d20de4c0d7cfcb44c4a3d63358022fe062663318cb1ec7",
+      "bytes": 4998,
+      "lines": 152
+    },
+    {
+      "path": "src/share/core_configuration/details/profile/complex_modifications_rule.hpp",
+      "sha256": "dfe2768d3e2566a5a69808425635bdccb6e1a72d81ab8684ed3f84848882ae14",
+      "bytes": 9196,
+      "lines": 287
+    },
+    {
+      "path": "src/share/duktape_utility.hpp",
+      "sha256": "25777cd546fcae12f7295d5790b62cca2554666274d09531d09b0cc3be4e5ac6",
+      "bytes": 13491,
+      "lines": 432
+    },
+    {
+      "path": "src/share/event_queue/entry.hpp",
+      "sha256": "f4d00870e72a9a13d3225ca6e0d17b06771549ba897ba2d24c2c9461b4e8d3ba",
+      "bytes": 7492,
+      "lines": 258
+    },
+    {
+      "path": "src/share/event_queue/event_time_stamp.hpp",
+      "sha256": "a2975598871c266deda1d50d1a4642880e68319dd9964741531e5aac3fd0ac5c",
+      "bytes": 3852,
+      "lines": 131
+    },
+    {
+      "path": "src/share/event_queue/queue.hpp",
+      "sha256": "4d183d4473e3900a203378f413fa3b5d8a70546fd10387cfece52a20120485ea",
+      "bytes": 14082,
+      "lines": 365
+    },
+    {
+      "path": "src/share/hid_device_events_monitor.hpp",
+      "sha256": "8e794a3e6f37349a1e98445f0b5c9a232823347e9bb4bb5e591d15170913164f",
+      "bytes": 7851,
+      "lines": 219
+    },
+    {
+      "path": "src/share/keyboard_fallback_loop_guard.hpp",
+      "sha256": "ba019a89a996c5fa09d74bab771cef2dfe4cd9dc0ca8d78df2c4bbbc654c261c",
+      "bytes": 2491,
+      "lines": 76
+    },
+    {
+      "path": "src/share/keyboard_suppression.hpp",
+      "sha256": "af6ea75914e3f47162a89775e377de1f2882a2f6618d5c45a9526f17b2d201fd",
+      "bytes": 6744,
+      "lines": 168
+    },
+    {
+      "path": "src/share/manipulator/condition_factory.hpp",
+      "sha256": "a89942e1422dd8820a2aca0f80d43d455631c12475eeed4a5472b49d10464c0b",
+      "bytes": 4060,
+      "lines": 100
+    },
+    {
+      "path": "src/share/manipulator/conditions/frontmost_application.hpp",
+      "sha256": "002fbe938539ac2acc6e399c3d8c47a24573b55f000b91bf1644400aed0e1e63",
+      "bytes": 4072,
+      "lines": 135
+    },
+    {
+      "path": "src/share/manipulator/conditions/input_source.hpp",
+      "sha256": "d82d8d6cb2a97aa6c1ba6077a41ffae16b40e1cee1f658ed81499430b03e0529",
+      "bytes": 2790,
+      "lines": 100
+    },
+    {
+      "path": "src/share/manipulator/manipulator_factory.hpp",
+      "sha256": "6e5c2d027c2e19898478019d6601533ab4a9108202db585619c3ecc43269a106",
+      "bytes": 2005,
+      "lines": 40
+    },
+    {
+      "path": "src/share/manipulator/manipulator_manager.hpp",
+      "sha256": "3f44e84415c189550a48a6c4120dacecaeb2bd58263c0d0ccc88240b89fd8c72",
+      "bytes": 8401,
+      "lines": 218
+    },
+    {
+      "path": "src/share/manipulator/manipulator_managers_connector.hpp",
+      "sha256": "efce713c2cca8b978ab9bcffdc84b52e4116156c2e1fb4fee782ec94f118436b",
+      "bytes": 6074,
+      "lines": 160
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/basic.hpp",
+      "sha256": "7e6c71f0e9db479314665b20ee69549236dbf9c0d1703104fe76d05fb62a0706",
+      "bytes": 39159,
+      "lines": 843
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/event_sender.hpp",
+      "sha256": "7eb3e8d0dcee3759eb0ac2cd093760054d96e717dcd61fa3d11e3ea74b86e3a8",
+      "bytes": 16935,
+      "lines": 368
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/from_event_definition.hpp",
+      "sha256": "7586c75550f7035104d6b382e0a88883aec7f637f5dac9ef419624f2ce4b9ea3",
+      "bytes": 8807,
+      "lines": 252
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/simultaneous_options.hpp",
+      "sha256": "5da3221f288138589382bc59ebac7e0db4aa5a773a333e616f7d7919b046f3d7",
+      "bytes": 4441,
+      "lines": 145
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/to_delayed_action.hpp",
+      "sha256": "c84502bbf778517743f76b20cc7a9542881ecca77d80db8c7427684c8f45a4d7",
+      "bytes": 8401,
+      "lines": 201
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/to_if_held_down.hpp",
+      "sha256": "c46ce109b38c03e4dd5e6569d9f4ebe48cd6fc77a619f20dbdcb822c5649105d",
+      "bytes": 6558,
+      "lines": 148
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/to_if_other_key_pressed.hpp",
+      "sha256": "ab0082adbd5e4194c12f05210429cc10890a48c83c6225c976f7dd1aa0adc159",
+      "bytes": 9764,
+      "lines": 237
+    },
+    {
+      "path": "src/share/manipulator/manipulators/post_event_to_virtual_devices/key_event_dispatcher.hpp",
+      "sha256": "be26a4d205c901b52c41b92de7fdf62a28b8d013b510b79f0f25baa38f75e4f6",
+      "bytes": 5715,
+      "lines": 172
+    },
+    {
+      "path": "src/share/manipulator/manipulators/post_event_to_virtual_devices/post_event_to_virtual_devices.hpp",
+      "sha256": "c28cffbcbca2f783a84084d8a11c43242a4ccfb79d9b392a1f175d2fa77dd097",
+      "bytes": 27777,
+      "lines": 613
+    },
+    {
+      "path": "src/share/manipulator/manipulators/post_event_to_virtual_devices/queue.hpp",
+      "sha256": "cb4cbad233b6f020d5ff47432f7c709a3365ed681b122f9052e5400d5d14eddc",
+      "bytes": 30688,
+      "lines": 796
+    },
+    {
+      "path": "src/share/manipulator/types/from_modifiers_definition.hpp",
+      "sha256": "5aed3189492771c1f351522b8e0b22f730283fd5cea29ff27221fadc91e6ff5e",
+      "bytes": 4829,
+      "lines": 139
+    },
+    {
+      "path": "src/share/monitor/configuration_monitor.hpp",
+      "sha256": "6188c205138424454da5f30ae7dd0e3540b993a699e00b049ec27d0bd13263cc",
+      "bytes": 8204,
+      "lines": 192
+    },
+    {
+      "path": "src/share/monitor/event_tap_monitor.hpp",
+      "sha256": "4e17abe8dfacf6aa62a438379a57e49cdcd7a2400a6139c6e97f2c1951266bbe",
+      "bytes": 18720,
+      "lines": 473
+    },
+    {
+      "path": "src/share/types/momentary_switch_event.hpp",
+      "sha256": "7ca596a49d0f7daa50997810070bcfbf7e8d78c18509573f9acc104dfa726045",
+      "bytes": 10782,
+      "lines": 250
+    },
+    {
+      "path": "tests/src/share/manipulator_helper.hpp",
+      "sha256": "502650f25a5482cc66eebc402da15da4ea9a1fd9b742f42edf969d7907531d5e",
+      "bytes": 13816,
+      "lines": 320
+    },
+    {
+      "path": "tests/tests.cmake",
+      "sha256": "7fb953f936821a669e46b67fff0d5730677afce96d252f0b0a88a99415b2d325",
+      "bytes": 985,
+      "lines": 25
+    },
+    {
+      "path": "vendor/CMakeLists.txt",
+      "sha256": "bd72d1b698489eaf80d60ad39707520c72c8c4962cbaaece8a5d93e601781f23",
+      "bytes": 2079,
+      "lines": 52
+    },
+    {
+      "path": "version",
+      "sha256": "a819e0c3ab8b857ee985e32286a27d8bab6dd54a1353ccf49351d1c2a2ddb4ef",
+      "bytes": 8,
+      "lines": 1
+    }
+  ]
+}

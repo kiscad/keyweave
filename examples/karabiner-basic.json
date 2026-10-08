@@ -1,0 +1,39 @@
+{
+  "profiles": [
+    {
+      "name": "KeyWeave compatibility example",
+      "selected": true,
+      "simple_modifications": [
+        {
+          "from": { "key_code": "a" },
+          "to": [{ "key_code": "b" }]
+        }
+      ],
+      "complex_modifications": {
+        "parameters": {
+          "basic.simultaneous_threshold_milliseconds": 50,
+          "basic.to_if_alone_timeout_milliseconds": 1000,
+          "basic.to_if_held_down_threshold_milliseconds": 500,
+          "basic.to_delayed_action_delay_milliseconds": 500
+        },
+        "rules": [
+          {
+            "description": "Caps Lock acts as left Control; tap alone sends Escape",
+            "enabled": true,
+            "manipulators": [
+              {
+                "type": "basic",
+                "from": {
+                  "key_code": "caps_lock",
+                  "modifiers": { "optional": ["any"] }
+                },
+                "to": [{ "key_code": "left_control" }],
+                "to_if_alone": [{ "key_code": "escape" }]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
