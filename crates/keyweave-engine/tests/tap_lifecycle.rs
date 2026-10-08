@@ -14,12 +14,12 @@ fn config(generation: u64, alone: &str, after: &str) -> Arc<ConfigSnapshot> {
         complex: vec![Mapping {
             id: "caps".into(),
             from: key("caps_lock"),
-            to: vec![key("left_control")],
+            to: vec![key("left_control").into()],
             allow_extra_modifiers: true,
             extras: MappingExtras {
                 from_modifiers: ModifierFilter::default(),
-                if_alone: vec![key(alone)],
-                after_key_up: vec![key(after)],
+                if_alone: vec![key(alone).into()],
+                after_key_up: vec![key(after).into()],
                 alone_timeout_ns: 100_000_000,
             },
         }],
@@ -234,7 +234,7 @@ fn nested_phase_taps_complete_their_up_macros_before_next_action() {
     configuration.simple.push(Mapping {
         id: "simple".into(),
         from: key("a"),
-        to: vec![key("caps_lock"), key("b")],
+        to: vec![key("caps_lock").into(), key("b").into()],
         allow_extra_modifiers: true,
         extras: MappingExtras::default(),
     });
@@ -261,8 +261,8 @@ fn nested_phase_taps_complete_their_up_macros_before_next_action() {
 #[test]
 fn resource_reservation_includes_future_macros_and_their_modifier_scopes() {
     let mut configuration = (*config(1, "escape", "tab")).clone();
-    configuration.complex[0].extras.if_alone = vec![key("escape"); 256];
-    configuration.complex[0].extras.after_key_up = vec![key("tab"); 256];
+    configuration.complex[0].extras.if_alone = vec![key("escape").into(); 256];
+    configuration.complex[0].extras.after_key_up = vec![key("tab").into(); 256];
     let mut engine = Engine::new(Arc::new(configuration));
     assert_eq!(
         engine

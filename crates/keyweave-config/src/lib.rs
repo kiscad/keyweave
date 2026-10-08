@@ -1,6 +1,6 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
-use keyweave_engine::{ConfigSnapshot, Mapping, MappingExtras, Modifier, ModifierFilter};
+use keyweave_engine::{Action, ConfigSnapshot, Mapping, MappingExtras, Modifier, ModifierFilter};
 use keyweave_types::*;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -517,7 +517,7 @@ impl Compiler<'_> {
         value: Option<&Value>,
         pointer: &str,
         allow_empty: bool,
-    ) -> Result<Vec<KeyId>, Diagnostic> {
+    ) -> Result<Vec<Action>, Diagnostic> {
         let Some(to) = value else {
             return if allow_empty {
                 Ok(Vec::new())
@@ -546,8 +546,29 @@ impl Compiler<'_> {
         values
             .iter()
             .enumerate()
-            .map(|(i, value)| self.key(Some(value), &format!("{pointer}/{i}")))
+            .map(|(i, value)| self.output_action(value, &format!("{pointer}/{i}")))
             .collect()
+    }
+    fn output_action(&self, value: &Value, pointer: &str) -> Result<Action, Diagnostic> {
+        let mut object = value
+            .as_object()
+            .cloned()
+            .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected output action object"))?;
+        let repeat = object
+            .remove("repeat")
+            .map(|value| {
+                value.as_bool().ok_or_else(|| {
+                    diagnostic(
+                        &format!("{pointer}/repeat"),
+                        "KW-CONFIG-001",
+                        "repeat must be boolean",
+                    )
+                })
+            })
+            .transpose()?
+            .unwrap_or(true);
+        self.key(Some(&Value::Object(object)), pointer)
+            .map(|key| Action { key, repeat })
     }
     fn input_key(
         &self,

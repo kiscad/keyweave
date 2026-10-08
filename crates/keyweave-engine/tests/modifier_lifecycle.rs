@@ -26,7 +26,7 @@ fn configuration(mandatory: &[&str], optional: &[&str], to: &str) -> ConfigSnaps
         complex: vec![Mapping {
             id: "a".into(),
             from: key("a"),
-            to: vec![key(to)],
+            to: vec![key(to).into()],
             allow_extra_modifiers: false,
             extras: MappingExtras {
                 from_modifiers: filter(mandatory, optional),
@@ -201,8 +201,8 @@ fn identical_modifier_output_does_not_emit_an_unnecessary_up_down_pair() {
 #[test]
 fn alone_and_after_macros_consume_mandatory_using_old_snapshot() {
     let mut config = configuration(&["control"], &[], "b");
-    config.complex[0].extras.if_alone = vec![key("escape")];
-    config.complex[0].extras.after_key_up = vec![key("tab")];
+    config.complex[0].extras.if_alone = vec![key("escape").into()];
+    config.complex[0].extras.after_key_up = vec![key("tab").into()];
     let mut engine = Engine::new(Arc::new(config));
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     send(&mut engine, 2, 1, "a", KeyEdge::Down);
@@ -262,6 +262,31 @@ fn pointer_activity_flushes_lazy_modifiers_after_repeat_key_up() {
     assert_eq!(step.outputs[0].key, key("left_control"));
     assert_eq!(step.outputs[0].edge, KeyEdge::Down);
     send(&mut engine, 6, 1, "left_control", KeyEdge::Up);
+    assert_eq!(engine.state(), EngineState::default());
+}
+
+#[test]
+fn repeat_false_modifier_pulses_but_consumed_flags_wait_for_original_up() {
+    let mut config = configuration(&["control"], &[], "left_shift");
+    config.complex[0].to[0].repeat = false;
+    let mut engine = Engine::new(Arc::new(config));
+    send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
+    assert_eq!(
+        send(&mut engine, 2, 1, "a", KeyEdge::Down),
+        edges(&[
+            ("left_control", KeyEdge::Up),
+            ("left_shift", KeyEdge::Down),
+            ("left_shift", KeyEdge::Up)
+        ])
+    );
+    assert_eq!(engine.suppression_references(), 1);
+    assert!(send(&mut engine, 3, 1, "a", KeyEdge::Up).is_empty());
+    assert_eq!(engine.suppression_references(), 0);
+    assert_eq!(
+        send(&mut engine, 4, 1, "c", KeyEdge::Down),
+        edges(&[("left_control", KeyEdge::Down), ("c", KeyEdge::Down)])
+    );
+    engine.reset(MonoTime(5)).unwrap();
     assert_eq!(engine.state(), EngineState::default());
 }
 

@@ -7,7 +7,7 @@
 | JSONC | 接受 `//`、`/* */`，保留源行号；8 MiB、serde 默认递归限额；拒绝尾逗号、重复对象成员（含 Unicode 转义等价键） |
 | profile | 选择唯一 selected=true，否则第一个；检查所有 profile 的对象、selected/name 类型；只编译当前 profile，其余保留到以后重新编译 |
 | simple / basic complex | HID keyboard、consumer、button；每阶段首匹配，无回流；complex 无 modifiers 时仅在没有修饰键输出 owner 时匹配 |
-| 多动作 to | simple 1..=256、complex 0..=256 个纯键动作；前面的动作完成 down/up，最后保持到输入 up；中间 tap 的派生输出与 up 宏先结束；vk_none/空 complex to 无输出 |
+| 多动作 to | simple 1..=256、complex 0..=256 个键动作；前面的动作完成 down/up，最后默认保持到输入 up；repeat:false 使最后动作也立即轻触；中间 tap 的派生输出与 up 宏先结束；vk_none/空 complex to 无输出 |
 | from.modifiers | mandatory/optional/any；八个 HID 左右键与 command/control/option/shift 组；组左优先，允许整组额外侧；optional 保留，mandatory 临时屏蔽；接受字符串/数组、别名去重；caps_lock/Fn 明确拒绝 |
 | to_if_alone / to_after_key_up | 纯键轻触；正常 up 先释放主动作，再 alone，再 after；alone 严格小于超时，新 key/button down 和非零 wheel 取消，move 不取消；恢复 down 时八个 HID 修饰键；拔除/Reset 取消宏 |
 | basic timing parameters | 四个已知时间参数整数 0..=86400000ms；默认 alone=1000ms，支持规则 override；当前只有 alone 有执行行为，其余保存待相应规则字段实现 |
@@ -22,6 +22,7 @@
 | 设备/Fn | 空数组接受；非空明确拒绝；结构错误直接拒绝快照 |
 | 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。两个后端尚无实现，声明只用于提前检查 |
 
-尚未实现：to.modifiers、repeat:false、held/delayed/simultaneous、条件/变量、显式 lazy/halt/hold_down、布局/锁状态、上下文与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory 修饰恢复见 ADR-0006，不能将它等同于支持显式 to.lazy。
+
+尚未实现：to.modifiers、held/delayed/simultaneous、条件/变量、显式 lazy/halt/hold_down、布局/锁状态、上下文与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory 修饰恢复见 ADR-0006，不能将它等同于支持显式 to.lazy。
 
 展开限额、不同来源 tap 冲突见 ADR-0003；轻触/松开生命周期与预算见 ADR-0004；实现与测试状态见 STATUS。不要通过删除不支持字段生成看似可执行的导入结果。

@@ -13,7 +13,7 @@ fn snapshot(generation: u64, output: &str) -> Arc<ConfigSnapshot> {
         simple: vec![Mapping {
             id: "a".into(),
             from: key("a"),
-            to: vec![key(output)],
+            to: vec![key(output).into()],
             allow_extra_modifiers: true,
             extras: MappingExtras::default(),
         }],
@@ -173,21 +173,21 @@ fn one_complex_match_per_stage_and_no_recirculation() {
         Mapping {
             id: "first".into(),
             from: key("b"),
-            to: vec![key("c")],
+            to: vec![key("c").into()],
             allow_extra_modifiers: false,
             extras: MappingExtras::default(),
         },
         Mapping {
             id: "second".into(),
             from: key("b"),
-            to: vec![key("d")],
+            to: vec![key("d").into()],
             allow_extra_modifiers: false,
             extras: MappingExtras::default(),
         },
         Mapping {
             id: "cycle".into(),
             from: key("c"),
-            to: vec![key("a")],
+            to: vec![key("a").into()],
             allow_extra_modifiers: false,
             extras: MappingExtras::default(),
         },
@@ -209,7 +209,7 @@ fn bare_complex_from_rejects_extra_modifiers() {
     config.complex = vec![Mapping {
         id: "a".into(),
         from: key("a"),
-        to: vec![key("b")],
+        to: vec![key("b").into()],
         allow_extra_modifiers: false,
         extras: MappingExtras::default(),
     }];
@@ -308,11 +308,11 @@ fn deterministic_interleavings_finish_balanced() {
 #[test]
 fn intermediate_sequences_finish_before_the_next_phase_input() {
     let mut config = (*snapshot(1, "b")).clone();
-    config.simple[0].to = vec![key("b"), key("c")];
+    config.simple[0].to = vec![key("b").into(), key("c").into()];
     config.complex.push(Mapping {
         id: "nested".into(),
         from: key("b"),
-        to: vec![key("d"), key("e")],
+        to: vec![key("d").into(), key("e").into()],
         allow_extra_modifiers: false,
         extras: MappingExtras::default(),
     });
@@ -349,7 +349,7 @@ fn intermediate_sequences_finish_before_the_next_phase_input() {
 #[test]
 fn repeated_sequence_key_has_separate_lifetimes_and_respects_existing_owners() {
     let mut config = (*snapshot(1, "b")).clone();
-    config.simple[0].to = vec![key("b"), key("b")];
+    config.simple[0].to = vec![key("b").into(), key("b").into()];
     let mut engine = Engine::new(Arc::new(config));
     assert_eq!(
         edges(
@@ -393,7 +393,7 @@ fn repeated_sequence_key_has_separate_lifetimes_and_respects_existing_owners() {
 #[test]
 fn sequence_does_not_repeat_and_vk_none_does_not_create_an_owner() {
     let mut config = (*snapshot(1, "b")).clone();
-    config.simple[0].to = vec![key("b"), key("vk_none")];
+    config.simple[0].to = vec![key("b").into(), key("vk_none").into()];
     let mut engine = Engine::new(Arc::new(config));
     assert_eq!(
         engine
@@ -424,11 +424,11 @@ fn sequence_does_not_repeat_and_vk_none_does_not_create_an_owner() {
 #[test]
 fn expansion_limit_is_checked_before_any_output_changes() {
     let mut config = (*snapshot(1, "b")).clone();
-    config.simple[0].to = vec![key("b"); 256];
+    config.simple[0].to = vec![key("b").into(); 256];
     config.complex.push(Mapping {
         id: "too-large".into(),
         from: key("b"),
-        to: vec![key("c"); 256],
+        to: vec![key("c").into(); 256],
         allow_extra_modifiers: false,
         extras: MappingExtras::default(),
     });
@@ -582,5 +582,102 @@ fn identity_history_has_a_hard_limit_and_reset_keeps_retired_protection() {
             .handle(event(seq + 4, 1, 1, "a", KeyEdge::Down))
             .unwrap_err(),
         EngineError::RetiredDevice
+    );
+}
+
+#[test]
+fn repeat_false_taps_last_action_and_never_replays_on_physical_repeat() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.simple[0].to[0].repeat = false;
+    let mut engine = Engine::new(Arc::new(config));
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(1, 1, 1, "a", KeyEdge::Down))
+                .unwrap()
+                .outputs
+        ),
+        vec![("b".into(), KeyEdge::Down), ("b".into(), KeyEdge::Up)]
+    );
+    assert_eq!(engine.state().output_owners, 0);
+    for (seq, edge) in [(2, KeyEdge::Repeat), (3, KeyEdge::Down), (4, KeyEdge::Up)] {
+        assert!(
+            engine
+                .handle(event(seq, 1, 1, "a", edge))
+                .unwrap()
+                .outputs
+                .is_empty()
+        );
+    }
+    assert_eq!(engine.state(), EngineState::default());
+}
+
+#[test]
+fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.complex.push(Mapping {
+        id: "b".into(),
+        from: key("b"),
+        to: vec![Action {
+            key: key("c"),
+            repeat: false,
+        }],
+        allow_extra_modifiers: false,
+        extras: MappingExtras {
+            after_key_up: vec![key("d").into()],
+            ..MappingExtras::default()
+        },
+    });
+    let mut engine = Engine::new(Arc::new(config));
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(1, 1, 1, "a", KeyEdge::Down))
+                .unwrap()
+                .outputs
+        ),
+        vec![("c".into(), KeyEdge::Down), ("c".into(), KeyEdge::Up)]
+    );
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(2, 1, 1, "a", KeyEdge::Up))
+                .unwrap()
+                .outputs
+        ),
+        vec![("d".into(), KeyEdge::Down), ("d".into(), KeyEdge::Up)]
+    );
+    assert_eq!(engine.state(), EngineState::default());
+}
+
+#[test]
+fn repeat_false_tap_does_not_release_another_device_owner() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.simple[0].to[0].repeat = false;
+    let mut engine = Engine::new(Arc::new(config));
+    engine.handle(event(1, 2, 1, "b", KeyEdge::Down)).unwrap();
+    assert!(
+        engine
+            .handle(event(2, 1, 1, "a", KeyEdge::Down))
+            .unwrap()
+            .outputs
+            .is_empty()
+    );
+    assert_eq!(engine.state().output_owners, 1);
+    assert!(
+        engine
+            .handle(event(3, 1, 1, "a", KeyEdge::Up))
+            .unwrap()
+            .outputs
+            .is_empty()
+    );
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(4, 2, 1, "b", KeyEdge::Up))
+                .unwrap()
+                .outputs
+        ),
+        vec![("b".into(), KeyEdge::Up)]
     );
 }

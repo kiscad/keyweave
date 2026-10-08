@@ -15,11 +15,22 @@ pub const MAX_OUTPUT_OWNERS: usize = 16_384;
 pub const MAX_DEVICE_IDENTITIES: usize = 4096;
 pub const MAX_PERSISTENT_SUPPRESSION_REFERENCES: usize = 16_384;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Action {
+    pub key: KeyId,
+    pub repeat: bool,
+}
+impl From<KeyId> for Action {
+    fn from(key: KeyId) -> Self {
+        Self { key, repeat: true }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Mapping {
     pub id: String,
     pub from: KeyId,
-    pub to: Vec<KeyId>,
+    pub to: Vec<Action>,
     pub allow_extra_modifiers: bool,
     pub extras: MappingExtras,
 }
@@ -27,8 +38,8 @@ pub struct Mapping {
 #[derive(Clone, Debug)]
 pub struct MappingExtras {
     pub from_modifiers: ModifierFilter,
-    pub if_alone: Vec<KeyId>,
-    pub after_key_up: Vec<KeyId>,
+    pub if_alone: Vec<Action>,
+    pub after_key_up: Vec<Action>,
     pub alone_timeout_ns: u64,
 }
 impl Default for MappingExtras {
@@ -50,12 +61,11 @@ impl Mapping {
                 * (1 + usize::from(!self.extras.if_alone.is_empty())
                     + usize::from(!self.extras.after_key_up.is_empty()))
     }
-    fn actions(&self) -> impl Iterator<Item = KeyId> + '_ {
+    fn actions(&self) -> impl Iterator<Item = &Action> + '_ {
         self.to
             .iter()
             .chain(&self.extras.if_alone)
             .chain(&self.extras.after_key_up)
-            .copied()
     }
 }
 
@@ -94,7 +104,7 @@ impl ConfigSnapshot {
         for mapping in &self.simple {
             let count = mapping
                 .actions()
-                .map(|key| complex.get(&key).copied().unwrap_or(1))
+                .map(|action| complex.get(&action.key).copied().unwrap_or(1))
                 .fold(0, usize::saturating_add)
                 .saturating_add(mapping.scope_budget());
             bounds
@@ -541,7 +551,11 @@ impl Engine {
         let mut suppressed = self.hide_modifiers(&consumed);
         let children =
             self.press_actions(&mapping.to, stage + 1, config, next_source, false, outputs);
-        if !mapping.to.last().is_some_and(|key| key.is_modifier()) {
+        if !mapping
+            .to
+            .last()
+            .is_some_and(|action| action.key.is_modifier())
+        {
             self.unhide_modifiers(std::mem::take(&mut suppressed));
         }
         Bound::Rule {
@@ -558,7 +572,7 @@ impl Engine {
 
     fn press_actions(
         &mut self,
-        actions: &[KeyId],
+        actions: &[Action],
         stage: usize,
         config: &ConfigSnapshot,
         next_source: &mut u64,
@@ -566,9 +580,9 @@ impl Engine {
         outputs: &mut Vec<OutputIntent>,
     ) -> Vec<Bound> {
         let mut held = Vec::new();
-        for (index, key) in actions.iter().copied().enumerate() {
-            let child = self.press_stage(key, stage, config, next_source, outputs);
-            if !tap_all && index + 1 == actions.len() {
+        for (index, action) in actions.iter().enumerate() {
+            let child = self.press_stage(action.key, stage, config, next_source, outputs);
+            if !tap_all && action.repeat && index + 1 == actions.len() {
                 held.push(child);
             } else {
                 self.release_bound(child, config, next_source, true, outputs);

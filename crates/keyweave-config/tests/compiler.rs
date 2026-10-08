@@ -278,7 +278,7 @@ fn malformed_or_unsupported_new_action_options_disable_whole_rule() {
     for value in [
         json!({"type":"basic","from":{"key_code":"a","modifiers":{"mandatory":["caps_lock"]}},"to":{"key_code":"b"}}),
         json!({"type":"basic","from":{"key_code":"a","modifiers":{"optional":["any","fn"]}},"to":{"key_code":"b"}}),
-        json!({"type":"basic","from":{"key_code":"a"},"to_if_alone":[{"key_code":"b","repeat":false}]}),
+        json!({"type":"basic","from":{"key_code":"a"},"to_if_alone":[{"key_code":"b","halt":true}]}),
         json!({"type":"basic","from":{"key_code":"a"},"to_after_key_up":false}),
         json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":-1}}),
         json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":0.5}}),
@@ -389,6 +389,27 @@ fn modifier_strings_deduplicate_aliases_and_diagnostics_point_to_actual_values()
         "/profiles/0/complex_modifications/rules/0/manipulators/0/from/modifiers/mandatory"
     );
     assert!(!config.executable_without_loss());
+}
+
+#[test]
+fn repeat_option_is_typed_and_extra_actions_still_complete_as_taps() {
+    let config = compile_value(profile(json!([{"manipulators":[{
+        "type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","repeat":false}],
+        "to_after_key_up":[{"key_code":"c","repeat":true}]
+    }]}])));
+    assert!(config.executable_without_loss());
+    assert!(!config.snapshot.complex[0].to[0].repeat);
+    assert!(config.snapshot.complex[0].extras.after_key_up[0].repeat);
+    for repeat in [json!("false"), json!(0), Value::Null] {
+        let config = compile_value(profile(json!([{"manipulators":[{
+            "type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","repeat":repeat}]
+        }]}])));
+        assert!(!config.executable_without_loss());
+        assert_eq!(
+            config.diagnostics[0].pointer,
+            "/profiles/0/complex_modifications/rules/0/manipulators/0/to/0/repeat"
+        );
+    }
 }
 #[test]
 fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {
