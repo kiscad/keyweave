@@ -418,3 +418,16 @@ fn replug_and_late_overflow_callbacks_cannot_resurrect_an_old_binding() {
     engine.reset(MonoTime(7)).unwrap();
     assert!(engine.next_deadline().is_none());
 }
+
+#[test]
+fn reset_clears_pending_deadline_before_any_callback_arrives() {
+    let mut engine = Engine::new(config(1, "c", 5)).unwrap();
+    stroke(&mut engine, 1, 0, "a", KeyEdge::Down);
+    engine.reset(MonoTime(1)).unwrap();
+    assert_eq!(engine.state().pending_deadlines, 0);
+    assert!(engine.next_deadline().is_none());
+    assert_eq!(
+        stroke(&mut engine, 2, 6, "d", KeyEdge::Down),
+        [("d".into(), KeyEdge::Down)]
+    );
+}

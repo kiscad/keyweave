@@ -852,6 +852,7 @@ impl Engine {
         for value in self.variables.values_mut() {
             *value = None;
         }
+        self.deadlines.clear();
         self.owners.clear();
         self.hidden.clear();
         self.emitted.clear();
