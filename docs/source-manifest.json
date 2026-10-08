@@ -161,6 +161,12 @@
       "lines": 76
     },
     {
+      "path": "src/share/keyboard_repeat_detector.hpp",
+      "sha256": "913521a2f7086d743c6bf30ebd1f3d48fcdeb56f657d4bee2854e9a99b8b243c",
+      "bytes": 1089,
+      "lines": 51
+    },
+    {
       "path": "src/share/keyboard_suppression.hpp",
       "sha256": "af6ea75914e3f47162a89775e377de1f2882a2f6618d5c45a9526f17b2d201fd",
       "bytes": 6744,
@@ -267,6 +273,18 @@
       "sha256": "5aed3189492771c1f351522b8e0b22f730283fd5cea29ff27221fadc91e6ff5e",
       "bytes": 4829,
       "lines": 139
+    },
+    {
+      "path": "src/share/manipulator/types/modifier_definition.hpp",
+      "sha256": "283fb6027f70248d26465cd5807ce6660f6b858be6cda45cbad79290f838bbd4",
+      "bytes": 3017,
+      "lines": 114
+    },
+    {
+      "path": "src/share/manipulator/types/modifier_definition/modifier.hpp",
+      "sha256": "66d52be172c190c50c9b0cdb77fcb4f9ee7b1c631af9e438103dc06583f5e895",
+      "bytes": 3931,
+      "lines": 144
     },
     {
       "path": "src/share/monitor/configuration_monitor.hpp",

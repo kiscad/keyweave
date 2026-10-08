@@ -1,6 +1,6 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
-use keyweave_engine::{ConfigSnapshot, Mapping, MappingExtras};
+use keyweave_engine::{ConfigSnapshot, Mapping, MappingExtras, Modifier, ModifierFilter};
 use keyweave_types::*;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -473,10 +473,11 @@ impl Compiler<'_> {
                 "only basic manipulators are implemented",
             ));
         }
-        let (from, allow_extra_modifiers) =
+        let (from, from_modifiers) =
             self.input_key(object.get("from"), &format!("{pointer}/from"), complex)?;
         let to = self.actions(object.get("to"), &format!("{pointer}/to"), complex)?;
         let extras = MappingExtras {
+            from_modifiers,
             if_alone: self.actions(
                 object.get("to_if_alone"),
                 &format!("{pointer}/to_if_alone"),
@@ -507,7 +508,7 @@ impl Compiler<'_> {
             id: pointer.into(),
             from,
             to,
-            allow_extra_modifiers,
+            allow_extra_modifiers: !complex,
             extras,
         })
     }
@@ -553,15 +554,17 @@ impl Compiler<'_> {
         value: Option<&Value>,
         pointer: &str,
         complex: bool,
-    ) -> Result<(KeyId, bool), Diagnostic> {
+    ) -> Result<(KeyId, ModifierFilter), Diagnostic> {
         if !complex {
-            return self.key(value, pointer).map(|key| (key, true));
+            return self
+                .key(value, pointer)
+                .map(|key| (key, ModifierFilter::default()));
         }
         let mut from = value
             .and_then(Value::as_object)
             .cloned()
             .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected from object"))?;
-        let mut allow_extra = false;
+        let mut filter = ModifierFilter::default();
         if let Some(modifiers) = from.remove("modifiers") {
             let modifiers = modifiers.as_object().ok_or_else(|| {
                 diagnostic(
@@ -572,27 +575,55 @@ impl Compiler<'_> {
             })?;
             for (field, value) in modifiers {
                 let location = format!("{pointer}/modifiers/{}", escape_pointer(field));
-                let items = value.as_array().ok_or_else(|| {
-                    diagnostic(&location, "KW-CONFIG-001", "expected modifier array")
-                })?;
-                match field.as_str() {
-                    "mandatory" if items.is_empty() => {}
-                    "optional" if items.is_empty() => {}
-                    "optional" if items.as_slice() == [Value::String("any".into())] => {
-                        allow_extra = true
-                    }
+                if field == "description" {
+                    continue;
+                }
+                let target = match field.as_str() {
+                    "mandatory" => &mut filter.mandatory,
+                    "optional" => &mut filter.optional,
                     _ => {
                         return Err(diagnostic(
                             &location,
                             "KW-CAP-001",
-                            "only empty mandatory and optional [any] modifier matching is currently implemented",
+                            "unknown modifier matching field",
                         ));
                     }
+                };
+                let is_array = value.is_array();
+                let values: Vec<&Value> = if let Some(items) = value.as_array() {
+                    items.iter().collect()
+                } else if value.is_string() {
+                    vec![value]
+                } else {
+                    return Err(diagnostic(
+                        &location,
+                        "KW-CONFIG-001",
+                        "expected modifier string or array",
+                    ));
+                };
+                if values.len() > 64 {
+                    return Err(diagnostic(
+                        &location,
+                        "KW-LIMIT-001",
+                        "modifier list exceeds 64 names",
+                    ));
+                }
+                for (index, value) in values.iter().enumerate() {
+                    let location = if !is_array {
+                        location.clone()
+                    } else {
+                        format!("{location}/{index}")
+                    };
+                    let name = value.as_str().ok_or_else(|| {
+                        diagnostic(&location, "KW-CONFIG-001", "expected modifier name")
+                    })?;
+                    let modifier = Modifier::named(name).ok_or_else(|| diagnostic(&location, "KW-CAP-001", format!("modifier {name} is unknown or requires unimplemented lock/vendor state")))?;
+                    target.insert(modifier);
                 }
             }
         }
         self.key(Some(&Value::Object(from)), pointer)
-            .map(|key| (key, allow_extra))
+            .map(|key| (key, filter))
     }
     fn key(&self, value: Option<&Value>, pointer: &str) -> Result<KeyId, Diagnostic> {
         let object: &Map<String, Value> = value.and_then(Value::as_object).ok_or_else(|| {

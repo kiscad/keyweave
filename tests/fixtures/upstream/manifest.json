@@ -32,6 +32,11 @@
       "path": "rules/spacebar_to_tab.json",
       "source_path": "tests/src/manipulator/json/manipulator_manager/rules/spacebar_to_tab.json",
       "sha256": "a3d4f19e3706b0763b099927b8b66011648ab912fc314cd3a279dfcc0f6b3850"
+    },
+    {
+      "path": "modifier-matching.jsonc",
+      "source_path": "tests/src/manipulator_types/json/from_modifiers_definitions.jsonc",
+      "sha256": "d2f6ee85930f1e6285e49ca28cc74024a66604b89a8630f78a4f90ed8c48fb4e"
     }
   ]
 }

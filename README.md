@@ -13,6 +13,7 @@ cargo test --locked --workspace
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/basic.json --assert
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/sequence.json --assert
 cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/tap-alone.json --assert
+cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/modifiers.json --assert
 cargo run --locked -p keyweavectl -- doctor
 ```
 

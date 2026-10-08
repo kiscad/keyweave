@@ -17,6 +17,7 @@ fn config(generation: u64, alone: &str, after: &str) -> Arc<ConfigSnapshot> {
             to: vec![key("left_control")],
             allow_extra_modifiers: true,
             extras: MappingExtras {
+                from_modifiers: ModifierFilter::default(),
                 if_alone: vec![key(alone)],
                 after_key_up: vec![key(after)],
                 alone_timeout_ns: 100_000_000,

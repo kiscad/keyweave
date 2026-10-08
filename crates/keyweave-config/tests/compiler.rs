@@ -261,7 +261,13 @@ fn alone_timeout_inherits_global_value_and_manipulator_override() {
         123_000_000
     );
     assert_eq!(config.snapshot.complex[1].extras.alone_timeout_ns, 0);
-    assert!(config.snapshot.complex[0].allow_extra_modifiers);
+    assert!(
+        config.snapshot.complex[0]
+            .extras
+            .from_modifiers
+            .optional
+            .contains(&keyweave_engine::Modifier::Any)
+    );
     assert!(!config.snapshot.complex[1].allow_extra_modifiers);
     assert!(config.snapshot.complex[1].to.is_empty());
     assert_eq!(config.snapshot.complex[1].extras.after_key_up.len(), 1);
@@ -270,8 +276,8 @@ fn alone_timeout_inherits_global_value_and_manipulator_override() {
 #[test]
 fn malformed_or_unsupported_new_action_options_disable_whole_rule() {
     for value in [
-        json!({"type":"basic","from":{"key_code":"a","modifiers":{"mandatory":["control"]}},"to":{"key_code":"b"}}),
-        json!({"type":"basic","from":{"key_code":"a","modifiers":{"optional":["any","shift"]}},"to":{"key_code":"b"}}),
+        json!({"type":"basic","from":{"key_code":"a","modifiers":{"mandatory":["caps_lock"]}},"to":{"key_code":"b"}}),
+        json!({"type":"basic","from":{"key_code":"a","modifiers":{"optional":["any","fn"]}},"to":{"key_code":"b"}}),
         json!({"type":"basic","from":{"key_code":"a"},"to_if_alone":[{"key_code":"b","repeat":false}]}),
         json!({"type":"basic","from":{"key_code":"a"},"to_after_key_up":false}),
         json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":-1}}),
@@ -305,6 +311,84 @@ fn pure_alone_and_after_actions_require_no_normal_to_action() {
         json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[]}]}]),
     ));
     assert!(suppression.executable_without_loss());
+}
+
+#[test]
+fn upstream_modifier_matching_oracle_is_unchanged_and_standard_flags_match() {
+    let cases = parse_jsonc(include_str!(
+        "../../../tests/fixtures/upstream/modifier-matching.jsonc"
+    ))
+    .unwrap();
+    let mut passed = 0;
+    let mut skipped = 0;
+    for case in cases.as_array().unwrap() {
+        let config = compile_value(profile(json!([{"manipulators":[{
+            "type":"basic","from":{"key_code":"a","modifiers":case["input"]},"to":{"key_code":"b"}
+        }]}])));
+        assert!(config.executable_without_loss());
+        let filter = &config.snapshot.complex[0].extras.from_modifiers;
+        for test in case["tests"].as_array().unwrap() {
+            if test["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|name| name == "fn")
+            {
+                skipped += 1;
+                continue;
+            }
+            let pressed = test["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|name| name.as_str().unwrap().parse().unwrap())
+                .collect();
+            let expected = if test["expected"].is_null() {
+                None
+            } else {
+                Some(
+                    test["expected"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|name| name.as_str().unwrap().parse().unwrap())
+                        .collect(),
+                )
+            };
+            assert_eq!(
+                filter.consumed(&pressed, false),
+                expected,
+                "{case} / {test}"
+            );
+            passed += 1;
+        }
+    }
+    assert_eq!(passed, 33);
+    assert_eq!(skipped, 1, "Fn/vendor flag requires future platform state");
+}
+
+#[test]
+fn modifier_strings_deduplicate_aliases_and_diagnostics_point_to_actual_values() {
+    let config = compile_value(profile(json!([{"manipulators":[{
+        "type":"basic","from":{"key_code":"a","modifiers":{"mandatory":["control","control"],"optional":"any"}},"to":{"key_code":"b"}
+    }]}])));
+    assert!(config.executable_without_loss());
+    assert_eq!(
+        config.snapshot.complex[0]
+            .extras
+            .from_modifiers
+            .mandatory
+            .len(),
+        1
+    );
+    let config = compile_value(profile(json!([{"manipulators":[{
+        "type":"basic","from":{"key_code":"a","modifiers":{"mandatory":"caps_lock"}},"to":{"key_code":"b"}
+    }]}])));
+    assert_eq!(
+        config.diagnostics[0].pointer,
+        "/profiles/0/complex_modifications/rules/0/manipulators/0/from/modifiers/mandatory"
+    );
+    assert!(!config.executable_without_loss());
 }
 #[test]
 fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {

@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "name": "Mandatory modifier lifecycle",
+        "selected": true,
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "a",
+                    "modifiers": {
+                      "mandatory": [
+                        "control"
+                      ]
+                    }
+                  },
+                  "to": [
+                    {
+                      "key_code": "b"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 10,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "left_control",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 20,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 3,
+      "at_ns": 30,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 4,
+      "at_ns": 40,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "c",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 5,
+      "at_ns": 50,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "c",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 6,
+      "at_ns": 60,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "left_control",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 10,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 20,
+      "key": "left_control",
+      "edge": "up"
+    },
+    {
+      "at_ns": 20,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 30,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 40,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 40,
+      "key": "c",
+      "edge": "down"
+    },
+    {
+      "at_ns": 50,
+      "key": "c",
+      "edge": "up"
+    },
+    {
+      "at_ns": 60,
+      "key": "left_control",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  }
+}
