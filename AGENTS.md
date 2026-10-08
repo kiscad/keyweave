@@ -61,6 +61,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 - device remove 只释放其 owners，撤销所属 timers/宏；output failure、queue overflow、引擎停滞都进入显式恢复。
 - 恢复优先保证物理键盘可输入，不能无限等待失效输出端发 up；清虚拟按住、旧 token，再等 neutral 恢复。
 - 紧急物理组合在映射前识别，规则不能覆盖；watchdog 检查事件循环实际进度而非后台线程存活。
+- Linux Runtime 独占输入/Engine/OutputPump；全部 native frame 先验证，不向 engine 交付半帧；SYN_DROPPED 终止 capture，逐设备 normalizer 不猜 MSC HID。到期 TimerFired 优先，CancellationPending 分批取消、保留原 logical key 和 seq。每 poll 64 操作，先处理已排队 due 输出再读新批次；失败/pause/Drop 必须 close 全部 capture 再收尾 output，8 次恢复上限。progress_epoch 只反映完成 poll，不能代替 supervisor；startup 重验 arm 关联的 backend 身份，hot config 先检查全部输出。
 - CaptureDevice arm 使用短期 OutputNodeReady，token 仅证明 owned uinput 的 event node 身份/公告能力，不证明 compositor ready。单设备 pre/post neutral、own output exclusion、passthrough coverage 后才 Captured；失败 rollback，ungrab/read 故障 close 唯一源。EVIOCGKEY flush 该 client EV_KEY，限定启用/恢复边界，正常事件循环不得周期性 query；arming 窗口丢 tap 的限制不能被描述成无损原子切换。multi-device coordinator 与 watchdog 仍需落实。
 - Linux uinput 正短写必须先补 REPORT 再恢复 submitted ups；errno/非整记录是 UnknownAcceptance，quarantine 后释放物理 capture 并销毁设备，不确认零接受量或重试整批。OutputState::Ready 不等于 capture ready；Recovery 本版不能 resume，需销毁重建。自身识别比较 canonical input syspath，repeat 仅 Kernel 或 External，LED read 不等于同步已实现。
 - Linux 唯一 ioctl unsafe 位于私有 ioctl.rs；crate deny、该模块 allow，其他 workspace forbid。owned evdev FD 不导出/复制；查询错误不是 neutral，keyboard_issues 不是输出 ready/own-device/neutral/grab gate。更改 native ABI 时运行 tools/verify_linux_abi.py（不接触设备）。

@@ -10,5 +10,6 @@ pub mod output;
 pub mod probe;
 pub mod pump;
 pub mod read;
+pub mod runtime;
 #[cfg(target_os = "linux")]
 pub mod uinput;

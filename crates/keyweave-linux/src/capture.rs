@@ -114,13 +114,19 @@ fn complete_capabilities(node: &Probe) -> bool {
 pub struct CaptureDevice<S: CaptureSource> {
     source: Option<S>,
     phase: CapturePhase,
+    output_identity: Option<std::path::PathBuf>,
 }
 impl<S: CaptureSource> CaptureDevice<S> {
     pub fn new(source: S) -> Self {
         Self {
             source: Some(source),
             phase: CapturePhase::Standby,
+            output_identity: None,
         }
+    }
+    /// Identity of the output against which this active capture was admitted.
+    pub fn output_syspath(&self) -> Option<&Path> {
+        self.output_identity.as_deref()
     }
     pub fn phase(&self) -> CapturePhase {
         self.phase
@@ -179,12 +185,16 @@ impl<S: CaptureSource> CaptureDevice<S> {
         self.source()?.set_grab(true).map_err(CaptureError::Grab)?;
         self.phase = CapturePhase::Captured; // Guard armed BEFORE the fallible query.
         match self.check_neutral() {
-            Ok(true) => Ok(ArmResult::Captured),
+            Ok(true) => {
+                self.output_identity = Some(output.input_syspath.into());
+                Ok(ArmResult::Captured)
+            }
             Ok(false) => self.rollback(Ok(ArmResult::WaitingNeutral)),
             Err(error) => self.rollback(Err(error)),
         }
     }
     fn rollback<T>(&mut self, outcome: Result<T, CaptureError>) -> Result<T, CaptureError> {
+        self.output_identity = None;
         match self.source()?.set_grab(false) {
             Ok(()) => {
                 self.phase = CapturePhase::Standby;
@@ -208,6 +218,7 @@ impl<S: CaptureSource> CaptureDevice<S> {
         }
     }
     pub fn close(&mut self) {
+        self.output_identity = None;
         drop(self.source.take());
         self.phase = CapturePhase::Closed;
     }

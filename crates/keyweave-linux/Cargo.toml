@@ -9,6 +9,7 @@ license.workspace = true
 thiserror.workspace = true
 keyweave-types.workspace = true
 keyweave-output.workspace = true
+keyweave-engine.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.176"
@@ -19,6 +20,3 @@ unsafe_code = "deny"
 [lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
-
-[dev-dependencies]
-keyweave-engine.workspace = true

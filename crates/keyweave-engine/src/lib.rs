@@ -125,7 +125,8 @@ impl Mapping {
                     .is_some_and(DelayedAction::enabled),
             ) * (9 + usize::from(mandatory) * 8)
     }
-    fn actions(&self) -> impl Iterator<Item = &Action> + '_ {
+    /// All possible action branches, for backend admission before activation.
+    pub fn actions(&self) -> impl Iterator<Item = &Action> + '_ {
         self.to
             .iter()
             .chain(&self.extras.if_held_down)

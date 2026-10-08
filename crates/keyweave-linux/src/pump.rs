@@ -14,6 +14,10 @@ use std::io;
 /// WriteError::UnknownAcceptance. Complete receipts include the native REPORT.
 pub trait FrameBackend {
     fn spec(&self) -> &DeviceSpec;
+    /// Canonical virtual input identity. Runtime requires this; codecs alone do not.
+    fn input_syspath(&self) -> Option<&std::path::Path> {
+        None
+    }
     fn submit(
         &mut self,
         edges: &[NativeKey],
@@ -65,6 +69,9 @@ impl<B: FrameBackend> OutputPump<B> {
             phase: Phase::Normal,
             now: MonoTime(0),
         }
+    }
+    pub fn spec(&self) -> Option<&DeviceSpec> {
+        self.backend.as_ref().map(FrameBackend::spec)
     }
     pub fn phase(&self) -> Phase {
         self.phase
@@ -226,6 +233,9 @@ impl<B: FrameBackend> OutputPump<B> {
 }
 #[cfg(target_os = "linux")]
 impl FrameBackend for crate::uinput::UinputDevice {
+    fn input_syspath(&self) -> Option<&std::path::Path> {
+        Some(self.input_syspath())
+    }
     fn spec(&self) -> &DeviceSpec {
         self.spec()
     }
