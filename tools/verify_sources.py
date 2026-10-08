@@ -15,6 +15,11 @@ for entry in manifest['files']:
     if hashlib.sha256((source / entry['path']).read_bytes()).hexdigest() != entry['sha256']:
         raise SystemExit(f"Source changed: {entry['path']}")
 fixture_manifest = PROJECT / 'tests/fixtures/upstream/manifest.json'
+key_manifest = PROJECT / 'docs/key-names-manifest.json'
+if key_manifest.exists():
+    for entry in json.loads(key_manifest.read_text())['files']:
+        if hashlib.sha256((source / entry['path']).read_bytes()).hexdigest() != entry['sha256']:
+            raise SystemExit(f"HID source changed: {entry['path']}")
 if fixture_manifest.exists():
     for entry in json.loads(fixture_manifest.read_text())['files']:
         copied = fixture_manifest.parent / entry['path']

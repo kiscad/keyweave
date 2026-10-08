@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [{
+      "name": "Basic replay",
+      "selected": true,
+      "simple_modifications": [
+        {"from": {"key_code": "a"}, "to": [{"key_code": "b"}]},
+        {"from": {"key_code": "caps_lock"}, "to": [{"key_code": "left_control"}]}
+      ]
+    }]
+  },
+  "inputs": [
+    {"seq": 1, "at_ns": 0, "device": {"id": 1, "generation": 1}, "event": {"type": "key", "key": "a", "edge": "down"}},
+    {"seq": 2, "at_ns": 20, "device": {"id": 1, "generation": 1}, "event": {"type": "key", "key": "a", "edge": "up"}},
+    {"seq": 3, "at_ns": 30, "device": {"id": 1, "generation": 1}, "event": {"type": "key", "key": "caps_lock", "edge": "down"}},
+    {"seq": 4, "at_ns": 40, "device": {"id": 1, "generation": 1}, "event": {"type": "reset"}}
+  ],
+  "expected": [
+    {"at_ns": 0, "key": "b", "edge": "down"},
+    {"at_ns": 20, "key": "b", "edge": "up"},
+    {"at_ns": 30, "key": "left_control", "edge": "down"},
+    {"at_ns": 40, "key": "left_control", "edge": "up"}
+  ],
+  "expected_state": {"bindings": 0, "output_owners": 0, "pressed_outputs": [], "binding_generations": [], "pending_deadlines": 0}
+}

@@ -2,7 +2,7 @@
 
 ## 当前项目与任务入口
 
-KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边的 `../Karabiner-Elements/`。当前只有设计与分析文档，尚无 Cargo workspace、daemon、GUI 或 driver。不要把规划当作代码已完成。
+KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边的 `../Karabiner-Elements/`。已创建 Rust workspace 与基础离线切片，真实进展见 STATUS；不要把规划当作代码已完成。
 
 开始前读取：
 
@@ -15,7 +15,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 
 ## 开发顺序与源码边界
 
-- 默认下一步为 D00/D01；先 types/config/engine/CLI 离线切片，再高级规则、Linux 后端、Windows Hook、会话/GUI。Windows driver 是单独 gate。
+- 按 STATUS 继续下一未完成任务；先 types/config/engine/CLI 离线切片，再高级规则、Linux 后端、Windows Hook、会话/GUI。Windows driver 是单独 gate。
 - 不修改、格式化或更新 `../Karabiner-Elements/`，除非任务明确要求。不得重写上游 expected fixture 使新实现看似兼容。
 - 分析基线 `ec2fea8940f7254a748c052a890ee9db7113d9b1`、version `16.3.11`。source hash 不符时先核验来源变化并更新证据。
 - 本地 DriverKit/cpm 子模块未初始化；本次未完成 companion driver 内部审计。不能推断其完整实现、协议或许可证。

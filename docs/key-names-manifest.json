@@ -1,0 +1,18 @@
+{
+  "source_commit": "ec2fea8940f7254a748c052a890ee9db7113d9b1",
+  "entries": 309,
+  "files": [
+    {
+      "path": "vendor/vendor/include/pqrs/hid/usage.hpp",
+      "sha256": "198e4b1425a9728d101347625fade73c3c7c5e945d012459f227af1f34ead358"
+    },
+    {
+      "path": "src/share/types/momentary_switch_event_details/key_code.hpp",
+      "sha256": "75c6f7d60282d2f9faa212c923c0c06a22ec5fe01bf079864a13fbc3a2b2628e"
+    },
+    {
+      "path": "src/share/types/momentary_switch_event_details/consumer_key_code.hpp",
+      "sha256": "201e0035c22e9185d8981efde5dcd67849e003008cb7676cf12066caa8144697"
+    }
+  ]
+}
