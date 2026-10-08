@@ -36,6 +36,7 @@ fn engine(conditions: Vec<Condition>, to: Vec<Action>, after: Vec<Action>) -> En
             },
         }],
     }))
+    .unwrap()
 }
 fn context(revision: u64, vendor: Option<u32>, generation: u64) -> ContextSnapshot {
     ContextSnapshot {
@@ -364,7 +365,7 @@ fn filtered_modifier_action_does_not_keep_consumed_scope_hidden() {
             },
         }],
     });
-    let mut engine = Engine::new(config);
+    let mut engine = Engine::new(config).unwrap();
     update(&mut engine, 1, 0, context(1, Some(42), 1));
     stroke(&mut engine, 2, 1, 1, "left_control", KeyEdge::Down);
     assert_eq!(

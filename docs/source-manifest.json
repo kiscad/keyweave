@@ -357,6 +357,30 @@
       "sha256": "9b7bffd9aee957bd9af1325a150dc233ab1b8fc1d8aa78d48a991afc448a0a02",
       "bytes": 3936,
       "lines": 148
+    },
+    {
+      "path": "src/share/manipulator/conditions/variable.hpp",
+      "sha256": "dc67566c63f3a8ef544f1b557c33698ac23a91adf65b3f87f4f180a36fc37a0c",
+      "bytes": 2183,
+      "lines": 77
+    },
+    {
+      "path": "src/share/types/manipulator_environment_variable_value.hpp",
+      "sha256": "5097a49bddfb296b244d536ee6996fc67bd1e6b06bbaaa94586d6ec235b976d2",
+      "bytes": 2637,
+      "lines": 90
+    },
+    {
+      "path": "src/share/types/manipulator_environment_variable_set_variable.hpp",
+      "sha256": "8ce50876414b8ca3d5013b56b9fc2d7eae085a7cf223c0efd537477744617609",
+      "bytes": 6079,
+      "lines": 190
+    },
+    {
+      "path": "src/share/manipulator/manipulator_environment.hpp",
+      "sha256": "9b46d20e30df8e9a1efb46f6d1bbbc1b08f749032a6c0b507343d38bb50b108c",
+      "bytes": 5672,
+      "lines": 162
     }
   ]
 }

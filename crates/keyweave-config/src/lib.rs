@@ -1,8 +1,8 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
 use keyweave_engine::{
-    Action, Condition, ConfigSnapshot, InputSourceFilter, Mapping, MappingExtras, Modifier,
-    ModifierFilter, Pattern,
+    Action, ActionTarget, Condition, ConfigSnapshot, InputSourceFilter, Mapping, MappingExtras,
+    Modifier, ModifierFilter, Pattern,
 };
 use keyweave_types::*;
 use serde::Serialize;
@@ -370,6 +370,9 @@ pub fn compile(
         simple,
         complex,
     };
+    if let Err(error) = snapshot.variable_names() {
+        compiler.reject("/profiles", "KW-LIMIT-001", &error.to_string());
+    }
     let bounds = snapshot.expansion_bounds();
     for mapping in snapshot.simple.iter().chain(&snapshot.complex) {
         if bounds
@@ -482,6 +485,17 @@ impl Compiler<'_> {
         let (from, from_modifiers) =
             self.input_key(object.get("from"), &format!("{pointer}/from"), complex)?;
         let to = self.actions(object.get("to"), &format!("{pointer}/to"), complex)?;
+        if !complex
+            && to
+                .iter()
+                .any(|action| !matches!(action.target, ActionTarget::Key(_)))
+        {
+            return Err(diagnostic(
+                &format!("{pointer}/to"),
+                "KW-CAP-001",
+                "simple mapping requires key actions",
+            ));
+        }
         let extras = MappingExtras {
             from_modifiers,
             conditions: self
@@ -620,18 +634,136 @@ impl Compiler<'_> {
                 })?);
             }
         }
-        let modifiers = modifiers
+        let modifiers: Vec<KeyId> = modifiers
             .into_iter()
             .filter_map(|modifier| modifier.keys().first().copied())
             .collect();
-        self.key(Some(&Value::Object(object)), pointer)
-            .map(|key| Action {
-                key,
-                repeat,
-                modifiers,
-                conditions,
+        let target = if let Some(variable) = object.remove("set_variable") {
+            if object.keys().any(|name| name != "description") || !modifiers.is_empty() {
+                return Err(diagnostic(
+                    pointer,
+                    "KW-CAP-001",
+                    "set_variable must be the only target and cannot carry modifier scope",
+                ));
+            }
+            ActionTarget::SetVariable(
+                self.variable_action(&variable, &format!("{pointer}/set_variable"))?,
+            )
+        } else {
+            ActionTarget::Key(self.key(Some(&Value::Object(object)), pointer)?)
+        };
+        Ok(Action {
+            target,
+            repeat,
+            modifiers,
+            conditions,
+        })
+    }
+    fn variable_name(&self, value: Option<&Value>, pointer: &str) -> Result<String, Diagnostic> {
+        value
+            .and_then(Value::as_str)
+            .filter(|name| valid_variable_name(name))
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                diagnostic(
+                    pointer,
+                    "KW-CONFIG-001",
+                    "variable name must be nonempty and at most 256 bytes",
+                )
             })
     }
+    fn variable_value(
+        &self,
+        value: Option<&Value>,
+        pointer: &str,
+    ) -> Result<VariableValue, Diagnostic> {
+        let value: VariableValue = serde_json::from_value(value.cloned().unwrap_or(Value::Null))
+            .map_err(|_| {
+                diagnostic(
+                    pointer,
+                    "KW-CONFIG-001",
+                    "variable value requires i64 integer, boolean or string",
+                )
+            })?;
+        if !value.bounded() {
+            return Err(diagnostic(
+                pointer,
+                "KW-LIMIT-001",
+                "variable string exceeds 4096 bytes",
+            ));
+        }
+        Ok(value)
+    }
+    fn variable_action(&self, value: &Value, pointer: &str) -> Result<VariableAction, Diagnostic> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected set_variable object"))?;
+        for name in object.keys() {
+            if !["name", "value", "key_up_value", "type"].contains(&name.as_str()) {
+                return Err(diagnostic(
+                    &format!("{pointer}/{}", escape_pointer(name)),
+                    "KW-CAP-001",
+                    "unsupported variable field/expression",
+                ));
+            }
+        }
+        let name = self.variable_name(object.get("name"), &format!("{pointer}/name"))?;
+        let operation = match object.get("type") {
+            None => "set",
+            Some(Value::String(kind)) => kind.as_str(),
+            _ => {
+                return Err(diagnostic(
+                    &format!("{pointer}/type"),
+                    "KW-CONFIG-001",
+                    "variable action type requires set or unset",
+                ));
+            }
+        };
+        let operation = match operation {
+            "set" => {
+                let value = object
+                    .get("value")
+                    .map(|value| self.variable_value(Some(value), &format!("{pointer}/value")))
+                    .transpose()?;
+                let key_up_value = object
+                    .get("key_up_value")
+                    .map(|value| {
+                        self.variable_value(Some(value), &format!("{pointer}/key_up_value"))
+                    })
+                    .transpose()?;
+                if value.is_none() && key_up_value.is_none() {
+                    return Err(diagnostic(
+                        pointer,
+                        "KW-CONFIG-001",
+                        "set requires value or key_up_value",
+                    ));
+                }
+                VariableOperation::Set {
+                    value,
+                    key_up_value,
+                }
+            }
+            "unset" => {
+                if object.contains_key("value") || object.contains_key("key_up_value") {
+                    return Err(diagnostic(
+                        pointer,
+                        "KW-CONFIG-001",
+                        "unset cannot carry ignored values",
+                    ));
+                }
+                VariableOperation::Unset
+            }
+            _ => {
+                return Err(diagnostic(
+                    &format!("{pointer}/type"),
+                    "KW-CONFIG-001",
+                    "variable action type requires set or unset",
+                ));
+            }
+        };
+        Ok(VariableAction { name, operation })
+    }
+
     fn conditions(
         &self,
         value: Option<&Value>,
@@ -655,6 +787,26 @@ impl Compiler<'_> {
                     diagnostic(&location, "KW-CONFIG-001", "expected condition object")
                 })?;
                 let kind = object.get("type").and_then(Value::as_str);
+                if matches!(kind, Some("variable_if" | "variable_unless")) {
+                    for name in object.keys() {
+                        if !["type", "name", "value", "description"].contains(&name.as_str()) {
+                            return Err(diagnostic(
+                                &format!("{location}/{}", escape_pointer(name)),
+                                "KW-CAP-001",
+                                "unsupported variable condition field",
+                            ));
+                        }
+                    }
+                    let name =
+                        self.variable_name(object.get("name"), &format!("{location}/name"))?;
+                    let value =
+                        self.variable_value(object.get("value"), &format!("{location}/value"))?;
+                    return Ok(Condition::Variable {
+                        name,
+                        value,
+                        unless: kind == Some("variable_unless"),
+                    });
+                }
                 if matches!(
                     kind,
                     Some(

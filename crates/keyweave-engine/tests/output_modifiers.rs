@@ -9,7 +9,7 @@ fn key(name: &str) -> KeyId {
 fn action(name: &str, modifiers: &[&str]) -> Action {
     Action {
         conditions: vec![],
-        key: key(name),
+        target: ActionTarget::Key(key(name)),
         repeat: true,
         modifiers: modifiers.iter().map(|name| key(name)).collect(),
     }
@@ -70,7 +70,7 @@ fn edges(items: &[(&str, KeyEdge)]) -> Vec<(String, KeyEdge)> {
 
 #[test]
 fn shortcut_modifiers_are_lazy_up_until_next_down_or_device_neutral() {
-    let mut engine = Engine::new(Arc::new(config(vec![action("b", &["left_control"])])));
+    let mut engine = Engine::new(Arc::new(config(vec![action("b", &["left_control"])]))).unwrap();
     assert_eq!(
         send(&mut engine, 1, 1, "a", KeyEdge::Down),
         edges(&[("left_control", KeyEdge::Down), ("b", KeyEdge::Down)])
@@ -96,7 +96,7 @@ fn shortcut_modifiers_are_lazy_up_until_next_down_or_device_neutral() {
 
 #[test]
 fn shortcut_scope_does_not_release_another_devices_physical_owner() {
-    let mut engine = Engine::new(Arc::new(config(vec![action("b", &["left_control"])])));
+    let mut engine = Engine::new(Arc::new(config(vec![action("b", &["left_control"])]))).unwrap();
     send(&mut engine, 1, 2, "left_control", KeyEdge::Down);
     assert_eq!(
         send(&mut engine, 2, 1, "a", KeyEdge::Down),
@@ -119,7 +119,7 @@ fn final_modifier_action_retains_scope_even_when_main_key_does_not_repeat() {
     for repeat in [true, false] {
         let mut output = action("left_shift", &["left_control"]);
         output.repeat = repeat;
-        let mut engine = Engine::new(Arc::new(config(vec![output])));
+        let mut engine = Engine::new(Arc::new(config(vec![output]))).unwrap();
         let mut expected = edges(&[
             ("left_control", KeyEdge::Down),
             ("left_shift", KeyEdge::Down),
@@ -143,7 +143,8 @@ fn each_sequence_action_has_its_own_modifier_scope() {
     let mut engine = Engine::new(Arc::new(config(vec![
         action("b", &["left_control"]),
         action("c", &["left_shift"]),
-    ])));
+    ])))
+    .unwrap();
     assert_eq!(
         send(&mut engine, 1, 1, "a", KeyEdge::Down),
         edges(&[
@@ -168,7 +169,7 @@ fn lazy_modifier_input_can_be_remapped_in_next_stage() {
     config
         .complex
         .push(mapping("left_control", vec![action("left_shift", &[])]));
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         send(&mut engine, 1, 1, "a", KeyEdge::Down),
         edges(&[
@@ -191,7 +192,7 @@ fn next_stage_can_consume_modifiers_from_the_preceding_action() {
     b.allow_extra_modifiers = false;
     b.extras.from_modifiers.mandatory.insert(Modifier::Control);
     config.complex.push(b);
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         send(&mut engine, 1, 1, "a", KeyEdge::Down),
         edges(&[("c", KeyEdge::Down)])
@@ -207,7 +208,7 @@ fn next_stage_can_consume_modifiers_from_the_preceding_action() {
 fn extra_action_scopes_finish_at_physical_up_using_old_snapshot() {
     let mut config = config(vec![action("b", &[])]);
     config.simple[0].extras.after_key_up = vec![action("c", &["left_control"])];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     send(&mut engine, 1, 1, "a", KeyEdge::Down);
     engine
         .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
@@ -229,7 +230,7 @@ fn extra_action_scopes_finish_at_physical_up_using_old_snapshot() {
 fn unplug_releases_latent_scope_without_running_extra_action() {
     let mut config = config(vec![action("b", &["left_control"])]);
     config.simple[0].extras.after_key_up = vec![action("z", &[])];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     send(&mut engine, 1, 1, "a", KeyEdge::Down);
     let mut removed = event(2, 1, "a", KeyEdge::Up);
     removed.event = InputEvent::DeviceRemoved;
@@ -246,7 +247,7 @@ fn unplug_releases_latent_scope_without_running_extra_action() {
 
 #[test]
 fn unknown_up_does_not_flush_a_scope_or_infer_neutral() {
-    let mut engine = Engine::new(Arc::new(config(vec![action("b", &["left_control"])])));
+    let mut engine = Engine::new(Arc::new(config(vec![action("b", &["left_control"])]))).unwrap();
     send(&mut engine, 1, 1, "a", KeyEdge::Down);
     assert!(send(&mut engine, 2, 1, "z", KeyEdge::Up).is_empty());
     assert!(
@@ -262,7 +263,7 @@ fn unknown_up_does_not_flush_a_scope_or_infer_neutral() {
 #[test]
 fn modifier_expansion_is_counted_before_mutating_ownership() {
     let config = config(vec![action("b", &["left_control", "left_shift"]); 256]);
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         engine.handle(event(1, 1, "a", KeyEdge::Down)).unwrap_err(),
         EngineError::ResourceLimit

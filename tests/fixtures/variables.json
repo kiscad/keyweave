@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "name": "Variable layer",
+        "selected": true,
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "caps_lock"
+                  },
+                  "to": [
+                    {
+                      "set_variable": {
+                        "name": "layer",
+                        "value": true,
+                        "key_up_value": false
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "a"
+                  },
+                  "conditions": [
+                    {
+                      "type": "variable_if",
+                      "name": "layer",
+                      "value": true
+                    }
+                  ],
+                  "to": [
+                    {
+                      "key_code": "b"
+                    }
+                  ]
+                },
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "c"
+                  },
+                  "to": [
+                    {
+                      "set_variable": {
+                        "name": "secret-fixture-value",
+                        "value": "do-not-export"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 1,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 3,
+      "at_ns": 2,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 4,
+      "at_ns": 3,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 5,
+      "at_ns": 4,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 6,
+      "at_ns": 5,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 7,
+      "at_ns": 6,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "c",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 8,
+      "at_ns": 7,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "c",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 1,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 3,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 4,
+      "key": "a",
+      "edge": "down"
+    },
+    {
+      "at_ns": 5,
+      "key": "a",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  },
+  "expected_variables": {
+    "layer": false,
+    "secret-fixture-value": "do-not-export"
+  }
+}

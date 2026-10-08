@@ -38,7 +38,7 @@ fn edges(outputs: &[OutputIntent]) -> Vec<(String, KeyEdge)> {
 
 #[test]
 fn held_key_finishes_the_old_snapshot_after_reload() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     assert_eq!(
         edges(
             &engine
@@ -74,7 +74,7 @@ fn held_key_finishes_the_old_snapshot_after_reload() {
 }
 #[test]
 fn same_output_has_multiple_device_owners_and_unplug_is_scoped() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     assert_eq!(
         engine
             .handle(event(1, 1, 1, "a", KeyEdge::Down))
@@ -107,7 +107,7 @@ fn same_output_has_multiple_device_owners_and_unplug_is_scoped() {
 }
 #[test]
 fn duplicate_down_repeat_and_unknown_up_do_not_change_ownership() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     assert!(
         engine
             .handle(event(1, 1, 1, "a", KeyEdge::Up))
@@ -136,7 +136,7 @@ fn duplicate_down_repeat_and_unknown_up_do_not_change_ownership() {
 }
 #[test]
 fn replug_releases_old_generation_and_rejects_stale_up() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     engine.handle(event(1, 1, 1, "a", KeyEdge::Down)).unwrap();
     assert_eq!(
         edges(
@@ -157,7 +157,7 @@ fn replug_releases_old_generation_and_rejects_stale_up() {
 #[test]
 fn own_and_other_injections_bypass_without_matching() {
     for provenance in [Provenance::OurVirtual, Provenance::OtherInjected] {
-        let mut engine = Engine::new(snapshot(1, "b"));
+        let mut engine = Engine::new(snapshot(1, "b")).unwrap();
         let mut input = event(1, 1, 1, "a", KeyEdge::Down);
         input.provenance = provenance;
         let step = engine.handle(input).unwrap();
@@ -192,7 +192,7 @@ fn one_complex_match_per_stage_and_no_recirculation() {
             extras: MappingExtras::default(),
         },
     ];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         edges(
             &engine
@@ -213,7 +213,7 @@ fn bare_complex_from_rejects_extra_modifiers() {
         allow_extra_modifiers: false,
         extras: MappingExtras::default(),
     }];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     engine
         .handle(event(1, 1, 1, "left_shift", KeyEdge::Down))
         .unwrap();
@@ -229,7 +229,7 @@ fn bare_complex_from_rejects_extra_modifiers() {
 }
 #[test]
 fn reset_releases_keys_before_modifiers_and_is_idempotent() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     engine
         .handle(event(1, 1, 1, "left_control", KeyEdge::Down))
         .unwrap();
@@ -246,7 +246,7 @@ fn reset_releases_keys_before_modifiers_and_is_idempotent() {
 }
 #[test]
 fn ordering_and_generation_errors_are_explicit() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     engine.handle(event(2, 1, 1, "a", KeyEdge::Down)).unwrap();
     assert_eq!(
         engine.handle(event(1, 1, 1, "a", KeyEdge::Up)).unwrap_err(),
@@ -264,7 +264,7 @@ fn ordering_and_generation_errors_are_explicit() {
 }
 #[test]
 fn bounded_source_capacity_fails_without_losing_existing_up() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     for i in 1..=MAX_BINDINGS as u64 {
         engine.handle(event(i, i, 1, "a", KeyEdge::Down)).unwrap();
     }
@@ -282,7 +282,7 @@ fn bounded_source_capacity_fails_without_losing_existing_up() {
 #[test]
 fn deterministic_interleavings_finish_balanced() {
     let mut seed = 73_u64;
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     for seq in 1..=10_000 {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
         let edge = if seed & 0x100 == 0 {
@@ -316,7 +316,7 @@ fn intermediate_sequences_finish_before_the_next_phase_input() {
         allow_extra_modifiers: false,
         extras: MappingExtras::default(),
     });
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         edges(
             &engine
@@ -350,7 +350,7 @@ fn intermediate_sequences_finish_before_the_next_phase_input() {
 fn repeated_sequence_key_has_separate_lifetimes_and_respects_existing_owners() {
     let mut config = (*snapshot(1, "b")).clone();
     config.simple[0].to = vec![key("b").into(), key("b").into()];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         edges(
             &engine
@@ -394,7 +394,7 @@ fn repeated_sequence_key_has_separate_lifetimes_and_respects_existing_owners() {
 fn sequence_does_not_repeat_and_vk_none_does_not_create_an_owner() {
     let mut config = (*snapshot(1, "b")).clone();
     config.simple[0].to = vec![key("b").into(), key("vk_none").into()];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         engine
             .handle(event(1, 1, 1, "a", KeyEdge::Down))
@@ -432,7 +432,7 @@ fn expansion_limit_is_checked_before_any_output_changes() {
         allow_extra_modifiers: false,
         extras: MappingExtras::default(),
     });
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     engine
         .handle(event(1, 1, 1, "left_control", KeyEdge::Down))
         .unwrap();
@@ -457,7 +457,7 @@ fn expansion_limit_is_checked_before_any_output_changes() {
 
 #[test]
 fn stale_remove_cannot_release_the_new_connection() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     engine.handle(event(1, 1, 1, "a", KeyEdge::Down)).unwrap();
     engine.handle(event(2, 1, 2, "a", KeyEdge::Down)).unwrap();
     let before = engine.state();
@@ -478,7 +478,7 @@ fn stale_remove_cannot_release_the_new_connection() {
 
 #[test]
 fn newer_remove_retires_old_binding_even_without_a_down_from_new_connection() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     engine.handle(event(1, 1, 1, "a", KeyEdge::Down)).unwrap();
     let mut removed = event(2, 1, 2, "a", KeyEdge::Up);
     removed.event = InputEvent::DeviceRemoved;
@@ -514,7 +514,7 @@ fn newer_remove_retires_old_binding_even_without_a_down_from_new_connection() {
 
 #[test]
 fn repeated_reconnects_store_only_latest_generation() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     for generation in 1..=10_000 {
         let seq = generation * 2;
         engine
@@ -530,7 +530,7 @@ fn repeated_reconnects_store_only_latest_generation() {
 
 #[test]
 fn stale_wheel_and_move_are_rejected_after_reconnection() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     engine.handle(event(1, 1, 2, "a", KeyEdge::Down)).unwrap();
     for (index, activity) in [
         InputEvent::Wheel {
@@ -554,7 +554,7 @@ fn stale_wheel_and_move_are_rejected_after_reconnection() {
 
 #[test]
 fn identity_history_has_a_hard_limit_and_reset_keeps_retired_protection() {
-    let mut engine = Engine::new(snapshot(1, "b"));
+    let mut engine = Engine::new(snapshot(1, "b")).unwrap();
     for id in 1..=MAX_DEVICE_IDENTITIES as u64 {
         let mut input = event(id, id, 1, "a", KeyEdge::Down);
         input.event = InputEvent::Wheel {
@@ -589,7 +589,7 @@ fn identity_history_has_a_hard_limit_and_reset_keeps_retired_protection() {
 fn repeat_false_taps_last_action_and_never_replays_on_physical_repeat() {
     let mut config = (*snapshot(1, "b")).clone();
     config.simple[0].to[0].repeat = false;
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         edges(
             &engine
@@ -620,7 +620,7 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
         from: key("b"),
         to: vec![Action {
             conditions: vec![],
-            key: key("c"),
+            target: ActionTarget::Key(key("c")),
             repeat: false,
             modifiers: vec![],
         }],
@@ -630,7 +630,7 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
             ..MappingExtras::default()
         },
     });
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     assert_eq!(
         edges(
             &engine
@@ -656,7 +656,7 @@ fn repeat_false_in_next_phase_keeps_its_up_macro_bound_to_stage_input() {
 fn repeat_false_tap_does_not_release_another_device_owner() {
     let mut config = (*snapshot(1, "b")).clone();
     config.simple[0].to[0].repeat = false;
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     engine.handle(event(1, 2, 1, "b", KeyEdge::Down)).unwrap();
     assert!(
         engine

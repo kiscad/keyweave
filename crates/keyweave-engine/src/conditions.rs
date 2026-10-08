@@ -143,6 +143,11 @@ impl Truth {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Condition {
+    Variable {
+        name: String,
+        value: VariableValue,
+        unless: bool,
+    },
     Application {
         bundle_identifiers: Vec<Pattern>,
         file_paths: Vec<Pattern>,
@@ -165,10 +170,14 @@ impl Condition {
         device: DeviceInstanceId,
         now: MonoTime,
     ) -> Truth {
+        if matches!(self, Self::Variable { .. }) {
+            return Truth::Unknown;
+        }
         if !context.fresh(now) {
             return Truth::Unknown;
         }
         match self {
+            Self::Variable { .. } => Truth::Unknown,
             Self::Application {
                 bundle_identifiers,
                 file_paths,

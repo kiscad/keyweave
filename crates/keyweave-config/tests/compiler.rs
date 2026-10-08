@@ -467,7 +467,7 @@ fn upstream_output_modifier_case_matches_report_edges_for_selected_standard_rule
         "../../../tests/fixtures/upstream/output-modifiers/expected.json"
     ))
     .unwrap();
-    let mut engine = Engine::new(Arc::new(config.snapshot));
+    let mut engine = Engine::new(Arc::new(config.snapshot)).unwrap();
     let mut actual_edges = Vec::new();
     for (index, input) in inputs.as_array().unwrap().iter().enumerate() {
         let edge = if input["event_type"] == "key_down" {
@@ -516,7 +516,7 @@ fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {
         "../../../tests/fixtures/upstream/expected_event_queue/spacebar_to_tab.json"
     ))
     .unwrap();
-    let mut engine = Engine::new(Arc::new(config.snapshot));
+    let mut engine = Engine::new(Arc::new(config.snapshot)).unwrap();
     let mut actual = Vec::new();
     for (i, item) in input.iter().enumerate() {
         let key = item["event"]["momentary_switch_event"]["key_code"]
@@ -620,7 +620,7 @@ fn upstream_vk_none_modifier_ordering_matches_original_report_edges() {
         "../../../tests/fixtures/upstream/vk-none/expected.json"
     ))
     .unwrap();
-    let mut engine = Engine::new(Arc::new(config.snapshot));
+    let mut engine = Engine::new(Arc::new(config.snapshot)).unwrap();
     let mut outputs = Vec::new();
     for (index, input) in inputs.as_array().unwrap().iter().enumerate() {
         assert_eq!(input["event_type"], "key_down");
@@ -789,5 +789,105 @@ fn selected_config_has_a_global_regex_budget() {
     let config = compile_value(raw);
     assert!(!config.executable_without_loss());
     assert!(config.snapshot.complex.is_empty());
+    assert_eq!(config.diagnostics[0].code, "KW-LIMIT-001");
+}
+
+#[test]
+fn typed_variables_and_up_only_set_actions_compile_losslessly() {
+    let raw = profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"set_variable":{"name":"layer","value":true,"key_up_value":false}}],
+        "conditions":[{"type":"variable_unless","name":"layer","value":"enabled"}],"to_after_key_up":[{"set_variable":{"name":"released","key_up_value":-9223372036854775808i64}}]}]}]),
+    );
+    let config = compile_value(raw.clone());
+    assert!(config.executable_without_loss());
+    assert_eq!(config.raw, raw);
+    assert_eq!(config.snapshot.variable_names().unwrap().len(), 2);
+    let keyweave_engine::ActionTarget::SetVariable(variable) =
+        &config.snapshot.complex[0].to[0].target
+    else {
+        panic!("expected variable")
+    };
+    assert_eq!(
+        variable.operation,
+        VariableOperation::Set {
+            value: Some(VariableValue::Boolean(true)),
+            key_up_value: Some(VariableValue::Boolean(false))
+        }
+    );
+}
+#[test]
+fn invalid_variable_values_and_expressions_disable_entire_outer_rule() {
+    for (variable, suffix, code) in [
+        (json!({"name":"x","value":1.5}), "/value", "KW-CONFIG-001"),
+        (
+            json!({"name":"x","value":9223372036854775808u64}),
+            "/value",
+            "KW-CONFIG-001",
+        ),
+        (json!({"name":"x","value":null}), "/value", "KW-CONFIG-001"),
+        (json!({"name":"","value":0}), "/name", "KW-CONFIG-001"),
+        (
+            json!({"name":"x","expression":"1+1"}),
+            "/expression",
+            "KW-CAP-001",
+        ),
+        (
+            json!({"name":"x","key_up_expression":"1+1"}),
+            "/key_up_expression",
+            "KW-CAP-001",
+        ),
+        (
+            json!({"name":"x","value":"a".repeat(4097)}),
+            "/value",
+            "KW-LIMIT-001",
+        ),
+        (
+            json!({"name":"x","type":"unset","value":0}),
+            "",
+            "KW-CONFIG-001",
+        ),
+        (json!({"name":"x"}), "", "KW-CONFIG-001"),
+    ] {
+        let config = compile_value(profile(
+            json!([{"manipulators":[{"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d"}]},
+            {"type":"basic","from":{"key_code":"a"},"to":[{"set_variable":variable}]}]}]),
+        ));
+        assert!(!config.executable_without_loss());
+        assert!(config.snapshot.complex.is_empty());
+        assert_eq!(config.diagnostics[0].code, code);
+        assert_eq!(
+            config.diagnostics[0].pointer,
+            format!(
+                "/profiles/0/complex_modifications/rules/0/manipulators/1/to/0/set_variable{suffix}"
+            )
+        );
+    }
+}
+#[test]
+fn variable_targets_cannot_hide_other_targets_or_modifier_scopes() {
+    for action in [
+        json!({"key_code":"b","set_variable":{"name":"x","value":1}}),
+        json!({"modifiers":["control"],"set_variable":{"name":"x","value":1}}),
+    ] {
+        let config = compile_value(profile(
+            json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[action]}]}]),
+        ));
+        assert!(!config.executable_without_loss());
+        assert!(config.snapshot.complex.is_empty());
+    }
+    let config = compile_value(
+        json!({"profiles":[{"simple_modifications":[{"from":{"key_code":"a"},"to":{"set_variable":{"name":"x","value":1}}}]}]}),
+    );
+    assert!(!config.executable_without_loss());
+}
+#[test]
+fn variable_name_budget_includes_conditions_and_extra_actions() {
+    let conditions: Vec<_> = (0..256)
+        .map(|index| json!({"type":"variable_if","name":format!("v{index}"),"value":0}))
+        .collect();
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"conditions":conditions,"to":[],"to_if_alone":[{"set_variable":{"name":"extra","value":1}}]}]}]),
+    ));
+    assert!(!config.executable_without_loss());
     assert_eq!(config.diagnostics[0].code, "KW-LIMIT-001");
 }

@@ -19,7 +19,7 @@ pub const MAX_PERSISTENT_SUPPRESSION_REFERENCES: usize = 16_384;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
-    pub key: KeyId,
+    pub target: ActionTarget,
     pub repeat: bool,
     pub modifiers: Vec<KeyId>,
     pub conditions: Vec<Condition>,
@@ -27,10 +27,25 @@ pub struct Action {
 impl From<KeyId> for Action {
     fn from(key: KeyId) -> Self {
         Self {
-            key,
+            target: ActionTarget::Key(key),
             repeat: true,
             modifiers: Vec::new(),
             conditions: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionTarget {
+    Key(KeyId),
+    SetVariable(VariableAction),
+}
+impl Action {
+    pub fn key(&self) -> Option<KeyId> {
+        if let ActionTarget::Key(key) = self.target {
+            Some(key)
+        } else {
+            None
         }
     }
 }
@@ -96,6 +111,73 @@ impl ConfigSnapshot {
             complex: Vec::new(),
         }
     }
+    fn variable_references(&self) -> impl Iterator<Item = (&str, Option<&VariableValue>)> {
+        self.simple.iter().chain(&self.complex).flat_map(|mapping| {
+            let conditions = mapping
+                .extras
+                .conditions
+                .iter()
+                .chain(mapping.actions().flat_map(|action| &action.conditions))
+                .filter_map(|condition| {
+                    if let Condition::Variable { name, value, .. } = condition {
+                        Some((name.as_str(), Some(value)))
+                    } else {
+                        None
+                    }
+                });
+            let actions = mapping.actions().flat_map(|action| match &action.target {
+                ActionTarget::Key(_) => Vec::new(),
+                ActionTarget::SetVariable(variable) => match &variable.operation {
+                    VariableOperation::Set {
+                        value,
+                        key_up_value,
+                    } => vec![
+                        (variable.name.as_str(), value.as_ref()),
+                        (variable.name.as_str(), key_up_value.as_ref()),
+                    ],
+                    VariableOperation::Unset => vec![(variable.name.as_str(), None)],
+                },
+            });
+            conditions.chain(actions)
+        })
+    }
+    pub fn variable_names(&self) -> Result<BTreeSet<String>, EngineError> {
+        let mut names = BTreeSet::new();
+        for (name, value) in self.variable_references() {
+            if !valid_variable_name(name) || value.is_some_and(|value| !value.bounded()) {
+                return Err(EngineError::InvalidVariable);
+            }
+            names.insert(name.to_owned());
+            if names.len() > MAX_VARIABLES {
+                return Err(EngineError::ResourceLimit);
+            }
+        }
+        for action in self
+            .simple
+            .iter()
+            .chain(&self.complex)
+            .flat_map(Mapping::actions)
+        {
+            if let ActionTarget::SetVariable(variable) = &action.target
+                && (!action.modifiers.is_empty()
+                    || matches!(
+                        variable.operation,
+                        VariableOperation::Set {
+                            value: None,
+                            key_up_value: None
+                        }
+                    ))
+            {
+                return Err(EngineError::InvalidVariable);
+            }
+        }
+        Ok(names)
+    }
+    fn references_variable(&self, name: &str) -> bool {
+        self.variable_references()
+            .any(|(reference, _)| reference == name)
+    }
+
     /// Upper bound independent of modifier changes within a sequence. This is
     /// checked before changing ownership so resource failure cannot drop ups.
     pub fn expansion_bounds(&self) -> BTreeMap<KeyId, usize> {
@@ -116,8 +198,8 @@ impl ConfigSnapshot {
         for mapping in &self.simple {
             let count = mapping
                 .actions()
-                .flat_map(|action| action.modifiers.iter().chain(std::iter::once(&action.key)))
-                .map(|key| complex.get(key).copied().unwrap_or(1))
+                .flat_map(|action| action.modifiers.iter().copied().chain(action.key()))
+                .map(|key| complex.get(&key).copied().unwrap_or(1))
                 .fold(0, usize::saturating_add)
                 .saturating_add(mapping.scope_budget());
             bounds
@@ -164,6 +246,10 @@ struct ActiveBinding {
 #[derive(Clone, Debug)]
 enum Bound {
     Leaf(OwnedKey),
+    Variable {
+        name: String,
+        key_up_value: Option<VariableValue>,
+    },
     Suppressed,
     Rule {
         stage: usize,
@@ -222,6 +308,8 @@ pub enum EngineError {
     InvalidGeneration,
     #[error("invalid, stale or oversized context snapshot")]
     InvalidContext,
+    #[error("invalid variable name, value or action")]
+    InvalidVariable,
 }
 
 #[derive(Clone, Copy)]
@@ -232,6 +320,7 @@ struct DeviceState {
 
 pub struct Engine {
     config: Arc<ConfigSnapshot>,
+    variables: BTreeMap<String, Option<VariableValue>>,
     context: ContextSnapshot,
     current_device: DeviceInstanceId,
     bounds: BTreeMap<KeyId, usize>,
@@ -251,8 +340,14 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(config: Arc<ConfigSnapshot>) -> Self {
-        Self {
+    pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, EngineError> {
+        let variables = config
+            .variable_names()?
+            .into_iter()
+            .map(|name| (name, None))
+            .collect();
+        Ok(Self {
+            variables,
             may_consume_modifiers: config
                 .simple
                 .iter()
@@ -277,6 +372,25 @@ impl Engine {
             last_seq: None,
             now: MonoTime(0),
             next_source: 1,
+        })
+    }
+
+    pub fn variable(&self, name: &str) -> VariableValue {
+        self.variables
+            .get(name)
+            .and_then(|value| value.clone())
+            .unwrap_or_default()
+    }
+    pub fn variable_values(&self) -> BTreeMap<String, VariableValue> {
+        self.variables
+            .iter()
+            .filter_map(|(name, value)| value.clone().map(|value| (name.clone(), value)))
+            .collect()
+    }
+    fn assign_variable(&mut self, name: &str, value: Option<VariableValue>) {
+        // Construction/activation pre-reserve every name, including old bindings.
+        if let Some(slot) = self.variables.get_mut(name) {
+            *slot = value;
         }
     }
 
@@ -286,7 +400,22 @@ impl Engine {
 
     fn conditions_match(&self, conditions: &[Condition]) -> bool {
         conditions.iter().all(|condition| {
-            condition.evaluate(&self.context, self.current_device, self.now) == Truth::True
+            if let Condition::Variable {
+                name,
+                value,
+                unless,
+            } = condition
+            {
+                self.variables
+                    .get(name)
+                    .and_then(Option::as_ref)
+                    .map_or(*value == VariableValue::Integer(0), |actual| {
+                        actual == value
+                    })
+                    != *unless
+            } else {
+                condition.evaluate(&self.context, self.current_device, self.now) == Truth::True
+            }
         })
     }
 
@@ -344,6 +473,21 @@ impl Engine {
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), EngineError> {
         if config.generation <= self.config.generation {
             return Err(EngineError::InvalidGeneration);
+        }
+        let names = config.variable_names()?;
+        if self
+            .variables
+            .keys()
+            .cloned()
+            .chain(names.iter().cloned())
+            .collect::<BTreeSet<_>>()
+            .len()
+            > MAX_VARIABLES
+        {
+            return Err(EngineError::ResourceLimit);
+        }
+        for name in names {
+            self.variables.entry(name).or_insert(None);
         }
         self.bounds = config.expansion_bounds();
         self.may_consume_modifiers = config
@@ -533,6 +677,11 @@ impl Engine {
                 });
             }
         }
+        self.variables
+            .retain(|name, _| self.config.references_variable(name));
+        for value in self.variables.values_mut() {
+            *value = None;
+        }
         self.owners.clear();
         self.hidden.clear();
         self.emitted.clear();
@@ -708,15 +857,15 @@ impl Engine {
             .consumed(&modifiers_at_down, mapping.allow_extra_modifiers)
             .unwrap_or_default();
         let mut suppressed = self.hide_modifiers(&consumed);
-        let children =
-            self.press_actions(&mapping.to, stage + 1, config, next_source, false, outputs);
-        if !mapping
+        let last_is_modifier = mapping
             .to
             .iter()
             .rev()
             .find(|action| self.conditions_match(&action.conditions))
-            .is_some_and(|action| action.key.is_modifier())
-        {
+            .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
+        let children =
+            self.press_actions(&mapping.to, stage + 1, config, next_source, false, outputs);
+        if !last_is_modifier {
             self.unhide_modifiers(std::mem::take(&mut suppressed));
         }
         Bound::Rule {
@@ -751,7 +900,7 @@ impl Engine {
                 modifiers.push(self.press_stage(
                     KeyRequest {
                         key: *key,
-                        lazy_down: tap_all || !action.key.is_modifier(),
+                        lazy_down: tap_all || !action.key().is_some_and(KeyId::is_modifier),
                         lazy_up: true,
                     },
                     stage,
@@ -760,13 +909,41 @@ impl Engine {
                     outputs,
                 ));
             }
-            let child = self.press_stage(action.key.into(), stage, config, next_source, outputs);
+            let child = match &action.target {
+                ActionTarget::Key(key) => {
+                    self.press_stage((*key).into(), stage, config, next_source, outputs)
+                }
+                ActionTarget::SetVariable(variable) => {
+                    let key_up_value = match &variable.operation {
+                        VariableOperation::Set {
+                            value,
+                            key_up_value,
+                        } => {
+                            if let Some(value) = value {
+                                self.assign_variable(&variable.name, Some(value.clone()));
+                            }
+                            key_up_value.clone()
+                        }
+                        VariableOperation::Unset => {
+                            self.assign_variable(&variable.name, None);
+                            None
+                        }
+                    };
+                    Bound::Variable {
+                        name: variable.name.clone(),
+                        key_up_value,
+                    }
+                }
+            };
             if !tap_all && action.repeat && index + 1 == actions.len() {
                 held.push(child);
             } else {
                 self.release_bound(child, config, next_source, true, outputs);
             }
-            if !tap_all && index + 1 == actions.len() && action.key.is_modifier() {
+            if !tap_all
+                && index + 1 == actions.len()
+                && action.key().is_some_and(KeyId::is_modifier)
+            {
                 // Modifier scope up follows the main modifier up.
                 modifiers.append(&mut held);
                 held = modifiers;
@@ -793,6 +970,11 @@ impl Engine {
                     self.remove_owner(owned.key, owned.source);
                 } else {
                     self.release(owned.key, owned.source, self.now, outputs);
+                }
+            }
+            Bound::Variable { name, key_up_value } => {
+                if let Some(value) = key_up_value {
+                    self.assign_variable(&name, Some(value));
                 }
             }
             Bound::Suppressed => {}

@@ -74,7 +74,7 @@ fn edges(items: &[(&str, KeyEdge)]) -> Vec<(String, KeyEdge)> {
 
 #[test]
 fn mandatory_is_temporarily_released_and_logically_restored_before_next_down() {
-    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "b")));
+    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "b"))).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     assert_eq!(
         send(&mut engine, 2, 1, "a", KeyEdge::Down),
@@ -103,7 +103,8 @@ fn optional_group_is_preserved_and_extra_group_rejects_the_rule() {
         ("right_shift", true),
         ("left_option", false),
     ] {
-        let mut engine = Engine::new(Arc::new(configuration(&["control"], &["shift"], "b")));
+        let mut engine =
+            Engine::new(Arc::new(configuration(&["control"], &["shift"], "b"))).unwrap();
         send(&mut engine, 1, 1, "right_control", KeyEdge::Down);
         send(&mut engine, 2, 1, modifier, KeyEdge::Down);
         let expected = if mapped {
@@ -131,7 +132,7 @@ fn abstract_group_consumes_left_first_but_allows_right_too() {
         filter(&["right_control"], &[]).consumed(&pressed, false),
         None
     );
-    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "b")));
+    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "b"))).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     send(&mut engine, 2, 1, "right_control", KeyEdge::Down);
     assert_eq!(
@@ -163,7 +164,7 @@ fn mandatory_any_consumes_all_flags_even_with_other_mandatory_names() {
 
 #[test]
 fn held_modifier_output_masks_old_owners_but_not_a_new_source() {
-    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "left_shift")));
+    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "left_shift"))).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     assert_eq!(
         send(&mut engine, 2, 1, "a", KeyEdge::Down),
@@ -187,7 +188,8 @@ fn held_modifier_output_masks_old_owners_but_not_a_new_source() {
 
 #[test]
 fn identical_modifier_output_does_not_emit_an_unnecessary_up_down_pair() {
-    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "left_control")));
+    let mut engine =
+        Engine::new(Arc::new(configuration(&["control"], &[], "left_control"))).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     assert!(send(&mut engine, 2, 1, "a", KeyEdge::Down).is_empty());
     send(&mut engine, 3, 1, "left_control", KeyEdge::Up);
@@ -203,7 +205,7 @@ fn alone_and_after_macros_consume_mandatory_using_old_snapshot() {
     let mut config = configuration(&["control"], &[], "b");
     config.complex[0].extras.if_alone = vec![key("escape").into()];
     config.complex[0].extras.after_key_up = vec![key("tab").into()];
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     send(&mut engine, 2, 1, "a", KeyEdge::Down);
     engine
@@ -226,7 +228,7 @@ fn alone_and_after_macros_consume_mandatory_using_old_snapshot() {
 
 #[test]
 fn unplug_clears_mask_without_macro_and_reset_releases_only_emitted_keys() {
-    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "left_shift")));
+    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "left_shift"))).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     send(&mut engine, 2, 2, "a", KeyEdge::Down);
     let mut removed = input(3, 1, "a", KeyEdge::Up);
@@ -247,7 +249,7 @@ fn unplug_clears_mask_without_macro_and_reset_releases_only_emitted_keys() {
 
 #[test]
 fn pointer_activity_flushes_lazy_modifiers_after_repeat_key_up() {
-    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "b")));
+    let mut engine = Engine::new(Arc::new(configuration(&["control"], &[], "b"))).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     send(&mut engine, 2, 1, "a", KeyEdge::Down);
     let mut motion = input(3, 1, "a", KeyEdge::Down);
@@ -269,7 +271,7 @@ fn pointer_activity_flushes_lazy_modifiers_after_repeat_key_up() {
 fn repeat_false_modifier_pulses_but_consumed_flags_wait_for_original_up() {
     let mut config = configuration(&["control"], &[], "left_shift");
     config.complex[0].to[0].repeat = false;
-    let mut engine = Engine::new(Arc::new(config));
+    let mut engine = Engine::new(Arc::new(config)).unwrap();
     send(&mut engine, 1, 1, "left_control", KeyEdge::Down);
     assert_eq!(
         send(&mut engine, 2, 1, "a", KeyEdge::Down),
@@ -296,7 +298,8 @@ fn stale_suppression_snapshots_have_a_bound_and_resource_failure_preserves_ups()
         &["control"],
         &["shift"],
         "left_shift",
-    )));
+    )))
+    .unwrap();
     let mut seq = 0;
     let mut exhausted = false;
     for round in 1..=150 {

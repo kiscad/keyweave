@@ -90,6 +90,8 @@ struct Fixture {
     expected: Option<Vec<OutputIntent>>,
     #[serde(default)]
     expected_state: Option<EngineState>,
+    #[serde(default)]
+    expected_variables: Option<std::collections::BTreeMap<String, keyweave_types::VariableValue>>,
 }
 
 fn read_bounded(path: &Path) -> Result<String> {
@@ -179,13 +181,20 @@ fn run(command: Command) -> Result<()> {
                 ConfigGeneration(1),
             )?;
             ensure_lossless(&config)?;
-            let mut engine = Engine::new(Arc::new(config.snapshot));
+            let mut engine = Engine::new(Arc::new(config.snapshot))?;
             let mut outputs = Vec::new();
             for input in fixture.inputs {
                 outputs.extend(engine.handle(input)?.outputs);
             }
             let state = engine.state();
             if assert_expected {
+                if fixture
+                    .expected_variables
+                    .as_ref()
+                    .is_some_and(|expected| *expected != engine.variable_values())
+                {
+                    return Err("final variable assertion mismatch".into());
+                }
                 let expected = fixture
                     .expected
                     .ok_or("--assert requires expected outputs")?;

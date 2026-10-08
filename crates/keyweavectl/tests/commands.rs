@@ -116,3 +116,20 @@ fn text_context_replay_uses_live_up_action_conditions() {
     );
     assert!(!String::from_utf8_lossy(&result.stdout).contains("synthetic-text-fixture"));
 }
+#[test]
+fn variable_replay_asserts_values_without_exporting_them() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/variables.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = String::from_utf8_lossy(&result.stdout);
+    assert!(!output.contains("do-not-export"));
+    assert!(!output.contains("secret-fixture-value"));
+}
