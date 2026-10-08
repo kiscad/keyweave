@@ -60,6 +60,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 - device remove 只释放其 owners，撤销所属 timers/宏；output failure、queue overflow、引擎停滞都进入显式恢复。
 - 恢复优先保证物理键盘可输入，不能无限等待失效输出端发 up；清虚拟按住、旧 token，再等 neutral 恢复。
 - 紧急物理组合在映射前识别，规则不能覆盖；watchdog 检查事件循环实际进度而非后台线程存活。
+- Linux uinput 正短写必须先补 REPORT 再恢复 submitted ups；errno/非整记录是 UnknownAcceptance，quarantine 后释放物理 capture 并销毁设备，不确认零接受量或重试整批。OutputState::Ready 不等于 capture ready；Recovery 本版不能 resume，需销毁重建。自身识别比较 canonical input syspath，repeat 仅 Kernel 或 External，LED read 不等于同步已实现。
 - Linux 唯一 ioctl unsafe 位于私有 ioctl.rs；crate deny、该模块 allow，其他 workspace forbid。owned evdev FD 不导出/复制；查询错误不是 neutral，keyboard_issues 不是输出 ready/own-device/neutral/grab gate。更改 native ABI 时运行 tools/verify_linux_abi.py（不接触设备）。
 - Linux keys 的 CanonicalEvdev evidence 不证明原始 HID usage；不把任意 MSC/PS2 scan 解释为 HID。输出别名/未支持 code 在准入时诊断，normalizer up 使用 saved native-code identity；每设备代际独立，不以 reset 编造 up。键表变更运行 tools/generate_linux_keys.py --check，Linux 可附 --header。
 - Linux raw FrameDecoder 是唯一 SYN_DROPPED 恢复层；忽略至 report 后仍需显式内核状态协调/neutral gate，不能再叠加 evdev sync。完整 key prefix 缺少 SYN_REPORT 仍是 incomplete frame，不能仅凭 ack 数判成功。native ABI 仅开放已核验布局，其他目标明确拒绝。

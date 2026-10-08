@@ -13,7 +13,7 @@
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
-| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux events/keys/probe/read/device；有只读 FD/ioctl，无 grab/uinput/runtime |
+| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD 与故障分类，无 grab/runtime，未做成功硬件创建 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
 | 目标平台硬件、权限、故障恢复、性能 | 未执行 | 后续专用测试系统验证 |
@@ -66,3 +66,5 @@ D06 Linux 原生事件基础：keyweave-linux/events.rs native-endian Time32/Tim
 D02/D06 Linux 键转换：159 HID/native 数值事实、154 canonical codes，生成器核验本机 UAPI 并独立 --check；5 个输入别名输出明确拒绝，可信 scan 与 canonical evdev evidence 分离。KeyNormalizer 按 native code 保存 down 身份，repeat/duplicate/up 复用，unknown up 不猜测；每 device generation 独立。10 个测试+1 个 native codec→normalizer→engine→native codec 联合测试，总计 235 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）和 Linux keys 生成检查通过。ADR-0019；未将粗粒度 Linux capabilities 当全 native 可用证明，配置/设备准入、FD/ioctl、grab/uinput、runtime/实际输入尚未实现。Ubuntu 24.04.4 x86_64 / Rust 1.97.1，Windows/其他架构/硬件未验证，D05 多阶段 actor 等完整目标保留。
 
 D06 evdev 查询/读取：EvdevDevice owned O_NONBLOCK/CLOEXEC/NOFOLLOW read-only fd，限定实际 input event node 与 major/protocol；ID/name/sysfs、caps/key/LED 状态与 monotonic client clock 查询。私有一处 ioctl FFI（crate deny、模块 allow，workspace 其他 forbid 保留），有界 bitmap/query/read 和保守能力分析。新增 16 个 tests，总计 251 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）、生成表与本机 C UAPI ABI probe 通过。ADR-0020。真实设备成功路径、grab/uinput/runtime/权限/硬件未验证；仅 /dev/null 负路径实际 syscall 与离线读取，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。其他平台未执行，D05 与完整目标保留。
+
+D06 uinput 输出：output.rs 的有界 DeviceSpec、单次写入/REPORT flush 与 uinput.rs 的 owned FD 创建、sysfs 自身身份、RAII 销毁已实现。Kernel/External repeat 互斥；LED 原始反馈可读，物理同步未实现。正短写保留 accepted prefix 并暂停，errno/非整记录将接受量标为未知并 quarantine；恢复仅放行 saved submitted ups，需销毁/重建才能重新启用。本机 Ubuntu 24.04.4 的 fmt/clippy/workspace tests（259 个）、60-source verifier、Linux keys generator 与扩展 C UAPI ABI probe 通过。八个新测试不创建虚拟设备。没有 /dev/uinput 或 /dev/input，成功创建/销毁/自身路径排除、repeat/LED/消费者 ready 与真实权限/故障验收未执行；Windows CI 未运行。完整 D06/backend 未完成，下一步接入 output queue 的 frame-completion/unknown-acceptance 适配和 capture ready/neutral gate，见 ADR-0021。
