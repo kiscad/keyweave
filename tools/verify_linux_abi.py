@@ -17,7 +17,7 @@ int main(void) {
            "\"id_request\":%lu,\"event_bits_request\":%lu,"
            "\"key_state_request\":%lu,\"clock_request\":%lu,\"setup_size\":%zu,\"name_offset\":%zu,"
            "\"ff_offset\":%zu,\"setup_request\":%lu,\"version_request\":%lu,"
-           "\"key_bit_request\":%lu,\"sysname_request\":%lu,\"create_request\":%lu,\"destroy_request\":%lu}\n",
+           "\"key_bit_request\":%lu,\"sysname_request\":%lu,\"create_request\":%lu,\"destroy_request\":%lu,\"grab_request\":%lu}\n",
            sizeof(struct input_event), offsetof(struct input_event, type),
            offsetof(struct input_event, code), offsetof(struct input_event, value),
            sizeof(struct input_id), sizeof(unsigned long), (unsigned long)EVIOCGID,
@@ -26,7 +26,7 @@ int main(void) {
            offsetof(struct uinput_setup, name), offsetof(struct uinput_setup, ff_effects_max),
            (unsigned long)UI_DEV_SETUP, (unsigned long)UI_GET_VERSION,
            (unsigned long)UI_SET_KEYBIT, (unsigned long)UI_GET_SYSNAME(128),
-           (unsigned long)UI_DEV_CREATE, (unsigned long)UI_DEV_DESTROY);
+           (unsigned long)UI_DEV_CREATE, (unsigned long)UI_DEV_DESTROY, (unsigned long)EVIOCGRAB);
     return 0;
 }
 '''
@@ -37,7 +37,7 @@ expected = {'event_size': 24, 'type_offset': 16, 'code_offset': 18,
             'setup_size': 92, 'name_offset': 8, 'ff_offset': 88,
             'setup_request': 0x405c5503, 'version_request': 0x8004552d,
             'key_bit_request': 0x40045565, 'sysname_request': 0x8080552c,
-            'create_request': 0x5501, 'destroy_request': 0x5502}
+            'create_request': 0x5501, 'destroy_request': 0x5502, 'grab_request': 0x40044590}
 with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     root = Path(directory)
     (root / 'probe.c').write_text(source)

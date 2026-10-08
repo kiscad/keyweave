@@ -1,4 +1,5 @@
 //! Linux evdev/uinput protocol and owned input-query boundaries.
+pub mod capture;
 #[cfg(target_os = "linux")]
 pub mod device;
 pub mod events;

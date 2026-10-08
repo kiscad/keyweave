@@ -97,7 +97,7 @@ pub(crate) fn monotonic_clock(fd: BorrowedFd<'_>) -> io::Result<()> {
 }
 // These UAPI requests take an integer argument despite _IOW(int) encoding.
 fn scalar(fd: BorrowedFd<'_>, command: u32, argument: u32) -> io::Result<()> {
-    // SAFETY: private callers select only audited scalar/no-data uinput requests;
+    // SAFETY: private callers select only audited scalar/no-data evdev/uinput requests;
     // the kernel uses the numeric argument, never dereferences it. FD is borrowed
     // for this synchronous call; no memory or descriptor is retained.
     let result = unsafe {
@@ -113,10 +113,13 @@ fn scalar(fd: BorrowedFd<'_>, command: u32, argument: u32) -> io::Result<()> {
     if result != 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "unexpected uinput scalar result",
+            "unexpected scalar ioctl result",
         ));
     }
     Ok(())
+}
+pub(crate) fn evdev_grab(fd: BorrowedFd<'_>, grabbed: bool) -> io::Result<()> {
+    scalar(fd, request(1, 0x90, 4), u32::from(grabbed))
 }
 pub(crate) fn uinput_bit(fd: BorrowedFd<'_>, number: u8, bit: u16) -> io::Result<()> {
     let valid = match number {
@@ -191,6 +194,7 @@ mod tests {
         assert_eq!(request(2, 2, 8), 0x80084502);
         assert_eq!(request(2, 0x18, 96), 0x80604518);
         assert_eq!(request(1, 0xa0, 4), 0x400445a0);
+        assert_eq!(request(1, 0x90, 4), 0x40044590);
     }
     #[test]
     fn non_evdev_fd_returns_real_errno_instead_of_empty_state() {

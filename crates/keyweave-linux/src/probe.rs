@@ -72,6 +72,14 @@ pub struct DeviceId {
     pub version: u16,
 }
 #[derive(Clone, Debug)]
+pub struct Probe {
+    pub id: DeviceId,
+    /// Byte string, never sufficient to recognize our virtual output.
+    pub name: Option<Vec<u8>>,
+    pub input_syspath: std::path::PathBuf,
+    pub capabilities: Capabilities,
+}
+#[derive(Clone, Debug)]
 pub struct Capabilities {
     pub events: Bits,
     pub keys: Bits,

@@ -93,6 +93,17 @@ impl UinputDevice {
     pub fn input_syspath(&self) -> &Path {
         &self.input_syspath
     }
+    /// Verify the actual virtual event node before a capture admission attempt.
+    /// This does not acknowledge desktop consumers or permit grabbing itself.
+    pub fn verify_output_node(
+        &self,
+        node: &crate::device::EvdevDevice,
+    ) -> Result<crate::capture::OutputNodeReady<'_>, crate::capture::CaptureError> {
+        if self.state != OutputState::Ready {
+            return Err(crate::capture::CaptureError::OutputNotReady);
+        }
+        crate::capture::OutputNodeReady::verify(&self.spec, &self.input_syspath, node.probe())
+    }
     pub fn spec(&self) -> &DeviceSpec {
         &self.spec
     }

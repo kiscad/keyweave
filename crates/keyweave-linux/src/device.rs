@@ -1,4 +1,5 @@
-//! Owned nonblocking evdev client, without any grab or input-forwarding API yet.
+//! Owned nonblocking evdev client. Grab is private to the capture boundary.
+pub use crate::probe::Probe;
 use crate::{
     events::{KEY_MAX, Layout, native_layout},
     ioctl,
@@ -12,16 +13,8 @@ use std::{
         fd::AsFd,
         unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
     },
-    path::{Path, PathBuf},
+    path::Path,
 };
-#[derive(Clone, Debug)]
-pub struct Probe {
-    pub id: DeviceId,
-    /// Byte string, never used alone to recognize our virtual device.
-    pub name: Option<Vec<u8>>,
-    pub input_syspath: PathBuf,
-    pub capabilities: Capabilities,
-}
 pub struct EvdevDevice {
     file: File,
     layout: Layout,
@@ -125,6 +118,11 @@ impl EvdevDevice {
     pub fn probe(&self) -> &Probe {
         &self.probe
     }
+    pub(crate) fn set_grab(&self, grabbed: bool) -> io::Result<()> {
+        ioctl::evdev_grab(self.file.as_fd(), grabbed)
+    }
+    /// State reconciliation boundary only: EVIOCGKEY flushes queued EV_KEY for
+    /// this client. Do not call during ordinary captured event processing.
     pub fn pressed_keys(&self) -> io::Result<Bits> {
         query_bits(&self.file, 0x18, usize::from(KEY_MAX) + 1)
     }
