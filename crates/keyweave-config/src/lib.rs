@@ -1,7 +1,8 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
 use keyweave_engine::{
-    Action, Condition, ConfigSnapshot, Mapping, MappingExtras, Modifier, ModifierFilter,
+    Action, Condition, ConfigSnapshot, InputSourceFilter, Mapping, MappingExtras, Modifier,
+    ModifierFilter, Pattern,
 };
 use keyweave_types::*;
 use serde::Serialize;
@@ -196,6 +197,7 @@ pub fn compile(
         disabled: 0,
         count: 0,
         alone_timeout_ns: 1_000_000_000,
+        pattern_count: std::cell::Cell::new(0),
     };
     compiler.reject_unknown_fields(root, "", &["profiles", "keyweave"]);
     compiler.reject_unknown_fields(
@@ -412,6 +414,7 @@ struct Compiler<'a> {
     disabled: usize,
     count: usize,
     alone_timeout_ns: u64,
+    pattern_count: std::cell::Cell<usize>,
 }
 impl Compiler<'_> {
     fn reject_unknown_fields(
@@ -652,6 +655,17 @@ impl Compiler<'_> {
                     diagnostic(&location, "KW-CONFIG-001", "expected condition object")
                 })?;
                 let kind = object.get("type").and_then(Value::as_str);
+                if matches!(
+                    kind,
+                    Some(
+                        "frontmost_application_if"
+                            | "frontmost_application_unless"
+                            | "input_source_if"
+                            | "input_source_unless"
+                    )
+                ) {
+                    return self.text_condition(object, &location, kind.unwrap_or_default());
+                }
                 let (unless, exists) = match kind {
                     Some("device_if") => (false, false),
                     Some("device_unless") => (true, false),
@@ -758,6 +772,132 @@ impl Compiler<'_> {
                 })
             })
             .collect()
+    }
+
+    fn pattern(&self, value: &Value, pointer: &str) -> Result<Pattern, Diagnostic> {
+        let text = value
+            .as_str()
+            .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected regex string"))?;
+        let count = self.pattern_count.get();
+        if count >= 256 {
+            return Err(diagnostic(
+                pointer,
+                "KW-LIMIT-001",
+                "selected configuration exceeds 256 regex patterns",
+            ));
+        }
+        self.pattern_count.set(count + 1);
+        Pattern::compile(text).map_err(|error| diagnostic(pointer, "KW-REGEX-001", error))
+    }
+    fn patterns(&self, value: Option<&Value>, pointer: &str) -> Result<Vec<Pattern>, Diagnostic> {
+        let Some(value) = value else {
+            return Ok(Vec::new());
+        };
+        let values = value
+            .as_array()
+            .filter(|values| values.len() <= 256)
+            .ok_or_else(|| {
+                diagnostic(
+                    pointer,
+                    "KW-CONFIG-001",
+                    "expected at most 256 regex patterns",
+                )
+            })?;
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| self.pattern(value, &format!("{pointer}/{index}")))
+            .collect()
+    }
+    fn text_condition(
+        &self,
+        object: &Map<String, Value>,
+        pointer: &str,
+        kind: &str,
+    ) -> Result<Condition, Diagnostic> {
+        let application = kind.starts_with("frontmost_application_");
+        let allowed: &[&str] = if application {
+            &["type", "bundle_identifiers", "file_paths", "description"]
+        } else {
+            &["type", "input_sources", "description"]
+        };
+        for name in object.keys() {
+            if !allowed.contains(&name.as_str()) {
+                return Err(diagnostic(
+                    &format!("{pointer}/{}", escape_pointer(name)),
+                    "KW-CAP-001",
+                    "unsupported application/input-source condition field",
+                ));
+            }
+        }
+        let unless = kind.ends_with("_unless");
+        if application {
+            return Ok(Condition::Application {
+                bundle_identifiers: self.patterns(
+                    object.get("bundle_identifiers"),
+                    &format!("{pointer}/bundle_identifiers"),
+                )?,
+                file_paths: self
+                    .patterns(object.get("file_paths"), &format!("{pointer}/file_paths"))?,
+                unless,
+            });
+        }
+        let values = object
+            .get("input_sources")
+            .and_then(Value::as_array)
+            .filter(|values| values.len() <= 256)
+            .ok_or_else(|| {
+                diagnostic(
+                    &format!("{pointer}/input_sources"),
+                    "KW-CONFIG-001",
+                    "expected at most 256 input-source specifiers",
+                )
+            })?;
+        let sources = values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let pointer = format!("{pointer}/input_sources/{index}");
+                let object = value.as_object().ok_or_else(|| {
+                    diagnostic(
+                        &pointer,
+                        "KW-CONFIG-001",
+                        "expected input-source specifier object",
+                    )
+                })?;
+                for name in object.keys() {
+                    if ![
+                        "language",
+                        "input_source_id",
+                        "input_mode_id",
+                        "description",
+                    ]
+                    .contains(&name.as_str())
+                    {
+                        return Err(diagnostic(
+                            &format!("{pointer}/{}", escape_pointer(name)),
+                            "KW-CAP-001",
+                            "unsupported input-source specifier field",
+                        ));
+                    }
+                }
+                Ok(InputSourceFilter {
+                    language: object
+                        .get("language")
+                        .map(|value| self.pattern(value, &format!("{pointer}/language")))
+                        .transpose()?,
+                    input_source_id: object
+                        .get("input_source_id")
+                        .map(|value| self.pattern(value, &format!("{pointer}/input_source_id")))
+                        .transpose()?,
+                    input_mode_id: object
+                        .get("input_mode_id")
+                        .map(|value| self.pattern(value, &format!("{pointer}/input_mode_id")))
+                        .transpose()?,
+                })
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        Ok(Condition::InputSource { sources, unless })
     }
 
     fn input_key(

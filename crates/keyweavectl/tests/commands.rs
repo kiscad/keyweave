@@ -101,3 +101,18 @@ fn device_context_replay_preserves_old_up_after_expiry() {
     );
     assert!(String::from_utf8_lossy(&result.stdout).contains("\"asserted\": true"));
 }
+#[test]
+fn text_context_replay_uses_live_up_action_conditions() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/text-context.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("synthetic-text-fixture"));
+}

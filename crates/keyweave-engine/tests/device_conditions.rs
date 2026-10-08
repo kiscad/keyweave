@@ -40,6 +40,8 @@ fn engine(conditions: Vec<Condition>, to: Vec<Action>, after: Vec<Action>) -> En
 fn context(revision: u64, vendor: Option<u32>, generation: u64) -> ContextSnapshot {
     ContextSnapshot {
         revision,
+        application: None,
+        input_source: None,
         provider: "synthetic".into(),
         observed_at_ns: MonoTime(0),
         valid_until_ns: MonoTime(100),
@@ -284,6 +286,18 @@ fn context_limits_revision_and_duplicates_fail_without_advancing_event_order() {
             })
             .collect(),
     );
+    cases.push(invalid);
+    let mut invalid = base.clone();
+    invalid.application = Some(ApplicationContext {
+        bundle_identifier: Some("a".repeat(4097)),
+        file_path: None,
+    });
+    cases.push(invalid);
+    let mut invalid = base.clone();
+    invalid.input_source = Some(InputSourceContext {
+        language: Some("a".repeat(4097)),
+        ..Default::default()
+    });
     cases.push(invalid);
     for context in cases {
         assert_eq!(

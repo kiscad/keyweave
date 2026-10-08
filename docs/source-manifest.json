@@ -351,6 +351,12 @@
       "sha256": "c7a3b4764d86a8d248c5eeb59906b8a8fd402b5a14413ffbd7195f888b2b3809",
       "bytes": 8665,
       "lines": 265
+    },
+    {
+      "path": "vendor/vendor/include/pqrs/osx/input_source_selector/specifier.hpp",
+      "sha256": "9b7bffd9aee957bd9af1325a150dc233ab1b8fc1d8aa78d48a991afc448a0a02",
+      "bytes": 3936,
+      "lines": 148
     }
   ]
 }

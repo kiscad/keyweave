@@ -1,4 +1,115 @@
 use keyweave_types::*;
+use std::sync::Arc;
+
+#[derive(Clone, Debug)]
+pub struct Pattern(Arc<regex::Regex>);
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+impl Eq for Pattern {}
+impl Pattern {
+    pub fn compile(pattern: &str) -> Result<Self, String> {
+        if pattern.len() > 1024 || !pattern.is_ascii() || pattern.contains(['\r', '\n']) {
+            return Err("pattern must be ASCII single-line and at most 1024 bytes".into());
+        }
+        if pattern.contains("&&") || pattern.contains("~~") || pattern.contains("--") {
+            return Err("regex character-class set operations are unsupported".into());
+        }
+        let mut in_class = false;
+        let mut chars = pattern.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                let escaped = chars.next().ok_or("incomplete regex escape")?;
+                if in_class && escaped.is_ascii_alphanumeric() {
+                    return Err("shorthand escapes inside character classes are unsupported".into());
+                }
+                if escaped.is_ascii_alphanumeric() && !"dDsSwWbBnrtf".contains(escaped) {
+                    return Err("unsupported ECMAScript escape/backreference".into());
+                }
+            } else if ch == '[' {
+                if in_class {
+                    return Err("nested character classes are unsupported".into());
+                }
+                in_class = true;
+            } else if ch == ']' {
+                in_class = false;
+            } else if !in_class
+                && matches!(ch, '*' | '+' | '?')
+                && chars.peek().is_some_and(|ch| matches!(ch, '*' | '+'))
+            {
+                return Err("consecutive or possessive quantifiers are unsupported".into());
+            } else if ch == '(' && chars.peek() == Some(&'?') {
+                chars.next();
+                if chars.next() != Some(':') {
+                    return Err(
+                        "lookaround, inline flags and special groups are unsupported".into(),
+                    );
+                }
+            }
+        }
+        // ASCII shorthands avoid Unicode automata and preserve ECMAScript
+        // character/word behavior on the supported ASCII single-line inputs.
+        let mut normalized = String::new();
+        let mut chars = pattern.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                let escaped = chars.next().ok_or("incomplete regex escape")?;
+                match escaped {
+                    'w' => normalized.push_str("[A-Za-z0-9_]"),
+                    'W' => normalized.push_str("[^A-Za-z0-9_]"),
+                    'd' => normalized.push_str("[0-9]"),
+                    'D' => normalized.push_str("[^0-9]"),
+                    's' => normalized.push_str("[ \\t\\n\\r\\x0B\\x0C]"),
+                    'S' => normalized.push_str("[^ \\t\\n\\r\\x0B\\x0C]"),
+                    'b' => normalized.push_str("(?-u:\\b)"),
+                    'B' => normalized.push_str("(?-u:\\B)"),
+                    _ => {
+                        normalized.push('\\');
+                        normalized.push(escaped);
+                    }
+                }
+            } else {
+                normalized.push(ch);
+            }
+        }
+        regex::RegexBuilder::new(&normalized)
+            .size_limit(32 * 1024)
+            .dfa_size_limit(16 * 1024)
+            .build()
+            .map(|regex| Self(Arc::new(regex)))
+            .map_err(|error| error.to_string())
+    }
+    fn test(&self, value: &Option<String>) -> Truth {
+        match value {
+            Some(value) if value.is_ascii() && !value.contains(['\r', '\n']) => {
+                if self.0.is_match(value) {
+                    Truth::True
+                } else {
+                    Truth::False
+                }
+            }
+            _ => Truth::Unknown,
+        }
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InputSourceFilter {
+    pub language: Option<Pattern>,
+    pub input_source_id: Option<Pattern>,
+    pub input_mode_id: Option<Pattern>,
+}
+fn pattern_option(pattern: &Option<Pattern>, value: &Option<String>) -> Truth {
+    pattern
+        .as_ref()
+        .map_or(Truth::True, |pattern| pattern.test(value))
+}
+fn pattern_list(patterns: &[Pattern], value: &Option<String>) -> Truth {
+    patterns.iter().fold(Truth::False, |result, pattern| {
+        result.or(pattern.test(value))
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Truth {
@@ -32,6 +143,15 @@ impl Truth {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Condition {
+    Application {
+        bundle_identifiers: Vec<Pattern>,
+        file_paths: Vec<Pattern>,
+        unless: bool,
+    },
+    InputSource {
+        sources: Vec<InputSourceFilter>,
+        unless: bool,
+    },
     Device {
         identifiers: Vec<DeviceProperties>,
         unless: bool,
@@ -48,15 +168,41 @@ impl Condition {
         if !context.fresh(now) {
             return Truth::Unknown;
         }
-        let Some(devices) = &context.devices else {
-            return Truth::Unknown;
-        };
         match self {
+            Self::Application {
+                bundle_identifiers,
+                file_paths,
+                unless,
+            } => {
+                let Some(application) = &context.application else {
+                    return Truth::Unknown;
+                };
+                let result = pattern_list(bundle_identifiers, &application.bundle_identifier)
+                    .or(pattern_list(file_paths, &application.file_path));
+                if *unless { result.negated() } else { result }
+            }
+            Self::InputSource { sources, unless } => {
+                let Some(source) = &context.input_source else {
+                    return Truth::Unknown;
+                };
+                let result = sources.iter().fold(Truth::False, |result, filter| {
+                    result.or(pattern_option(&filter.language, &source.language)
+                        .and(pattern_option(
+                            &filter.input_source_id,
+                            &source.input_source_id,
+                        ))
+                        .and(pattern_option(&filter.input_mode_id, &source.input_mode_id)))
+                });
+                if *unless { result.negated() } else { result }
+            }
             Self::Device {
                 identifiers,
                 unless,
                 exists,
             } => {
+                let Some(devices) = &context.devices else {
+                    return Truth::Unknown;
+                };
                 let value = if *exists {
                     devices.iter().fold(Truth::False, |value, device| {
                         value.or(matches_any(identifiers, &device.properties))

@@ -39,6 +39,20 @@ pub struct DeviceContext {
     pub properties: DeviceProperties,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ApplicationContext {
+    pub bundle_identifier: Option<String>,
+    pub file_path: Option<String>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct InputSourceContext {
+    pub language: Option<String>,
+    pub input_source_id: Option<String>,
+    pub input_mode_id: Option<String>,
+}
+
 /// Effective on [observed_at_ns, valid_until_ns). No OS lookup occurs in the engine.
 /// devices=None means unavailable inventory; Some([]) is a known empty inventory.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +63,10 @@ pub struct ContextSnapshot {
     pub observed_at_ns: MonoTime,
     pub valid_until_ns: MonoTime,
     pub devices: Option<Vec<DeviceContext>>,
+    #[serde(default)]
+    pub application: Option<ApplicationContext>,
+    #[serde(default)]
+    pub input_source: Option<InputSourceContext>,
 }
 impl ContextSnapshot {
     pub fn fresh(&self, now: MonoTime) -> bool {

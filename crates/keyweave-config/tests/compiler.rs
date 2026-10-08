@@ -677,7 +677,10 @@ fn device_conditions_compile_with_strict_types_and_capabilities() {
         identifiers,
         exists,
         ..
-    } = &config.snapshot.complex[0].extras.conditions[0];
+    } = &config.snapshot.complex[0].extras.conditions[0]
+    else {
+        panic!("expected device condition")
+    };
     assert!(*exists);
     assert_eq!(identifiers.len(), 1);
     assert_eq!(identifiers[0].location_id, Some(-1));
@@ -725,7 +728,10 @@ fn empty_identifiers_are_ignored_and_bad_action_conditions_are_not_ignored() {
         json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"conditions":[{"type":"device_if","identifiers":[{}]}]}]}]),
     ));
     let keyweave_engine::Condition::Device { identifiers, .. } =
-        &config.snapshot.complex[0].extras.conditions[0];
+        &config.snapshot.complex[0].extras.conditions[0]
+    else {
+        panic!("expected device condition")
+    };
     assert!(identifiers.is_empty());
     let config = compile_value(profile(
         json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","conditions":{}}]}]}]),
@@ -735,4 +741,53 @@ fn empty_identifiers_are_ignored_and_bad_action_conditions_are_not_ignored() {
         config.diagnostics[0].pointer,
         "/profiles/0/complex_modifications/rules/0/manipulators/0/to/0/conditions"
     );
+}
+
+#[test]
+fn app_and_input_source_conditions_compile_without_device_inventory_capability() {
+    let raw = profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"conditions":[
+        {"type":"frontmost_application_if","bundle_identifiers":["^org\\.example"],"file_paths":["/bin/editor$"]},
+        {"type":"input_source_unless","input_sources":[{"language":"^en$","input_mode_id":"ascii"},{}]}]}]}]),
+    );
+    let config = compile(
+        &raw.to_string(),
+        &BackendCapabilities::windows_hook(),
+        ConfigGeneration(1),
+    )
+    .unwrap();
+    assert!(config.executable_without_loss());
+    assert_eq!(config.snapshot.complex[0].extras.conditions.len(), 2);
+    assert_eq!(config.raw, raw);
+}
+#[test]
+fn regex_errors_have_exact_pointers_and_disable_all_manipulators_in_rule() {
+    for pattern in ["(?=a)", "(a)\\1", "[", "(?i)a", "[a&&b]", "中文"] {
+        let raw = profile(
+            json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}]},
+            {"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d","conditions":[{"type":"frontmost_application_if","bundle_identifiers":[pattern]}]}]}]}]),
+        );
+        let config = compile_value(raw);
+        assert!(!config.executable_without_loss());
+        assert!(config.snapshot.complex.is_empty());
+        assert_eq!(config.diagnostics[0].code, "KW-REGEX-001");
+        assert_eq!(
+            config.diagnostics[0].pointer,
+            "/profiles/0/complex_modifications/rules/0/manipulators/1/to/0/conditions/0/bundle_identifiers/0"
+        );
+    }
+}
+#[test]
+fn selected_config_has_a_global_regex_budget() {
+    let conditions: Vec<_> = (0..257)
+        .map(|_| json!({"type":"frontmost_application_if","bundle_identifiers":["a"]}))
+        .collect();
+    let raw = profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"conditions":&conditions[..256]},
+        {"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d"}],"conditions":[conditions[256].clone()]}]}]),
+    );
+    let config = compile_value(raw);
+    assert!(!config.executable_without_loss());
+    assert!(config.snapshot.complex.is_empty());
+    assert_eq!(config.diagnostics[0].code, "KW-LIMIT-001");
 }

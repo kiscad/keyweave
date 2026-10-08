@@ -16,8 +16,11 @@
 | 持键更新 | 已持键完成旧输出，之后的 down 用新 generation；Repeat 不重新执行宏 |
 | 多来源相同输出 | owner 引用集合，防止他人持键被中间 tap/up 打断；ADR-0002 说明上游兼容差异 |
 | 设备代际 | 每个 id 仅保留最高 generation/removed；旧移除幂等忽略，旧 key/wheel/move 拒绝；4096 身份上限，Reset 保留历史；ADR-0005 描述容量恢复契约 |
+| 应用条件 | frontmost_application_if/unless；bundle_identifiers/file_paths regex_search OR；没有标题匹配；provider 属性缺失/非 ASCII/CRLF/过期 Unknown |
+| 输入源条件 | input_source_if/unless；input_sources 字段 language/input_source_id/input_mode_id AND、条目 OR；空 specifier 在已知源对象中 True |
+| 正则 | 仅 ASCII 单行匹配；配置时预编译，最多 256 patterns/当前配置、1024 bytes/pattern；32 KiB 程序/16 KiB DFA cache；拒绝 lookaround/backreference/inline flags/Unicode 或 hex 转义、集合运算、嵌套字符类/类内 shorthand；不是完整 C++ ECMAScript，ADR-0009 |
 | 设备条件 | device_if/unless/exists_if/exists_unless；identifier 字段 AND、列表 OR；空对象忽略；规则数组全部 True；输出 action.conditions 在执行时筛选；未知/过期对 if/unless 均不激活，ADR-0008 记录上游差异 |
-| 上下文输入 | ContextChanged：严格 revision、provider、[observed, valid_until) 纳秒；一天有效期上限；256 项设备库存、每 id 唯一；未知属性用 None；设备重连使 metadata 失效；只支持离线合成 provider |
+| 上下文输入 | ContextChanged：严格 revision、provider、[observed, valid_until) 纳秒；一天有效期上限；256 项设备库存、每 id 唯一；未知属性用 None；设备重连使 metadata 失效；可携应用/输入源属性，只支持离线合成 provider |
 | 未实现动作/条件 | 禁用整条外层 rule，保留 AST 与 JSON Pointer 诊断；validate/import/replay 不允许有损激活 |
 | disabled rule | enabled=false 的内容保留，不编译、不执行；未知未来动作也不执行 |
 | metadata | 根、profile、complex、外层 rule 允许 title/description/maintainers/authors/metadata；任意自定义数据放 metadata；不解释这些内容 |
@@ -27,7 +30,7 @@
 | 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。windows-hook 拒绝设备条件；两个后端尚无实现，声明只用于提前检查 |
 
 
-尚未实现：held/delayed/simultaneous、应用/输入源/变量条件、显式 lazy/halt/hold_down、布局/锁状态、真实上下文 provider 与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，不能将它等同于支持显式 to.lazy。
+尚未实现：held/delayed/simultaneous、变量条件、显式 lazy/halt/hold_down、布局/锁状态、真实上下文 provider、Unicode 条件正则与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，不能将它等同于支持显式 to.lazy。
 
 展开限额、不同来源 tap 冲突见 ADR-0003；轻触/松开生命周期与预算见 ADR-0004；实现与测试状态见 STATUS。不要通过删除不支持字段生成看似可执行的导入结果。
 

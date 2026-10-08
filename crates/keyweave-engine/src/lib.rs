@@ -1,7 +1,7 @@
 //! Deterministic remapping. No OS input, file IO, threads or wall clock.
 mod conditions;
 mod modifiers;
-pub use conditions::{Condition, Truth};
+pub use conditions::{Condition, InputSourceFilter, Pattern, Truth};
 use keyweave_types::*;
 pub use modifiers::{Modifier, ModifierFilter};
 use serde::{Deserialize, Serialize};
@@ -296,6 +296,23 @@ impl Engine {
         now: MonoTime,
     ) -> Result<(), EngineError> {
         let mut identities = BTreeSet::new();
+        let mut strings = Vec::new();
+        if let Some(application) = &context.application {
+            strings.extend([&application.bundle_identifier, &application.file_path]);
+        }
+        if let Some(source) = &context.input_source {
+            strings.extend([
+                &source.language,
+                &source.input_source_id,
+                &source.input_mode_id,
+            ]);
+        }
+        if strings
+            .iter()
+            .any(|value| value.as_ref().is_some_and(|value| value.len() > 4096))
+        {
+            return Err(EngineError::InvalidContext);
+        }
         if context.revision <= self.context.revision
             || context.provider.is_empty()
             || context.provider.len() > 128

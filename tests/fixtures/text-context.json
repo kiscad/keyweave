@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "selected": true,
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "a"
+                  },
+                  "conditions": [
+                    {
+                      "type": "frontmost_application_if",
+                      "bundle_identifiers": [
+                        "^org\\.example\\.editor$"
+                      ]
+                    },
+                    {
+                      "type": "input_source_if",
+                      "input_sources": [
+                        {
+                          "language": "^en$",
+                          "input_source_id": "^xkb\\.us$"
+                        }
+                      ]
+                    }
+                  ],
+                  "to": [
+                    {
+                      "key_code": "b"
+                    }
+                  ],
+                  "to_after_key_up": [
+                    {
+                      "key_code": "d",
+                      "conditions": [
+                        {
+                          "type": "frontmost_application_unless",
+                          "bundle_identifiers": [
+                            "editor$"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "context_changed",
+        "context": {
+          "revision": 1,
+          "provider": "synthetic-text-fixture",
+          "observed_at_ns": 0,
+          "valid_until_ns": 100,
+          "devices": null,
+          "application": {
+            "bundle_identifier": "org.example.editor"
+          },
+          "input_source": {
+            "language": "en",
+            "input_source_id": "xkb.us"
+          }
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 1,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 3,
+      "at_ns": 2,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "context_changed",
+        "context": {
+          "revision": 2,
+          "provider": "synthetic-text-fixture",
+          "observed_at_ns": 0,
+          "valid_until_ns": 100,
+          "devices": null,
+          "application": {
+            "bundle_identifier": "org.example.other"
+          },
+          "input_source": {
+            "language": "zh",
+            "input_source_id": "xkb.us"
+          }
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "at_ns": 3,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 5,
+      "at_ns": 4,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 6,
+      "at_ns": 5,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 1,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 3,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 3,
+      "key": "d",
+      "edge": "down"
+    },
+    {
+      "at_ns": 3,
+      "key": "d",
+      "edge": "up"
+    },
+    {
+      "at_ns": 4,
+      "key": "a",
+      "edge": "down"
+    },
+    {
+      "at_ns": 5,
+      "key": "a",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  }
+}
