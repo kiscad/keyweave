@@ -11,8 +11,10 @@
 | from.modifiers | mandatory/optional/any；八个 HID 左右键与 command/control/option/shift 组；组左优先，允许整组额外侧；optional 保留，mandatory 临时屏蔽；接受字符串/数组、别名去重；caps_lock/Fn 明确拒绝 |
 | to.modifiers | 标准左右修饰与抽象组（左侧）；字符串/数组（最多 64 名），去重并按上游 modifier 枚举顺序；any 无动作；modifier/key 均进入下一阶段；普通主键 scope lazy up，末主键是 modifier 则 scope 持有到原 up |
 | to_if_alone / to_after_key_up | 键与修饰作用域完整轻触；正常 up 先释放主动作，再 alone，再 after；alone 严格小于超时，新 key/button down 和非零 wheel 取消，move 不取消；lazy 恢复 down 时八个 HID 修饰键；拔除/Reset 取消宏 |
+| to_if_held_down | 阈值先释放正常 to，再执行 held；最后输出持有至原 up；当前动作条件+原配置/设备；其他新 key/button 或同阶段派生 down 取消未触发任务，move/wheel/repeat 不取消；held 不自动取消 alone |
+| deadline 控制 | 显式 TimerFired{token}、Engine.next_deadline 时间/token；阈值时 timer 在普通物理事件前，Reset/remove 优先取消；提前/乱序拒绝，stale 无输出；晚交付按实际时间执行；单次一个任务，ADR-0011 |
 | 设备归零 | 已知物理 up 后该设备不再有 binding 时提交 pending modifier 状态；未知 up 不推断归零；拔除结束后也刷新；不等同于 OS lost-input/submitted 故障恢复 |
-| basic timing parameters | 四个已知时间参数整数 0..=86400000ms；默认 alone=1000ms，支持规则 override；当前只有 alone 有执行行为，其余保存待相应规则字段实现 |
+| basic timing parameters | 四个已知时间参数整数 0..=86400000ms；默认 alone=1000ms，支持规则 override；alone 与 held 有执行行为（held 默认 500ms），其余保存待相应规则字段实现 |
 | 持键更新 | 已持键完成旧输出，之后的 down 用新 generation；Repeat 不重新执行宏 |
 | 多来源相同输出 | owner 引用集合，防止他人持键被中间 tap/up 打断；ADR-0002 说明上游兼容差异 |
 | 设备代际 | 每个 id 仅保留最高 generation/removed；旧移除幂等忽略，旧 key/wheel/move 拒绝；4096 身份上限，Reset 保留历史；ADR-0005 描述容量恢复契约 |
@@ -33,10 +35,12 @@
 | 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。windows-hook 拒绝设备条件；两个后端尚无实现，声明只用于提前检查 |
 
 
-尚未实现：held/delayed/simultaneous、expression/系统变量、显式 lazy/halt/hold_down、布局/锁状态、真实上下文 provider、Unicode 条件正则与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，不能将它等同于支持显式 to.lazy。
+尚未实现：delayed/simultaneous、expression/系统变量、显式 lazy/halt/hold_down、布局/锁状态、真实上下文 provider、Unicode 条件正则与会话动作。含这些必要字段的规则准确拒绝。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，不能将它等同于支持显式 to.lazy。
 
 展开限额、不同来源 tap 冲突见 ADR-0003；轻触/松开生命周期与预算见 ADR-0004；实现与测试状态见 STATUS。不要通过删除不支持字段生成看似可执行的导入结果。
 
 上下文 JSON 原文不进入 CLI 默认输出。已持键的输出释放不重查条件；alone/after-up 的动作条件读取执行时上下文，但采用原 binding 保存的配置。条件过滤后最后一个有效输出决定是否保持按下。设备地址、location 等缺失时保持 Unknown，is_touch_bar 明确拒绝。ContextChanged 不代替可信系统 provider、session lease 或故障恢复。
 
 变量浮点/超 i64/null/对象、expression/key_up_expression、set_variable 与另一个目标同置、非键 modifier scope、simple 非键目标都拒绝。动作 conditions 在同一 to 数组执行前整批筛选；变量赋值可影响随后阶段的规则匹配及后续物理事件。CLI fixture 可给 expected_variables（需 --assert），输出及变量断言失败消息不导出实际值。
+
+held 展开、future macros/suppression/deadline token 在原 down 一并预留；超限/时间溢出在改变输出前拒绝。上下文更新可先于同刻 timer，以便使用新属性；普通 key/wheel/move 遇到未交付到期 timer 会返回 DeadlinePending，运行时先按顺序 fire，再提交原事件。纯 held 规则可以没有普通 to。

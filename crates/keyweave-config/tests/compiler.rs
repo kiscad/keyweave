@@ -891,3 +891,53 @@ fn variable_name_budget_includes_conditions_and_extra_actions() {
     assert!(!config.executable_without_loss());
     assert_eq!(config.diagnostics[0].code, "KW-LIMIT-001");
 }
+#[test]
+fn held_threshold_inherits_and_overrides_and_pure_held_rules_compile() {
+    let raw = json!({"profiles":[{"complex_modifications":{"parameters":{"basic.to_if_held_down_threshold_milliseconds":250},"rules":[{"manipulators":[
+        {"type":"basic","from":{"key_code":"a"},"to_if_held_down":[{"key_code":"b"}]},
+        {"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d"}],"to_if_held_down":[{"set_variable":{"name":"held","value":true,"key_up_value":false}}],"parameters":{"basic.to_if_held_down_threshold_milliseconds":0}}
+    ]}]}}]});
+    let config = compile_value(raw);
+    assert!(config.executable_without_loss());
+    assert_eq!(
+        config.snapshot.complex[0].extras.held_threshold_ns,
+        250_000_000
+    );
+    assert!(config.snapshot.complex[0].to.is_empty());
+    assert_eq!(config.snapshot.complex[1].extras.held_threshold_ns, 0);
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to_if_held_down":{"key_code":"b"}}]}]),
+    ));
+    assert!(config.executable_without_loss());
+    assert_eq!(
+        config.snapshot.complex[0].extras.held_threshold_ns,
+        500_000_000
+    );
+}
+#[test]
+fn held_actions_participate_in_output_capabilities_and_cross_phase_bounds() {
+    let raw = profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"to_if_held_down":[{"consumer_key_code":"mute"}]}]}]),
+    );
+    let config = compile(
+        &raw.to_string(),
+        &BackendCapabilities::windows_hook(),
+        ConfigGeneration(1),
+    )
+    .unwrap();
+    assert!(!config.executable_without_loss());
+    assert!(config.snapshot.complex.is_empty());
+    let actions: Vec<_> = (0..256)
+        .map(|_| json!({"key_code":"b","modifiers":["control"]}))
+        .collect();
+    let config = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}],"to_if_held_down":actions}]}]),
+    ));
+    assert!(!config.executable_without_loss());
+    assert!(
+        config
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "KW-LIMIT-001")
+    );
+}

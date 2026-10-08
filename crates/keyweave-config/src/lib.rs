@@ -196,6 +196,7 @@ pub fn compile(
         diagnostics: Vec::new(),
         disabled: 0,
         count: 0,
+        held_threshold_ns: 500_000_000,
         alone_timeout_ns: 1_000_000_000,
         pattern_count: std::cell::Cell::new(0),
     };
@@ -295,6 +296,12 @@ pub fn compile(
                 compiler.diagnostics.push(diagnostic);
                 compiler.disabled += 1;
             }
+        }
+        if let Ok(Some(threshold)) = held_threshold(
+            object.get("parameters"),
+            &format!("{pointer}/complex_modifications/parameters"),
+        ) {
+            compiler.held_threshold_ns = threshold;
         }
         if let Some(rules) = object.get("rules") {
             for (index, rule) in array(rules, &format!("{pointer}/complex_modifications/rules"))?
@@ -416,6 +423,7 @@ struct Compiler<'a> {
     diagnostics: Vec<Diagnostic>,
     disabled: usize,
     count: usize,
+    held_threshold_ns: u64,
     alone_timeout_ns: u64,
     pattern_count: std::cell::Cell<usize>,
 }
@@ -458,6 +466,7 @@ impl Compiler<'_> {
                 "from",
                 "to",
                 "description",
+                "to_if_held_down",
                 "to_if_alone",
                 "to_after_key_up",
                 "parameters",
@@ -500,6 +509,16 @@ impl Compiler<'_> {
             from_modifiers,
             conditions: self
                 .conditions(object.get("conditions"), &format!("{pointer}/conditions"))?,
+            if_held_down: self.actions(
+                object.get("to_if_held_down"),
+                &format!("{pointer}/to_if_held_down"),
+                true,
+            )?,
+            held_threshold_ns: held_threshold(
+                object.get("parameters"),
+                &format!("{pointer}/parameters"),
+            )?
+            .unwrap_or(self.held_threshold_ns),
             if_alone: self.actions(
                 object.get("to_if_alone"),
                 &format!("{pointer}/to_if_alone"),
@@ -517,6 +536,7 @@ impl Compiler<'_> {
             .unwrap_or(self.alone_timeout_ns),
         };
         if !object.contains_key("to")
+            && extras.if_held_down.is_empty()
             && extras.if_alone.is_empty()
             && extras.after_key_up.is_empty()
         {
@@ -1174,6 +1194,13 @@ impl Compiler<'_> {
         }
         Ok(key)
     }
+}
+fn held_threshold(value: Option<&Value>, pointer: &str) -> Result<Option<u64>, Diagnostic> {
+    alone_timeout(value, pointer)?;
+    Ok(value
+        .and_then(|value| value.get("basic.to_if_held_down_threshold_milliseconds"))
+        .and_then(Value::as_u64)
+        .map(|milliseconds| milliseconds * 1_000_000))
 }
 fn alone_timeout(value: Option<&Value>, pointer: &str) -> Result<Option<u64>, Diagnostic> {
     let Some(value) = value else {

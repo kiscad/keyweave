@@ -246,7 +246,7 @@ fn run(command: Command) -> Result<()> {
             println!("Wrote lossless editable copy; no configuration activated");
         }
         Command::Doctor => print_json(
-            json!({"os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "version":env!("CARGO_PKG_VERSION"), "implemented":["offline_replay","basic_key_mapping","jsonc","hot_snapshot_binding","output_ownership"], "linux_input_present":Path::new("/dev/input").is_dir(), "linux_uinput_present":Path::new("/dev/uinput").exists(), "hardware_validated":false, "platform_backends_implemented":false}),
+            json!({"os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "version":env!("CARGO_PKG_VERSION"), "implemented":["offline_replay","basic_key_mapping","jsonc","hot_snapshot_binding","output_ownership","typed_variables","held_deadlines","context_conditions"], "linux_input_present":Path::new("/dev/input").is_dir(), "linux_uinput_present":Path::new("/dev/uinput").exists(), "hardware_validated":false, "platform_backends_implemented":false}),
         )?,
         Command::KeyNames => print_json(KeyId::standard_names())?,
     }

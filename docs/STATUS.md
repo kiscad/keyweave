@@ -12,7 +12,7 @@
 | D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 4 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
-| D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，其他 conditions、timers 等字段仍拒绝；ADR-0010/0009/0008/0007；ADR-0003/0004/0006 |
+| D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held deadlines 已实现，其他 conditions、delayed/simultaneous 等字段仍拒绝；ADR-0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
 | Linux / Windows 用户态后端 | 未开始 | 尚无程序 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：实现 D05 held/delayed/simultaneous 时间规则及显式 lazy/halt/hold duration，然后进入 Linux 后端。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：实现 D05 delayed_action/simultaneous 及显式 lazy/halt/hold duration，然后进入 Linux 后端。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -44,3 +44,5 @@ D04 设备条件/上下文：types/context.rs、engine/conditions.rs、engine/sr
 D04 应用/输入源条件：ContextSnapshot 增加 ApplicationContext/InputSourceContext；condition IR 新增应用与输入源 if/unless、ASCII 单行受限 Pattern，config 阶段预编译 regex。应用跨字段 OR、输入源字段 AND/列表 OR、缺失/非 ASCII/CRLF/过期 Unknown；配额 256 patterns/配置、1024 bytes/pattern、32 KiB 程序与 16 KiB DFA cache；属性 4096 bytes 上限。新增 4 个 engine、3 个 compiler、1 个 CLI 测试，总计 103 个通过；text-context 回放证明上下文变化时旧 binding release 和实时 up 动作条件。fmt/clippy/workspace tests 与 source verifier（56 个 hash；其中两个条件文件原已固定，新增 selector specifier）通过。regex 1.8.1 与 regex-syntax 0.7.1 从离线缓存固定加入 Cargo.lock，未宣称最新依赖版本。没有 OS provider、应用 ID 转換、窗口标题采集或真机延迟验收；Windows CI 未运行。详见 ADR-0009，变量/时间规则和后端/GUI/驱动仍未完成。
 
 D05 typed variables：types/variables.rs、ActionTarget、Bound::Variable、规则条件和 config 编译器支持 i64/bool/String、variable_if/unless、set/unset/value/key_up_value。256 名字预留跨配置/旧 binding；Engine::new 改为 Result，激活失败不改现状；Reset 清值并回收旧名。设备移除完成已执行 action 的 key_up_value，不运行额外宏，此恢复偏差见 ADR-0010。批量动作先过滤，再依序执行，变量条件不依赖 OS context 新鲜度。新增 9 个 engine、4 个 compiler、1 个 CLI 测试，总计 117 个通过；variables 回放断言模式切换与持久值，默认输出不导出值。fmt/clippy/workspace tests、source verifier（60 个 hash）通过；Ubuntu 24.04.4 / Rust 1.97.1，Windows CI 和真机抓取未运行。浮点值、expression/key_up_expression、非键 modifier scope、simple 非键目标明确拒绝。时间规则、平台后端、session/GUI/驱动及发布仍未完成。
+
+D05 held_down：MappingExtras.if_held_down/held_threshold_ns、Bound deadline、SourceToken 预留、按时间/token 有序的 deadline map 与 TimerFired 控制输入。阈值时释放原 to 再执行 held；提前 up、新 key/button、同阶段派生 down、移除/Reset 取消；热更新原任务/原配置保留，回调使用原设备与当前动作条件。Engine.next_deadline 提供时间/token，普通物理输入前需先交付到期任务（DeadlinePending 不推进 seq/time），零阈值与晚交付语义见 ADR-0011。新增 12 个 engine、2 个 compiler、1 个 CLI 测试，总计 132 个通过；held 回放断言替换顺序与 stale 回调无输出。fmt/clippy/workspace tests、source verifier（60 个 hash；held.hpp 原已固定）通过；无硬件抓取/实际 OS timer 或 Windows CI，Ubuntu 24.04.4 / Rust 1.97.1。按住输出/变量/scopes 纳入预算和 capabilities。delayed、simultaneous、hold duration 仍拒绝，完整后端/session/GUI/驱动与发布未完成。

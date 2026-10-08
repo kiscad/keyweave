@@ -63,6 +63,8 @@ pub struct Mapping {
 pub struct MappingExtras {
     pub from_modifiers: ModifierFilter,
     pub conditions: Vec<Condition>,
+    pub if_held_down: Vec<Action>,
+    pub held_threshold_ns: u64,
     pub if_alone: Vec<Action>,
     pub after_key_up: Vec<Action>,
     pub alone_timeout_ns: u64,
@@ -72,6 +74,8 @@ impl Default for MappingExtras {
         Self {
             from_modifiers: ModifierFilter::default(),
             conditions: Vec::new(),
+            if_held_down: Vec::new(),
+            held_threshold_ns: 500_000_000,
             if_alone: Vec::new(),
             after_key_up: Vec::new(),
             alone_timeout_ns: 1_000_000_000,
@@ -85,11 +89,14 @@ impl Mapping {
             + usize::from(mandatory)
                 * 8
                 * (1 + usize::from(!self.extras.if_alone.is_empty())
-                    + usize::from(!self.extras.after_key_up.is_empty()))
+                    + usize::from(!self.extras.after_key_up.is_empty())
+                    + usize::from(!self.extras.if_held_down.is_empty()))
+            + usize::from(!self.extras.if_held_down.is_empty())
     }
     fn actions(&self) -> impl Iterator<Item = &Action> + '_ {
         self.to
             .iter()
+            .chain(&self.extras.if_held_down)
             .chain(&self.extras.if_alone)
             .chain(&self.extras.after_key_up)
     }
@@ -111,6 +118,16 @@ impl ConfigSnapshot {
             complex: Vec::new(),
         }
     }
+    fn max_held_threshold(&self) -> u64 {
+        self.simple
+            .iter()
+            .chain(&self.complex)
+            .filter(|mapping| !mapping.extras.if_held_down.is_empty())
+            .map(|mapping| mapping.extras.held_threshold_ns)
+            .max()
+            .unwrap_or(0)
+    }
+
     fn variable_references(&self) -> impl Iterator<Item = (&str, Option<&VariableValue>)> {
         self.simple.iter().chain(&self.complex).flat_map(|mapping| {
             let conditions = mapping
@@ -256,6 +273,7 @@ enum Bound {
         index: usize,
         children: Vec<Bound>,
         down_at: MonoTime,
+        deadline: Option<(MonoTime, DeadlineToken)>,
         alone: bool,
         modifiers_at_down: BTreeSet<KeyId>,
         consumed: BTreeSet<KeyId>,
@@ -310,6 +328,12 @@ pub enum EngineError {
     InvalidContext,
     #[error("invalid variable name, value or action")]
     InvalidVariable,
+    #[error("a due deadline must be delivered before this physical event")]
+    DeadlinePending,
+    #[error("deadline is early or not the earliest scheduled token")]
+    InvalidDeadline,
+    #[error("held deadline would overflow monotonic time")]
+    TimeOverflow,
 }
 
 #[derive(Clone, Copy)]
@@ -318,9 +342,17 @@ struct DeviceState {
     removed: bool,
 }
 
+#[derive(Clone, Copy)]
+struct DeadlineTask {
+    identity: (DeviceInstanceId, KeyId),
+    stage: usize,
+}
+
 pub struct Engine {
     config: Arc<ConfigSnapshot>,
     variables: BTreeMap<String, Option<VariableValue>>,
+    deadlines: BTreeMap<(MonoTime, DeadlineToken), DeadlineTask>,
+    current_identity: (DeviceInstanceId, KeyId),
     context: ContextSnapshot,
     current_device: DeviceInstanceId,
     bounds: BTreeMap<KeyId, usize>,
@@ -348,6 +380,14 @@ impl Engine {
             .collect();
         Ok(Self {
             variables,
+            deadlines: BTreeMap::new(),
+            current_identity: (
+                DeviceInstanceId {
+                    id: 0,
+                    generation: 0,
+                },
+                KeyId::new(7, 0),
+            ),
             may_consume_modifiers: config
                 .simple
                 .iter()
@@ -373,6 +413,10 @@ impl Engine {
             now: MonoTime(0),
             next_source: 1,
         })
+    }
+
+    pub fn next_deadline(&self) -> Option<(MonoTime, DeadlineToken)> {
+        self.deadlines.first_key_value().map(|(key, _)| *key)
     }
 
     pub fn variable(&self, name: &str) -> VariableValue {
@@ -505,7 +549,7 @@ impl Engine {
             output_owners: self.owners.values().map(BTreeSet::len).sum(),
             pressed_outputs: self.emitted.iter().copied().collect(),
             binding_generations: self.active.values().map(|b| b.generation).collect(),
-            pending_deadlines: 0,
+            pending_deadlines: self.deadlines.len(),
         }
     }
     pub fn tracked_devices(&self) -> usize {
@@ -527,12 +571,47 @@ impl Engine {
         {
             self.validate_context(context, input.at_ns)?;
         }
+        if input.provenance == Provenance::Physical {
+            if let InputEvent::TimerFired { token } = input.event {
+                if self
+                    .deadlines
+                    .iter()
+                    .find(|((_, candidate), _)| *candidate == token)
+                    .and_then(|(_, task)| self.active.get(&task.identity))
+                    .is_some_and(|binding| {
+                        input
+                            .at_ns
+                            .0
+                            .checked_add(binding.config.max_held_threshold())
+                            .is_none()
+                    })
+                {
+                    return Err(EngineError::TimeOverflow);
+                }
+                if let Some((deadline, _)) = self
+                    .deadlines
+                    .iter()
+                    .find(|((_, candidate), _)| *candidate == token)
+                    && (deadline.0 > input.at_ns || self.next_deadline() != Some(*deadline))
+                {
+                    return Err(EngineError::InvalidDeadline);
+                }
+            } else if matches!(
+                input.event,
+                InputEvent::Key { .. } | InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
+            ) && self
+                .next_deadline()
+                .is_some_and(|(at, _)| at <= input.at_ns)
+            {
+                return Err(EngineError::DeadlinePending);
+            }
+        }
         self.now = input.at_ns;
         self.last_seq = Some(input.seq);
         let mut step = EngineStep {
             capture: CaptureDecision::Capture,
             outputs: Vec::new(),
-            next_deadline: None,
+            next_deadline: self.next_deadline().map(|(at, _)| at),
         };
         if input.provenance != Provenance::Physical {
             step.capture = CaptureDecision::Pass;
@@ -540,6 +619,10 @@ impl Engine {
         }
         self.current_device = input.device;
         match input.event {
+            InputEvent::TimerFired { token } => {
+                step.capture = CaptureDecision::Pass;
+                self.fire_held(token, &mut step.outputs);
+            }
             InputEvent::ContextChanged { context } => {
                 self.context = context;
                 step.capture = CaptureDecision::Pass;
@@ -573,6 +656,10 @@ impl Engine {
                 }
                 let identity = (input.device, key);
                 if edge == KeyEdge::Down && !self.active.contains_key(&identity) {
+                    let max_threshold = self.config.max_held_threshold();
+                    if input.at_ns.0.checked_add(max_threshold).is_none() {
+                        return Err(EngineError::TimeOverflow);
+                    }
                     let bound = self.bounds.get(&key).copied().unwrap_or(1);
                     if self.active.len() >= MAX_BINDINGS
                         || bound.saturating_mul(2) > MAX_OUTPUTS_PER_EVENT
@@ -599,6 +686,8 @@ impl Engine {
                         }
                         let bound = self.bounds.get(&key).copied().unwrap_or(1);
                         self.cancel_alone();
+                        self.deadlines.clear();
+                        self.current_identity = identity;
                         let mut next_source = self.next_source;
                         self.next_source += bound as u64;
                         self.reservations += bound;
@@ -653,7 +742,88 @@ impl Engine {
                 }
             }
         }
+        step.next_deadline = self.next_deadline().map(|(at, _)| at);
         Ok(step)
+    }
+
+    fn fire_held(&mut self, token: DeadlineToken, outputs: &mut Vec<OutputIntent>) {
+        let Some((deadline, identity)) = self
+            .deadlines
+            .first_key_value()
+            .filter(|((_, candidate), _)| *candidate == token)
+            .map(|(deadline, task)| (*deadline, task.identity))
+        else {
+            return;
+        };
+        self.deadlines.remove(&deadline);
+        if let Some(mut binding) = self.active.remove(&identity) {
+            self.current_device = identity.0;
+            self.current_identity = identity;
+            self.replace_held(
+                &mut binding.bound,
+                token,
+                &binding.config,
+                &mut binding.next_source,
+                outputs,
+            );
+            self.active.insert(identity, binding);
+        }
+    }
+    fn replace_held(
+        &mut self,
+        bound: &mut Bound,
+        token: DeadlineToken,
+        config: &ConfigSnapshot,
+        next_source: &mut u64,
+        outputs: &mut Vec<OutputIntent>,
+    ) -> bool {
+        let Bound::Rule {
+            stage,
+            index,
+            children,
+            deadline,
+            consumed,
+            suppressed,
+            ..
+        } = bound
+        else {
+            return false;
+        };
+        if deadline.is_some_and(|(_, candidate)| candidate == token) {
+            *deadline = None;
+            for child in std::mem::take(children).into_iter().rev() {
+                self.release_bound(child, config, next_source, true, outputs);
+            }
+            self.unhide_modifiers(std::mem::take(suppressed));
+            let mapping = if *stage == 0 {
+                &config.simple[*index]
+            } else {
+                &config.complex[*index]
+            };
+            *suppressed = self.hide_modifiers(consumed);
+            let last_is_modifier = mapping
+                .extras
+                .if_held_down
+                .iter()
+                .rev()
+                .find(|action| self.conditions_match(&action.conditions))
+                .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
+            *children = self.press_actions(
+                &mapping.extras.if_held_down,
+                *stage + 1,
+                config,
+                next_source,
+                false,
+                outputs,
+            );
+            if !last_is_modifier {
+                self.unhide_modifiers(std::mem::take(suppressed));
+            }
+            return true;
+        }
+        children
+            .iter_mut()
+            .any(|child| self.replace_held(child, token, config, next_source, outputs))
     }
 
     pub fn reset(&mut self, now: MonoTime) -> Result<Vec<OutputIntent>, EngineError> {
@@ -806,6 +976,9 @@ impl Engine {
         next_source: &mut u64,
         outputs: &mut Vec<OutputIntent>,
     ) -> Bound {
+        if stage <= 1 {
+            self.deadlines.retain(|_, task| task.stage != stage);
+        }
         let key = request.key;
         let modifiers_at_down = self.current_modifiers();
         let mapping = match stage {
@@ -868,10 +1041,29 @@ impl Engine {
         if !last_is_modifier {
             self.unhide_modifiers(std::mem::take(&mut suppressed));
         }
+        let deadline = if mapping.extras.if_held_down.is_empty() {
+            None
+        } else {
+            let token = DeadlineToken(*next_source);
+            *next_source += 1;
+            let deadline = (
+                MonoTime(self.now.0.saturating_add(mapping.extras.held_threshold_ns)),
+                token,
+            );
+            self.deadlines.insert(
+                deadline,
+                DeadlineTask {
+                    identity: self.current_identity,
+                    stage,
+                },
+            );
+            Some(deadline)
+        };
         Bound::Rule {
             stage,
             index,
             children,
+            deadline,
             down_at: self.now,
             alone: true,
             modifiers_at_down,
@@ -983,11 +1175,15 @@ impl Engine {
                 index,
                 children,
                 down_at,
+                deadline,
                 alone,
                 modifiers_at_down,
                 consumed,
                 suppressed,
             } => {
+                if let Some(deadline) = deadline {
+                    self.deadlines.remove(&deadline);
+                }
                 for child in children.into_iter().rev() {
                     self.release_bound(child, config, next_source, extra_actions, outputs);
                 }

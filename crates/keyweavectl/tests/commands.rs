@@ -133,3 +133,17 @@ fn variable_replay_asserts_values_without_exporting_them() {
     assert!(!output.contains("do-not-export"));
     assert!(!output.contains("secret-fixture-value"));
 }
+#[test]
+fn held_replay_uses_explicit_deadline_and_ignores_stale_callback() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/held.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
