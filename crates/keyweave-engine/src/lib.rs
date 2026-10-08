@@ -9,6 +9,7 @@ use thiserror::Error;
 
 pub const MAX_BINDINGS: usize = 4096;
 pub const MAX_OUTPUTS_PER_EVENT: usize = 1024;
+pub const MAX_OUTPUT_OWNERS: usize = 16_384;
 
 #[derive(Clone, Debug)]
 pub struct Mapping {
@@ -34,32 +35,40 @@ impl ConfigSnapshot {
             complex: Vec::new(),
         }
     }
-    fn transform(&self, key: KeyId, modifiers_active: bool) -> Vec<KeyId> {
+    /// Upper bound independent of modifier changes within a sequence. This is
+    /// checked before changing ownership so resource failure cannot drop ups.
+    pub fn expansion_bound(&self, key: KeyId) -> usize {
         let simple = self
             .simple
             .iter()
             .find(|m| m.from == key)
             .map(|m| m.to.clone())
             .unwrap_or_else(|| vec![key]);
-        // Only one matching rule per phase; transformed output enters the next phase once.
         simple
             .into_iter()
-            .flat_map(|key| {
+            .map(|key| {
                 self.complex
                     .iter()
-                    .find(|m| m.from == key && (m.allow_extra_modifiers || !modifiers_active))
-                    .map(|m| m.to.clone())
-                    .unwrap_or_else(|| vec![key])
+                    .filter(|m| m.from == key)
+                    .map(|m| m.to.len())
+                    .max()
+                    .unwrap_or(1)
+                    .max(1)
             })
-            .collect()
+            .fold(0, usize::saturating_add)
     }
 }
 
 #[derive(Clone, Debug)]
-struct ActiveBinding {
+struct OwnedKey {
+    key: KeyId,
     source: SourceToken,
+}
+
+#[derive(Clone, Debug)]
+struct ActiveBinding {
     generation: ConfigGeneration,
-    outputs: Vec<KeyId>,
+    outputs: Vec<OwnedKey>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,34 +204,19 @@ impl Engine {
                         if self.active.len() >= MAX_BINDINGS {
                             return Err(EngineError::ResourceLimit);
                         }
-                        let outputs = self
-                            .config
-                            .transform(key, self.owners.keys().any(|key| key.is_modifier()));
-                        if outputs.len().saturating_mul(2) > MAX_OUTPUTS_PER_EVENT {
+                        let bound = self.config.expansion_bound(key);
+                        let owners: usize = self.owners.values().map(BTreeSet::len).sum();
+                        if bound.saturating_mul(2) > MAX_OUTPUTS_PER_EVENT
+                            || owners.saturating_add(bound) > MAX_OUTPUT_OWNERS
+                            || self.next_source.checked_add(bound as u64).is_none()
+                        {
                             return Err(EngineError::ResourceLimit);
                         }
-                        let source = SourceToken(self.next_source);
-                        self.next_source = self
-                            .next_source
-                            .checked_add(1)
-                            .ok_or(EngineError::ResourceLimit)?;
-                        // Every action except the last is a tap; the last remains held until the source up.
-                        let mut held = Vec::new();
-                        for (index, output) in outputs.iter().copied().enumerate() {
-                            if output.usage == 0 {
-                                continue;
-                            }
-                            self.press(output, source, input.at_ns, &mut step.outputs);
-                            if index + 1 == outputs.len() {
-                                held.push(output);
-                            } else {
-                                self.release(output, source, input.at_ns, &mut step.outputs);
-                            }
-                        }
+                        let config = Arc::clone(&self.config);
+                        let held = self.press_stage(key, 0, &config, &mut step.outputs);
                         self.active.insert(
                             identity,
                             ActiveBinding {
-                                source,
                                 generation: self.config.generation,
                                 outputs: held,
                             },
@@ -230,10 +224,10 @@ impl Engine {
                     }
                     KeyEdge::Up => {
                         if let Some(binding) = self.active.remove(&identity) {
-                            for output in binding.outputs {
+                            for output in binding.outputs.into_iter().rev() {
                                 self.release(
-                                    output,
-                                    binding.source,
+                                    output.key,
+                                    output.source,
                                     input.at_ns,
                                     &mut step.outputs,
                                 );
@@ -290,11 +284,55 @@ impl Engine {
             .collect();
         for identity in keys {
             if let Some(binding) = self.active.remove(&identity) {
-                for key in binding.outputs {
-                    self.release(key, binding.source, now, outputs);
+                for output in binding.outputs.into_iter().rev() {
+                    self.release(output.key, output.source, now, outputs);
                 }
             }
         }
+    }
+    fn press_stage(
+        &mut self,
+        key: KeyId,
+        stage: usize,
+        config: &ConfigSnapshot,
+        outputs: &mut Vec<OutputIntent>,
+    ) -> Vec<OwnedKey> {
+        // Each phase consumes complete down/up pairs from the preceding phase.
+        // Flattening the two `to` arrays would incorrectly hold the last output
+        // of an intermediate tap until the original physical key goes up.
+        let mapping = match stage {
+            0 => config.simple.iter().find(|mapping| mapping.from == key),
+            1 => config.complex.iter().find(|mapping| {
+                mapping.from == key
+                    && (mapping.allow_extra_modifiers
+                        || !self.owners.keys().any(|key| key.is_modifier()))
+            }),
+            _ => {
+                if key.usage == 0 {
+                    return Vec::new();
+                }
+                // handle() has reserved a conservative token/owner budget.
+                let source = SourceToken(self.next_source);
+                self.next_source += 1;
+                self.press(key, source, self.now, outputs);
+                return vec![OwnedKey { key, source }];
+            }
+        };
+        let Some(mapping) = mapping else {
+            return self.press_stage(key, stage + 1, config, outputs);
+        };
+        let mut held = Vec::new();
+        for (index, key) in mapping.to.iter().copied().enumerate() {
+            let children = self.press_stage(key, stage + 1, config, outputs);
+            if index + 1 == mapping.to.len() {
+                held = children;
+            } else {
+                for child in children.into_iter().rev() {
+                    self.release(child.key, child.source, self.now, outputs);
+                }
+            }
+        }
+        held
     }
     fn press(
         &mut self,

@@ -299,3 +299,151 @@ fn deterministic_interleavings_finish_balanced() {
     engine.reset(MonoTime(10_001)).unwrap();
     assert_eq!(engine.state(), EngineState::default());
 }
+
+#[test]
+fn intermediate_sequences_finish_before_the_next_phase_input() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.simple[0].to = vec![key("b"), key("c")];
+    config.complex.push(Mapping {
+        id: "nested".into(),
+        from: key("b"),
+        to: vec![key("d"), key("e")],
+        allow_extra_modifiers: false,
+    });
+    let mut engine = Engine::new(Arc::new(config));
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(1, 1, 1, "a", KeyEdge::Down))
+                .unwrap()
+                .outputs
+        ),
+        vec![
+            ("d".into(), KeyEdge::Down),
+            ("d".into(), KeyEdge::Up),
+            ("e".into(), KeyEdge::Down),
+            ("e".into(), KeyEdge::Up),
+            ("c".into(), KeyEdge::Down),
+        ]
+    );
+    assert_eq!(engine.state().pressed_outputs, vec![key("c")]);
+    engine.activate(snapshot(2, "z")).unwrap();
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(2, 1, 1, "a", KeyEdge::Up))
+                .unwrap()
+                .outputs
+        ),
+        vec![("c".into(), KeyEdge::Up)]
+    );
+    assert_eq!(engine.state(), EngineState::default());
+}
+
+#[test]
+fn repeated_sequence_key_has_separate_lifetimes_and_respects_existing_owners() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.simple[0].to = vec![key("b"), key("b")];
+    let mut engine = Engine::new(Arc::new(config));
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(1, 1, 1, "a", KeyEdge::Down))
+                .unwrap()
+                .outputs
+        ),
+        vec![
+            ("b".into(), KeyEdge::Down),
+            ("b".into(), KeyEdge::Up),
+            ("b".into(), KeyEdge::Down)
+        ]
+    );
+    assert!(
+        engine
+            .handle(event(2, 2, 1, "a", KeyEdge::Down))
+            .unwrap()
+            .outputs
+            .is_empty()
+    );
+    assert_eq!(engine.state().output_owners, 2);
+    assert!(
+        engine
+            .handle(event(3, 1, 1, "a", KeyEdge::Up))
+            .unwrap()
+            .outputs
+            .is_empty()
+    );
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(4, 2, 1, "a", KeyEdge::Up))
+                .unwrap()
+                .outputs
+        ),
+        vec![("b".into(), KeyEdge::Up)]
+    );
+}
+
+#[test]
+fn sequence_does_not_repeat_and_vk_none_does_not_create_an_owner() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.simple[0].to = vec![key("b"), key("vk_none")];
+    let mut engine = Engine::new(Arc::new(config));
+    assert_eq!(
+        engine
+            .handle(event(1, 1, 1, "a", KeyEdge::Down))
+            .unwrap()
+            .outputs
+            .len(),
+        2
+    );
+    assert_eq!(engine.state().output_owners, 0);
+    assert!(
+        engine
+            .handle(event(2, 1, 1, "a", KeyEdge::Repeat))
+            .unwrap()
+            .outputs
+            .is_empty()
+    );
+    assert!(
+        engine
+            .handle(event(3, 1, 1, "a", KeyEdge::Up))
+            .unwrap()
+            .outputs
+            .is_empty()
+    );
+    assert_eq!(engine.state(), EngineState::default());
+}
+
+#[test]
+fn expansion_limit_is_checked_before_any_output_changes() {
+    let mut config = (*snapshot(1, "b")).clone();
+    config.simple[0].to = vec![key("b"); 256];
+    config.complex.push(Mapping {
+        id: "too-large".into(),
+        from: key("b"),
+        to: vec![key("c"); 256],
+        allow_extra_modifiers: false,
+    });
+    let mut engine = Engine::new(Arc::new(config));
+    engine
+        .handle(event(1, 1, 1, "left_control", KeyEdge::Down))
+        .unwrap();
+    let previous = engine.state();
+    assert_eq!(
+        engine
+            .handle(event(2, 1, 1, "a", KeyEdge::Down))
+            .unwrap_err(),
+        EngineError::ResourceLimit
+    );
+    assert_eq!(engine.state(), previous);
+    assert_eq!(
+        edges(
+            &engine
+                .handle(event(3, 1, 1, "left_control", KeyEdge::Up))
+                .unwrap()
+                .outputs
+        ),
+        vec![("left_control".into(), KeyEdge::Up)]
+    );
+}

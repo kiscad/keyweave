@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "name": "Nested sequence",
+        "selected": true,
+        "simple_modifications": [
+          {
+            "from": {
+              "key_code": "a"
+            },
+            "to": [
+              {
+                "key_code": "b"
+              },
+              {
+                "key_code": "c"
+              }
+            ]
+          }
+        ],
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "b"
+                  },
+                  "to": [
+                    {
+                      "key_code": "d"
+                    },
+                    {
+                      "key_code": "e"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 20,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "a",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 0,
+      "key": "d",
+      "edge": "down"
+    },
+    {
+      "at_ns": 0,
+      "key": "d",
+      "edge": "up"
+    },
+    {
+      "at_ns": 0,
+      "key": "e",
+      "edge": "down"
+    },
+    {
+      "at_ns": 0,
+      "key": "e",
+      "edge": "up"
+    },
+    {
+      "at_ns": 0,
+      "key": "c",
+      "edge": "down"
+    },
+    {
+      "at_ns": 20,
+      "key": "c",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  }
+}

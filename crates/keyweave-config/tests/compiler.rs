@@ -112,6 +112,29 @@ fn consumer_actions_are_rejected_on_hook_backend() {
     assert_eq!(config.disabled_rules, 1);
     assert!(config.snapshot.simple.is_empty());
 }
+
+#[test]
+fn multi_action_arrays_compile_but_cross_phase_expansion_is_bounded() {
+    let config = compile_value(profile(json!([{"manipulators":[{
+        "type":"basic","from":{"key_code":"a"},
+        "to":[{"key_code":"b"},{"key_code":"c"}]
+    }]}])));
+    assert!(config.executable_without_loss());
+    assert_eq!(config.snapshot.complex[0].to.len(), 2);
+    let actions = vec![json!({"key_code":"b"}); 256];
+    let config = compile_value(json!({"profiles":[{
+        "simple_modifications":[{"from":{"key_code":"a"},"to":actions}],
+        "complex_modifications":{"rules":[{"manipulators":[{
+            "type":"basic","from":{"key_code":"b"},"to":vec![json!({"key_code":"c"}); 256]
+        }]}]}
+    }]}));
+    assert!(!config.executable_without_loss());
+    assert_eq!(config.diagnostics[0].code, "KW-LIMIT-001");
+    assert_eq!(
+        config.diagnostics[0].pointer,
+        "/profiles/0/simple_modifications/0/to"
+    );
+}
 #[test]
 fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {
     let rules: Value = serde_json::from_str(include_str!(

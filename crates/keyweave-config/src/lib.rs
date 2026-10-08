@@ -264,14 +264,27 @@ pub fn compile(
             }
         }
     }
+    let snapshot = ConfigSnapshot {
+        generation,
+        name,
+        simple,
+        complex,
+    };
+    for mapping in snapshot.simple.iter().chain(&snapshot.complex) {
+        if snapshot.expansion_bound(mapping.from).saturating_mul(2)
+            > keyweave_engine::MAX_OUTPUTS_PER_EVENT
+        {
+            compiler.reject(
+                &format!("{}/to", mapping.id),
+                "KW-LIMIT-001",
+                "sequence expansion across phases exceeds the per-event output limit",
+            );
+            break;
+        }
+    }
     Ok(CompiledConfig {
         raw,
-        snapshot: ConfigSnapshot {
-            generation,
-            name,
-            simple,
-            complex,
-        },
+        snapshot,
         diagnostics: compiler.diagnostics,
         disabled_rules: compiler.disabled,
     })
@@ -353,13 +366,6 @@ impl Compiler<'_> {
                 &format!("{pointer}/to"),
                 "KW-CONFIG-001",
                 "expected 1..=256 output actions; use vk_none to suppress",
-            ));
-        }
-        if values.len() > 1 {
-            return Err(diagnostic(
-                &format!("{pointer}/to"),
-                "KW-CAP-001",
-                "multi-action lifecycle is pending D04; rule disabled",
             ));
         }
         let to = values
