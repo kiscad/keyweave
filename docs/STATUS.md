@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 4 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 5 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -52,3 +52,5 @@ D05 Reset 修正：立即清空 deadline map，防止旧回调到达前以 Deadl
 D05 delayed_action：complex/basic 的 to_if_invoked/to_if_canceled 与 delay 参数；原 up 后保留 pending binding、旧配置、cursor 与 reservation，单分支完成后回收。新 key/button/同阶段派生 down 执行 canceled，repeat/移动/滚轮不取消；source down 的 modifier 快照恢复、mandatory scope、执行时条件、旧设备身份与 idle flush 已实现。增加 CancelDelayed/next_delayed 控制接口，宏+新 down 超过单事件预算或 pending 占满 binding/owner 容量时先分批取消；CancellationPending 不推进 seq/time。新增 14 个 engine、4 个 compiler、1 个 CLI 测试，总计 152 个通过；delayed/delayed-pending 两回放验证完整路径和未结束任务状态，CLI 返回 next_deadline。压力案例验证 996/994 edges 分开处理、2000 次 pending 回收及 4096 binding 容量；单对象动作 JSON Pointer 不再生成不存在的 /0。fmt/clippy/workspace tests、source verifier（60 个 hash；delayed.hpp 原已固定）通过。Ubuntu 24.04.4 / Rust 1.97.1，Windows CI/硬件/实际 timer 后端未运行；上游原 expected 不修改、macOS 测试未执行。ADR-0012 描述控制接口及 neutral 刷新偏差。simultaneous、显式 lazy/halt/hold duration、平台后端/session/GUI/driver/发布仍未完成。
 
 D05 显式 lazy/halt：动作 bool 严格解析，标准 modifier 的 logical owners 与 emitted intent 分开；当前数组继续、同一 binding 后续批次 halt，变量/key 已安排 up 保留。held/alone/delayed 共享原 binding 状态，热更新保留，过滤后的 halt 不起作用。变量 down 修饰同步及八个 latent modifier 输出预算独立于 source/token 预留。新增 11 个 engine、2 个 compiler、1 个 CLI 测试，总计 166 个通过；lazy-halt 自有 golden 覆盖按键/修饰顺序。fmt/clippy/workspace tests、source verifier（60 hashes）通过；Ubuntu 24.04.4 / Rust 1.97.1，仅离线。Windows CI、真实后端、硬件尚未验证。ADR-0013；hold duration/simultaneous 和原完整后端/session/GUI/driver 目标继续保留。
+
+D05/D06 输出调度基础：新增 keyweave-output 有界 FIFO 与单在途提交；desired/submitted 分离、已接受前缀确认、短返回丢弃未来计划并恢复 actual down、恢复短返回重试、结束 Paused 等待 neutral gate。11 个调度行为测试与 1 个真实 engine 联合测试，总计 178 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）通过。ADR-0014 固定 hold duration 源码语义及接入要求。当前没有引擎阶段时间队列、duration 配置接入、CLI/运行时/OS 输出后端；仍不能声称 hold duration 或平台功能完成。Ubuntu 24.04.4 / Rust 1.97.1，仅离线，Windows/硬件未验证。下一步继续阶段队列与 duration，再 simultaneous 和后端。

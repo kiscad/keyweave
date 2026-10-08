@@ -52,6 +52,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 
 ## 平台和故障恢复
 
+- keyweave-output 跟踪 desired 与已接受的 submitted；短返回只确认已接受的语义边沿前缀，在途未知接受量不可 reset。恢复完成 Paused，runtime 显式通过物理 neutral gate 后才 resume。
 - 输出已准备好才抓物理输入，启用/重连等待 neutral。抓取前保留可恢复路径。
 - device remove 只释放其 owners，撤销所属 timers/宏；output failure、queue overflow、引擎停滞都进入显式恢复。
 - 恢复优先保证物理键盘可输入，不能无限等待失效输出端发 up；清虚拟按住、旧 token，再等 neutral 恢复。
