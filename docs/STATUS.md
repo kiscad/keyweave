@@ -9,11 +9,11 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 5 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 6 crates、Cargo.lock、固定 1.97.1、82 个本机行为测试通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
-| Linux / Windows 用户态后端 | 未开始 | 尚无程序 |
+| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux/events.rs，无 FD/ioctl/抓取/输出设备 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
 | 目标平台硬件、权限、故障恢复、性能 | 未执行 | 后续专用测试系统验证 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：实现 D05 hold duration 与 simultaneous，然后进入 Linux 后端。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：推进 D06 Linux 键码转换、设备 probe 与 evdev/uinput FD 接入；继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -60,3 +60,5 @@ D05 阶段时间队列基础：engine/timeline.rs 提供 Simple/Complex/Output �
 D05 动作 duration 计划器：engine/action_plan.rs 把已筛选动作编译为阶段 down/up 与 input-up 保留命令，累加轻触时长、后续数组动作等待、标准 modifier scopes 与 lazy/halt/变量语义、batch+slot 身份保存；预检时长/容量/溢出。IR hold_down_ns 默认 0，递归引擎 new/activate 对非零值明确返回 UnsupportedActionTiming，配置仍拒绝 duration 字段。12 个新增测试含 StageTimeline 联合推进，总计 199 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）通过。ADR-0016；actor/Bound arena、mandatory/held/alone/delayed 接入、CLI duration、simultaneous 与所有平台目标继续保留，仍未完成。Ubuntu 24.04.4 / Rust 1.97.1，仅离线。
 
 D05 末端 actor 接入：TerminalActor 执行 Output 阶段计划，slot 保存真实 Bound，按时 down/up/变量执行与 SourceToken 区间预留；旧快照释放、热更新、多 owner、输入 up/due 边界、Reset/设备代际/取消清理均有实际行为。13 个 actor 测试与 1 个 actor→OutputQueue 部分提交联合测试，总计 213 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）通过。4096 批次/16384 slots/8192 队列与 512 distinct planned/emitted key 预算有压力覆盖。ADR-0017；ActionPlan 事件只读。仅末端，Simple/Complex 计划拒绝；普通 Engine 与 CLI duration gate 保留，多阶段匹配/条件/计时宏接入尚未完成。Ubuntu 24.04.4 / Rust 1.97.1，纯离线，Windows/硬件未验证；完整移植目标继续保留。
+
+D06 Linux 原生事件基础：keyweave-linux/events.rs native-endian Time32/Time64 codec、批次/帧有界、跨读取 frame、raw SYN_DROPPED→report→显式 snapshot 恢复、output key+report 与 record-aligned write prefix。新增 11 个测试，总计 224 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）通过。libc 0.2.176 为 Linux target-specific 且离线固定；本机 size/offset ABI 检查通过。ADR-0018 核验官方文档并说明 D06 基础并行推进理由。尚无键码转换、真实 FD/ioctl、grab/uinput、运行时/权限/硬件；Linux 后端仍未可用。Ubuntu 24.04.4 x86_64 / Rust 1.97.1，其他架构/Windows CI 未运行；完整目标与 D05 接入继续保留。

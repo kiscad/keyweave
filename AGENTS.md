@@ -60,6 +60,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 - device remove 只释放其 owners，撤销所属 timers/宏；output failure、queue overflow、引擎停滞都进入显式恢复。
 - 恢复优先保证物理键盘可输入，不能无限等待失效输出端发 up；清虚拟按住、旧 token，再等 neutral 恢复。
 - 紧急物理组合在映射前识别，规则不能覆盖；watchdog 检查事件循环实际进度而非后台线程存活。
+- Linux raw FrameDecoder 是唯一 SYN_DROPPED 恢复层；忽略至 report 后仍需显式内核状态协调/neutral gate，不能再叠加 evdev sync。完整 key prefix 缺少 SYN_REPORT 仍是 incomplete frame，不能仅凭 ack 数判成功。native ABI 仅开放已核验布局，其他目标明确拒绝。
 - Linux 不抓自身 uinput，不对所有 `/dev/input` 设 666，不默认抓未支持混合触控接口。SYN_DROPPED 恢复只由选定 raw/sync 层负责。
 - Linux 的 repeat 来源只选一个，LED 锁状态来源明确；FD 副本不能阻止 broker/watchdog 释放 grab。
 - Windows Hook 运行在会话消息线程，有界同步 capture 决策；不能 queue 后先放行，再发送映射。禁止 RawInput 与 Hook 时戳猜设备关联。
