@@ -13,7 +13,7 @@
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
-| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux/events.rs，无 FD/ioctl/抓取/输出设备 |
+| Linux / Windows 用户态后端 | Linux native codec 已开始；实际后端未完成，Windows 未开始 | keyweave-linux events/keys，无 FD/ioctl/抓取/输出设备 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
 | 目标平台硬件、权限、故障恢复、性能 | 未执行 | 后续专用测试系统验证 |
@@ -62,3 +62,5 @@ D05 动作 duration 计划器：engine/action_plan.rs 把已筛选动作编译�
 D05 末端 actor 接入：TerminalActor 执行 Output 阶段计划，slot 保存真实 Bound，按时 down/up/变量执行与 SourceToken 区间预留；旧快照释放、热更新、多 owner、输入 up/due 边界、Reset/设备代际/取消清理均有实际行为。13 个 actor 测试与 1 个 actor→OutputQueue 部分提交联合测试，总计 213 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）通过。4096 批次/16384 slots/8192 队列与 512 distinct planned/emitted key 预算有压力覆盖。ADR-0017；ActionPlan 事件只读。仅末端，Simple/Complex 计划拒绝；普通 Engine 与 CLI duration gate 保留，多阶段匹配/条件/计时宏接入尚未完成。Ubuntu 24.04.4 / Rust 1.97.1，纯离线，Windows/硬件未验证；完整移植目标继续保留。
 
 D06 Linux 原生事件基础：keyweave-linux/events.rs native-endian Time32/Time64 codec、批次/帧有界、跨读取 frame、raw SYN_DROPPED→report→显式 snapshot 恢复、output key+report 与 record-aligned write prefix。新增 11 个测试，总计 224 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）通过。libc 0.2.176 为 Linux target-specific 且离线固定；本机 size/offset ABI 检查通过。ADR-0018 核验官方文档并说明 D06 基础并行推进理由。尚无键码转换、真实 FD/ioctl、grab/uinput、运行时/权限/硬件；Linux 后端仍未可用。Ubuntu 24.04.4 x86_64 / Rust 1.97.1，其他架构/Windows CI 未运行；完整目标与 D05 接入继续保留。
+
+D02/D06 Linux 键转换：159 HID/native 数值事实、154 canonical codes，生成器核验本机 UAPI 并独立 --check；5 个输入别名输出明确拒绝，可信 scan 与 canonical evdev evidence 分离。KeyNormalizer 按 native code 保存 down 身份，repeat/duplicate/up 复用，unknown up 不猜测；每 device generation 独立。10 个测试+1 个 native codec→normalizer→engine→native codec 联合测试，总计 235 个 workspace tests 通过；fmt/clippy/source verifier（60 hashes）和 Linux keys 生成检查通过。ADR-0019；未将粗粒度 Linux capabilities 当全 native 可用证明，配置/设备准入、FD/ioctl、grab/uinput、runtime/实际输入尚未实现。Ubuntu 24.04.4 x86_64 / Rust 1.97.1，Windows/其他架构/硬件未验证，D05 多阶段 actor 等完整目标保留。

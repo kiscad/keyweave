@@ -7,9 +7,13 @@ license.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+keyweave-types.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.176"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+keyweave-engine.workspace = true

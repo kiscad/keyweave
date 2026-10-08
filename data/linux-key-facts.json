@@ -1,0 +1,1120 @@
+{
+  "schema_version": 1,
+  "description": "Reviewed HID/native numeric facts; no kernel implementation copied. Canonical evdev identities are not proof of original HID usage.",
+  "reference": "https://github.com/torvalds/linux/blob/v6.12/drivers/hid/hid-input.c",
+  "rows": [
+    {
+      "page": 7,
+      "usage": 41,
+      "code": 1,
+      "native_name": "KEY_ESC",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 30,
+      "code": 2,
+      "native_name": "KEY_1",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 31,
+      "code": 3,
+      "native_name": "KEY_2",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 32,
+      "code": 4,
+      "native_name": "KEY_3",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 33,
+      "code": 5,
+      "native_name": "KEY_4",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 34,
+      "code": 6,
+      "native_name": "KEY_5",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 35,
+      "code": 7,
+      "native_name": "KEY_6",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 36,
+      "code": 8,
+      "native_name": "KEY_7",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 37,
+      "code": 9,
+      "native_name": "KEY_8",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 38,
+      "code": 10,
+      "native_name": "KEY_9",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 39,
+      "code": 11,
+      "native_name": "KEY_0",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 45,
+      "code": 12,
+      "native_name": "KEY_MINUS",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 46,
+      "code": 13,
+      "native_name": "KEY_EQUAL",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 42,
+      "code": 14,
+      "native_name": "KEY_BACKSPACE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 43,
+      "code": 15,
+      "native_name": "KEY_TAB",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 20,
+      "code": 16,
+      "native_name": "KEY_Q",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 26,
+      "code": 17,
+      "native_name": "KEY_W",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 8,
+      "code": 18,
+      "native_name": "KEY_E",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 21,
+      "code": 19,
+      "native_name": "KEY_R",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 23,
+      "code": 20,
+      "native_name": "KEY_T",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 28,
+      "code": 21,
+      "native_name": "KEY_Y",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 24,
+      "code": 22,
+      "native_name": "KEY_U",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 12,
+      "code": 23,
+      "native_name": "KEY_I",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 18,
+      "code": 24,
+      "native_name": "KEY_O",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 19,
+      "code": 25,
+      "native_name": "KEY_P",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 47,
+      "code": 26,
+      "native_name": "KEY_LEFTBRACE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 48,
+      "code": 27,
+      "native_name": "KEY_RIGHTBRACE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 40,
+      "code": 28,
+      "native_name": "KEY_ENTER",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 224,
+      "code": 29,
+      "native_name": "KEY_LEFTCTRL",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 4,
+      "code": 30,
+      "native_name": "KEY_A",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 22,
+      "code": 31,
+      "native_name": "KEY_S",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 7,
+      "code": 32,
+      "native_name": "KEY_D",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 9,
+      "code": 33,
+      "native_name": "KEY_F",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 10,
+      "code": 34,
+      "native_name": "KEY_G",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 11,
+      "code": 35,
+      "native_name": "KEY_H",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 13,
+      "code": 36,
+      "native_name": "KEY_J",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 14,
+      "code": 37,
+      "native_name": "KEY_K",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 15,
+      "code": 38,
+      "native_name": "KEY_L",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 51,
+      "code": 39,
+      "native_name": "KEY_SEMICOLON",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 52,
+      "code": 40,
+      "native_name": "KEY_APOSTROPHE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 53,
+      "code": 41,
+      "native_name": "KEY_GRAVE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 225,
+      "code": 42,
+      "native_name": "KEY_LEFTSHIFT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 49,
+      "code": 43,
+      "native_name": "KEY_BACKSLASH",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 50,
+      "code": 43,
+      "native_name": "KEY_BACKSLASH",
+      "canonical": false
+    },
+    {
+      "page": 7,
+      "usage": 29,
+      "code": 44,
+      "native_name": "KEY_Z",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 27,
+      "code": 45,
+      "native_name": "KEY_X",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 6,
+      "code": 46,
+      "native_name": "KEY_C",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 25,
+      "code": 47,
+      "native_name": "KEY_V",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 5,
+      "code": 48,
+      "native_name": "KEY_B",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 17,
+      "code": 49,
+      "native_name": "KEY_N",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 16,
+      "code": 50,
+      "native_name": "KEY_M",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 54,
+      "code": 51,
+      "native_name": "KEY_COMMA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 55,
+      "code": 52,
+      "native_name": "KEY_DOT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 56,
+      "code": 53,
+      "native_name": "KEY_SLASH",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 229,
+      "code": 54,
+      "native_name": "KEY_RIGHTSHIFT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 85,
+      "code": 55,
+      "native_name": "KEY_KPASTERISK",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 226,
+      "code": 56,
+      "native_name": "KEY_LEFTALT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 44,
+      "code": 57,
+      "native_name": "KEY_SPACE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 57,
+      "code": 58,
+      "native_name": "KEY_CAPSLOCK",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 58,
+      "code": 59,
+      "native_name": "KEY_F1",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 59,
+      "code": 60,
+      "native_name": "KEY_F2",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 60,
+      "code": 61,
+      "native_name": "KEY_F3",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 61,
+      "code": 62,
+      "native_name": "KEY_F4",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 62,
+      "code": 63,
+      "native_name": "KEY_F5",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 63,
+      "code": 64,
+      "native_name": "KEY_F6",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 64,
+      "code": 65,
+      "native_name": "KEY_F7",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 65,
+      "code": 66,
+      "native_name": "KEY_F8",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 66,
+      "code": 67,
+      "native_name": "KEY_F9",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 67,
+      "code": 68,
+      "native_name": "KEY_F10",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 83,
+      "code": 69,
+      "native_name": "KEY_NUMLOCK",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 71,
+      "code": 70,
+      "native_name": "KEY_SCROLLLOCK",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 95,
+      "code": 71,
+      "native_name": "KEY_KP7",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 96,
+      "code": 72,
+      "native_name": "KEY_KP8",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 97,
+      "code": 73,
+      "native_name": "KEY_KP9",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 86,
+      "code": 74,
+      "native_name": "KEY_KPMINUS",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 92,
+      "code": 75,
+      "native_name": "KEY_KP4",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 93,
+      "code": 76,
+      "native_name": "KEY_KP5",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 94,
+      "code": 77,
+      "native_name": "KEY_KP6",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 87,
+      "code": 78,
+      "native_name": "KEY_KPPLUS",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 89,
+      "code": 79,
+      "native_name": "KEY_KP1",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 90,
+      "code": 80,
+      "native_name": "KEY_KP2",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 91,
+      "code": 81,
+      "native_name": "KEY_KP3",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 98,
+      "code": 82,
+      "native_name": "KEY_KP0",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 99,
+      "code": 83,
+      "native_name": "KEY_KPDOT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 148,
+      "code": 85,
+      "native_name": "KEY_ZENKAKUHANKAKU",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 100,
+      "code": 86,
+      "native_name": "KEY_102ND",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 68,
+      "code": 87,
+      "native_name": "KEY_F11",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 69,
+      "code": 88,
+      "native_name": "KEY_F12",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 135,
+      "code": 89,
+      "native_name": "KEY_RO",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 146,
+      "code": 90,
+      "native_name": "KEY_KATAKANA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 147,
+      "code": 91,
+      "native_name": "KEY_HIRAGANA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 138,
+      "code": 92,
+      "native_name": "KEY_HENKAN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 136,
+      "code": 93,
+      "native_name": "KEY_KATAKANAHIRAGANA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 139,
+      "code": 94,
+      "native_name": "KEY_MUHENKAN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 140,
+      "code": 95,
+      "native_name": "KEY_KPJPCOMMA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 88,
+      "code": 96,
+      "native_name": "KEY_KPENTER",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 228,
+      "code": 97,
+      "native_name": "KEY_RIGHTCTRL",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 84,
+      "code": 98,
+      "native_name": "KEY_KPSLASH",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 70,
+      "code": 99,
+      "native_name": "KEY_SYSRQ",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 230,
+      "code": 100,
+      "native_name": "KEY_RIGHTALT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 74,
+      "code": 102,
+      "native_name": "KEY_HOME",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 82,
+      "code": 103,
+      "native_name": "KEY_UP",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 75,
+      "code": 104,
+      "native_name": "KEY_PAGEUP",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 80,
+      "code": 105,
+      "native_name": "KEY_LEFT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 79,
+      "code": 106,
+      "native_name": "KEY_RIGHT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 77,
+      "code": 107,
+      "native_name": "KEY_END",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 81,
+      "code": 108,
+      "native_name": "KEY_DOWN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 78,
+      "code": 109,
+      "native_name": "KEY_PAGEDOWN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 73,
+      "code": 110,
+      "native_name": "KEY_INSERT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 76,
+      "code": 111,
+      "native_name": "KEY_DELETE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 156,
+      "code": 111,
+      "native_name": "KEY_DELETE",
+      "canonical": false
+    },
+    {
+      "page": 12,
+      "usage": 226,
+      "code": 113,
+      "native_name": "KEY_MUTE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 127,
+      "code": 113,
+      "native_name": "KEY_MUTE",
+      "canonical": false
+    },
+    {
+      "page": 12,
+      "usage": 234,
+      "code": 114,
+      "native_name": "KEY_VOLUMEDOWN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 129,
+      "code": 114,
+      "native_name": "KEY_VOLUMEDOWN",
+      "canonical": false
+    },
+    {
+      "page": 12,
+      "usage": 233,
+      "code": 115,
+      "native_name": "KEY_VOLUMEUP",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 128,
+      "code": 115,
+      "native_name": "KEY_VOLUMEUP",
+      "canonical": false
+    },
+    {
+      "page": 7,
+      "usage": 102,
+      "code": 116,
+      "native_name": "KEY_POWER",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 103,
+      "code": 117,
+      "native_name": "KEY_KPEQUAL",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 72,
+      "code": 119,
+      "native_name": "KEY_PAUSE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 133,
+      "code": 121,
+      "native_name": "KEY_KPCOMMA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 144,
+      "code": 122,
+      "native_name": "KEY_HANGEUL",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 145,
+      "code": 123,
+      "native_name": "KEY_HANJA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 137,
+      "code": 124,
+      "native_name": "KEY_YEN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 227,
+      "code": 125,
+      "native_name": "KEY_LEFTMETA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 231,
+      "code": 126,
+      "native_name": "KEY_RIGHTMETA",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 101,
+      "code": 127,
+      "native_name": "KEY_COMPOSE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 120,
+      "code": 128,
+      "native_name": "KEY_STOP",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 121,
+      "code": 129,
+      "native_name": "KEY_AGAIN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 118,
+      "code": 130,
+      "native_name": "KEY_PROPS",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 122,
+      "code": 131,
+      "native_name": "KEY_UNDO",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 119,
+      "code": 132,
+      "native_name": "KEY_FRONT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 124,
+      "code": 133,
+      "native_name": "KEY_COPY",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 116,
+      "code": 134,
+      "native_name": "KEY_OPEN",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 125,
+      "code": 135,
+      "native_name": "KEY_PASTE",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 126,
+      "code": 136,
+      "native_name": "KEY_FIND",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 123,
+      "code": 137,
+      "native_name": "KEY_CUT",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 117,
+      "code": 138,
+      "native_name": "KEY_HELP",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 184,
+      "code": 161,
+      "native_name": "KEY_EJECTCD",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 181,
+      "code": 163,
+      "native_name": "KEY_NEXTSONG",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 205,
+      "code": 164,
+      "native_name": "KEY_PLAYPAUSE",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 182,
+      "code": 165,
+      "native_name": "KEY_PREVIOUSSONG",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 183,
+      "code": 166,
+      "native_name": "KEY_STOPCD",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 180,
+      "code": 168,
+      "native_name": "KEY_REWIND",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 104,
+      "code": 183,
+      "native_name": "KEY_F13",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 105,
+      "code": 184,
+      "native_name": "KEY_F14",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 106,
+      "code": 185,
+      "native_name": "KEY_F15",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 107,
+      "code": 186,
+      "native_name": "KEY_F16",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 108,
+      "code": 187,
+      "native_name": "KEY_F17",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 109,
+      "code": 188,
+      "native_name": "KEY_F18",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 110,
+      "code": 189,
+      "native_name": "KEY_F19",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 111,
+      "code": 190,
+      "native_name": "KEY_F20",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 112,
+      "code": 191,
+      "native_name": "KEY_F21",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 113,
+      "code": 192,
+      "native_name": "KEY_F22",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 114,
+      "code": 193,
+      "native_name": "KEY_F23",
+      "canonical": true
+    },
+    {
+      "page": 7,
+      "usage": 115,
+      "code": 194,
+      "native_name": "KEY_F24",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 179,
+      "code": 208,
+      "native_name": "KEY_FASTFORWARD",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 112,
+      "code": 224,
+      "native_name": "KEY_BRIGHTNESSDOWN",
+      "canonical": true
+    },
+    {
+      "page": 12,
+      "usage": 111,
+      "code": 225,
+      "native_name": "KEY_BRIGHTNESSUP",
+      "canonical": true
+    }
+  ]
+}

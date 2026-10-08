@@ -52,3 +52,5 @@ held 展开、future macros/suppression/deadline token 在原 down 一并预留�
 延迟任务 active+pending 总量受同一 4096 binding/16384 reservation 上限保护；设备 idle 后延迟宏完成会刷新 latent modifiers，此恢复选择见 ADR-0012。EngineState.pending_bindings 描述松开后等待的任务，0 时省略序列化；replay next_deadline 给出 at_ns/token。CancelDelayed 不可抢先绕过已到期 timer；未知旧 token 无输出。按住/延迟仅属于 complex/basic，直接构造的 simple timed IR 也拒绝。单对象动作的诊断 pointer 指向对象成员，数组才含 /索引。
 
 变量 down 会同步逻辑修饰状态；lazy 不延迟赋值。输出边沿与 owner/token 预留独立计算，包含最多八个 pending modifier 边沿，超过 1024 在 down 前拒绝；配置编译也检查此上界。halt 不撤销已安排 deadline，回调仍结束其 binding 生命周期并回收预算。
+
+Linux 原生转换组件已有 159 HID/native 对与 154 canonical codes，但未接入 validate/backend；粗粒度 linux-evdev 页声明不能证明任意 HID 输出可用。keyboard 音量、non_us_pound/clear 等五个 native 别名明确拒绝保真输出；canonical evdev 身份不证明原始 HID usage，可信 scan 需 driver/descriptor 核验。详细策略见 ADR-0019。尚无真实设备抓取/注入。

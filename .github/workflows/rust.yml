@@ -13,6 +13,7 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - run: cargo fmt --all --check
+      - run: python tools/generate_linux_keys.py --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/basic.json --assert
