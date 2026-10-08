@@ -1333,4 +1333,116 @@ mod tests {
             vec![Call::InputClose(1), Call::OutputClose]
         );
     }
+    struct ProgressWriter {
+        bytes: Rc<RefCell<Vec<u8>>>,
+        chunk: usize,
+        block_once: bool,
+    }
+    impl io::Write for ProgressWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.block_once {
+                self.block_once = false;
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            }
+            let count = bytes.len().min(self.chunk);
+            self.bytes.borrow_mut().extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn progress_response_requires_a_completed_poll_after_challenge_receive() {
+        use crate::progress::{Challenge, ProgressClient, Receipt};
+        let (mut runtime, _) = make_runtime(vec![vec![]], config(1, "b"));
+        runtime.poll(MonoTime(0)).unwrap(); // Old progress predates the challenge.
+        let bytes = Rc::new(RefCell::new(Vec::new()));
+        let writer = ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 40,
+            block_once: false,
+        };
+        let challenge = Challenge { run_id: 7, id: 1 };
+        let mut client =
+            ProgressClient::new(io::Cursor::new(challenge.encode()), writer, 7).unwrap();
+        assert!(client.receive(&runtime).unwrap());
+        assert!(!client.publish(&runtime).unwrap());
+        assert!(!client.flush().unwrap());
+        assert!(bytes.borrow().is_empty());
+        runtime.poll(MonoTime(1)).unwrap();
+        assert!(client.publish(&runtime).unwrap());
+        let receipt = Receipt::decode(&bytes.borrow()).unwrap();
+        assert_eq!(receipt.baseline, 1);
+        assert_eq!(receipt.epoch, 2);
+        assert_eq!(receipt.challenge, challenge);
+        assert!(!client.publish(&runtime).unwrap());
+        assert_eq!(bytes.borrow().len(), 40);
+    }
+    #[test]
+    fn partial_progress_stays_on_original_epoch_and_next_challenge_takes_new_baseline() {
+        use crate::progress::{Challenge, ProgressClient, Receipt};
+        let (mut runtime, _) = make_runtime(vec![vec![]], config(1, "b"));
+        let bytes = Rc::new(RefCell::new(Vec::new()));
+        let requests: Vec<_> = [
+            Challenge { run_id: 7, id: 1 },
+            Challenge { run_id: 7, id: 2 },
+        ]
+        .into_iter()
+        .flat_map(Challenge::encode)
+        .collect();
+        let writer = ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 3,
+            block_once: true,
+        };
+        let mut client = ProgressClient::new(io::Cursor::new(requests), writer, 7).unwrap();
+        client.receive(&runtime).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        assert!(!client.publish(&runtime).unwrap());
+        assert!(bytes.borrow().is_empty());
+        assert!(!client.publish(&runtime).unwrap());
+        runtime.poll(MonoTime(1)).unwrap();
+        assert!(!client.receive(&runtime).unwrap());
+        for _ in 0..13 {
+            client.flush().unwrap();
+        }
+        let first = Receipt::decode(&bytes.borrow()).unwrap();
+        assert_eq!(first.epoch, 1);
+        assert_eq!(first.baseline, 0);
+        assert!(client.receive(&runtime).unwrap());
+        assert!(!client.publish(&runtime).unwrap());
+        runtime.poll(MonoTime(2)).unwrap();
+        client.publish(&runtime).unwrap();
+        for _ in 0..13 {
+            client.flush().unwrap();
+        }
+        let second = Receipt::decode(&bytes.borrow()[40..]).unwrap();
+        assert_eq!(second.baseline, 2);
+        assert_eq!(second.epoch, 3);
+        assert_eq!(second.challenge.id, 2);
+    }
+    #[test]
+    fn progress_client_rejects_wrong_run_and_skipped_challenge_without_writing() {
+        use crate::progress::{Challenge, ClientError, ProgressClient, ProgressError};
+        let (runtime, _) = make_runtime(vec![vec![]], config(1, "b"));
+        for challenge in [
+            Challenge { run_id: 8, id: 1 },
+            Challenge { run_id: 7, id: 2 },
+        ] {
+            let bytes = Rc::new(RefCell::new(Vec::new()));
+            let writer = ProgressWriter {
+                bytes: bytes.clone(),
+                chunk: 40,
+                block_once: false,
+            };
+            let mut client =
+                ProgressClient::new(io::Cursor::new(challenge.encode()), writer, 7).unwrap();
+            assert!(matches!(
+                client.receive(&runtime),
+                Err(ClientError::Protocol(ProgressError::Identity))
+            ));
+            assert!(bytes.borrow().is_empty());
+        }
+    }
 }

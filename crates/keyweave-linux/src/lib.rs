@@ -9,8 +9,11 @@ mod ioctl;
 pub mod keys;
 pub mod output;
 pub mod probe;
+pub mod progress;
 pub mod pump;
 pub mod read;
 pub mod runtime;
+#[cfg(target_os = "linux")]
+pub mod supervisor;
 #[cfg(target_os = "linux")]
 pub mod uinput;

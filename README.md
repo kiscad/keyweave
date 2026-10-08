@@ -2,7 +2,7 @@
 
 用 Rust 开发、面向 Linux 与 Windows 的键盘映射工具。名称取自“编织按键行为”，是本项目的工作名称，尚未核验商标或包名可用性。
 
-当前已实现 Rust workspace、标准 HID 键名、JSONC 验证、基础映射、多动作序列、轻触独立/松开动作、设备/应用/输入源条件与有效期上下文、typed variables 模式切换、按住与延迟 deadline、显式 lazy 修饰键与 binding halt、确定性离线回放、多来源输出所有权及持键热更新；Linux 已有 owned evdev/uinput、单设备抓取准入和连接输入帧—引擎—输出账本的有界运行时执行者。OS 事件循环、启动事务、桌面就绪与 watchdog 尚未接入，也尚未进行成功设备创建/抓取的真机验收。系统后端、完整高级规则、GUI 和驱动仍在开发，进度见 STATUS。原始 `../Karabiner-Elements/` 保持不变。
+当前已实现 Rust workspace、标准 HID 键名、JSONC 验证、基础映射、多动作序列、轻触独立/松开动作、设备/应用/输入源条件与有效期上下文、typed variables 模式切换、按住与延迟 deadline、显式 lazy 修饰键与 binding halt、确定性离线回放、多来源输出所有权及持键热更新；Linux 已有 owned evdev/uinput、单设备抓取准入和连接输入帧—引擎—输出账本的有界运行时执行者。另有 challenge 进度协议与独占子进程监督组件；OS 事件循环、完整启动事务、桌面就绪和监督者死亡保护尚未接入，也尚未进行成功设备创建/抓取的真机验收。系统后端、完整高级规则、GUI 和驱动仍在开发，进度见 STATUS。原始 `../Karabiner-Elements/` 保持不变。
 
 ## 构建与使用
 

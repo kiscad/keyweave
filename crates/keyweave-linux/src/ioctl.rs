@@ -1,4 +1,4 @@
-//! The only Linux ioctl FFI boundary; no public arbitrary request interface.
+//! The private Linux ioctl/file-flag FFI boundary; no arbitrary public requests.
 #![allow(unsafe_code)]
 use std::{
     io,
@@ -115,6 +115,21 @@ fn scalar(fd: BorrowedFd<'_>, command: u32, argument: u32) -> io::Result<()> {
             io::ErrorKind::InvalidData,
             "unexpected scalar ioctl result",
         ));
+    }
+    Ok(())
+}
+pub(crate) fn nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
+    // SAFETY: borrowed fd stays open throughout both synchronous calls. F_GETFL
+    // has no pointer argument; F_SETFL receives only audited scalar flags. Existing
+    // file status flags are preserved, and no FD or memory escapes this boundary.
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: same live borrowed fd; preserve queried flags and add only O_NONBLOCK.
+    let result = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
     }
     Ok(())
 }
