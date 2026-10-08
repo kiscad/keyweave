@@ -1,6 +1,6 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
 mod unique_json;
-use keyweave_engine::{ConfigSnapshot, Mapping};
+use keyweave_engine::{ConfigSnapshot, Mapping, MappingExtras};
 use keyweave_types::*;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -193,6 +193,7 @@ pub fn compile(
         diagnostics: Vec::new(),
         disabled: 0,
         count: 0,
+        alone_timeout_ns: 1_000_000_000,
     };
     compiler.reject_unknown_fields(root, "", &["profiles", "keyweave"]);
     compiler.reject_unknown_fields(
@@ -280,16 +281,15 @@ pub fn compile(
                 "expected object",
             ));
         }
-        if let Some(parameters) = object.get("parameters").and_then(Value::as_object) {
-            for name in parameters.keys() {
-                compiler.reject(
-                    &format!(
-                        "{pointer}/complex_modifications/parameters/{}",
-                        escape_pointer(name)
-                    ),
-                    "KW-CAP-001",
-                    "timing parameter is not implemented in this build",
-                );
+        match alone_timeout(
+            object.get("parameters"),
+            &format!("{pointer}/complex_modifications/parameters"),
+        ) {
+            Ok(Some(timeout)) => compiler.alone_timeout_ns = timeout,
+            Ok(None) => {}
+            Err(diagnostic) => {
+                compiler.diagnostics.push(diagnostic);
+                compiler.disabled += 1;
             }
         }
         if let Some(rules) = object.get("rules") {
@@ -366,8 +366,13 @@ pub fn compile(
         simple,
         complex,
     };
+    let bounds = snapshot.expansion_bounds();
     for mapping in snapshot.simple.iter().chain(&snapshot.complex) {
-        if snapshot.expansion_bound(mapping.from).saturating_mul(2)
+        if bounds
+            .get(&mapping.from)
+            .copied()
+            .unwrap_or(1)
+            .saturating_mul(2)
             > keyweave_engine::MAX_OUTPUTS_PER_EVENT
         {
             compiler.reject(
@@ -404,6 +409,7 @@ struct Compiler<'a> {
     diagnostics: Vec<Diagnostic>,
     disabled: usize,
     count: usize,
+    alone_timeout_ns: u64,
 }
 impl Compiler<'_> {
     fn reject_unknown_fields(
@@ -439,7 +445,15 @@ impl Compiler<'_> {
             .as_object()
             .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected mapping object"))?;
         let allowed: &[&str] = if complex {
-            &["type", "from", "to", "description"]
+            &[
+                "type",
+                "from",
+                "to",
+                "description",
+                "to_if_alone",
+                "to_after_key_up",
+                "parameters",
+            ]
         } else {
             &["from", "to"]
         };
@@ -459,39 +473,126 @@ impl Compiler<'_> {
                 "only basic manipulators are implemented",
             ));
         }
-        let from = self.key(object.get("from"), &format!("{pointer}/from"))?;
-        let to = object
-            .get("to")
-            .ok_or_else(|| diagnostic(&format!("{pointer}/to"), "KW-CONFIG-001", "missing to"))?;
+        let (from, allow_extra_modifiers) =
+            self.input_key(object.get("from"), &format!("{pointer}/from"), complex)?;
+        let to = self.actions(object.get("to"), &format!("{pointer}/to"), complex)?;
+        let extras = MappingExtras {
+            if_alone: self.actions(
+                object.get("to_if_alone"),
+                &format!("{pointer}/to_if_alone"),
+                true,
+            )?,
+            after_key_up: self.actions(
+                object.get("to_after_key_up"),
+                &format!("{pointer}/to_after_key_up"),
+                true,
+            )?,
+            alone_timeout_ns: alone_timeout(
+                object.get("parameters"),
+                &format!("{pointer}/parameters"),
+            )?
+            .unwrap_or(self.alone_timeout_ns),
+        };
+        if !object.contains_key("to")
+            && extras.if_alone.is_empty()
+            && extras.after_key_up.is_empty()
+        {
+            return Err(diagnostic(
+                pointer,
+                "KW-CONFIG-001",
+                "mapping requires to or an extra output action",
+            ));
+        }
+        Ok(Mapping {
+            id: pointer.into(),
+            from,
+            to,
+            allow_extra_modifiers,
+            extras,
+        })
+    }
+    fn actions(
+        &self,
+        value: Option<&Value>,
+        pointer: &str,
+        allow_empty: bool,
+    ) -> Result<Vec<KeyId>, Diagnostic> {
+        let Some(to) = value else {
+            return if allow_empty {
+                Ok(Vec::new())
+            } else {
+                Err(diagnostic(pointer, "KW-CONFIG-001", "missing to"))
+            };
+        };
         let values: Vec<_> = if let Some(values) = to.as_array() {
             values.iter().collect()
         } else if to.is_object() {
             vec![to]
         } else {
             return Err(diagnostic(
-                &format!("{pointer}/to"),
+                pointer,
                 "KW-CONFIG-001",
                 "expected object or array",
             ));
         };
-        if values.is_empty() || values.len() > MAX_ACTIONS {
+        if (!allow_empty && values.is_empty()) || values.len() > MAX_ACTIONS {
             return Err(diagnostic(
-                &format!("{pointer}/to"),
+                pointer,
                 "KW-CONFIG-001",
-                "expected 1..=256 output actions; use vk_none to suppress",
+                "expected at most 256 output actions; simple to cannot be empty",
             ));
         }
-        let to = values
+        values
             .iter()
             .enumerate()
-            .map(|(i, value)| self.key(Some(value), &format!("{pointer}/to/{i}")))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Mapping {
-            id: pointer.into(),
-            from,
-            to,
-            allow_extra_modifiers: !complex,
-        })
+            .map(|(i, value)| self.key(Some(value), &format!("{pointer}/{i}")))
+            .collect()
+    }
+    fn input_key(
+        &self,
+        value: Option<&Value>,
+        pointer: &str,
+        complex: bool,
+    ) -> Result<(KeyId, bool), Diagnostic> {
+        if !complex {
+            return self.key(value, pointer).map(|key| (key, true));
+        }
+        let mut from = value
+            .and_then(Value::as_object)
+            .cloned()
+            .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected from object"))?;
+        let mut allow_extra = false;
+        if let Some(modifiers) = from.remove("modifiers") {
+            let modifiers = modifiers.as_object().ok_or_else(|| {
+                diagnostic(
+                    &format!("{pointer}/modifiers"),
+                    "KW-CONFIG-001",
+                    "expected object",
+                )
+            })?;
+            for (field, value) in modifiers {
+                let location = format!("{pointer}/modifiers/{}", escape_pointer(field));
+                let items = value.as_array().ok_or_else(|| {
+                    diagnostic(&location, "KW-CONFIG-001", "expected modifier array")
+                })?;
+                match field.as_str() {
+                    "mandatory" if items.is_empty() => {}
+                    "optional" if items.is_empty() => {}
+                    "optional" if items.as_slice() == [Value::String("any".into())] => {
+                        allow_extra = true
+                    }
+                    _ => {
+                        return Err(diagnostic(
+                            &location,
+                            "KW-CAP-001",
+                            "only empty mandatory and optional [any] modifier matching is currently implemented",
+                        ));
+                    }
+                }
+            }
+        }
+        self.key(Some(&Value::Object(from)), pointer)
+            .map(|key| (key, allow_extra))
     }
     fn key(&self, value: Option<&Value>, pointer: &str) -> Result<KeyId, Diagnostic> {
         let object: &Map<String, Value> = value.and_then(Value::as_object).ok_or_else(|| {
@@ -539,6 +640,46 @@ impl Compiler<'_> {
         }
         Ok(key)
     }
+}
+fn alone_timeout(value: Option<&Value>, pointer: &str) -> Result<Option<u64>, Diagnostic> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected parameters object"))?;
+    let mut timeout = None;
+    for (name, value) in object {
+        let location = format!("{pointer}/{}", escape_pointer(name));
+        if ![
+            "basic.to_if_alone_timeout_milliseconds",
+            "basic.to_if_held_down_threshold_milliseconds",
+            "basic.to_delayed_action_delay_milliseconds",
+            "basic.simultaneous_threshold_milliseconds",
+        ]
+        .contains(&name.as_str())
+        {
+            return Err(diagnostic(
+                &location,
+                "KW-CAP-001",
+                "timing parameter is not implemented",
+            ));
+        }
+        let milliseconds = value
+            .as_u64()
+            .filter(|value| *value <= 86_400_000)
+            .ok_or_else(|| {
+                diagnostic(
+                    &location,
+                    "KW-CONFIG-001",
+                    "expected integer milliseconds in 0..=86400000",
+                )
+            })?;
+        if name == "basic.to_if_alone_timeout_milliseconds" {
+            timeout = Some(milliseconds * 1_000_000);
+        }
+    }
+    Ok(timeout)
 }
 fn escape_pointer(name: &str) -> String {
     name.replace('~', "~0").replace('/', "~1")

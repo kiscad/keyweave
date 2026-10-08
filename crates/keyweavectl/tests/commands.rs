@@ -22,7 +22,22 @@ fn replay_assertion_uses_real_binary() {
     assert!(String::from_utf8_lossy(&result.stdout).contains("offline_synthetic_no_device_access"));
 }
 #[test]
-fn advanced_example_is_not_falsely_claimed_supported() {
+fn tap_alone_replay_asserts_strict_threshold_and_wheel_cancellation() {
+    let result = cli(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/tap-alone.json",
+        "--assert",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout).contains("\"asserted\": true"));
+}
+#[test]
+fn caps_tap_alone_example_validates_without_accessing_hardware() {
     let result = cli(&[
         "validate",
         "--config",
@@ -30,8 +45,12 @@ fn advanced_example_is_not_falsely_claimed_supported() {
         "--format",
         "json",
     ]);
-    assert_eq!(result.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&result.stdout).contains("\"valid\": false"));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout).contains("\"valid\": true"));
 }
 #[test]
 fn doctor_separates_platform_plan_from_implementation() {

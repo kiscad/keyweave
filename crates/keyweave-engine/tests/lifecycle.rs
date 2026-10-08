@@ -15,6 +15,7 @@ fn snapshot(generation: u64, output: &str) -> Arc<ConfigSnapshot> {
             from: key("a"),
             to: vec![key(output)],
             allow_extra_modifiers: true,
+            extras: MappingExtras::default(),
         }],
         complex: vec![],
     })
@@ -174,18 +175,21 @@ fn one_complex_match_per_stage_and_no_recirculation() {
             from: key("b"),
             to: vec![key("c")],
             allow_extra_modifiers: false,
+            extras: MappingExtras::default(),
         },
         Mapping {
             id: "second".into(),
             from: key("b"),
             to: vec![key("d")],
             allow_extra_modifiers: false,
+            extras: MappingExtras::default(),
         },
         Mapping {
             id: "cycle".into(),
             from: key("c"),
             to: vec![key("a")],
             allow_extra_modifiers: false,
+            extras: MappingExtras::default(),
         },
     ];
     let mut engine = Engine::new(Arc::new(config));
@@ -207,6 +211,7 @@ fn bare_complex_from_rejects_extra_modifiers() {
         from: key("a"),
         to: vec![key("b")],
         allow_extra_modifiers: false,
+        extras: MappingExtras::default(),
     }];
     let mut engine = Engine::new(Arc::new(config));
     engine
@@ -309,6 +314,7 @@ fn intermediate_sequences_finish_before_the_next_phase_input() {
         from: key("b"),
         to: vec![key("d"), key("e")],
         allow_extra_modifiers: false,
+        extras: MappingExtras::default(),
     });
     let mut engine = Engine::new(Arc::new(config));
     assert_eq!(
@@ -424,6 +430,7 @@ fn expansion_limit_is_checked_before_any_output_changes() {
         from: key("b"),
         to: vec![key("c"); 256],
         allow_extra_modifiers: false,
+        extras: MappingExtras::default(),
     });
     let mut engine = Engine::new(Arc::new(config));
     engine

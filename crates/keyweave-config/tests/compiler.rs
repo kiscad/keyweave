@@ -164,8 +164,8 @@ fn functional_fields_at_every_executable_level_refuse_activation() {
             "/profiles/0/complex_modifications/unexpected~1rule~0",
         ),
         (
-            json!({"profiles":[{"complex_modifications":{"parameters":{"basic.to_if_alone_timeout_milliseconds":100}}}]}),
-            "/profiles/0/complex_modifications/parameters/basic.to_if_alone_timeout_milliseconds",
+            json!({"profiles":[{"complex_modifications":{"parameters":{"basic.unsupported_timeout_milliseconds":100}}}]}),
+            "/profiles/0/complex_modifications/parameters/basic.unsupported_timeout_milliseconds",
         ),
         (
             profile(
@@ -244,6 +244,67 @@ fn duplicate_json_members_are_rejected_including_escaped_equivalents() {
         .unwrap(),
         json!([null,true,i64::MIN,u64::MAX,1.25,"雪",{"a":1},{"a":2}])
     );
+}
+
+#[test]
+fn alone_timeout_inherits_global_value_and_manipulator_override() {
+    let config = compile_value(json!({"profiles":[{"complex_modifications":{
+        "parameters":{"basic.to_if_alone_timeout_milliseconds":123,"basic.to_if_held_down_threshold_milliseconds":500},
+        "rules":[{"manipulators":[
+            {"type":"basic","from":{"key_code":"caps_lock","modifiers":{"optional":["any"]}},"to":{"key_code":"left_control"},"to_if_alone":{"key_code":"escape"}},
+            {"type":"basic","from":{"key_code":"a"},"to":[],"to_after_key_up":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":0}}
+        ]}]
+    }}]}));
+    assert!(config.executable_without_loss());
+    assert_eq!(
+        config.snapshot.complex[0].extras.alone_timeout_ns,
+        123_000_000
+    );
+    assert_eq!(config.snapshot.complex[1].extras.alone_timeout_ns, 0);
+    assert!(config.snapshot.complex[0].allow_extra_modifiers);
+    assert!(!config.snapshot.complex[1].allow_extra_modifiers);
+    assert!(config.snapshot.complex[1].to.is_empty());
+    assert_eq!(config.snapshot.complex[1].extras.after_key_up.len(), 1);
+}
+
+#[test]
+fn malformed_or_unsupported_new_action_options_disable_whole_rule() {
+    for value in [
+        json!({"type":"basic","from":{"key_code":"a","modifiers":{"mandatory":["control"]}},"to":{"key_code":"b"}}),
+        json!({"type":"basic","from":{"key_code":"a","modifiers":{"optional":["any","shift"]}},"to":{"key_code":"b"}}),
+        json!({"type":"basic","from":{"key_code":"a"},"to_if_alone":[{"key_code":"b","repeat":false}]}),
+        json!({"type":"basic","from":{"key_code":"a"},"to_after_key_up":false}),
+        json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":-1}}),
+        json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":0.5}}),
+        json!({"type":"basic","from":{"key_code":"a"},"to":{"key_code":"b"},"parameters":{"basic.to_if_alone_timeout_milliseconds":86400001}}),
+    ] {
+        let config = compile_value(profile(json!([{"manipulators":[
+            {"type":"basic","from":{"key_code":"c"},"to":{"key_code":"d"}},value
+        ]}])));
+        assert!(!config.executable_without_loss());
+        assert!(config.snapshot.complex.is_empty());
+        assert_eq!(config.disabled_rules, 1);
+    }
+}
+
+#[test]
+fn pure_alone_and_after_actions_require_no_normal_to_action() {
+    let config = compile_value(profile(json!([{"manipulators":[
+        {"type":"basic","from":{"key_code":"a"},"to_if_alone":{"key_code":"escape"}},
+        {"type":"basic","from":{"key_code":"b"},"to_after_key_up":[{"key_code":"c"}]}
+    ]}])));
+    assert!(config.executable_without_loss());
+    assert!(
+        config
+            .snapshot
+            .complex
+            .iter()
+            .all(|mapping| mapping.to.is_empty())
+    );
+    let suppression = compile_value(profile(
+        json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[]}]}]),
+    ));
+    assert!(suppression.executable_without_loss());
 }
 #[test]
 fn upstream_spacebar_to_tab_matches_key_edges_without_assuming_mach_units() {

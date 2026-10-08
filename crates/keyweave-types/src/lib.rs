@@ -160,6 +160,8 @@ pub enum KeyEdge {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputEvent {
     Key { key: KeyId, edge: KeyEdge },
+    Wheel { horizontal: i32, vertical: i32 },
+    PointerMove { x: i32, y: i32 },
     DeviceRemoved,
     Reset,
 }

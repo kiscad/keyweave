@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "config": {
+    "profiles": [
+      {
+        "name": "KeyWeave compatibility example",
+        "selected": true,
+        "simple_modifications": [
+          {
+            "from": {
+              "key_code": "a"
+            },
+            "to": [
+              {
+                "key_code": "b"
+              }
+            ]
+          }
+        ],
+        "complex_modifications": {
+          "parameters": {
+            "basic.simultaneous_threshold_milliseconds": 50,
+            "basic.to_if_alone_timeout_milliseconds": 1000,
+            "basic.to_if_held_down_threshold_milliseconds": 500,
+            "basic.to_delayed_action_delay_milliseconds": 500
+          },
+          "rules": [
+            {
+              "description": "Caps Lock acts as left Control; tap alone sends Escape",
+              "enabled": true,
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "key_code": "caps_lock",
+                    "modifiers": {
+                      "optional": [
+                        "any"
+                      ]
+                    }
+                  },
+                  "to": [
+                    {
+                      "key_code": "left_control"
+                    }
+                  ],
+                  "to_if_alone": [
+                    {
+                      "key_code": "escape"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "seq": 1,
+      "at_ns": 0,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 2,
+      "at_ns": 50000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 3,
+      "at_ns": 100000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 4,
+      "at_ns": 1100000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "up"
+      }
+    },
+    {
+      "seq": 5,
+      "at_ns": 2000000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "down"
+      }
+    },
+    {
+      "seq": 6,
+      "at_ns": 2010000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "wheel",
+        "horizontal": 0,
+        "vertical": 1
+      }
+    },
+    {
+      "seq": 7,
+      "at_ns": 2020000000,
+      "device": {
+        "id": 1,
+        "generation": 1
+      },
+      "event": {
+        "type": "key",
+        "key": "caps_lock",
+        "edge": "up"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 0,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 50000000,
+      "key": "left_control",
+      "edge": "up"
+    },
+    {
+      "at_ns": 50000000,
+      "key": "escape",
+      "edge": "down"
+    },
+    {
+      "at_ns": 50000000,
+      "key": "escape",
+      "edge": "up"
+    },
+    {
+      "at_ns": 100000000,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 1100000000,
+      "key": "left_control",
+      "edge": "up"
+    },
+    {
+      "at_ns": 2000000000,
+      "key": "left_control",
+      "edge": "down"
+    },
+    {
+      "at_ns": 2020000000,
+      "key": "left_control",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0
+  }
+}
