@@ -84,3 +84,8 @@ SDK /Zs 成功与 MSVC 版本输出已在此次命令结果中观察；未单独
 Windows 物理重复转发现已接入 SessionActor（[ADR-0042](ADR-0042-windows-physical-repeat.md)）：mock 验证按原来源保留末端、旧配置/held、更换当前修饰、repeat:false、注入 bypass 与失败恢复。真实验收需记录 passthrough/重映射重复速率、宏前缀仅执行一次、held 到期后的目标变化、修饰键切换、源释放停止重复，以及同scan多个键盘的合并流限制。当前策略只转发实际物理Repeat，不自行设定重复延迟/速率，不保证源未产生Repeat时的软件重复。
 
 本次 Repeat 实现已在固定1.97.1 x64/i686 各通过445 workspace tests、生产链接与clippy，SDK oracle也通过，见 [Repeat验证记录](validation/windows-2026-10-09-repeat.json)。旧432测试记录对应功能接入前的源码快照，保留为历史证据。
+
+
+未归属输入保护见 [ADR-0043](ADR-0043-windows-untracked-input.md)。真机需区分OwnInjected与外部自动化/触屏Unicode/unsupported键、外部注入交付时机、发送中fault后下一批拒绝、故障先发生再有旁路、空账本停止与submitted/unknown的Unresolved；保留原主因与ShutdownReport.untracked_input/unhook/recovery。新策略在active旁路时停止，尚未提供逐键共存；callback触发emergency若同时放行down/repeat可能Unresolved，无旁路的idle emergency仍有限恢复。不能把这种保守停止视为完成所有碰撞/紧急恢复真机验收。
+
+未归属保护实测：固定1.97.1 x64/i686各460 tests、生产链接、clippy与SDK oracle通过；[验证记录](validation/windows-2026-10-09-untracked.json) 固定本次源码manifest/hash。前文432/445计数对应历史功能切片，保留各自记录。

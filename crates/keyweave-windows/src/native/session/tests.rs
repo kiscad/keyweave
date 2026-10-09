@@ -14,6 +14,7 @@ struct Trace {
     calls: Vec<Vec<KeyboardPacket>>,
     unknown: bool,
     zero_recovery: bool,
+    inject_during_submit: Option<crate::keys::HookRecord>,
 }
 struct Backend(Rc<RefCell<Trace>>);
 impl SendBackend for Backend {
@@ -24,6 +25,9 @@ impl SendBackend for Backend {
             assert_eq!(test_send(0x30, false), 9);
         }
         trace.calls.push(packets.to_vec());
+        if let Some(record) = trace.inject_during_submit.take() {
+            assert_eq!(super::super::hook_thread::test_record(record), 9);
+        }
         if trace.unknown {
             return Err(SubmitError::Unknown);
         }
@@ -328,9 +332,13 @@ fn timed_session(
     Rc<Cell<MonoTime>>,
 ) {
     let trace = Rc::new(RefCell::new(Trace::default()));
+    let enabled = Rc::new(Cell::new(true));
     let actor = Rc::new(RefCell::new(
         SessionActor::new(
-            Backend(trace.clone()),
+            GuardedBackend {
+                backend: Backend(trace.clone()),
+                enabled: enabled.clone(),
+            },
             InjectionTag::new(1).unwrap(),
             config,
         )
@@ -340,7 +348,6 @@ fn timed_session(
     let emergency = Rc::new(RefCell::new(EmergencyChord::new()));
     let access = Rc::new(RefCell::new(AccessLease::new()));
     access.borrow_mut().renew_after_probe(MonoTime(0)).unwrap();
-    let enabled = Rc::new(Cell::new(true));
     let now = Rc::new(Cell::new(MonoTime(0)));
     let handler_time = now.clone();
     let handler = SessionHandler {
@@ -350,12 +357,13 @@ fn timed_session(
         enabled: enabled.clone(),
         clock: move || Some(handler_time.get()),
     };
-    let hook = HookSession::install(
+    let mut hook = HookSession::install(
         Box::new(handler),
         InjectionTag::new(1).unwrap(),
         IdentityPolicy::CanonicalScan,
     )
     .unwrap_or_else(|(error, _)| panic!("{error}"));
+    hook.guard_untracked_input().unwrap();
     (
         CaptureSession {
             actor,
@@ -419,7 +427,10 @@ fn emergency_idle_control_wakes_before_actor_timer_and_stops_native_hook() {
         result,
         Err(HookSessionError::Callback(HookFault::Emergency))
     );
-    assert_eq!(test_send(0x1e, false), 9); // native disabled already
+    assert!(matches!(
+        session.hook.held_keys(),
+        Err(HookSessionError::Callback(HookFault::Emergency))
+    ));
     assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
     assert!(session.shutdown_report().unwrap().recovery.is_ok());
     assert_eq!(session.phase(), ActorPhase::Stopped);
@@ -474,12 +485,12 @@ fn early_physical_release_cancels_emergency_and_is_captured_normally() {
     session.shutdown();
 }
 #[test]
-fn injected_chord_never_arms_or_enters_actor() {
+fn own_injected_chord_never_arms_or_enters_actor() {
     use super::super::hook_thread::test_record;
     use crate::keys::HookRecord;
     let (mut session, trace, _) = timed_session(config());
     for flags in [0x10, 0x12] {
-        for extra_info in [0, 1] {
+        for extra_info in [1] {
             for scan in [0x1d, 0x38, 0x2a, 0x58] {
                 assert_eq!(
                     test_record(HookRecord {
@@ -531,7 +542,11 @@ fn remapping_emergency_keys_does_not_change_physical_detector() {
     now.set(MonoTime(crate::emergency::HOLD_NS));
     assert_eq!(test_send(0x58, false), 9); // repeat doesn't rearm, due wins
     assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
-    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert!(matches!(
+        session.shutdown_report().unwrap().recovery,
+        Err(RuntimeError::Unresolved)
+    ));
 }
 #[test]
 fn emergency_detector_clock_error_stops_and_reports_error_not_success() {
@@ -546,8 +561,12 @@ fn emergency_detector_clock_error_stops_and_reports_error_not_success() {
             EmergencyError::ClockBackwards
         ))
     ));
-    assert!(session.shutdown_report().unwrap().recovery.is_ok());
-    assert_eq!(trace.borrow().calls.len(), 2);
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert!(matches!(
+        session.shutdown_report().unwrap().recovery,
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(trace.borrow().calls.len(), 1); // no blind up after forwarded Alt down
 }
 #[test]
 fn emergency_preserves_unhook_error_and_bounded_recovery_failure() {
@@ -886,4 +905,225 @@ fn callback_expiry_during_probe_prevents_successful_result_from_renewing() {
         session.poll(),
         Err(SessionError::AccessLease(AccessError::Expired))
     ));
+}
+
+fn external_record() -> crate::keys::HookRecord {
+    crate::keys::HookRecord {
+        message: 0x100,
+        vk_code: 0x42,
+        scan_code: 0x30,
+        flags: 0x10,
+        extra_info: 42,
+    }
+}
+#[test]
+fn unsupported_active_input_stops_cleanly_when_no_output_was_submitted() {
+    let (mut session, trace) = install();
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert_eq!(test_send(0x45, false), 9);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Hook(HookSessionError::Callback(
+            HookFault::UntrackedInput
+        )))
+    ));
+    let report = session.shutdown_report().unwrap();
+    assert!(report.untracked_input && report.unhook.is_ok() && report.recovery.is_ok());
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert!(trace.borrow().calls.is_empty());
+}
+#[test]
+fn external_input_while_output_is_held_never_releases_possibly_shared_down() {
+    let (mut session, trace) = install();
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(super::super::hook_thread::test_record(external_record()), 9);
+    assert!(session.poll().is_err());
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert!(matches!(
+        session.shutdown_report().unwrap().recovery,
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(session.actor.borrow().output().phase(), Phase::Quarantined);
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+    assert!(session.shutdown().untracked_input);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn unsupported_physical_pass_with_owned_output_quarantines_without_heuristic_aliases() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(test_send(0x1d, false), 1);
+    assert_eq!(test_send(0x45, false), 9);
+    assert_eq!(session.hook.fault(), Some(HookFault::UntrackedInput));
+    session.shutdown();
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn own_injected_input_bypasses_even_during_dispatcher_borrow_and_does_not_poison_recovery() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(test_send(0x1e, false), 1);
+    let mut own = external_record();
+    own.extra_info = 1;
+    assert_eq!(
+        super::super::hook_thread::with_callback_borrow(|| super::super::hook_thread::test_record(
+            own
+        )),
+        9
+    );
+    assert_eq!(session.hook.fault(), None);
+    assert!(!session.hook.untracked_input());
+    let report = session.shutdown();
+    assert!(!report.untracked_input && report.recovery.is_ok());
+    assert_eq!(trace.borrow().calls.len(), 2);
+}
+#[test]
+fn physical_marker_without_injected_flag_is_still_captured() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    let mut physical = external_record();
+    physical.extra_info = 1;
+    physical.flags = 0;
+    assert_eq!(super::super::hook_thread::test_record(physical), 1);
+    assert!(!session.hook.untracked_input());
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert!(session.shutdown().recovery.is_ok());
+}
+#[test]
+fn foreign_unicode_and_lower_integrity_injections_cannot_enter_engine_or_emergency() {
+    // One permanently stopped session per test thread; subsequent records pass
+    // while the sticky flag and first error remain available until shutdown.
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    let mut foreign = external_record();
+    foreign.vk_code = 0xe7;
+    foreign.scan_code = 0;
+    foreign.flags = 0x12;
+    assert_eq!(super::super::hook_thread::test_record(foreign), 9);
+    assert_eq!(test_send(0x58, false), 9);
+    assert!(session.emergency.borrow().next_deadline().is_none());
+    assert!(trace.borrow().calls.is_empty());
+    assert!(session.shutdown().untracked_input);
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+}
+#[test]
+fn external_input_after_another_fault_is_sticky_and_preserves_primary_error() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    test_send(0x1e, false);
+    assert_eq!(
+        session
+            .hook
+            .poll_with_control(&mut || Err(HookFault::Handler)),
+        Err(HookSessionError::Callback(HookFault::Handler))
+    );
+    assert_eq!(test_send(0x30, false), 9);
+    assert_eq!(session.hook.fault(), Some(HookFault::Handler));
+    assert!(session.hook.untracked_input());
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Hook(HookSessionError::Callback(
+            HookFault::Handler
+        )))
+    ));
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn external_reentry_during_submission_confirms_prior_receipt_but_rejects_next_batch() {
+    use keyweave_engine::{Mapping, MappingExtras};
+    use keyweave_types::{KEYBOARD_PAGE, KeyId};
+    let mut cfg = (*config()).clone();
+    cfg.simple.push(Mapping {
+        id: "long".into(),
+        from: KeyId::new(KEYBOARD_PAGE, 4),
+        to: (0..200)
+            .map(|i| KeyId::new(KEYBOARD_PAGE, 5 + (i % 2)).into())
+            .collect(),
+        allow_extra_modifiers: true,
+        extras: MappingExtras::default(),
+    });
+    let (mut session, trace, _) = timed_session(Arc::new(cfg));
+    assert_eq!(test_send(0x1d, false), 1);
+    trace.borrow_mut().inject_during_submit = Some(external_record());
+    assert_eq!(test_send(0x1e, false), 9);
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(trace.borrow().calls[1].len(), 256);
+    assert_eq!(session.hook.fault(), Some(HookFault::UntrackedInput));
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+    assert!(session.poll().is_err());
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert!(session.actor.borrow().next_wakeup().is_none());
+    assert_eq!(trace.borrow().calls.len(), 2); // no next native batch or cleanup up
+}
+
+#[test]
+fn passive_foreign_full_tap_does_not_activate_guard_or_mutate_engine() {
+    let (mut session, trace) = install();
+    let mut foreign = external_record();
+    assert_eq!(super::super::hook_thread::test_record(foreign), 9);
+    foreign.message = 0x101;
+    foreign.flags |= 0x80;
+    assert_eq!(super::super::hook_thread::test_record(foreign), 9);
+    assert_eq!(session.hook.fault(), None);
+    assert!(!session.hook.untracked_input());
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert!(trace.borrow().calls.is_empty());
+    assert!(!session.shutdown().untracked_input);
+}
+#[test]
+fn malformed_forwarded_input_preserves_record_fault_and_sets_recovery_risk() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    test_send(0x1e, false);
+    let mut invalid = external_record();
+    invalid.flags = 0;
+    invalid.scan_code = 0;
+    assert_eq!(super::super::hook_thread::test_record(invalid), 9);
+    assert_eq!(session.hook.fault(), Some(HookFault::Record));
+    assert!(session.hook.untracked_input());
+    assert!(session.poll().is_err());
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn physical_reentry_sets_separate_risk_without_borrowing_dispatcher_twice() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    test_send(0x1e, false);
+    assert_eq!(
+        super::super::hook_thread::with_callback_borrow(|| test_send(0x30, false)),
+        9
+    );
+    assert_eq!(session.hook.fault(), Some(HookFault::Reentrant));
+    assert!(session.hook.untracked_input());
+    assert!(session.poll().is_err());
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn untracked_input_keeps_unhook_error_and_does_not_attempt_any_cleanup() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    test_send(0x1e, false);
+    super::super::hook_thread::test_record(external_record());
+    test_fail_unhook();
+    let report = session.shutdown();
+    assert!(report.untracked_input);
+    assert!(matches!(report.unhook, Err(HookSessionError::Unhook(5))));
+    assert!(matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert_eq!(trace.borrow().calls.len(), 1);
 }

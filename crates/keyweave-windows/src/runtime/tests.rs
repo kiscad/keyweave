@@ -509,3 +509,51 @@ fn source_repeat_uses_current_modifiers_without_replaying_shortcut_scope() {
     assert_eq!(calls.borrow().len(), before + 1);
     actor.stop_after_unhook().unwrap();
 }
+
+#[test]
+fn untracked_input_with_empty_known_output_stops_without_any_native_submission() {
+    let (mut actor, calls) = actor(config(1, vec![]), vec![]);
+    actor.stop_for_untracked_input_after_unhook().unwrap();
+    assert_eq!(actor.phase(), ActorPhase::Stopped);
+    assert!(calls.borrow().is_empty());
+    assert!(matches!(
+        actor.failure(),
+        Some(RuntimeError::UntrackedInput)
+    ));
+}
+#[test]
+fn untracked_input_retains_submitted_and_cancels_engine_timers_without_cleanup() {
+    let mut map = mapping(4, 5);
+    map.extras.if_held_down = vec![key(6).into()];
+    map.extras.held_threshold_ns = 10;
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "held".into(),
+        simple: vec![],
+        complex: vec![map],
+    });
+    let (mut actor, calls) = actor(cfg, vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    assert!(matches!(
+        actor.stop_for_untracked_input_after_unhook(),
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(actor.engine.state().pending_deadlines, 0);
+    assert_eq!(actor.output().ledger().submitted().len(), 1);
+    assert_eq!(actor.output().phase(), Phase::Quarantined);
+    assert_eq!(calls.borrow().len(), 1);
+    assert!(actor.start_after_neutral().is_err());
+    assert!(actor.stop_after_unhook().is_err());
+}
+#[test]
+fn untracked_input_cannot_turn_unknown_empty_prefix_into_clean_stop() {
+    let (mut actor, calls) = actor(config(1, vec![]), vec![Err(SubmitError::Unknown)]);
+    assert!(actor.key(event(4, KeyEdge::Down), MonoTime(0)).is_err());
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert!(matches!(
+        actor.stop_for_untracked_input_after_unhook(),
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(actor.phase(), ActorPhase::Unresolved);
+    assert_eq!(calls.borrow().len(), 1);
+}

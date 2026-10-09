@@ -10,6 +10,7 @@ pub enum HookFault {
     Panic,
     Reentrant,
     Emergency,
+    UntrackedInput,
     AccessLease(crate::access::AccessError),
     InputAccess(crate::startup::ProbeError),
     EmergencyDetector(crate::emergency::EmergencyError),

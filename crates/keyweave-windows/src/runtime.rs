@@ -23,6 +23,8 @@ pub enum ActorPhase {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("untracked input may have changed global output ownership")]
+    UntrackedInput,
     #[error(transparent)]
     Engine(#[from] EngineError),
     #[error(transparent)]
@@ -263,6 +265,24 @@ impl<B: SendBackend> SessionActor<B> {
             Ok(decision)
         })();
         self.result(result)
+    }
+    /// Host MUST disable/unhook first. An untracked source can invalidate global
+    /// ownership even when its native code appears unrelated. Never release a
+    /// possibly shared down; only a known empty ledger can stop normally.
+    pub fn stop_for_untracked_input_after_unhook(&mut self) -> Result<(), RuntimeError> {
+        if matches!(self.phase, ActorPhase::Stopped | ActorPhase::Unresolved) {
+            return Err(RuntimeError::NotActive);
+        }
+        self.failure.get_or_insert(RuntimeError::UntrackedInput);
+        if self.output.ledger().submitted().is_empty()
+            && !matches!(self.output.phase(), Phase::Quarantined | Phase::Closed)
+        {
+            return self.stop_after_unhook();
+        }
+        self.phase = ActorPhase::Unresolved;
+        let _ = self.engine.reset(self.now);
+        self.output.quarantine_untracked_input();
+        Err(RuntimeError::Unresolved)
     }
     /// Host MUST disable/unhook first. No OS calls or fabricated neutral proof.
     /// Use last trusted time; a failed clock must not prevent bounded recovery.

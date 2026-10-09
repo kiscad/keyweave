@@ -32,6 +32,8 @@ pub(super) fn with_callback_borrow<T>(call: impl FnOnce() -> T) -> T {
 thread_local! {
     static DISPATCHER: RefCell<Option<HookDispatcher<Box<dyn HookHandler>>>> = const { RefCell::new(None) };
     static TAG: Cell<usize> = const { Cell::new(0) };
+    static GUARD_TAG: Cell<usize> = const { Cell::new(0) };
+    static UNTRACKED: Cell<bool> = const { Cell::new(false) };
     static FAULT: Cell<Option<HookFault>> = const { Cell::new(None) };
     static POISONED: Cell<bool> = const { Cell::new(false) };
 }
@@ -195,6 +197,23 @@ impl HookSession {
     pub fn fault(&self) -> Option<HookFault> {
         FAULT.with(Cell::get)
     }
+    pub(super) fn guard_untracked_input(&mut self) -> Result<(), HookSessionError> {
+        if self.handle.is_null() {
+            return Err(HookSessionError::Closed);
+        }
+        if let Some(fault) = self.fault() {
+            return Err(HookSessionError::Callback(fault));
+        }
+        let tag = TAG.with(Cell::get);
+        if tag == 0 {
+            return Err(HookSessionError::Closed);
+        }
+        GUARD_TAG.with(|guard| guard.set(tag));
+        Ok(())
+    }
+    pub(super) fn untracked_input(&self) -> bool {
+        UNTRACKED.with(Cell::get)
+    }
     /// On failure, return ownership of the handler without losing its state.
     pub fn install(
         handler: Box<dyn HookHandler>,
@@ -215,6 +234,8 @@ impl HookSession {
             ));
         }
         FAULT.with(|fault| fault.set(None));
+        GUARD_TAG.with(|guard| guard.set(0));
+        UNTRACKED.with(|untracked| untracked.set(false));
         DISPATCHER
             .with(|slot| *slot.borrow_mut() = Some(HookDispatcher::new(handler, tag, policy)));
         TAG.with(|value| value.set(tag.value()));
@@ -279,6 +300,7 @@ impl HookSession {
             return (None, Ok(()));
         }
         TAG.with(|tag| tag.set(0));
+        GUARD_TAG.with(|guard| guard.set(0));
         let handle = std::mem::replace(&mut self.handle, null_mut());
         // SAFETY: unique HHOOK returned by this registration, same !Send thread;
         // callback was disabled first and owns no pointer into session/handler.
@@ -340,6 +362,16 @@ fn forward(code: i32, message: usize, data: isize) -> isize {
     // CallNextHookEx. No dereference of lParam, including for nCode<0.
     unsafe { CallNextHookEx(null_mut(), code, message, data) }
 }
+fn untracked_input() {
+    // Independent of the first fault; no dispatcher/actor borrow, including
+    // external injection synchronously reentering an active backend submission.
+    let first = UNTRACKED
+        .try_with(|untracked| !untracked.replace(true))
+        .unwrap_or(true);
+    if first {
+        stop(HookFault::UntrackedInput);
+    }
+}
 unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> isize {
     if code != 0 {
         return forward(code, message, data);
@@ -348,11 +380,18 @@ unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> is
         .try_with(Cell::get)
         .ok()
         .and_then(|tag| InjectionTag::new(tag).ok());
-    let Some(tag) = tag else {
+    let guard = GUARD_TAG
+        .try_with(Cell::get)
+        .ok()
+        .and_then(|tag| InjectionTag::new(tag).ok());
+    if tag.is_none() && guard.is_none() {
         return forward(code, message, data);
-    };
+    }
     if data == 0 || u32::try_from(message).is_err() {
         stop(HookFault::Record);
+        if guard.is_some() {
+            untracked_input();
+        }
         return forward(code, message, data);
     }
     // SAFETY: HC_ACTION's non-null lParam is an OS-owned KBDLLHOOKSTRUCT valid
@@ -364,6 +403,16 @@ unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> is
         scan_code: keyboard.scan,
         flags: keyboard.flags,
         extra_info: keyboard.extra_info,
+    };
+    if guard.is_some_and(|guard| {
+        record.origin(guard) == Origin::OtherInjected
+            || tag.is_none() && record.origin(guard) == Origin::Physical
+    }) {
+        untracked_input();
+        return forward(code, message, data);
+    }
+    let Some(tag) = tag else {
+        return forward(code, message, data);
     };
     // Must precede mutable borrow: SendInput can synchronously reenter this Hook.
     if record.origin(tag) != Origin::Physical {
@@ -381,9 +430,19 @@ unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> is
     });
     match result {
         Ok(Ok(CaptureDecision::Capture)) if TAG.try_with(Cell::get).unwrap_or(0) != 0 => 1,
+        Ok(Ok(CaptureDecision::Pass)) if guard.is_some() => {
+            untracked_input();
+            forward(code, message, data)
+        }
         Ok(Ok(_)) => forward(code, message, data),
         Ok(Err(fault)) => {
             stop(fault);
+            if guard.is_some() && record.validate() != Ok(keyweave_types::KeyEdge::Up) {
+                // This failed physical down/repeat is now forwarded, so it
+                // can establish an unowned global down even if the scan was
+                // supported. Malformed events do not prove a harmless up.
+                untracked_input();
+            }
             forward(code, message, data)
         }
         Err(_) => forward(code, message, data),

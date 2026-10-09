@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、482 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、497 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -125,3 +125,9 @@ D08 Windows physical Repeat（2026-10-09）：engine/src/lib.rs 保存 Rule.repe
 
 
 D08 Repeat Windows实测补记：固定 Rust1.97.1 x64/i686 各445 workspace tests（含111 Windowsunit和1生产native_link）、clippy --locked --offline --workspace --all-targets --target <target> -- -D warnings 与两种SDK /Zs通过，驱动/Hook/SendInput实际接口未调用。两份128文件快照hash均匹配本次实现，报告 docs/validation/windows-2026-10-09-repeat.json；完整日志/manifest/validate.cmd在 ignored target/validation/windows-20261009-repeat-{x64,x86}-1.97.1。本机初次失败进程已exit101后才重新生成快照；新双架构验证父进程最终exit0。14个本地文档链接与围栏检查通过；新增报告链接另检。Windows CI与真机仍未执行，完整移植目标保持未完成。
+
+
+D08 未归属输入边界/发送重入停止（2026-10-09）：native/hook_thread.rs 的active guard与无按键内容sticky latch，other injected在借用dispatcher之前停止，unsupported Pass/故障放行down-repeat或非法记录/stop后close前非own旁路标记风险；own marker+flag bypass、standalone HookSession默认不启用、首次错误独立保留、首次latch才PostQuit避免重复堆消息。native/session.rs 的GuardedBackend在active每批API调用前检查fault，原调用receipt仍确认；ShutdownReport新增untracked_input。runtime/pump在unhook后有submitted或unknown则Reset engine tasks并quarantine/Unresolved，禁止盲发ups；已知空ledger停止且无native提交。新增12 session+3 actor行为测试，覆盖真实同源callback入口的发送期间foreign重入、256首批后拒绝下一批、首故障与后续风险并存、own/malformed/reentrant/Unicode/lower injection、passive、空ledger/unknown、unhook失败；原emergency控制测试用fault/held_keys证据检查禁用，新增后续旁路测试单独验证Unresolved；callback触发emergency/clock error后放行down-repeat的两个旧测试按新风险语义保留主因并要求Unresolved/无up。初次fixture误把held字段放simple得到InvalidMapping，已改complex并通过。Linux497 libtests和独立worker main-thread harness、fmt/clippy/source verifier（60hashes）/diff通过；Windows双架构结果另记。仅mock Win32/no真实抓取或注入。全平台目标未完成；本组件不解决外部共存/逐键碰撞、unhook后竞态/Hook存活/独立监督/可执行host，D05/Linuxbootstrap/GUI/driver全部余项继续保留。
+
+
+D08 未归属保护Windows补验：固定1.97.1 x64/i686各460 workspace tests、126 Windowsunit、生产native_link与clippy -D warnings通过，SDK10.0.26100.0/MSVC19.44.35229.0双架构compile-only通过；最终验证父进程exit0。两个128文件快照hash匹配本次实现，docs/validation/windows-2026-10-09-untracked.json与 ignored target/validation/windows-20261009-untracked-{x64,x86}-1.97.1保留完整日志/manifest/validate.cmd。16个已有本地链接/围栏检查通过，新增报告链接另检。Windows CI、真实Hook/SendInput/driver/键盘验收未执行；本次停止保护不能替代逐键共存与完整后端，原全部目标未完成。

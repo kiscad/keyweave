@@ -7,8 +7,8 @@ use crate::{
     access::{AccessError, AccessLease},
     emergency::{EmergencyChord, EmergencyError},
     hook::{HookEvent, HookFault, HookHandler},
-    keys::{IdentityPolicy, InjectionTag},
-    pump::SendBackend,
+    keys::{IdentityPolicy, InjectionTag, KeyboardPacket},
+    pump::{Insertion, SendBackend, SubmitError},
     reactor::{SessionClock, WaitPlan},
     runtime::{ActorPhase, RuntimeError, SessionActor},
     startup::{InputSample, ProbeError},
@@ -50,8 +50,25 @@ pub enum SessionStep {
 }
 #[derive(Debug)]
 pub struct ShutdownReport {
+    pub untracked_input: bool,
     pub unhook: Result<(), HookSessionError>,
     pub recovery: Result<(), RuntimeError>,
+}
+struct GuardedBackend<B: SendBackend> {
+    backend: B,
+    enabled: Rc<Cell<bool>>,
+}
+impl<B: SendBackend> SendBackend for GuardedBackend<B> {
+    fn submit(&mut self, packets: &[KeyboardPacket]) -> Result<Insertion, SubmitError> {
+        // An earlier native submission may have delivered a reentrant fault.
+        // Reject only before calling this backend; its actual prior receipt was
+        // acknowledged by the pump. Explicit shutdown disables this gate so
+        // ordinary known recovery remains possible after close/unhook.
+        if self.enabled.get() && super::hook_thread::current_fault().is_some() {
+            return Err(SubmitError::Rejected);
+        }
+        self.backend.submit(packets)
+    }
 }
 struct SessionHandler<B: SendBackend, C: FnMut() -> Option<MonoTime>> {
     enabled: Rc<Cell<bool>>,
@@ -172,11 +189,11 @@ fn monitored_wait<B: SendBackend>(
     active_wait(actor, emergency, access, Some(now))
 }
 /// Construct only on the dedicated session thread. This component does not
-/// supply repeat, independent progress/session supervision or a deployment-ready host.
+/// supply independent progress/session supervision or a deployment-ready host.
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
     hook: HookSession,
-    actor: Rc<RefCell<SessionActor<B>>>,
+    actor: Rc<RefCell<SessionActor<GuardedBackend<B>>>>,
     enabled: Rc<Cell<bool>>,
     clock: SessionClock,
     deadline: MonoTime,
@@ -192,7 +209,15 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, SessionError> {
         // Validate every output/condition before registering or touching input.
-        let actor = Rc::new(RefCell::new(SessionActor::new(backend, tag, config)?));
+        let enabled = Rc::new(Cell::new(false));
+        let actor = Rc::new(RefCell::new(SessionActor::new(
+            GuardedBackend {
+                backend,
+                enabled: enabled.clone(),
+            },
+            tag,
+            config,
+        )?));
         let clock = SessionClock::new();
         let now = clock.now().ok_or(SessionError::Clock)?;
         let deadline = MonoTime(now.0.checked_add(STARTUP_NS).ok_or(SessionError::Clock)?);
@@ -200,7 +225,6 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         if clock.now().ok_or(SessionError::Clock)? >= deadline {
             return Err(SessionError::Timeout);
         }
-        let enabled = Rc::new(Cell::new(false));
         let handler_clock = clock.clone();
         let emergency = Rc::new(RefCell::new(EmergencyChord::new()));
         let access = Rc::new(RefCell::new(AccessLease::new()));
@@ -327,6 +351,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             .borrow_mut()
             .renew_after_probe(completed.ok_or(SessionError::Clock)?)?;
         self.actor.borrow_mut().start_after_neutral()?;
+        self.hook.guard_untracked_input()?;
         self.enabled.set(true);
         Ok(SessionStep::Activated)
     }
@@ -342,9 +367,20 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
     pub fn shutdown(&mut self) -> &ShutdownReport {
         self.enabled.set(false);
         self.shutdown.get_or_insert_with(|| {
+            let untracked_input = self.hook.untracked_input();
             let (_, unhook) = self.hook.close();
-            let recovery = self.actor.borrow_mut().stop_after_unhook();
-            ShutdownReport { unhook, recovery }
+            let recovery = if untracked_input {
+                self.actor
+                    .borrow_mut()
+                    .stop_for_untracked_input_after_unhook()
+            } else {
+                self.actor.borrow_mut().stop_after_unhook()
+            };
+            ShutdownReport {
+                untracked_input,
+                unhook,
+                recovery,
+            }
         })
     }
 }

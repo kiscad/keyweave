@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-09",
+  "feature": "Untracked input boundary and reentrant submission stop (ADR-0043)",
+  "source_base_commit": "210142fabf963296dca37dd4b412ffc758566739",
+  "source_has_uncommitted_changes": true,
+  "source_identity": "128 source/fixture/tool SHA256 entries per manifest match the implementation before commit",
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 460,
+      "windows_unit_tests_passed": 126,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 128,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-untracked-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "2363613d39f9f79a26eb4cdc96b834e81ce66413b60b561faa171ca0c330919b",
+        "clippy.log": "c1c9232ec810e8a96de16928eb4c67274af576fb79819f684d1a84016300bd29",
+        "source-manifest.json": "359343171c6dd7d5c03ab504d5a464dd0210c696dac0e5632b552b1531bd5743",
+        "validate.cmd": "989884bb19524639810bcb2afc850b6fc3088abdb20eb4eeb41fb5f8a1435929"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 460,
+      "windows_unit_tests_passed": 126,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 128,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-untracked-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "a3ff997d6a8c92a60bea80e2850c997fa851b64b5b058b6694009932f883f303",
+        "clippy.log": "86f67b72136d6297b2a364fb0e5b8f109b66783eb97e12387996ef47298db261",
+        "source-manifest.json": "359343171c6dd7d5c03ab504d5a464dd0210c696dac0e5632b552b1531bd5743",
+        "validate.cmd": "015faf7f0ff212e5fb07104c73df50b3d144951d1666f36cc4f0d409b6135455"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 497,
+    "worker_main_thread_harness": "passed",
+    "fmt": "passed",
+    "clippy": "passed",
+    "source_verifier": "60 hashes and fixture copies passed"
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Unit Win32 APIs replaced; production native_link retains symbols without input calls",
+    "i686 binaries run under WoW64, not native 32-bit OS acceptance",
+    "Guard stops active session on untracked input; coexistence/per-key collision reconciliation remains incomplete",
+    "A forwarded failed physical down/repeat can force Unresolved even when primary fault is emergency or clock",
+    "No real input/access/recovery/desktop/session or GitHub Actions acceptance",
+    "Independent supervision, executable host and complete D05/Linux/GUI/driver scope remain incomplete"
+  ]
+}

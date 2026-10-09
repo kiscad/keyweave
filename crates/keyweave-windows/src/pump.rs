@@ -114,6 +114,13 @@ impl<B: SendBackend> OutputPump<B> {
         self.queue.quarantine();
         self.phase = Phase::Quarantined;
     }
+    /// Capture must have stopped. Unowned input may have changed global state;
+    /// preserve the accepted ledger without injecting releases or dropping it.
+    pub(crate) fn quarantine_untracked_input(&mut self) {
+        if self.phase != Phase::Closed {
+            self.quarantine();
+        }
+    }
     /// One bounded submission; a short normal return forbids further calls until
     /// capture has stopped and begin_recovery is explicitly invoked.
     pub fn poll(&mut self, now: MonoTime) -> Result<PumpStep, PumpError> {

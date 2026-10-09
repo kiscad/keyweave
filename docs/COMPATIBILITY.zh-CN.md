@@ -69,3 +69,6 @@ Windows 活动访问检查已接入 CaptureSession：100ms 到期在 callback �
 
 
 当前 Windows 编译证据：宿主 Windows 10 build 19045 / Rust 1.97.1 / MSVC 19.44.35229.0 / SDK 10.0.26100.0，x64/i686 各 workspace 432 tests、fmt/clippy、native_link 和12个离线回放通过，SDK x64/x86 compile-only oracle 通过。MSG 的 `_MAC` 保留字段已删除，Windows size48/28。生产符号链接不执行 Hook/SendInput；独立监督、完整可执行 runtime 与真实设备语义/故障仍待完成（ADR-0041；[固定版本证据](validation/windows-2026-10-09-pinned.json)）。
+
+
+Windows 未归属输入保护（ADR-0043）：active会话在other injected、unsupported physical Pass或故障放行down/repeat时停止；OwnInjected仍bypass，marker+flag不是鉴权凭据。风险sticky标记独立于首个错误；发送重入后禁止后续批次再调用backend。若有submitted down或unknown，不发可能释放外部来源的up，ShutdownReport.untracked_input=true且Unresolved；已知空ledger则Stopped。故障导致的有效captured up不会凭空建立新down，仍可走正常有限恢复；fault后close前观察到额外旁路会再次标记风险。此层会使外部自动化/unsupported键终止当前active会话，不能视为已支持共存或已完成逐键碰撞；unhook后的输入、系统静默移除及close/recovery窗口仍需完整监督/协调和真机验证。
