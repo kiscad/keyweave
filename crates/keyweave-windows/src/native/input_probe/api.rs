@@ -15,6 +15,8 @@ pub(super) struct Mock {
     pub bad_sid: bool,
     pub large_token: bool,
     pub foreground_changed: bool,
+    pub foreground_flip: bool,
+    pub foreground_reads: usize,
     pub fail_label: bool,
     pub fail_close: bool,
     pub key: i16,
@@ -39,6 +41,8 @@ impl Default for Mock {
             bad_sid: false,
             large_token: false,
             foreground_changed: false,
+            foreground_flip: false,
+            foreground_reads: 0,
             fail_label: false,
             fail_close: false,
             key: 0,
@@ -166,8 +170,11 @@ pub(super) unsafe fn GetUserObjectInformationW(
 }
 pub(super) unsafe fn GetForegroundWindow() -> Handle {
     MOCK.with(|mock| {
-        let mock = mock.borrow();
-        if mock.foreground_changed && mock.key_reads != 0 {
+        let mut mock = mock.borrow_mut();
+        mock.foreground_reads += 1;
+        if (mock.foreground_changed && mock.key_reads != 0)
+            || (mock.foreground_flip && mock.foreground_reads % 2 == 0)
+        {
             21usize as Handle
         } else {
             20usize as Handle

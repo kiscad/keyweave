@@ -1,9 +1,10 @@
 //! Explicit same-thread passive startup; no executable or automatic capture.
 use super::{
     hook_thread::{HookSession, HookSessionError, LoopStep},
-    input_probe::sample_input_state,
+    input_probe::{check_input_access, sample_input_state},
 };
 use crate::{
+    access::{AccessError, AccessLease},
     emergency::{EmergencyChord, EmergencyError},
     hook::{HookEvent, HookFault, HookHandler},
     keys::{IdentityPolicy, InjectionTag},
@@ -34,6 +35,8 @@ pub enum SessionError {
     Clock,
     #[error(transparent)]
     EmergencyDetector(#[from] EmergencyError),
+    #[error(transparent)]
+    AccessLease(#[from] AccessError),
     #[error("session is closed")]
     Closed,
 }
@@ -54,6 +57,7 @@ struct SessionHandler<B: SendBackend, C: FnMut() -> Option<MonoTime>> {
     enabled: Rc<Cell<bool>>,
     actor: Rc<RefCell<SessionActor<B>>>,
     emergency: Rc<RefCell<EmergencyChord>>,
+    access: Rc<RefCell<AccessLease>>,
     clock: C,
 }
 fn guard(
@@ -87,6 +91,11 @@ impl<B: SendBackend, C: FnMut() -> Option<MonoTime>> HookHandler for SessionHand
         };
         // Exactly one fresh delivery time, shared with the engine. Emergency
         // due wins before this up/down and before actor due timers/output.
+        self.access
+            .try_borrow()
+            .map_err(|_| HookFault::Reentrant)?
+            .check(now)
+            .map_err(HookFault::AccessLease)?;
         guard(&self.emergency, now, Some(event))?;
         actor.key(event, now).map_err(|error| {
             actor.control_failed(error);
@@ -97,12 +106,18 @@ impl<B: SendBackend, C: FnMut() -> Option<MonoTime>> HookHandler for SessionHand
 fn active_wait<B: SendBackend>(
     actor: &RefCell<SessionActor<B>>,
     emergency: &RefCell<EmergencyChord>,
+    access: &RefCell<AccessLease>,
     now: Option<MonoTime>,
 ) -> Result<WaitPlan, HookFault> {
     let mut actor = actor.try_borrow_mut().map_err(|_| HookFault::Reentrant)?;
     let Some(now) = now else {
         actor.control_failed(RuntimeError::Clock);
         return Err(HookFault::Handler);
+    };
+    let refresh_at = {
+        let access = access.try_borrow().map_err(|_| HookFault::Reentrant)?;
+        access.check(now).map_err(HookFault::AccessLease)?;
+        access.next_refresh()
     };
     let emergency_at = guard(emergency, now, None)?;
     if let Err(error) = actor.tick(now) {
@@ -111,14 +126,53 @@ fn active_wait<B: SendBackend>(
     }
     Ok(WaitPlan::for_deadline(
         now,
-        [emergency_at, actor.next_wakeup()]
+        [refresh_at, emergency_at, actor.next_wakeup()]
             .into_iter()
             .flatten()
             .min(),
     ))
 }
+fn monitored_wait<B: SendBackend>(
+    actor: &RefCell<SessionActor<B>>,
+    emergency: &RefCell<EmergencyChord>,
+    access: &RefCell<AccessLease>,
+    mut clock: impl FnMut() -> Option<MonoTime>,
+    probe: impl FnOnce() -> Result<(), ProbeError>,
+) -> Result<WaitPlan, HookFault> {
+    let Some(mut now) = clock() else {
+        return active_wait(actor, emergency, access, None);
+    };
+    let due = access
+        .try_borrow()
+        .map_err(|_| HookFault::Reentrant)?
+        .refresh_due(now)
+        .map_err(HookFault::AccessLease)?;
+    guard(emergency, now, None)?;
+    if due {
+        // Metadata APIs may synchronously deliver sent callbacks. No actor or
+        // lease borrow spans these calls, and an existing fault wins over work.
+        let observed = probe();
+        if let Some(fault) = super::hook_thread::current_fault() {
+            return Err(fault);
+        }
+        observed.map_err(HookFault::InputAccess)?;
+        let Some(after) = clock() else {
+            return active_wait(actor, emergency, access, None);
+        };
+        if after < now {
+            return Err(HookFault::AccessLease(AccessError::ClockBackwards));
+        }
+        access
+            .try_borrow_mut()
+            .map_err(|_| HookFault::Reentrant)?
+            .renew_after_probe(after)
+            .map_err(HookFault::AccessLease)?;
+        now = after;
+    }
+    active_wait(actor, emergency, access, Some(now))
+}
 /// Construct only on the dedicated session thread. This component does not
-/// supply repeat, desktop supervision or a deployment-ready host.
+/// supply repeat, independent progress/session supervision or a deployment-ready host.
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
     hook: HookSession,
@@ -127,6 +181,7 @@ pub struct CaptureSession<B: SendBackend + 'static> {
     clock: SessionClock,
     deadline: MonoTime,
     emergency: Rc<RefCell<EmergencyChord>>,
+    access: Rc<RefCell<AccessLease>>,
     shutdown: Option<ShutdownReport>,
 }
 impl<B: SendBackend + 'static> CaptureSession<B> {
@@ -148,10 +203,12 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         let enabled = Rc::new(Cell::new(false));
         let handler_clock = clock.clone();
         let emergency = Rc::new(RefCell::new(EmergencyChord::new()));
+        let access = Rc::new(RefCell::new(AccessLease::new()));
         let handler = SessionHandler {
             enabled: enabled.clone(),
             actor: actor.clone(),
             emergency: emergency.clone(),
+            access: access.clone(),
             clock: move || handler_clock.now(),
         };
         let hook =
@@ -163,6 +220,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             clock,
             deadline,
             emergency,
+            access,
             shutdown: None,
         })
     }
@@ -185,6 +243,12 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             Err(SessionError::Hook(HookSessionError::Callback(HookFault::EmergencyDetector(
                 error,
             )))) => Err(SessionError::EmergencyDetector(error)),
+            Err(SessionError::Hook(HookSessionError::Callback(HookFault::AccessLease(error)))) => {
+                Err(SessionError::AccessLease(error))
+            }
+            Err(SessionError::Hook(HookSessionError::Callback(HookFault::InputAccess(error)))) => {
+                Err(SessionError::Probe(error))
+            }
             result => result,
         };
         if result.is_err() || matches!(result, Ok(SessionStep::Quit | SessionStep::Emergency)) {
@@ -197,11 +261,17 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             let clock = self.clock.clone();
             let actor = self.actor.clone();
             let emergency = self.emergency.clone();
+            let access = self.access.clone();
             return Ok(
-                match self
-                    .hook
-                    .poll_with_control(&mut || active_wait(&actor, &emergency, clock.now()))?
-                {
+                match self.hook.poll_with_control(&mut || {
+                    monitored_wait(
+                        &actor,
+                        &emergency,
+                        &access,
+                        || clock.now(),
+                        check_input_access,
+                    )
+                })? {
                     LoopStep::Continue => SessionStep::Continue,
                     LoopStep::Quit => SessionStep::Quit,
                 },
@@ -247,11 +317,15 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         // Win32 may deliver callbacks during queries: do not retain any borrow.
         let sample = sample()?;
         let after = self.hook.held_keys()?;
-        self.check_deadline(now(&self.clock))?;
+        let completed = now(&self.clock);
+        self.check_deadline(completed)?;
         if sample == InputSample::Held || before != 0 || after != 0 {
             return Ok(SessionStep::Waiting);
         }
         // No native calls or message dispatch between the last check and switch.
+        self.access
+            .borrow_mut()
+            .renew_after_probe(completed.ok_or(SessionError::Clock)?)?;
         self.actor.borrow_mut().start_after_neutral()?;
         self.enabled.set(true);
         Ok(SessionStep::Activated)

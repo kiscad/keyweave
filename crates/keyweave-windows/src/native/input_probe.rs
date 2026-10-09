@@ -377,6 +377,22 @@ pub fn sample_input_state() -> Result<InputSample, ProbeError> {
     })
 }
 
+/// Metadata-only runtime check. Never samples keys or changes desktop/token.
+/// Context transitions during the two observations conservatively stop capture.
+pub(super) fn check_input_access() -> Result<(), ProbeError> {
+    if !super::hook_thread::outside_callback() {
+        return Err(ProbeError::InCallback);
+    }
+    let (before, mut before_handle) = context()?;
+    let (after, mut after_handle) = context()?;
+    if before != after {
+        return Err(ProbeError::Changed);
+    }
+    before_handle.close()?;
+    after_handle.close()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod api;
 #[cfg(test)]
@@ -388,4 +404,15 @@ pub(super) fn test_probe(key: i16, active: bool) {
         mock.key = key;
         mock.active = active;
     });
+}
+#[cfg(test)]
+pub(super) fn test_access_counts() -> (usize, usize) {
+    api::MOCK.with(|mock| {
+        let mock = mock.borrow();
+        (mock.key_reads, mock.foreground_reads)
+    })
+}
+#[cfg(test)]
+pub(super) fn test_elevated() {
+    api::MOCK.with(|mock| mock.borrow_mut().elevated = true);
 }

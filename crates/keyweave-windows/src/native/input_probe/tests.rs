@@ -167,3 +167,53 @@ fn sid_parser_checks_revision_authority_attributes_and_entire_returned_span() {
         assert_eq!(parse_integrity(&buffer, length), Err(ProbeError::Malformed));
     }
 }
+#[test]
+fn runtime_access_checks_metadata_and_closes_owners_without_key_sampling() {
+    reset(|mock| mock.key = i16::MIN);
+    assert_eq!(check_input_access(), Ok(()));
+    api::MOCK.with(|mock| {
+        let mock = mock.borrow();
+        assert_eq!(mock.key_reads, 0);
+        assert_eq!(mock.foreground_reads, 2);
+    });
+    assert_closed();
+}
+#[test]
+fn runtime_metadata_errors_cannot_be_mistaken_for_access() {
+    for mode in 0..5 {
+        reset(|mock| match mode {
+            0 => mock.active = false,
+            1 => mock.elevated = true,
+            2 => mock.impersonating = true,
+            3 => mock.foreground_flip = true,
+            _ => mock.fail_close = true,
+        });
+        let expected = match mode {
+            0 => ProbeError::InactiveDesktop,
+            1 => ProbeError::HigherIntegrity,
+            2 => ProbeError::Impersonating,
+            3 => ProbeError::Changed,
+            _ => ProbeError::Api {
+                call: "CloseHandle",
+                code: 5,
+            },
+        };
+        assert_eq!(check_input_access(), Err(expected));
+        api::MOCK.with(|mock| assert_eq!(mock.borrow().key_reads, 0));
+        assert_closed();
+    }
+}
+#[test]
+fn runtime_access_query_is_refused_inside_callback_before_any_native_calls() {
+    reset(|_| {});
+    assert_eq!(
+        super::super::hook_thread::with_callback_borrow(check_input_access),
+        Err(ProbeError::InCallback)
+    );
+    api::MOCK.with(|mock| {
+        let mock = mock.borrow();
+        assert_eq!(mock.foreground_reads, 0);
+        assert!(mock.closed.is_empty());
+        assert_eq!(mock.key_reads, 0);
+    });
+}

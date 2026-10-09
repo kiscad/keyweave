@@ -338,12 +338,15 @@ fn timed_session(
     ));
     actor.borrow_mut().start_after_neutral().unwrap();
     let emergency = Rc::new(RefCell::new(EmergencyChord::new()));
+    let access = Rc::new(RefCell::new(AccessLease::new()));
+    access.borrow_mut().renew_after_probe(MonoTime(0)).unwrap();
     let enabled = Rc::new(Cell::new(true));
     let now = Rc::new(Cell::new(MonoTime(0)));
     let handler_time = now.clone();
     let handler = SessionHandler {
         actor: actor.clone(),
         emergency: emergency.clone(),
+        access: access.clone(),
         enabled: enabled.clone(),
         clock: move || Some(handler_time.get()),
     };
@@ -357,6 +360,7 @@ fn timed_session(
         CaptureSession {
             actor,
             emergency,
+            access,
             enabled,
             hook,
             clock: SessionClock::new(),
@@ -392,17 +396,25 @@ fn emergency_idle_control_wakes_before_actor_timer_and_stops_native_hook() {
     press_emergency();
     let actor = session.actor.clone();
     let emergency = session.emergency.clone();
+    let access = session.access.clone();
     let at = crate::emergency::HOLD_NS;
+    keep_access_valid(&session);
     assert_eq!(
-        active_wait(&actor, &emergency, Some(MonoTime(at - 1)))
+        active_wait(&actor, &emergency, &access, Some(MonoTime(at - 1)))
             .unwrap()
             .timeout_ms(),
         1
     );
     now.set(MonoTime(at));
-    let result = session
-        .hook
-        .poll_with_control(&mut || active_wait(&actor, &emergency, Some(now.get())));
+    let result = session.hook.poll_with_control(&mut || {
+        monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || Some(now.get()),
+            || panic!("due emergency must precede metadata query"),
+        )
+    });
     assert_eq!(
         result,
         Err(HookSessionError::Callback(HookFault::Emergency))
@@ -432,6 +444,7 @@ fn exact_deadline_physical_up_cannot_cancel_emergency_or_reach_actor() {
     let (mut session, trace, now) = timed_session(config());
     press_emergency();
     let before = trace.borrow().calls.len();
+    keep_access_valid(&session);
     now.set(MonoTime(crate::emergency::HOLD_NS));
     assert_eq!(test_send(0x58, true), 9);
     assert_eq!(session.hook.fault(), Some(HookFault::Emergency));
@@ -444,6 +457,7 @@ fn exact_deadline_physical_up_cannot_cancel_emergency_or_reach_actor() {
 fn early_physical_release_cancels_emergency_and_is_captured_normally() {
     let (mut session, _, now) = timed_session(config());
     press_emergency();
+    keep_access_valid(&session);
     now.set(MonoTime(crate::emergency::HOLD_NS - 1));
     assert_eq!(test_send(0x58, true), 1);
     assert_eq!(session.emergency.borrow().next_deadline(), None);
@@ -451,6 +465,7 @@ fn early_physical_release_cancels_emergency_and_is_captured_normally() {
         active_wait(
             &session.actor,
             &session.emergency,
+            &session.access,
             Some(MonoTime(crate::emergency::HOLD_NS))
         )
         .is_ok()
@@ -512,6 +527,7 @@ fn remapping_emergency_keys_does_not_change_physical_detector() {
             .flatten()
             .all(|packet| packet.scan == 0x1e)
     );
+    keep_access_valid(&session);
     now.set(MonoTime(crate::emergency::HOLD_NS));
     assert_eq!(test_send(0x58, false), 9); // repeat doesn't rearm, due wins
     assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
@@ -539,6 +555,7 @@ fn emergency_preserves_unhook_error_and_bounded_recovery_failure() {
     press_emergency();
     trace.borrow_mut().zero_recovery = true;
     test_fail_unhook();
+    keep_access_valid(&session);
     now.set(MonoTime(crate::emergency::HOLD_NS));
     assert_eq!(test_send(0x58, true), 9);
     assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
@@ -573,10 +590,11 @@ fn active_control_clock_failure_preserves_actor_reason_and_disables_native_hook(
     let (mut session, trace, _) = timed_session(config());
     let actor = session.actor.clone();
     let emergency = session.emergency.clone();
+    let access = session.access.clone();
     assert_eq!(
         session
             .hook
-            .poll_with_control(&mut || active_wait(&actor, &emergency, None)),
+            .poll_with_control(&mut || active_wait(&actor, &emergency, &access, None)),
         Err(HookSessionError::Callback(HookFault::Handler))
     );
     assert!(matches!(
@@ -587,4 +605,285 @@ fn active_control_clock_failure_preserves_actor_reason_and_disables_native_hook(
     assert!(session.poll().is_err());
     assert!(session.shutdown_report().unwrap().recovery.is_ok());
     assert!(trace.borrow().calls.is_empty());
+}
+
+// These earlier successful metadata proofs keep the emergency-focused fixture's
+// lease valid; dedicated lease tests below exercise real monitored_wait renewal.
+fn keep_access_valid(session: &CaptureSession<Backend>) {
+    for now in [300_000_000, 600_000_000, 900_000_000] {
+        session
+            .access
+            .borrow_mut()
+            .renew_after_probe(MonoTime(now))
+            .unwrap();
+    }
+}
+fn monitored_step(
+    session: &mut CaptureSession<Backend>,
+    now: MonoTime,
+) -> Result<LoopStep, HookSessionError> {
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    session.hook.poll_with_control(&mut || {
+        monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || Some(now),
+            check_input_access,
+        )
+    })
+}
+#[test]
+fn metadata_refresh_preserves_held_binding_and_never_queries_keys() {
+    use super::super::input_probe::test_access_counts;
+    let (mut session, trace, now) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS - 1)).unwrap(),
+        LoopStep::Continue
+    );
+    assert_eq!(test_access_counts(), (0, 0));
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)).unwrap(),
+        LoopStep::Continue
+    );
+    assert_eq!(test_access_counts(), (0, 2));
+    assert_eq!(session.hook.held_keys().unwrap(), 1);
+    now.set(MonoTime(crate::access::REFRESH_NS + 1));
+    assert_eq!(test_send(0x1e, true), 1);
+    assert_eq!(trace.borrow().calls.len(), 2);
+    session.shutdown();
+}
+#[test]
+fn refreshed_lease_deadline_participates_in_message_wait() {
+    let (mut session, _, _) = timed_session(config());
+    assert_eq!(
+        monitored_wait(
+            &session.actor,
+            &session.emergency,
+            &session.access,
+            || Some(MonoTime(crate::access::REFRESH_NS - 1)),
+            || panic!("early probe")
+        )
+        .unwrap()
+        .timeout_ms(),
+        1
+    );
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)).unwrap(),
+        LoopStep::Continue
+    );
+    assert_eq!(
+        session.access.borrow().next_refresh(),
+        Some(MonoTime(2 * crate::access::REFRESH_NS))
+    );
+    session.shutdown();
+}
+#[test]
+fn higher_integrity_or_inactive_desktop_stops_and_recovers_accepted_output() {
+    let (mut session, trace, _) = timed_session(config());
+    test_send(0x1e, false);
+    super::super::input_probe::test_elevated();
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)),
+        Err(HookSessionError::Callback(HookFault::InputAccess(
+            ProbeError::HigherIntegrity
+        )))
+    );
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Probe(ProbeError::HigherIntegrity))
+    ));
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(test_send(0x1e, false), 9);
+}
+#[test]
+fn active_desktop_loss_is_reported_without_new_key_state_observation() {
+    let (mut session, trace, _) = timed_session(config());
+    test_send(0x1e, false);
+    test_probe(0, false);
+    assert!(monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)).is_err());
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Probe(ProbeError::InactiveDesktop))
+    ));
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert_eq!(super::super::input_probe::test_access_counts().0, 0);
+    assert_eq!(trace.borrow().calls.len(), 2);
+}
+#[test]
+fn expired_callback_stops_before_actor_and_late_control_does_not_probe() {
+    let (mut session, trace, now) = timed_session(config());
+    now.set(MonoTime(crate::access::LEASE_NS));
+    assert_eq!(test_send(0x1e, false), 9);
+    assert_eq!(
+        session
+            .poll()
+            .err()
+            .map(|error| matches!(error, SessionError::AccessLease(AccessError::Expired))),
+        Some(true)
+    );
+    assert!(trace.borrow().calls.is_empty());
+    assert_eq!(super::super::input_probe::test_access_counts(), (0, 0));
+}
+#[test]
+fn late_successful_probe_cannot_renew_or_tick_actor() {
+    let (mut session, trace, _) = timed_session(config());
+    let before = session.access.borrow().clone();
+    let times = RefCell::new(std::collections::VecDeque::from([
+        MonoTime(crate::access::REFRESH_NS),
+        MonoTime(crate::access::LEASE_NS),
+    ]));
+    let result = monitored_wait(
+        &session.actor,
+        &session.emergency,
+        &session.access,
+        || times.borrow_mut().pop_front(),
+        || Ok(()),
+    );
+    assert_eq!(result, Err(HookFault::AccessLease(AccessError::Expired)));
+    assert_eq!(*session.access.borrow(), before);
+    assert!(trace.borrow().calls.is_empty());
+    session.shutdown();
+}
+#[test]
+fn metadata_callback_fault_wins_over_probe_result_and_blocks_tick_and_wait() {
+    use super::super::hook_thread::{test_record, test_wait_calls};
+    use crate::keys::HookRecord;
+    let (mut session, trace, _) = timed_session(config());
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    let before = access.borrow().clone();
+    let result = session.hook.poll_with_control(&mut || {
+        monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || Some(MonoTime(crate::access::REFRESH_NS)),
+            || {
+                assert_eq!(
+                    test_record(HookRecord {
+                        message: 0x100,
+                        vk_code: 0x41,
+                        scan_code: 0,
+                        flags: 0,
+                        extra_info: 0
+                    }),
+                    9
+                );
+                Err(ProbeError::HigherIntegrity)
+            },
+        )
+    });
+    assert_eq!(result, Err(HookSessionError::Callback(HookFault::Record)));
+    assert_eq!(*access.borrow(), before);
+    assert_eq!(test_wait_calls(), 0);
+    assert!(trace.borrow().calls.is_empty());
+    assert!(session.poll().is_err());
+}
+#[test]
+fn native_control_success_cannot_resume_after_callback_fault() {
+    use super::super::hook_thread::{test_record, test_wait_calls};
+    use crate::keys::HookRecord;
+    let (mut session, _, _) = timed_session(config());
+    let result = session.hook.poll_with_control(&mut || {
+        test_record(HookRecord {
+            message: 0x100,
+            vk_code: 0x41,
+            scan_code: 0,
+            flags: 0,
+            extra_info: 0,
+        });
+        Ok(WaitPlan::for_deadline(MonoTime(0), None))
+    });
+    assert_eq!(result, Err(HookSessionError::Callback(HookFault::Record)));
+    assert_eq!(test_wait_calls(), 0);
+    assert!(session.poll().is_err());
+}
+#[test]
+fn backwards_probe_completion_does_not_grant_a_new_lease() {
+    let (mut session, _, _) = timed_session(config());
+    let before = session.access.borrow().clone();
+    let times = RefCell::new(std::collections::VecDeque::from([
+        MonoTime(crate::access::REFRESH_NS),
+        MonoTime(crate::access::REFRESH_NS - 1),
+    ]));
+    assert_eq!(
+        monitored_wait(
+            &session.actor,
+            &session.emergency,
+            &session.access,
+            || times.borrow_mut().pop_front(),
+            || Ok(())
+        ),
+        Err(HookFault::AccessLease(AccessError::ClockBackwards))
+    );
+    assert_eq!(*session.access.borrow(), before);
+    session.shutdown();
+}
+#[test]
+fn healthy_sent_callback_during_probe_can_borrow_actor_and_preserves_its_binding() {
+    let (mut session, trace, now) = timed_session(config());
+    now.set(MonoTime(crate::access::REFRESH_NS));
+    let result = monitored_wait(
+        &session.actor,
+        &session.emergency,
+        &session.access,
+        || Some(now.get()),
+        || {
+            assert_eq!(test_send(0x1e, false), 1);
+            check_input_access()
+        },
+    );
+    assert!(result.is_ok());
+    assert_eq!(session.hook.held_keys().unwrap(), 1);
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_eq!(
+        session.access.borrow().next_refresh(),
+        Some(MonoTime(2 * crate::access::REFRESH_NS))
+    );
+    session.shutdown();
+    assert_eq!(trace.borrow().calls.len(), 2);
+}
+#[test]
+fn callback_expiry_during_probe_prevents_successful_result_from_renewing() {
+    let (mut session, trace, now) = timed_session(config());
+    let before = session.access.borrow().clone();
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    let clock_reads = Cell::new(0);
+    let result = session.hook.poll_with_control(&mut || {
+        monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || {
+                clock_reads.set(clock_reads.get() + 1);
+                Some(MonoTime(crate::access::REFRESH_NS))
+            },
+            || {
+                now.set(MonoTime(crate::access::LEASE_NS));
+                assert_eq!(test_send(0x1e, false), 9);
+                Ok(())
+            },
+        )
+    });
+    assert_eq!(
+        result,
+        Err(HookSessionError::Callback(HookFault::AccessLease(
+            AccessError::Expired
+        )))
+    );
+    assert_eq!(*access.borrow(), before);
+    assert_eq!(clock_reads.get(), 1); // stopped before after-probe clock/tick
+    assert!(trace.borrow().calls.is_empty());
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::AccessLease(AccessError::Expired))
+    ));
 }

@@ -63,3 +63,6 @@ Windows startup 现有 callback 外只读采样：visible WinSta0/input desktop/
 
 
 Windows CaptureSession 紧急退出：原 physical Ctrl+Alt+Shift+F12 左右任一持续 >=1s，injected/passive 不参与，重映射不可覆盖。检测与 actor 共用一次 fresh delivery time，紧急到期先于同刻 up、held/delayed timer 和 due output；无新输入也在 control 推进。poll 返回 Emergency 后已关闭 Hook 并有限恢复，调用者检查 shutdown_report 的卸载/恢复结果；失败或未知 receipt 不宣称已清按键。Hook 无可信逐事件 keyboard ID，因此此组合按合并流检测，允许跨键盘组成。线程停滞/Hook 移除/桌面切换不受该检测覆盖，独立监督与完整 host 仍未完成（ADR-0039）。
+
+
+Windows 活动访问检查已接入 CaptureSession：100ms 到期在 callback 外仅复核桌面/访问权限与前台 integrity，零 GetAsyncKeyState 调用；成功按完成时刻续期 500ms lease，callback 与 control 同 delivery time 检查有效期。高 integrity、失去输入 desktop、API/close/metadata 错误或过期/迟到结果终止会话并先停 Hook 再恢复，正常成功检查保留持键绑定。query 期间 callback 已停止时，不再续期/推进 actor。metadata pre/post 不原子，变化至下一检查之间仍可发生访问竞态；参数不提供墙钟时限，不能检测 Hook 静默移除/线程卡死，完整 WTS/session disconnect 与独立监督仍待实现（ADR-0040）。

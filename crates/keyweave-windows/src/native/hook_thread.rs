@@ -14,6 +14,9 @@ use std::{
 };
 type Handle = *mut c_void;
 type Callback = unsafe extern "system" fn(i32, usize, isize) -> isize;
+pub(super) fn current_fault() -> Option<HookFault> {
+    FAULT.with(Cell::get)
+}
 pub(super) fn outside_callback() -> bool {
     DISPATCHER
         .try_with(|slot| slot.try_borrow_mut().is_ok())
@@ -298,15 +301,19 @@ fn checked_control<F: FnMut() -> Result<WaitPlan, HookFault>>(
     control: &mut F,
 ) -> Result<WaitPlan, HookSessionError> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(control)) {
-        Ok(Ok(plan)) => Ok(plan),
+        Ok(Ok(plan)) => {
+            current_fault().map_or(Ok(plan), |fault| Err(HookSessionError::Callback(fault)))
+        }
         Ok(Err(fault)) => {
             stop(fault);
-            Err(HookSessionError::Callback(fault))
+            Err(HookSessionError::Callback(current_fault().unwrap_or(fault)))
         }
         Err(payload) => {
             std::mem::forget(payload);
             stop(HookFault::Panic);
-            Err(HookSessionError::Callback(HookFault::Panic))
+            Err(HookSessionError::Callback(
+                current_fault().unwrap_or(HookFault::Panic),
+            ))
         }
     }
 }
@@ -738,4 +745,8 @@ pub(super) fn test_record(record: HookRecord) -> isize {
     };
     // SAFETY: initialized test-owned record lives until callback returns.
     unsafe { callback(0, record.message as usize, &keyboard as *const _ as isize) }
+}
+#[cfg(test)]
+pub(super) fn test_wait_calls() -> usize {
+    api::WAIT_CALLS.with(|calls| calls.borrow().len())
 }

@@ -9,11 +9,11 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 7 crates、Cargo.lock、固定 1.97.1、453 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 编译待执行 | 7 crates、Cargo.lock、固定 1.97.1、469 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
-| Linux / Windows 用户态后端 | Linux native 后端部分实现；Windows scan codec/输出账本/Hook、会话 actor 与定时等待部分实现，实际后端均未完成 | keyweave-windows keys/table/normalizer/packet/pump/hook 与 cfg Windows SendInput/HookSession/CaptureSession passive 启动、映射前紧急组合与关闭事务，runtime SessionActor 已连接共享 Engine/OutputQueue（无完整可执行运行时，Windows 编译未运行）；keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD、故障分类和单设备/多设备组 grab 准入事务；有显式时钟的 IO coordinator、challenge 监督与 pre_exec 父线程死亡保护；已有 CLOCK_MONOTONIC/ppoll 与 run_worker 函数，尚无完整 bootstrap/可执行 worker，未做成功硬件创建/抓取 |
+| Linux / Windows 用户态后端 | Linux native 后端部分实现；Windows scan codec/输出账本/Hook、会话 actor 与定时等待部分实现，实际后端均未完成 | keyweave-windows keys/table/normalizer/packet/pump/hook 与 cfg Windows SendInput/HookSession/CaptureSession passive 启动、映射前紧急组合、活动访问检查/短租约与关闭事务，runtime SessionActor 已连接共享 Engine/OutputQueue（无完整可执行运行时，Windows 编译未运行）；keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD、故障分类和单设备/多设备组 grab 准入事务；有显式时钟的 IO coordinator、challenge 监督与 pre_exec 父线程死亡保护；已有 CLOCK_MONOTONIC/ppoll 与 run_worker 函数，尚无完整 bootstrap/可执行 worker，未做成功硬件创建/抓取 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
 | 目标平台硬件、权限、故障恢复、性能 | 未执行 | 后续专用测试系统验证 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：推进 D06 可执行 worker、完整 bootstrap 和 consumer-ready；多设备 neutral 组事务已实现、真机验收仍待执行。已有键码转换/probe/owned FD/coordinator/supervisor/clock/ppoll/worker-loop/继承管道接收，不能重复当作待实现。继续推进 D08 重复策略、物理碰撞/监督与可执行会话；passive Hook 启动事务和映射前紧急组合已实现，已有 SessionActor、ActorHandler/SessionControl、SessionClock、原生定时 poll_with_control 和桌面/权限/按键采样，已有 scan codec、输出账本、同步绑定与原生 Hook 消息循环，不重复建立空接口。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：推进 D06 可执行 worker、完整 bootstrap 和 consumer-ready；多设备 neutral 组事务已实现、真机验收仍待执行。已有键码转换/probe/owned FD/coordinator/supervisor/clock/ppoll/worker-loop/继承管道接收，不能重复当作待实现。继续推进 D08 重复策略、物理碰撞/监督与可执行会话；passive Hook 启动事务、映射前紧急组合和活动桌面访问检查/短租约已实现，已有 SessionActor、ActorHandler/SessionControl、SessionClock、原生定时 poll_with_control 和桌面/权限/按键采样，已有 scan codec、输出账本、同步绑定与原生 Hook 消息循环，不重复建立空接口。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -110,3 +110,6 @@ D08 passive Hook 启动与关闭事务（2026-10-09）：native/session.rs 的 C
 
 
 D08 Windows emergency（2026-10-09）：emergency.rs 使用原 physical CanonicalScan 的 HID 身份，Ctrl+Alt+Shift+F12 左右任一连续 >=1s，typed edge/explicit clock、重复不刷新、释放撤销、左右交叠维持期限、时钟/溢出错误明确拒绝。CaptureSession 的 SessionHandler 和 active_wait 用同一个 fresh delivery time，先 emergency advance，再 observe/key 或 actor tick；wait 取 emergency/actor deadline 最小，空闲也推进。专用 HookFault::Emergency 立即禁用 native capture，poll 返回 Emergency 后统一 close-first 有界恢复，卸载与 recovery 结果单独保存；detector error 作为 SessionError 保留，不冒充成功紧急触发。新增 15 个测试（6 detector/9 session）覆盖左右/重复/取消/原 scan、passive/injected 不参与、规则重映射不可覆盖、同刻 up/held timer 优先级、无新输入 control、时钟错误、卸载失败与八次零接受恢复。workspace 453 个 libtest 测试与独立 Linux main-thread harness、fmt/clippy/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。全部 Windows API 仍替换，未运行 Windows 编译/SDK/真机。Windows 无每事件 device ID，组合允许跨键盘拼接；卡死线程/Hook 移除/安全桌面仍需独立监督。repeat/碰撞/监督/可执行 host、Linux 完整 bootstrap、D05、GUI/driver 全部余项继续保留，见 ADR-0039。
+
+
+D08 runtime access lease（2026-10-09）：access.rs 的显式 delivery-time 租约默认 100ms refresh/500ms expiry，续期按 probe completion time，未授予/到期/倒退/溢出拒绝；native/input_probe.rs 新增 metadata-only check_input_access，复用 context pre/post、只读 station/desktop/token 访问与 owned close，不调用 GetAsyncKeyState。CaptureSession 启动末步 grant，活动 callback 检查有效期后 emergency/actor，同线程 monitored_wait 在 actor/lease borrow 外采样、完成后 fresh clock 与 fault 重验再续期；等待包括 refresh deadline，到期 emergency 先于 metadata probe。查询期间已有 callback fault 优先，checked_control 成功也重验，禁止再 tick/Peek/Wait；主 probe/lease 错误进入既有 close-first 恢复。新增 16 个测试（2 lease、3 metadata、11 session）覆盖 threshold/原子错误、权限/前台变化/close、零 VK 调用、持键续期、deadline、callback 期间故障/健康输入/过期、迟到/倒退结果、native control fault 保留；workspace 469 个 libtest 与 Linux 独立 main-thread harness、fmt/clippy/diff check 通过，Ubuntu 24.04.4 x86_64 / Rust 1.97.1。全部 Win32 API 替换，Windows 编译/SDK/真机未运行。metadata 非原子，变化到下一检查间仍有 capture/SendInput 竞态；时间参数不保证墙钟实时，无法检测 Hook 静默移除/卡死线程，也未覆盖完整 WTS/RDP disconnect 事件。独立进度/session 监督、repeat/碰撞/可执行 host、Linux bootstrap、D05、GUI/driver 余项继续保留，见 ADR-0040。
