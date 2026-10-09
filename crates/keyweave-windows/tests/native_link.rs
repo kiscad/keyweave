@@ -9,6 +9,10 @@ fn production_native_symbols_link_without_installation_or_injection() {
     };
     type Control = fn() -> Result<WaitPlan, HookFault>;
     let addresses = [
+        keyweave_windows::Worker::<SendInputBackend>::install as *const () as usize,
+        keyweave_windows::Worker::<SendInputBackend>::step as *const () as usize,
+        keyweave_windows::Worker::<SendInputBackend>::run as *const () as usize,
+        keyweave_windows::Worker::<SendInputBackend>::request_stop as *const () as usize,
         keyweave_windows::Supervisor::spawn as *const () as usize,
         keyweave_windows::Supervisor::poll as *const () as usize,
         keyweave_windows::Supervisor::request_stop as *const () as usize,

@@ -166,3 +166,5 @@ cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_super
 完整Rust测试/Clippy结束后再运行原生例程，避免共用target目录的并发构建；每次unique snapshot/cache/target，最终manifest核对当前源码。存在的日志必须与已确认终止的具体验证进程关联，单独通过native例程不能代替workspace tests/Clippy。
 
 2026-10-09 最终独立监督：[报告](validation/windows-2026-10-09-supervisor.json)记录Linux606、固定Windows1.97.1双架构各569 tests/234 Windowsunit、Clippy/fmt/SDK及160文件hash匹配，验证进程终止exit0。两个Supervisor原生六场景实际通过；x64组合native exit0，x86组合先因旧挂起交付fixture异常0xc000004b退出1，同源码受影响路径重跑exit0并补齐父死亡。失败与重跑日志均保留，异常原因未确定；早先一次x86对象路径构建失败也独立归档，不拿native通过替代失败的编译检查。最终源码的queued fast-reply/延后Write ack回归证明旧逻辑误报Identity，最终全套重新验收。完整host/真实CaptureSession/Hook活性/Win11与实际键盘仍未验收。
+
+2026-10-09 捕获worker接线：[报告](validation/windows-2026-10-09-capture-worker.json)记录Linux616、固定Windows1.97.1双架构各579 tests/244 Windowsunit、Clippy/fmt/SDK、162源文件hash一致与验证进程terminal0。新增10worker tests执行真实Session.poll/handler/ledger代码，OS入口用mocks；native_link只链接Worker<SendInputBackend>生产方法地址。本轮没有运行真实捕获worker/Hook/SendInput，也没有用旧无输入fixture冒充新loop系统验收。原生运行需完整可信exe/main/配置和独立Supervisor host，后续按实际输入授权与实机门槛验证；已有CLI尚不能启动这个loop。

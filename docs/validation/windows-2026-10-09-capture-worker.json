@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-09",
+  "feature": "Guarded Windows CaptureSession worker loop with actual-poll progress publication (ADR-0054)",
+  "source_base_commit": "d00b60647f962167a19f19e0521000b17da8a1e8",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 579,
+      "windows_unit_tests_passed": 244,
+      "new_worker_tests": 10,
+      "production_native_link": "passed Worker<SendInputBackend> install/step/run/request_stop; function addresses retained only, no Hook installed or SendInput called",
+      "clippy": "passed --workspace --all-targets -D warnings",
+      "fmt": "passed same snapshot pinned1.97.1, separate process confirmed terminal0",
+      "sdk_oracle": "existing oracle passed /W4 /WX /std:c11 /Zs; no new FFI or SDK declarations; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 162,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit0",
+      "native_capture_worker_execution": "not run; unit tests execute actual Session.poll/handler/ledger implementation against Win32 mocks and bounded fake streams, not real Windows Hook",
+      "artifact_directory": "target/validation/windows-20261009-capture-worker-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "7161258c6cb37dba1bdd9bad963397fa2313e6cf6fa85f79ecc347c7c9021b70",
+        "clippy.log": "e3365e0ebe1a6d656637d2909aee20b3030c952f4c1ee420bb968eab1d7fdf20",
+        "source-manifest.json": "46eba6af0afe5489fca60d34f4c0d0c7c67c29c01bcdcaf36c2348d6b508c92e",
+        "validate.cmd": "9db9316c83aa8139520288b5c0aca386a97cb240591da8fc914ac7ae4e31a8d0",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 579,
+      "windows_unit_tests_passed": 244,
+      "new_worker_tests": 10,
+      "production_native_link": "passed Worker<SendInputBackend> install/step/run/request_stop; function addresses retained only, no Hook installed or SendInput called",
+      "clippy": "passed --workspace --all-targets -D warnings",
+      "fmt": "passed same snapshot pinned1.97.1, separate process confirmed terminal0",
+      "sdk_oracle": "existing oracle passed /W4 /WX /std:c11 /Zs; no new FFI or SDK declarations; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 162,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit0",
+      "native_capture_worker_execution": "not run; unit tests execute actual Session.poll/handler/ledger implementation against Win32 mocks and bounded fake streams, not real Windows Hook",
+      "artifact_directory": "target/validation/windows-20261009-capture-worker-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "2dd17d1a8eb20e9b1da484472f58e5b952af26355faba1f6d0b500d0670317d4",
+        "clippy.log": "7f6fdc189a1e0eef79c46505b6715e8fb05489cbf8bc8211094522c0b8c4527c",
+        "source-manifest.json": "46eba6af0afe5489fca60d34f4c0d0c7c67c29c01bcdcaf36c2348d6b508c92e",
+        "validate.cmd": "0e56b4b1ca34d752be88c0577f9b88f776d332a3bf2e9ba2268ed8802d10cc54",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 616,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies verified",
+    "artifact_directory": "target/validation/linux-20261009-capture-worker",
+    "artifacts_sha256": {
+      "tests.log": "a47b03bab0e15ac57ff9cf6a971fc52d9ef841e56fb80cf9098c55f01fcad814",
+      "clippy.log": "51bbd9a1b49343f92974a40a16b405b459516200112c6ed56d7380285aa2cdda"
+    }
+  },
+  "new_behavior_tests": [
+    "challenge receive before actual completed poll; key callbacks alone do not increment epoch; next baseline uses current actual poll",
+    "Standby actual poll advances internal counter but no progress reply until real activation",
+    "partial write freezes original epoch/phase; next challenge baseline includes later completed polls",
+    "receive failure closes Hook before recovery; no further poll/IO and no fake epoch",
+    "publish failure after actual poll closes capture immediately; terminal owner has no follow-up IO",
+    "Session primary and progress secondary retained independently with Unresolved ledger and recovery error; no fabricated release",
+    "Quit during partial Active reply leaves original frame pending, not a terminal acknowledgement; no final wait",
+    "callback rejected before IO/session borrow, manual stop does not mint progress or replace first report",
+    "public factory consumes claimed startup then installs passively; cached run retains primary and shutdown reports",
+    "probe install failure propagates original error; startup cannot be reclaimed or retried"
+  ],
+  "input_operations": {
+    "real_windows_hook_installed": false,
+    "real_windows_sendinput_called": false,
+    "driver_loaded": false,
+    "physical_keyboard_validated": false,
+    "actual_capture_worker_process_started": false,
+    "windows_mock_session_and_backend_tests": true,
+    "production_function_addresses_linked": true
+  },
+  "limits": [
+    "Complete trusted executable main/argument parsing/config bootstrap, parent host and worker control/config reload not yet connected; library loop is not deployment-ready",
+    "Mock Win32 tests and production link prove code integration, not actual Windows Hook delivery, timeout behavior, input recovery or liveness",
+    "run/Stopped/FrameSent do not prove process exit or output clean; inspect both WorkerReport and ShutdownReport and preserve Unresolved ledger until entry exits",
+    "Final frame may remain pending or be an older frozen Active receipt; no new epoch after manual shutdown, no final waiting/heartbeat",
+    "Original binary standard handles remain until actual exit, with no stderr logging or ownership transfer; failure startup requires exit",
+    "Caller backend construction must not capture/inject before WorkerStartup claim; token is structural main-thread contract, not cross-user authentication",
+    "Prior x86 native launch/compile anomalies from ADR-0053 remain recorded there; this mock-only change does not diagnose or claim to resolve them",
+    "Windows11, actual keyboard/session/Hook liveness/performance and all original advanced rules/Linux bootstrap/consumer-ready/GUI/packaging/driver scope remain; full goal unfinished"
+  ]
+}

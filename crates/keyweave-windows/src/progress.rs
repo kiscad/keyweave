@@ -23,6 +23,9 @@ pub struct ProgressClient<R: Read, W: Write> {
     inner: keyweave_progress::ProgressClient<R, W>,
 }
 impl<R: Read, W: Write> ProgressClient<R, W> {
+    pub fn response_pending(&self) -> bool {
+        self.inner.response_pending()
+    }
     pub fn new(reader: R, writer: W, run_id: u64) -> Result<Self, ClientError> {
         outside_callback()?;
         Ok(Self {

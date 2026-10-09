@@ -1,0 +1,11 @@
+# ADR-0054：Windows 捕获 worker 与进度执行循环
+
+Worker消费真实main已claim的WorkerStartup，先构造其唯一private async进度客户端，再安装CaptureSession；保存!Send/!Sync父保护token至owner销毁，不能导出/接管其他进程或原标准句柄。安装故障要求进程退出、不重试，保留客户端/Session的主错误，既有安装回滚报告透传；工厂失败的有限Drop不声明全部回收。backend/config由可信入口准备，构造backend不能先抓取或注入；完整exe参数/配置加载/父host仍另行接入。
+
+每step在callback外执行receive(当前Session epoch)→一次实际CaptureSession.poll→publish(真实新epoch/phase)。Standby不发布；epoch只由Session实际完成poll增加，不在worker另设心跳或计数。pending partial帧沿用冻结快照，每step至多一次Read和一次Write，Hook消息等待仍由Session已有最多20ms/deadline策略控制，不加sleep/IPC等待。独立Supervisor负责超时杀死停滞的worker。
+
+通信receive故障立即shutdown，先停捕获、有限恢复，不再poll或IO。publish故障也立即shutdown；同时存在Session主错误和发布错误时分别保存。Quit/Emergency/Session错误路径先由Session关闭捕获，再至多一次publish；最终帧可能不存在、已发、仍pending或失败，它可能是先前冻结的Active帧，不能称为Stopped确认。没有最终等待或虚构epoch；原标准端点和未知IO由真正process exit结束。
+
+第一次终止记录锁存，后续step/run只返回同一报告、不继续poll/IO；request_stop不增加epoch、不在手动shutdown后伪造进度。WorkerReport保留主错误与独立progress错误，ShutdownReport独立保留unhook/recovery/notification结果，实际ActorPhase继续可查。Unresolved不能当作输出清空或进程退出；owner仍保有Session/账本供诊断直到调用入口退出。run返回报告仅表示执行循环结束，只有父监督器能确认Exited。Drop沿用Session的禁用/卸Hook而不隐式注入恢复，且Session字段先于client销毁；正常入口必须显式step/run/request_stop并检查两个报告。
+
+callback拒绝在任何状态/IO/Session借用前完成，不消费原终止报告；不向binary stderr写日志。生产公开Worker只接受owned native pipes，测试内部Driver使用有界mock流与实际Session.poll实现验证因果、故障恢复和冻结帧。双架构生产链接/编译和mock不等于实际Hook/SendInput/物理键盘验收；本次不安装真实Hook，不宣称可部署。后续完整host/捕获启动事务、桌面上下文、用户控制、外部输入共存与实机门槛保留。
