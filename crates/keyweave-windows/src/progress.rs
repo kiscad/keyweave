@@ -2,7 +2,7 @@
 use crate::{native::CaptureSession, pump::SendBackend};
 pub use keyweave_progress::{
     CHALLENGE_BYTES, Challenge, Policy, ProgressError, ProgressPhase, ProgressWatchdog,
-    RECEIPT_BYTES, Receipt,
+    RECEIPT_BYTES, Receipt, RequestEvent, StopRequest,
 };
 use std::io::{Read, Write};
 #[derive(Debug, thiserror::Error)]
@@ -53,6 +53,15 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
                 .map_err(Into::into),
             None => Ok(false),
         }
+    }
+    pub fn receive_command<B: SendBackend + 'static>(
+        &mut self,
+        session: &CaptureSession<B>,
+    ) -> Result<RequestEvent, ClientError> {
+        outside_callback()?;
+        self.inner
+            .receive_command(session.progress_epoch())
+            .map_err(Into::into)
     }
     pub fn flush(&mut self) -> Result<bool, ClientError> {
         outside_callback()?;

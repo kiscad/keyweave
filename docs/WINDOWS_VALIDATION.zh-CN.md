@@ -177,3 +177,12 @@ cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_super
 实际binary test检查错误argv静默64，未受保护直接调用静默65；真正Supervisor/owned Job启动后claim成功，再打开不存在配置路径，真实观察Exited code66且epoch0，两个parent进度pipe明确清理。该test不创建配置目录、不安装Hook、不调用SendInput、无driver/键盘操作，仅证明准入→配置失败→进程退出。首轮x64在真实code66时先见receipt EOF，原test要求reason=None而失败terminal101；保留原log/manifest/entry，允许保留独立EOF/BrokenPipe channel reason后双架构全部重验，未更改生产Supervisor或抹去故障原因。code66仍必需，lease/其他reason不予通过。
 
 新增6个portable库tests（Linux另有非Unicode路径test）与3个Windows真实binary tests，Linux最终625项及独立main-thread无设备harness通过。源代码无新FFI/SDK声明，SDK stdout已观察而未单独归档；所有原日志/manifest/cmd、前述失败证据位于ignored target/validation/windows-20261009-worker-entry-*，Linux日志在linux-20261009-worker-entry。普通panic hook静默不证明fatal abort或全局输入恢复；退出0不替代owned process signaled观察。完整用户host/控制/诊断、正常捕获/Hook存活/真实输入恢复与Windows11/实机依旧未验证，ADR-0053以前x86异常原因仍未知，不因此轮入口通过称已修复。
+
+
+## 协作停止补验（2026-10-09，ADR-0056）
+
+最终固定1.97.1/x64/i686各604 workspace tests（Windowsunit255/shared progress12，新增16行为tests）、all-targets Clippy -D warnings、fmt/既有SDK oracle通过，两个170源文件SHA全匹配工作区。初始两Windows快照已通过但缺最终callback/耗尽tests，仅作preliminary归档；旧session确认terminal0后最终重新验证两arch。Linux641+独立main-thread无设备harness/Clippy/fmt/source60通过。原partial tests只更新有界command Read次数，原冻结frame和baseline8/epoch9保留；公开wrapper unused由owned callback/API回归解决，无lint suppression。[报告](validation/windows-2026-10-09-cooperative-stop.json)。
+
+完整validation terminal后才在相同final snapshots fmt/check/build/run native，父进程terminal0。两个arch的check_cooperative五场景：initial/active/standby真实WorkerStartup后接Stop并确认自然exit0（initial/standby epoch0），stop_stall读Stop不退出和startup_stall不读被owned Job有限停止、确认exit0xe04b5701；父两个pipe cleanup完整。旧check_supervisor六场景各arch回归通过，healthy真正259、其他expected reason/停止/exit均核对。共22个自有进程场景无输入，fixture epoch是合成值，未安装Hook/SendInput/driver，不证明实际CaptureSession停止/全局按键恢复。SDK无声明改动，stdout观察而未单独归档。
+
+ignored target/validation/windows-20261009-cooperative-{x64,x86}-1.97.1保留tests/clippy/fmt/source-manifest/validate/native-build/native-smoke.cmd与两个smoke logs；linux-20261009-cooperative及windows-20261009-cooperative-before-owner-*保留初始Read断言/unused-wrapper失败与preliminary快照。request_sent/Cooperative reason不能代替接收/恢复/退出证据，Stop deadline不续lease；全局输入/正常worker捕获/Windows11/完整host仍待验收，ADR-0053 x86异常仍未解释。

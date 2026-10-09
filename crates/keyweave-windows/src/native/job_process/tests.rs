@@ -547,3 +547,32 @@ fn supervisor_preflight_rejects_invalid_policy_and_oversize_command_before_child
     ));
     api::MOCK.with(|m| assert!(m.borrow().calls.is_empty()));
 }
+
+#[test]
+fn supervisor_cooperative_api_rejects_callback_without_changing_owned_state() {
+    use super::super::supervisor::{Supervisor, SupervisorStatus, TerminationReason};
+    use keyweave_progress::Policy;
+    use keyweave_types::MonoTime;
+    let mut owner = Supervisor::spawn(&path(), &[], 7, Policy::default(), MonoTime(0)).unwrap();
+    let status = owner.request_shutdown(MonoTime(1)).unwrap();
+    assert_eq!(owner.deadline(), MonoTime(2_000_000_001));
+    super::super::hook_thread::with_callback_borrow(|| {
+        let err = owner.request_shutdown(MonoTime(u64::MAX)).unwrap_err();
+        assert_eq!(err.cause, JobError::InCallback);
+    });
+    assert_eq!(owner.status(), status);
+    assert_eq!(owner.deadline(), MonoTime(2_000_000_001));
+    api::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.wait = 0;
+        m.exit = 0;
+    });
+    assert_eq!(
+        owner.poll(MonoTime(5)).unwrap(),
+        SupervisorStatus::Exited {
+            code: 0,
+            reason: Some(TerminationReason::Cooperative)
+        }
+    );
+    assert!(owner.close_channels().unwrap().complete());
+}

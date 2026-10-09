@@ -400,3 +400,181 @@ fn queued_fast_reply_waits_for_delayed_write_ack_without_false_identity_failure(
     assert_eq!(s.watchdog.deadline(), MonoTime(7));
     assert_eq!(s.process.stops, 0);
 }
+
+#[test]
+fn cooperative_initial_stop_is_one_frame_and_ack_is_not_exit() {
+    let mut s = fixture();
+    assert_eq!(
+        s.request_shutdown(MonoTime(1)).unwrap(),
+        SupervisorStatus::ShutdownRequested {
+            deadline: MonoTime(10),
+            request_sent: false
+        }
+    );
+    assert_eq!(
+        s.poll(MonoTime(2)).unwrap(),
+        SupervisorStatus::ShutdownRequested {
+            deadline: MonoTime(10),
+            request_sent: true
+        }
+    );
+    assert_eq!(
+        StopRequest::decode(&s.writer.bytes).unwrap(),
+        StopRequest { run_id: 7, id: 1 }
+    );
+    assert_eq!(s.reader.calls, 0);
+    assert_eq!(s.process.stops, 0);
+    assert_eq!(s.watchdog.epoch(), 0);
+    let writes = s.writer.calls;
+    s.request_shutdown(MonoTime(3)).unwrap();
+    s.poll(MonoTime(4)).unwrap();
+    assert_eq!(s.writer.calls, writes);
+    assert_eq!(s.shutdown.as_ref().unwrap().deadline, MonoTime(10));
+    s.process.exit = Some(0);
+    assert_eq!(
+        s.poll(MonoTime(10)).unwrap(),
+        SupervisorStatus::Exited {
+            code: 0,
+            reason: Some(TerminationReason::Cooperative)
+        }
+    );
+}
+#[test]
+fn cooperative_stop_finishes_original_partial_or_pending_write_before_new_frame() {
+    for blocked in [false, true] {
+        let mut s = fixture();
+        s.writer.chunk = 5;
+        s.writer.blocked = blocked;
+        s.poll(MonoTime(1)).unwrap();
+        s.request_shutdown(MonoTime(2)).unwrap();
+        s.writer.blocked = false;
+        for _ in 0..12 {
+            s.poll(MonoTime(3)).unwrap();
+        }
+        assert_eq!(s.writer.bytes.len(), 48);
+        assert_eq!(
+            Challenge::decode(&s.writer.bytes[..24]).unwrap(),
+            Challenge { run_id: 7, id: 1 }
+        );
+        assert_eq!(
+            StopRequest::decode(&s.writer.bytes[24..]).unwrap(),
+            StopRequest { run_id: 7, id: 2 }
+        );
+        assert_eq!(s.reader.calls, 0);
+        assert_eq!(s.process.stops, 0);
+    }
+}
+#[test]
+fn cooperative_shutdown_does_not_read_buffered_receipts_or_renew_existing_lease() {
+    let mut s = fixture();
+    response(&mut s, 1, 0, 1, ProgressPhase::Active);
+    s.poll(MonoTime(1)).unwrap(); // lease now6; challenge2 never started
+    s.request_shutdown(MonoTime(2)).unwrap();
+    response(&mut s, 2, 1, 999, ProgressPhase::Active);
+    let reads = s.reader.calls;
+    s.poll(MonoTime(3)).unwrap();
+    assert_eq!(
+        StopRequest::decode(&s.writer.bytes[24..]).unwrap(),
+        StopRequest { run_id: 7, id: 2 }
+    );
+    assert_eq!(s.reader.calls, reads);
+    assert_eq!(s.watchdog.epoch(), 1);
+    assert_eq!(s.shutdown.as_ref().unwrap().deadline, MonoTime(6));
+    s.request_shutdown(MonoTime(5)).unwrap();
+    s.poll(MonoTime(6)).unwrap();
+    stopped(
+        &s,
+        TerminationReason::Progress(ProgressError::Expired),
+        true,
+    );
+    assert_eq!(s.process.stops, 1);
+    assert_eq!(s.reader.calls, reads);
+}
+#[test]
+fn cooperative_deadline_is_at_most_two_seconds_and_clock_error_forces_owned_stop() {
+    let mut s = fixture();
+    s.watchdog = ProgressWatchdog::new(
+        7,
+        Policy {
+            startup_ns: 10_000_000_000,
+            lease_ns: 5_000_000_000,
+        },
+        MonoTime(0),
+    )
+    .unwrap();
+    s.request_shutdown(MonoTime(100)).unwrap();
+    assert_eq!(
+        s.shutdown.as_ref().unwrap().deadline,
+        MonoTime(2_000_000_100)
+    );
+    s.request_shutdown(MonoTime(101)).unwrap();
+    s.poll(MonoTime(99)).unwrap();
+    stopped(&s, TerminationReason::Progress(ProgressError::Clock), true);
+    assert_eq!(s.writer.calls, 0);
+}
+#[test]
+fn cooperative_stop_can_follow_stopped_receipt_or_partly_read_response() {
+    for phase in [ProgressPhase::Stopped, ProgressPhase::Active] {
+        let mut s = fixture();
+        if phase == ProgressPhase::Active {
+            s.reader.chunk = 4;
+        }
+        response(&mut s, 1, 0, 1, phase);
+        s.poll(MonoTime(1)).unwrap();
+        let reads = s.reader.calls;
+        s.request_shutdown(MonoTime(2)).unwrap();
+        s.poll(MonoTime(3)).unwrap();
+        assert_eq!(
+            StopRequest::decode(&s.writer.bytes[24..]).unwrap(),
+            StopRequest { run_id: 7, id: 2 }
+        );
+        assert_eq!(s.reader.calls, reads);
+        assert_eq!(s.process.stops, 0);
+    }
+}
+#[test]
+fn hard_stop_failure_during_shutdown_retries_without_io_or_erasing_reason() {
+    let mut s = fixture();
+    s.request_shutdown(MonoTime(1)).unwrap();
+    s.process.stop_fail = true;
+    assert!(s.poll(MonoTime(10)).is_err());
+    s.process.stop_fail = false;
+    s.request_shutdown(MonoTime(11)).unwrap();
+    stopped(
+        &s,
+        TerminationReason::Progress(ProgressError::Expired),
+        true,
+    );
+    assert_eq!(s.writer.calls, 0);
+    assert_eq!(s.reader.calls, 0);
+}
+
+#[test]
+fn cooperative_request_exhaustion_or_bad_write_never_wraps_or_reports_sent() {
+    let mut s = fixture();
+    s.request_id = u64::MAX;
+    s.command_started = true;
+    s.request_shutdown(MonoTime(1)).unwrap();
+    stopped(
+        &s,
+        TerminationReason::Progress(ProgressError::Exhausted),
+        true,
+    );
+    assert_eq!(s.writer.calls, 0);
+    for bad_count in [false, true] {
+        let mut s = fixture();
+        s.request_shutdown(MonoTime(1)).unwrap();
+        s.writer.bad_count = bad_count;
+        s.writer.zero = !bad_count;
+        s.poll(MonoTime(2)).unwrap();
+        assert!(matches!(
+            s.status(),
+            SupervisorStatus::Stopping {
+                stop_sent: true,
+                ..
+            }
+        ));
+        assert_eq!(s.writer.calls, 1);
+        assert_eq!(s.reader.calls, 0);
+    }
+}

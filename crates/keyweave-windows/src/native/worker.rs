@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     keys::{IdentityPolicy, InjectionTag},
-    progress::{ClientError, ProgressClient},
+    progress::{ClientError, ProgressClient, RequestEvent},
     pump::SendBackend,
     runtime::ActorPhase,
 };
@@ -112,7 +112,11 @@ impl<B: SendBackend + 'static, R: Read, W: Write> Driver<B, R, W> {
         if self.report.is_some() {
             return Ok(WorkerStep::Stopped);
         }
-        if let Err(error) = self.client.receive(&self.session) {
+        let received = self.client.receive_command(&self.session);
+        if matches!(received, Ok(RequestEvent::Stop)) {
+            return self.request_stop();
+        }
+        if let Err(error) = received {
             let reply = if self.client.response_pending() {
                 WorkerReply::FramePending
             } else {

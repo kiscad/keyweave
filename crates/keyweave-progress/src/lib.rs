@@ -1,6 +1,8 @@
 //! Shared progress protocol and bounded nonblocking stream client. No OS calls.
 use keyweave_types::MonoTime;
 use std::io::{self, Read, Write};
+mod control;
+pub use control::{RequestEvent, StopRequest};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProgressPhase {
     Active,
@@ -250,6 +252,8 @@ pub enum ClientError {
     Io(#[from] io::Error),
     #[error("progress channel closed")]
     Closed,
+    #[error("client accepted cooperative stop; further publication forbidden")]
+    Stopped,
 }
 struct Pending {
     bytes: [u8; RECEIPT_BYTES],
@@ -266,6 +270,7 @@ pub struct ProgressClient<R: Read, W: Write> {
     read: usize,
     ticket: Option<(Challenge, u64)>,
     response: Option<Pending>,
+    stop_received: bool,
 }
 impl<R: Read, W: Write> ProgressClient<R, W> {
     pub fn reader(&self) -> &R {
@@ -275,7 +280,7 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
         &self.writer
     }
     pub fn can_receive(&self) -> bool {
-        self.ticket.is_none() && self.response.is_none()
+        !self.stop_received && self.ticket.is_none() && self.response.is_none()
     }
     pub fn response_pending(&self) -> bool {
         self.response.is_some()
@@ -293,23 +298,49 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
             read: 0,
             ticket: None,
             response: None,
+            stop_received: false,
         })
     }
     pub fn receive(&mut self, epoch: u64) -> Result<bool, ClientError> {
-        if self.ticket.is_some() || self.response.is_some() {
-            return Ok(false);
+        Ok(self.receive_inner(epoch, false)? == RequestEvent::Challenge)
+    }
+    /// Opt-in stop priority even while a ticket/partial reply is pending. An
+    /// earlier queued challenge occupies one bounded frame until the old reply
+    /// completes; its baseline is recorded only when actually accepted.
+    pub fn receive_command(&mut self, epoch: u64) -> Result<RequestEvent, ClientError> {
+        self.receive_inner(epoch, true)
+    }
+    fn receive_inner(&mut self, epoch: u64, control: bool) -> Result<RequestEvent, ClientError> {
+        if self.stop_received || !control && !self.can_receive() {
+            return Ok(RequestEvent::Pending);
         }
-        match self.reader.read(&mut self.request[self.read..]) {
-            Ok(0) => return Err(ClientError::Closed),
-            Ok(count) if count > CHALLENGE_BYTES - self.read => {
-                return Err(ProgressError::Frame.into());
+        if self.read < CHALLENGE_BYTES {
+            match self.reader.read(&mut self.request[self.read..]) {
+                Ok(0) => return Err(ClientError::Closed),
+                Ok(count) if count > CHALLENGE_BYTES - self.read => {
+                    return Err(ProgressError::Frame.into());
+                }
+                Ok(count) => self.read += count,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(RequestEvent::Pending);
+                }
+                Err(error) => return Err(error.into()),
             }
-            Ok(count) => self.read += count,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-            Err(error) => return Err(error.into()),
         }
         if self.read != CHALLENGE_BYTES {
-            return Ok(false);
+            return Ok(RequestEvent::Pending);
+        }
+        if control && &self.request[..4] == b"KWPS" {
+            let stop = StopRequest::decode(&self.request)?;
+            if stop.run_id != self.run_id || Some(stop.id) != self.last_challenge.checked_add(1) {
+                return Err(ProgressError::Identity.into());
+            }
+            self.last_challenge = stop.id;
+            self.read = 0;
+            self.stop_received = true;
+            // Keep old ticket/response owners intact. A partial receipt is not
+            // a stop acknowledgement and must not be flushed after shutdown.
+            return Ok(RequestEvent::Stop);
         }
         let challenge = Challenge::decode(&self.request)?;
         if challenge.run_id != self.run_id
@@ -317,12 +348,18 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
         {
             return Err(ProgressError::Identity.into());
         }
+        if !self.can_receive() {
+            return Ok(RequestEvent::Pending);
+        }
         self.last_challenge = challenge.id;
         self.read = 0;
         self.ticket = Some((challenge, epoch));
-        Ok(true)
+        Ok(RequestEvent::Challenge)
     }
     pub fn publish(&mut self, epoch: u64, phase: ProgressPhase) -> Result<bool, ClientError> {
+        if self.stop_received {
+            return Err(ClientError::Stopped);
+        }
         if self.response.is_none() {
             let Some((challenge, baseline)) = self.ticket else {
                 return Ok(false);
@@ -345,6 +382,9 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
     }
     /// Partial frames must finish unchanged; calling flush cannot mint new progress.
     pub fn flush(&mut self) -> Result<bool, ClientError> {
+        if self.stop_received {
+            return Err(ClientError::Stopped);
+        }
         let Some(pending) = self.response.as_mut() else {
             return Ok(false);
         };

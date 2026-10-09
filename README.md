@@ -70,3 +70,6 @@ Windows Worker执行循环已将启动token、private进度客户端与CaptureSe
 ## Worker 可执行入口
 
 `keyweave-worker` 已增加 Windows 真实 main：父保护核验先于配置加载和捕获安装，配置读取有界且拒绝有损激活，终止检查独立 shutdown 结果后实际退出。它使用私有二进制协议，用户 parent host、控制/热更新与正常键盘验收仍待接入；Linux 捕获入口暂未接入。[设计与退出契约](docs/ADR-0055-worker-executable-bootstrap.md)。
+
+
+Windows 已增加显式协作停止：合法私有Stop帧让worker关闭捕获、恢复已知输出并退出；父Supervisor用不延长旧lease的期限等待实际退出，超时仍终止自有Job。[设计](docs/ADR-0056-cooperative-worker-stop.md)、[双架构mock/无输入跨进程验证](docs/validation/windows-2026-10-09-cooperative-stop.json)。正常键盘恢复及完整parent host/用户控制/配置交付尚未验收；Linux默认进度协议保持原行为。

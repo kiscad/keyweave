@@ -195,7 +195,7 @@ fn partial_reply_remains_original_snapshot_and_next_ticket_uses_current_poll() {
         worker.step().unwrap();
     }
     assert_eq!(worker.session.progress_epoch(), 8);
-    assert_eq!(input.borrow().calls, 1);
+    assert_eq!(input.borrow().calls, 2); // one queued command, not accepted yet
     assert_eq!(output.borrow().calls, 8);
     let frame = Receipt::decode(&output.borrow().bytes).unwrap();
     assert_eq!((frame.baseline, frame.epoch), (0, 1));
@@ -275,7 +275,7 @@ fn quit_can_leave_frozen_active_frame_pending_without_claiming_terminal_ack() {
     assert_eq!(report.reply, WorkerReply::FramePending);
     assert_eq!(output.borrow().bytes.len(), 10);
     assert_eq!(output.borrow().bytes[5], 1); // frozen Active
-    assert_eq!(input.borrow().calls, 1);
+    assert_eq!(input.borrow().calls, 2); // stop-priority receive before this poll
     assert_eq!(output.borrow().calls, 2);
     worker.step().unwrap();
     assert_eq!(output.borrow().calls, 2);
@@ -353,4 +353,61 @@ fn install_failure_preserves_probe_error_and_cannot_reclaim_startup() {
         WorkerStartup::claim(76, 7),
         Err(super::super::worker_startup::WorkerStartupError::AlreadyClaimed)
     ));
+}
+
+#[test]
+fn cooperative_stop_in_standby_prevents_any_actual_poll_or_output() {
+    let (mut worker, input, output, trace) = fixture();
+    input.borrow_mut().bytes = keyweave_progress::StopRequest { run_id: 7, id: 1 }
+        .encode()
+        .into();
+    assert_eq!(worker.step().unwrap(), WorkerStep::Stopped);
+    assert_eq!(worker.session.progress_epoch(), 0);
+    assert_eq!(worker.session.phase(), ActorPhase::Stopped);
+    assert_eq!(
+        worker.report.as_ref().unwrap().reason,
+        WorkerStopReason::Requested
+    );
+    assert!(trace.borrow().packets.is_empty());
+    assert_eq!(output.borrow().calls, 0);
+    let reads = input.borrow().calls;
+    worker.step().unwrap();
+    assert_eq!(input.borrow().calls, reads);
+}
+#[test]
+fn cooperative_stop_preempts_partial_reply_and_closes_capture_before_known_up() {
+    let (mut worker, input, output, trace) = fixture();
+    output.borrow_mut().chunk = 5;
+    worker.step().unwrap();
+    assert_eq!(test_send(0x1e, false), 1);
+    input
+        .borrow_mut()
+        .bytes
+        .extend(keyweave_progress::StopRequest { run_id: 7, id: 2 }.encode());
+    assert_eq!(worker.step().unwrap(), WorkerStep::Stopped);
+    assert_eq!(worker.session.progress_epoch(), 1);
+    let report = worker.report.as_ref().unwrap();
+    assert_eq!(report.reason, WorkerStopReason::Requested);
+    assert_eq!(report.reply, WorkerReply::FramePending);
+    assert!(report.primary.is_none() && report.progress.is_none());
+    assert_eq!(output.borrow().bytes.len(), 5);
+    assert_eq!(trace.borrow().packets.len(), 2);
+    assert_eq!(trace.borrow().packets[1][0].flags & 2, 2);
+    assert!(worker.session.shutdown_report().unwrap().recovery.is_ok());
+    worker.step().unwrap();
+    assert_eq!(output.borrow().calls, 1);
+}
+#[test]
+fn wrong_stop_identity_is_fault_and_does_not_poll_or_publish() {
+    let (mut worker, input, output, _) = fixture();
+    input.borrow_mut().bytes = keyweave_progress::StopRequest { run_id: 8, id: 1 }
+        .encode()
+        .into();
+    assert_eq!(worker.step().unwrap(), WorkerStep::Stopped);
+    assert_eq!(
+        worker.report.as_ref().unwrap().reason,
+        WorkerStopReason::Fault
+    );
+    assert_eq!(worker.session.progress_epoch(), 0);
+    assert_eq!(output.borrow().calls, 0);
 }

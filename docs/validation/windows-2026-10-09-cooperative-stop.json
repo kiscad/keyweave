@@ -1,0 +1,194 @@
+{
+  "date": "2026-10-09",
+  "feature": "Opt-in private StopRequest, Windows guarded worker shutdown and bounded cooperative Supervisor stop (ADR-0056)",
+  "source_base_commit": "dbe6c5a02fc6dc0ae258d28a9e6bb45bff1a3d08",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 604,
+      "windows_unit_tests_passed": 255,
+      "shared_progress_tests_passed": 12,
+      "added_behavior_tests": 16,
+      "clippy": "passed workspace all-targets -D warnings",
+      "fmt": "passed exact final snapshot in native validation",
+      "sdk": "existing compile-only /W4 /WX /std:c11 /Zs passed; no FFI changes; stdout observed not separately archived",
+      "source_files_hash_checked": 170,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal0 before native build started",
+      "native_process": "confirmed terminal0; new cooperative 5 and previous supervisor 6 own-process scenarios passed",
+      "cooperative_cases": [
+        {
+          "mode": "initial",
+          "observed_exit": 0,
+          "fixture_epoch": 0
+        },
+        {
+          "mode": "active",
+          "observed_exit": 0,
+          "fixture_epoch": 11
+        },
+        {
+          "mode": "standby",
+          "observed_exit": 0,
+          "fixture_epoch": 0
+        },
+        {
+          "mode": "stop_stall",
+          "observed_exit": 3763033857,
+          "fixture_epoch": 11
+        },
+        {
+          "mode": "startup_stall",
+          "observed_exit": 3763033857,
+          "fixture_epoch": 0
+        }
+      ],
+      "native_capture": "none; guarded main/owned async pipes/Job real, epochs are synthetic fixture values",
+      "artifact_directory": "target/validation/windows-20261009-cooperative-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "eaac25f9c8fa185ee3355fc460c3591268e5b3582035d3cdb388f4bb95c2d2ce",
+        "clippy.log": "f52ac6959b0a73006d79d9a6bfbc9e27800c5e7076a817ed72b0422c523726ca",
+        "source-manifest.json": "09c67b1018f8893e4d92e6af8ed5b6f76d3c9bb0668d346c504a62898b1b5b19",
+        "validate.cmd": "b3bde0643e42a3733060923fc170eef1c90b34266d8d35804b95a5fa181384fa",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-smoke.cmd": "c49851b0218a2f0cf28590efdf7489e3c041fc7ee8ab70285485e1ada07eebe5",
+        "native-build.log": "eb233372455d0033a32c080f5d926efd888b917485034aae97f50d621d001d20",
+        "cooperative-smoke.log": "5ffa180810bb525a89c9957a1e8401a23a1f989979f6f3d0d28bd8a4183d5768",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 604,
+      "windows_unit_tests_passed": 255,
+      "shared_progress_tests_passed": 12,
+      "added_behavior_tests": 16,
+      "clippy": "passed workspace all-targets -D warnings",
+      "fmt": "passed exact final snapshot in native validation",
+      "sdk": "existing compile-only /W4 /WX /std:c11 /Zs passed; no FFI changes; stdout observed not separately archived",
+      "source_files_hash_checked": 170,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal0 before native build started",
+      "native_process": "confirmed terminal0; new cooperative 5 and previous supervisor 6 own-process scenarios passed",
+      "cooperative_cases": [
+        {
+          "mode": "initial",
+          "observed_exit": 0,
+          "fixture_epoch": 0
+        },
+        {
+          "mode": "active",
+          "observed_exit": 0,
+          "fixture_epoch": 11
+        },
+        {
+          "mode": "standby",
+          "observed_exit": 0,
+          "fixture_epoch": 0
+        },
+        {
+          "mode": "stop_stall",
+          "observed_exit": 3763033857,
+          "fixture_epoch": 11
+        },
+        {
+          "mode": "startup_stall",
+          "observed_exit": 3763033857,
+          "fixture_epoch": 0
+        }
+      ],
+      "native_capture": "none; guarded main/owned async pipes/Job real, epochs are synthetic fixture values",
+      "artifact_directory": "target/validation/windows-20261009-cooperative-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "5cb79ec895a8d7af427d4c2d4d6cfd14d039239b2e46e8b963dbc4d32885ecdc",
+        "clippy.log": "741364777380b08825dbd3456f3a8bf1c459dd8c3f3c635c6b565862f8298175",
+        "source-manifest.json": "09c67b1018f8893e4d92e6af8ed5b6f76d3c9bb0668d346c504a62898b1b5b19",
+        "validate.cmd": "0c4811bd29eaac1650150c060edc71c7d52358d903e698d8021a0020d7d715f7",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-smoke.cmd": "2a7ce2f32967464c1e31f0ad1fe813e27e743b5f1b7bebd52caaf1aca736136b",
+        "native-build.log": "df35ddc6eaa50425acf4d3fc8b3209d5a61e176050ffafacc5852e45bda32832",
+        "cooperative-smoke.log": "5ffa180810bb525a89c9957a1e8401a23a1f989979f6f3d0d28bd8a4183d5768",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 641,
+    "main_thread_no_device_harness": "passed",
+    "clippy": "passed workspace all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 source hashes and fixture copies verified",
+    "artifact_directory": "target/validation/linux-20261009-cooperative",
+    "artifacts_sha256": {
+      "initial-tests.log": "3b460bf3c6bf50e46b3ad3f0a4a2a03e9cf0d1b0ea6801f338ce32458407fb9a",
+      "tests.log": "f043294381a65be05a532cb9fd1d149340559d50991b6d56fac7862325d7dcc7",
+      "clippy.log": "bee09ea4a6ad857477521da8aa94e610fc79fee045ca446aa43f38315e975a3c",
+      "before-owner-clippy.log": "4bc7c04e92331dc55bd6f76a868b05f55cd6b29e3eb617f0cff9d640c487413c"
+    }
+  },
+  "preliminary_runs": [
+    {
+      "arch": "x64",
+      "validation_process": "combined parent confirmed terminal0; not used as final source evidence",
+      "workspace_tests_passed": 602,
+      "source_differs_from_final": [
+        "crates\\keyweave-windows\\src\\native\\job_process\\tests.rs",
+        "crates\\keyweave-windows\\src\\native\\supervisor\\tests.rs"
+      ],
+      "reason": "meaningful owned public callback test added for Linux dead-code lint, followed by request exhaustion/bad write test; final both architectures rerun only after prior session terminal",
+      "artifact_directory": "target/validation/windows-20261009-cooperative-before-owner-x64",
+      "artifacts_sha256": {
+        "tests.log": "8f8b8d95f304e203606ad27fc37e5baec3c12e66827be33c365580bcafe88758",
+        "clippy.log": "0a368771e34a10fab632fc9df682c55bdd37c56611dcf751e7c41c04739fd2a2",
+        "source-manifest.json": "6f03fc2ea49d8ca425852451ac7cd7914a430f0238c03460c0679129482dc85b",
+        "validate.cmd": "7dcb447b98774fbedac8224e2f56a2b9d2cee2a9a5efb3ff0b677744e750e7b4"
+      }
+    },
+    {
+      "arch": "x86",
+      "validation_process": "combined parent confirmed terminal0; not used as final source evidence",
+      "workspace_tests_passed": 602,
+      "source_differs_from_final": [
+        "crates\\keyweave-windows\\src\\native\\job_process\\tests.rs",
+        "crates\\keyweave-windows\\src\\native\\supervisor\\tests.rs"
+      ],
+      "reason": "meaningful owned public callback test added for Linux dead-code lint, followed by request exhaustion/bad write test; final both architectures rerun only after prior session terminal",
+      "artifact_directory": "target/validation/windows-20261009-cooperative-before-owner-x86",
+      "artifacts_sha256": {
+        "tests.log": "f5661661a3c5f9b72bc8a0e61c9521950591c1369a6728cf342319e044ea864d",
+        "clippy.log": "fcc03ab746789d64f45c4e44874f695c2f2773d7cf3eeb5a508010a52d08875a",
+        "source-manifest.json": "6f03fc2ea49d8ca425852451ac7cd7914a430f0238c03460c0679129482dc85b",
+        "validate.cmd": "9289ea267c7ee1bdbd2e997480da6c44d581b8700b3238cce5d61fba69774a4b"
+      }
+    }
+  ],
+  "initial_issues": [
+    "two existing Windows partial-reply tests expected no extra receive; updated IO count to one bounded command prefetch/stop-priority receive, preserving original frozen bytes and baseline8/epoch9 assertions",
+    "Linux Clippy found public request_shutdown wrapper unused under private cfg(test) module; added owned API callback/no-state-change/actual-exit test, no suppression"
+  ],
+  "input_operations": {
+    "real_windows_hook_installed": false,
+    "real_windows_sendinput_called": false,
+    "driver_loaded": false,
+    "physical_keyboard_validated": false,
+    "owned_guarded_fixture_processes": true,
+    "actual_capture_worker_stopped": false,
+    "mock_actual_session_and_known_ledger_recovery": true
+  },
+  "limits": [
+    "Complete parent host/user stop/config preparation/immutable handoff/diagnostics/hot update still required; graceful library API is not full user flow",
+    "Stop frame opt-in only; legacy Linux/default receive remains strict v1 and rejects KWPS; use request_shutdown only for known control-capable worker",
+    "No final stop receipt or fake epoch; request_sent/Cooperative reason are intent/write acknowledgement, not delivery/cleanup/exit proof",
+    "Deadline min(old lease,now+2s), no renewal/queued response read; stalled worker may require Job kill, which cannot prove injected keys released",
+    "Native fixtures prove real owned process/transport/admission/exit/cleanup only, not CaptureSession poll/normal capture/real input recovery",
+    "Unresolved/reentrant/access loss/global key coexistence/Windows11/hardware/performance still require acceptance; previous ADR-0053 x86 anomalies remain unresolved",
+    "All original Linux bootstrap/consumer-ready/advanced rules/GUI/packaging/Rust driver/companion audit scope remains; full goal unfinished"
+  ]
+}
