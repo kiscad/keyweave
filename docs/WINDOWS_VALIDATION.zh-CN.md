@@ -79,3 +79,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Toolchain installation failed' }
 两个架构的测试在同一 Windows10 x64 主机执行，i686 可执行文件通过 WoW64 运行。本次两个目标各432 tests且全部0 failed，无改动生产代码。fmt 和回放是对上述已核对hash的同一快照补跑：`cargo +1.97.1 fmt --all --check`，以及对应 `target/<target>/debug/keyweavectl.exe replay --fixture tests/fixtures/<name>.json --assert`。12个fixture为 basic、sequence、tap-alone、modifiers、output-shortcuts、device-context、text-context、variables、held、delayed、delayed-pending、lazy-halt；退出均0。验证脚本本身仍负责 SDK/tests/clippy，fmt/replay须单独补跑并保存日志，不将当前本机完整检查误解为脚本自动覆盖。
 
 SDK /Zs 成功与 MSVC 版本输出已在此次命令结果中观察；未单独存SDK stdout日志。报告准确区分已保存的 tests/clippy/fmt/replay/source-manifest/validate.cmd 与未归档的 SDK 输出。报告固定源码提交，后续文档提交不等于重新构建过修改后的源码；代码变化后重新生成快照/证据。GitHub Actions 与真实输入验收仍未执行，不能由这组本机编译检查推断通过。
+
+
+Windows 物理重复转发现已接入 SessionActor（[ADR-0042](ADR-0042-windows-physical-repeat.md)）：mock 验证按原来源保留末端、旧配置/held、更换当前修饰、repeat:false、注入 bypass 与失败恢复。真实验收需记录 passthrough/重映射重复速率、宏前缀仅执行一次、held 到期后的目标变化、修饰键切换、源释放停止重复，以及同scan多个键盘的合并流限制。当前策略只转发实际物理Repeat，不自行设定重复延迟/速率，不保证源未产生Repeat时的软件重复。
+
+本次 Repeat 实现已在固定1.97.1 x64/i686 各通过445 workspace tests、生产链接与clippy，SDK oracle也通过，见 [Repeat验证记录](validation/windows-2026-10-09-repeat.json)。旧432测试记录对应功能接入前的源码快照，保留为历史证据。

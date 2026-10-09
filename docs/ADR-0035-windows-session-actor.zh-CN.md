@@ -7,3 +7,6 @@ SessionActor 独占 Engine/OutputPump，使用单一合并设备身份（不是�
 ActorHandler 使用同线程 Rc<RefCell> 连接有界 HookHandler 和显式 clock provider；try_borrow 失败停止 callback，不等待锁。调用者保留 actor 引用用于 unhook 后有限恢复。native callback 已在 mutable borrow 前排除 injected，避免 SendInput 自身重入；clock provider 不得等待/访问 IPC。Engine 忽略物理 Repeat；Windows 独立重复源尚未接入，不声称长按重复可用。实际 native timer wake/neutral/特殊键和未捕获物理键碰撞/紧急组合/进度监督仍待接入，因此不能描述为完整可执行后端。
 
 验证使用实际 Engine、HookDispatcher、OutputQueue 和模拟 SendInput，覆盖 passthrough 无双输入、a→b、repeat 不重播宏/旧配置 up、held deadline、短发送恢复、未知接受量/零接受恢复预算和配置原子性。不安装 Hook、不执行系统输入。Linux 验证不证明 Windows 编译/SDK ABI/真机。
+
+
+后续实现：Windows physical Repeat 已由 ADR-0042 接入 actor，按当前原 binding 保留末端发送一条 Repeat；不重播宏或增加 owner，普通 Engine 仍不生成 Repeat 输出。本文“独立重复源尚未接入”描述首次实现时的状态，当前进展以 STATUS/ADR-0042 为准。

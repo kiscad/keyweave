@@ -246,6 +246,20 @@ impl<B: SendBackend> SessionActor<B> {
                 }
             };
             self.due(&mut work)?;
+            if event.edge == KeyEdge::Repeat
+                && let Some(key) = self
+                    .engine
+                    .physical_repeat_target(STREAM, event.identity.key)
+                && self.output.ledger().desired().contains(&key)
+                && self.output.ledger().submitted().contains(&key)
+            {
+                self.output.enqueue(&[OutputIntent {
+                    at_ns: self.now,
+                    key,
+                    edge: KeyEdge::Repeat,
+                }])?;
+                self.due(&mut work)?;
+            }
             Ok(decision)
         })();
         self.result(result)

@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-09",
+  "feature": "Windows physical source repeat (ADR-0042)",
+  "source_base_commit": "8cf22910b5619e441300a84630fee9623ddd2dbd",
+  "source_has_uncommitted_changes": true,
+  "source_identity": "Each archived manifest contains SHA256 for all 128 source/fixture/tool files and was checked against the implementation before commit",
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 445,
+      "windows_unit_tests_passed": 111,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed compile-only /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 128,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-repeat-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "d6f0f8a022e53515f30b2243188ac7173e5440bbecdf5f0b166440832c143f4f",
+        "clippy.log": "385d8a19634c5ce4b5340273700523a62e4371bf655b48fedbca750348a00800",
+        "source-manifest.json": "ad1ac3556add038c5bdcdbe4592336e836476818ebd052514973838dcb4a1711",
+        "validate.cmd": "8f06cf3756ab9213858598db2a999b5a64a7dbb48857517bfefb1af47abc736f"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 445,
+      "windows_unit_tests_passed": 111,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed compile-only /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 128,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-repeat-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "4656afe284932a6ee8f9195b4b6e293b4d35d1956ea31b87c261072cd96c681c",
+        "clippy.log": "d587b4100275840eab687c6cc420fb703a2a46b9da4fbdf52e56bdb327558cfe",
+        "source-manifest.json": "ad1ac3556add038c5bdcdbe4592336e836476818ebd052514973838dcb4a1711",
+        "validate.cmd": "bed979120c04e7220172dae73b5f663256a7b9d4a7858cf7a7f598dbbb873661"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 482,
+    "worker_main_thread_harness": "passed",
+    "fmt": "passed",
+    "clippy": "passed",
+    "source_verifier": "60 hashes and fixture copies passed"
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Native unit tests mock Win32 APIs; production link test retains addresses only",
+    "x86 executables run under WoW64 on x64 Windows10",
+    "No GitHub Actions or real input/desktop/recovery acceptance",
+    "First added modifier assertion failed on Linux/Windows because it expected immediate Ctrl up; corrected to existing lazy-up semantics and both architectures rerun successfully",
+    "Physical Pass/injected collisions, supervision, executable host and full platform/GUI/driver scope remain incomplete"
+  ]
+}

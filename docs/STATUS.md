@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、469 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、482 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -21,7 +21,7 @@
 | 项目许可证、依赖/MSRV | 已选定 | MIT，保留 Unlicense/BSL 来源；Rust 1.97.1、MSRV 1.97、Cargo.lock |
 | 公开名称可用性 | 尚未核验 | 发布前任务 |
 
-下一任务：推进 D06 可执行 worker、完整 bootstrap 和 consumer-ready；多设备 neutral 组事务已实现、真机验收仍待执行。已有键码转换/probe/owned FD/coordinator/supervisor/clock/ppoll/worker-loop/继承管道接收，不能重复当作待实现。继续推进 D08 重复策略、物理碰撞/监督与可执行会话；passive Hook 启动事务、映射前紧急组合和活动桌面访问检查/短租约已实现，已有 SessionActor、ActorHandler/SessionControl、SessionClock、原生定时 poll_with_control 和桌面/权限/按键采样，已有 scan codec、输出账本、同步绑定与原生 Hook 消息循环，不重复建立空接口。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
+下一任务：推进 D06 可执行 worker、完整 bootstrap 和 consumer-ready；多设备 neutral 组事务已实现、真机验收仍待执行。已有键码转换/probe/owned FD/coordinator/supervisor/clock/ppoll/worker-loop/继承管道接收，不能重复当作待实现。继续推进 D08 物理碰撞/监督与可执行会话；物理来源重复转发已接入，真机验收仍待执行；passive Hook 启动事务、映射前紧急组合和活动桌面访问检查/短租约已实现，已有 SessionActor、ActorHandler/SessionControl、SessionClock、原生定时 poll_with_control 和桌面/权限/按键采样，已有 scan codec、输出账本、同步绑定与原生 Hook 消息循环，不重复建立空接口。继续 D05 多阶段 actor/duration 与 simultaneous。完整后端、session/GUI/驱动及发布目标保留，尚未达成全部开发目标。
 
 本机验证：Ubuntu 24.04.4；`RUSTUP_TOOLCHAIN=stable cargo fmt --all --check`、`cargo clippy --workspace --all-targets --offline -- -D warnings`、`cargo test --workspace --offline`、basic/sequence/tap-alone/modifiers/output-shortcuts replay `--assert`、`python3 tools/verify_sources.py` 均通过；实际 rustc/cargo 为 1.97.1。Windows Actions 工作流已创建但未执行。不依赖 sibling 源码运行 workspace tests。D04 最新实现位于 engine/src/lib.rs、config/src/lib.rs；新增 5 个测试验证嵌套序列、同键冲突、vk_none、重复与跨阶段展开拒绝。
 
@@ -119,3 +119,9 @@ D01/D08 宿主 Windows 实际验证（2026-10-09）：用户提示 Windows Rust 
 
 
 D01/D08 固定 Windows 工具链与 i686 实际验证（2026-10-09）：独占 Windows TEMP 的 RUSTUP_HOME 安装 Rust1.97.1（LLVM22.1.6）、clippy/rustfmt 和 x64/i686 std，保留宿主 stable1.99 默认配置。安装组件成功后的 launcher 自更新因临时 CARGO_HOME 布局失败，随后实际 rustc/target 查询与编译证明组件完整；未来隔离安装明确 --no-self-update。tools/validate_windows.ps1 -Toolchain 1.97.1 -Arch x64/x86 -Offline -SeedCargoHome <locked-cache> 两次 exit0，SDK10.0.26100.0/MSVC19.44.35229.0 的 /W4 /WX /std:c11 /Zs 均通过；两个目标各432个 workspace tests（含103 Windowsunit与1 production native_link），cargo clippy --locked --offline --workspace --all-targets --target <target> -- -D warnings 通过。两份快照各127个文件SHA256与提交e0796d2工作区匹配；对同一快照补 cargo +1.97.1 fmt --all --check 和实际 x64/i686 keyweavectl.exe 的全部12个 fixture --assert，均通过。报告 docs/validation/windows-2026-10-09-pinned.json；日志/hash 位于 ignored target/validation/windows-20261009-{x64,x86}-1.97.1，旧1.99报告保留为历史结果。本次仅更新验证证据/指导文档，生产代码不变，不重复已通过的 Linux469 tests；Linux fmt、source-verifier（60 hashes与fixture复制）、git diff --check、14个本地文档链接/围栏与报告JSON检查通过。Windows Actions 未运行，没有真实 Hook/SendInput/driver/键盘验收；x86测试通过WoW64，不代替原生32位OS验收。完整跨平台开发目标、D05/Linuxbootstrap、Windowsrepeat/碰撞/监督/可执行host、GUI/driver等余项继续保留。
+
+
+D08 Windows physical Repeat（2026-10-09）：engine/src/lib.rs 保存 Rule.repeat_child 并提供只读 physical_repeat_target(device, key)，只查该来源当前保留主动作末端，要求owner可见/emitted；held replacement 同步更新路径，热更新仍读旧绑定。runtime.rs 的 SessionActor 在due/Engine Repeat之后验证desired/submitted down并经既有pump发送一条Repeat；不增加owner、不重播宏前缀/变量/松键动作，也不取最后全局输出。repeat:false、已释放、modifier/非keyboard、无主动作与scope不fallback；采用当下已 emitted 的修饰状态，保留原lazy-up，见ADR-0042。新增5个engine与8个Windows mock行为测试；既有热更新测试增加真实repeat packet预期。首次补充修饰scope测试错误假设Ctrl立即up，Linux/Windows均准确失败；核对原output_modifiers oracle确认lazy-up，再修正预期并直接断言后续Shift down先输出Ctrl up，生产lazy语义未改。Linuxworkspace482 libtests与原独立main-thread harness、fmt/clippy/source verifier（60hashes）/diff检查通过；full测试后仅新增当前修饰顺序断言，其单项测试与clippy再次通过。Windows真实编译结果另记下段。无真实键盘捕获/注入；同scan多键盘无法独立计数、源无Repeat时不补timer，物理Pass/Injected碰撞、独立监督/可执行host以及D05/Linuxbootstrap/GUI/driver等全部余项继续保留。
+
+
+D08 Repeat Windows实测补记：固定 Rust1.97.1 x64/i686 各445 workspace tests（含111 Windowsunit和1生产native_link）、clippy --locked --offline --workspace --all-targets --target <target> -- -D warnings 与两种SDK /Zs通过，驱动/Hook/SendInput实际接口未调用。两份128文件快照hash均匹配本次实现，报告 docs/validation/windows-2026-10-09-repeat.json；完整日志/manifest/validate.cmd在 ignored target/validation/windows-20261009-repeat-{x64,x86}-1.97.1。本机初次失败进程已exit101后才重新生成快照；新双架构验证父进程最终exit0。14个本地文档链接与围栏检查通过；新增报告链接另检。Windows CI与真机仍未执行，完整移植目标保持未完成。

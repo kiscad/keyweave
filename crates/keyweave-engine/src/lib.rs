@@ -396,6 +396,8 @@ enum Bound {
         stage: usize,
         index: usize,
         children: Vec<Bound>,
+        // Main retained action, excluding temporary/scoped modifier bindings.
+        repeat_child: Option<usize>,
         halted: Arc<AtomicBool>,
         down_at: MonoTime,
         deadline: Option<(MonoTime, DeadlineToken)>,
@@ -522,6 +524,36 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Read the current retained terminal of this physical binding. Backends
+    /// with a physical repeat source may resend it without replaying actions.
+    /// Native repeats use the current output modifier state, just like a held
+    /// keyboard key; this query does not recreate the original shortcut scope.
+    pub fn physical_repeat_target(&self, device: DeviceInstanceId, key: KeyId) -> Option<KeyId> {
+        let mut bound = &self.active.get(&(device, key))?.bound;
+        loop {
+            match bound {
+                Bound::Rule {
+                    children,
+                    repeat_child,
+                    ..
+                } => {
+                    bound = children.get((*repeat_child)?)?;
+                }
+                Bound::Leaf(owned) => {
+                    return (owned.key.page == KEYBOARD_PAGE
+                        && !owned.key.is_modifier()
+                        && self.emitted.contains(&owned.key)
+                        && self
+                            .owners
+                            .get(&owned.key)
+                            .is_some_and(|owners| owners.contains(&owned.source))
+                        && !self.hidden.contains_key(&(owned.key, owned.source)))
+                    .then_some(owned.key);
+                }
+                Bound::Variable { .. } | Bound::Suppressed => return None,
+            }
+        }
+    }
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, EngineError> {
         Self::new_inner(config, false)
     }
@@ -1205,6 +1237,7 @@ impl Engine {
             stage,
             index,
             children,
+            repeat_child,
             deadline,
             consumed,
             suppressed,
@@ -1233,7 +1266,7 @@ impl Engine {
                 .rev()
                 .find(|action| self.conditions_match(&action.conditions))
                 .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
-            *children = self.press_actions(
+            (*children, *repeat_child) = self.press_actions(
                 &mapping.extras.if_held_down,
                 *stage + 1,
                 config,
@@ -1486,7 +1519,7 @@ impl Engine {
             .find(|action| self.conditions_match(&action.conditions))
             .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
         let halted = Arc::new(AtomicBool::new(false));
-        let children = self.press_actions(
+        let (children, repeat_child) = self.press_actions(
             &mapping.to,
             stage + 1,
             config,
@@ -1545,6 +1578,7 @@ impl Engine {
             stage,
             index,
             children,
+            repeat_child,
             deadline,
             halted,
             down_at: self.now,
@@ -1563,16 +1597,17 @@ impl Engine {
         next_source: &mut u64,
         policy: (bool, &AtomicBool),
         outputs: &mut Vec<OutputIntent>,
-    ) -> Vec<Bound> {
+    ) -> (Vec<Bound>, Option<usize>) {
         let (tap_all, halted) = policy;
         if halted.load(Ordering::Relaxed) {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         let actions: Vec<_> = actions
             .iter()
             .filter(|action| self.conditions_match(&action.conditions))
             .collect();
         let mut held = Vec::new();
+        let mut repeat_child = None;
         for (index, action) in actions.iter().enumerate() {
             let mut modifiers = Vec::new();
             for key in &action.modifiers {
@@ -1629,6 +1664,7 @@ impl Engine {
                 halted.store(true, Ordering::Relaxed);
             }
             if !tap_all && action.repeat && index + 1 == actions.len() {
+                repeat_child = Some(held.len());
                 held.push(child);
             } else {
                 self.release_bound(child, config, next_source, true, outputs);
@@ -1638,6 +1674,7 @@ impl Engine {
                 && action.key().is_some_and(KeyId::is_modifier)
             {
                 // Modifier scope up follows the main modifier up.
+                repeat_child = repeat_child.map(|index| index + modifiers.len());
                 modifiers.append(&mut held);
                 held = modifiers;
             } else {
@@ -1646,7 +1683,7 @@ impl Engine {
                 }
             }
         }
-        held
+        (held, repeat_child)
     }
 
     fn release_bound(
@@ -1682,6 +1719,7 @@ impl Engine {
                 modifiers_at_down,
                 consumed,
                 suppressed,
+                ..
             } => {
                 if let Some(deadline) = deadline {
                     self.deadlines.remove(&deadline);

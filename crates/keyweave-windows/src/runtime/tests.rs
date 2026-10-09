@@ -128,7 +128,7 @@ fn held_binding_uses_old_config_then_new_down_uses_new_config() {
             .flatten()
             .map(|packet| (packet.scan, packet.flags))
             .collect::<Vec<_>>(),
-        vec![(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
+        vec![(0x30, 8), (0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
     );
 }
 #[test]
@@ -325,4 +325,187 @@ fn control_delivers_held_action_without_another_input_event() {
     assert_eq!(calls.borrow().last().unwrap().last().unwrap().scan, 0x2e);
     assert!(actor.borrow().next_wakeup().is_none());
     actor.borrow_mut().stop_after_unhook().unwrap();
+}
+
+fn packets(calls: &Calls) -> Vec<(u16, u32)> {
+    calls
+        .borrow()
+        .iter()
+        .flatten()
+        .map(|p| (p.scan, p.flags))
+        .collect()
+}
+#[test]
+fn physical_repeat_uses_its_binding_not_last_global_output() {
+    let (mut actor, calls) = actor(config(1, vec![mapping(4, 5)]), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    actor.key(event(6, KeyEdge::Down), MonoTime(1)).unwrap();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(2)).unwrap();
+    assert_eq!(packets(&calls), vec![(0x30, 8), (0x2e, 8), (0x30, 8)]);
+    assert_eq!(actor.engine.state().bindings, 2);
+    assert_eq!(actor.output().ledger().submitted().len(), 2);
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packets(&calls)[3..], [(0x30, 10), (0x2e, 10)]);
+}
+#[test]
+fn physical_repeat_sends_only_macro_terminal_and_never_replays_prefix() {
+    let mut map = mapping(4, 5);
+    map.to.push(key(6).into());
+    let (mut actor, calls) = actor(config(1, vec![map]), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(1)).unwrap();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(2)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(3)).unwrap();
+    assert_eq!(
+        packets(&calls),
+        vec![
+            (0x30, 8),
+            (0x30, 10),
+            (0x2e, 8),
+            (0x2e, 8),
+            (0x2e, 8),
+            (0x2e, 10)
+        ]
+    );
+    assert!(actor.output().ledger().submitted().is_empty());
+}
+#[test]
+fn physical_repeat_false_does_not_repeat_another_sources_same_output() {
+    let mut tap = mapping(4, 5);
+    tap.to[0].repeat = false;
+    let (mut actor, calls) = actor(config(1, vec![tap]), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    actor.key(event(5, KeyEdge::Down), MonoTime(1)).unwrap();
+    let before = calls.borrow().len();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(2)).unwrap();
+    assert_eq!(calls.borrow().len(), before);
+    actor.key(event(5, KeyEdge::Repeat), MonoTime(3)).unwrap();
+    assert_eq!(packets(&calls).last(), Some(&(0x30, 8)));
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn source_repeat_at_held_deadline_targets_replacement_after_due_work() {
+    let mut map = mapping(4, 5);
+    map.extras.if_held_down = vec![key(6).into()];
+    map.extras.held_threshold_ns = 10;
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "held".into(),
+        simple: vec![],
+        complex: vec![map],
+    });
+    let (mut actor, calls) = actor(cfg, vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(10)).unwrap();
+    assert_eq!(
+        packets(&calls),
+        vec![(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 8)]
+    );
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn repeat_failure_stops_and_recovers_single_accepted_down_without_new_owner() {
+    let (mut actor, calls) = actor(
+        config(1, vec![]),
+        vec![
+            Ok(Insertion {
+                accepted: 1,
+                last_error: None,
+            }),
+            Ok(Insertion {
+                accepted: 0,
+                last_error: Some(5),
+            }),
+        ],
+    );
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    assert!(matches!(
+        actor.key(event(4, KeyEdge::Repeat), MonoTime(1)),
+        Err(RuntimeError::Incomplete)
+    ));
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert_eq!(actor.output().ledger().submitted().len(), 1);
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packets(&calls), vec![(0x1e, 8), (0x1e, 8), (0x1e, 10)]);
+    assert_eq!(actor.phase(), ActorPhase::Stopped);
+}
+#[test]
+fn unknown_repeat_acceptance_is_quarantined_and_does_not_clear_known_down() {
+    let (mut actor, calls) = actor(
+        config(1, vec![]),
+        vec![
+            Ok(Insertion {
+                accepted: 1,
+                last_error: None,
+            }),
+            Err(SubmitError::Unknown),
+        ],
+    );
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    assert!(actor.key(event(4, KeyEdge::Repeat), MonoTime(1)).is_err());
+    assert!(matches!(
+        actor.stop_after_unhook(),
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(actor.output().ledger().submitted().len(), 1);
+    assert_eq!(calls.borrow().len(), 2);
+}
+#[test]
+fn dispatcher_repeats_physical_binding_but_bypasses_injected_reentry() {
+    let (actor, calls) = actor(config(1, vec![]), vec![]);
+    let actor = Rc::new(RefCell::new(actor));
+    let handler = ActorHandler {
+        actor: actor.clone(),
+        clock: || Some(MonoTime(0)),
+    };
+    let mut dispatcher = HookDispatcher::new(
+        handler,
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+    );
+    assert_eq!(
+        dispatcher.dispatch(0, Some(record(false))),
+        CaptureDecision::Capture
+    );
+    let mut injected = record(false);
+    injected.flags = 0x10;
+    injected.extra_info = 1;
+    assert_eq!(
+        dispatcher.dispatch(0, Some(injected)),
+        CaptureDecision::Pass
+    );
+    assert_eq!(
+        dispatcher.dispatch(0, Some(record(false))),
+        CaptureDecision::Capture
+    );
+    assert_eq!(
+        dispatcher.dispatch(0, Some(record(true))),
+        CaptureDecision::Capture
+    );
+    assert_eq!(packets(&calls), vec![(0x1e, 8), (0x1e, 8), (0x1e, 10)]);
+    actor.borrow_mut().stop_after_unhook().unwrap();
+}
+
+#[test]
+fn source_repeat_uses_current_modifiers_without_replaying_shortcut_scope() {
+    let mut map = mapping(4, 5);
+    map.to[0].modifiers = vec![key(0xe0)];
+    let (mut actor, calls) = actor(config(1, vec![map]), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    assert_eq!(packets(&calls), vec![(0x1d, 8), (0x30, 8)]);
+    actor.key(event(0xe1, KeyEdge::Down), MonoTime(1)).unwrap();
+    assert_eq!(
+        packets(&calls),
+        vec![(0x1d, 8), (0x30, 8), (0x1d, 10), (0x2a, 8)]
+    );
+    let before = calls.borrow().len();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(2)).unwrap();
+    assert_eq!(calls.borrow().len(), before + 1);
+    assert_eq!(packets(&calls).last(), Some(&(0x30, 8)));
+    assert!(actor.output().ledger().submitted().contains(&key(0xe1)));
+    actor
+        .key(event(0xe1, KeyEdge::Repeat), MonoTime(3))
+        .unwrap();
+    assert_eq!(calls.borrow().len(), before + 1);
+    actor.stop_after_unhook().unwrap();
 }
