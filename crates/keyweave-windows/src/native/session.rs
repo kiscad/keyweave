@@ -1,7 +1,8 @@
 //! Explicit same-thread passive startup; no executable or automatic capture.
 use super::{
     hook_thread::{HookSession, HookSessionError, LoopStep},
-    input_probe::{check_input_access, sample_input_state},
+    input_probe::{check_input_access_in_session, sample_input_state},
+    session_info::{SessionIdentity, own_session},
 };
 use crate::{
     access::{AccessError, AccessLease},
@@ -192,6 +193,7 @@ fn monitored_wait<B: SendBackend>(
 /// supply independent progress/session supervision or a deployment-ready host.
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
+    session: SessionIdentity,
     hook: HookSession,
     actor: Rc<RefCell<SessionActor<GuardedBackend<B>>>>,
     enabled: Rc<Cell<bool>>,
@@ -221,6 +223,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         let clock = SessionClock::new();
         let now = clock.now().ok_or(SessionError::Clock)?;
         let deadline = MonoTime(now.0.checked_add(STARTUP_NS).ok_or(SessionError::Clock)?);
+        let session = own_session()?;
         sample_input_state()?;
         if clock.now().ok_or(SessionError::Clock)? >= deadline {
             return Err(SessionError::Timeout);
@@ -238,6 +241,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         let hook =
             HookSession::install(Box::new(handler), tag, policy).map_err(|(error, _)| error)?;
         Ok(Self {
+            session,
             hook,
             actor,
             enabled,
@@ -282,6 +286,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
     }
     fn poll_inner(&mut self) -> Result<SessionStep, SessionError> {
         if self.enabled.get() {
+            let session = self.session;
             let clock = self.clock.clone();
             let actor = self.actor.clone();
             let emergency = self.emergency.clone();
@@ -293,7 +298,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
                         &emergency,
                         &access,
                         || clock.now(),
-                        check_input_access,
+                        || check_input_access_in_session(session),
                     )
                 })? {
                     LoopStep::Continue => SessionStep::Continue,
@@ -340,6 +345,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         let before = self.hook.held_keys()?;
         // Win32 may deliver callbacks during queries: do not retain any borrow.
         let sample = sample()?;
+        check_input_access_in_session(self.session)?;
         let after = self.hook.held_keys()?;
         let completed = now(&self.clock);
         self.check_deadline(completed)?;
@@ -392,3 +398,5 @@ impl<B: SendBackend + 'static> Drop for CaptureSession<B> {
 }
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+use super::input_probe::check_input_access;

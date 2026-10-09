@@ -72,3 +72,6 @@ Windows 活动访问检查已接入 CaptureSession：100ms 到期在 callback �
 
 
 Windows 未归属输入保护（ADR-0043）：active会话在other injected、unsupported physical Pass或故障放行down/repeat时停止；OwnInjected仍bypass，marker+flag不是鉴权凭据。风险sticky标记独立于首个错误；发送重入后禁止后续批次再调用backend。若有submitted down或unknown，不发可能释放外部来源的up，ShutdownReport.untracked_input=true且Unresolved；已知空ledger则Stopped。故障导致的有效captured up不会凭空建立新down，仍可走正常有限恢复；fault后close前观察到额外旁路会再次标记风险。此层会使外部自动化/unsupported键终止当前active会话，不能视为已支持共存或已完成逐键碰撞；unhook后的输入、系统静默移除及close/recovery窗口仍需完整监督/协调和真机验证。
+
+
+Windows WTS租约检查（ADR-0044）：本地caller与foreground所属session必须相同且非0/保留值，WTSSessionInfoEx level1/完整长度、Active+Unlock和有效LogonTime均要求。Context两次比较包含session identity；CaptureSession也比较startup基线，已有新active session观察不能续旧会话。锁定/断连/身份变更/未知/权限或服务失败停止并沿用close-first恢复或untracked Unresolved规则。WTS所有操作在callback外，租约100/500ms不是RPC时长保证；Windows10/11目标，Win7反转flags不支持。尚无WTS事件通知/独立监督，检查间隔与pre/post非原子竞态保留；不能宣称真实锁屏/RDP/注销验收通过。

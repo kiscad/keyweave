@@ -3,6 +3,7 @@
 #define WINVER 0x0a00
 #define _WIN32_WINNT 0x0a00
 #include <windows.h>
+#include <wtsapi32.h>
 #include <stddef.h>
 
 #define CHECK(expr) _Static_assert((expr), #expr)
@@ -72,6 +73,21 @@ CHECK(WSF_VISIBLE == 1 && DESKTOP_READOBJECTS == 1 && DESKTOP_HOOKCONTROL == 8);
 CHECK(PROCESS_QUERY_LIMITED_INFORMATION == 0x1000 && TOKEN_QUERY == 8);
 CHECK(TokenIntegrityLevel == 25 && SE_GROUP_INTEGRITY == 0x20);
 CHECK(ERROR_NO_TOKEN == 1008 && ERROR_INSUFFICIENT_BUFFER == 122);
+CHECK(WTSSessionInfoEx == 25 && WTSActive == 0 && WTSDisconnected == 4);
+CHECK(WTS_SESSIONSTATE_LOCK == 0 && WTS_SESSIONSTATE_UNLOCK == 1);
+CHECK(WTS_SESSIONSTATE_UNKNOWN == 0xffffffff);
+CHECK(WTS_CURRENT_SERVER_HANDLE == NULL && WTS_CURRENT_SESSION == 0xffffffff);
+CHECK(sizeof(WTSINFOEX_LEVEL1_W) == 224 && _Alignof(WTSINFOEX_LEVEL1_W) == 8);
+CHECK(sizeof(WTSINFOEXW) == 232 && _Alignof(WTSINFOEXW) == 8);
+CHECK(offsetof(WTSINFOEXW, Level) == 0 && offsetof(WTSINFOEXW, Data) == 8);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, SessionId) == 0);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, SessionState) == 4);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, SessionFlags) == 8);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, WinStationName) == 12);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, UserName) == 78);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, DomainName) == 120);
+CHECK(offsetof(WTSINFOEX_LEVEL1_W, LogonTime) == 160);
+CHECK(sizeof(((WTSINFOEX_LEVEL1_W *)0)->LogonTime) == 8);
 CHECK(INPUT_KEYBOARD == 1);
 CHECK(KEYEVENTF_SCANCODE == 8);
 CHECK(KEYEVENTF_EXTENDEDKEY == 1);
@@ -122,6 +138,9 @@ int main(void) {
     BOOL (WINAPI *process_token)(HANDLE, DWORD, PHANDLE) = OpenProcessToken;
     BOOL (WINAPI *thread_token)(HANDLE, DWORD, BOOL, PHANDLE) = OpenThreadToken;
     BOOL (WINAPI *token_info)(HANDLE, TOKEN_INFORMATION_CLASS, LPVOID, DWORD, PDWORD) = GetTokenInformation;
+    BOOL (WINAPI *process_session)(DWORD, DWORD *) = ProcessIdToSessionId;
+    BOOL (WINAPI *session_info)(HANDLE, DWORD, WTS_INFO_CLASS, LPWSTR *, DWORD *) = WTSQuerySessionInformationW;
+    void (WINAPI *free_session)(PVOID) = WTSFreeMemory;
     (void)send_input; (void)install; (void)remove_hook; (void)next_hook;
     (void)get_message; (void)peek_message; (void)wait_message;
     (void)translate; (void)dispatch; (void)quit; (void)module;
@@ -131,5 +150,6 @@ int main(void) {
     (void)current_thread; (void)current_process; (void)thread_id; (void)process_id;
     (void)process_handle; (void)close_handle; (void)process_token; (void)thread_token;
     (void)token_info;
+    (void)process_session; (void)session_info; (void)free_session;
     return 0;
 }

@@ -366,6 +366,7 @@ fn timed_session(
     hook.guard_untracked_input().unwrap();
     (
         CaptureSession {
+            session: own_session().unwrap(),
             actor,
             emergency,
             access,
@@ -641,6 +642,7 @@ fn monitored_step(
     session: &mut CaptureSession<Backend>,
     now: MonoTime,
 ) -> Result<LoopStep, HookSessionError> {
+    let identity = session.session;
     let actor = session.actor.clone();
     let emergency = session.emergency.clone();
     let access = session.access.clone();
@@ -650,7 +652,7 @@ fn monitored_step(
             &emergency,
             &access,
             || Some(now),
-            check_input_access,
+            || check_input_access_in_session(identity),
         )
     })
 }
@@ -1126,4 +1128,141 @@ fn untracked_input_keeps_unhook_error_and_does_not_attempt_any_cleanup() {
     assert!(matches!(report.unhook, Err(HookSessionError::Unhook(5))));
     assert!(matches!(report.recovery, Err(RuntimeError::Unresolved)));
     assert_eq!(trace.borrow().calls.len(), 1);
+}
+
+#[test]
+fn disconnected_wts_session_rejects_startup_before_hook_registration() {
+    use super::super::session_info::api as wts;
+    wts::reset(|m| m.state = 4);
+    let trace = Rc::new(RefCell::new(Trace::default()));
+    assert!(matches!(
+        CaptureSession::install(
+            Backend(trace.clone()),
+            InjectionTag::new(1).unwrap(),
+            IdentityPolicy::CanonicalScan,
+            config()
+        ),
+        Err(SessionError::Probe(ProbeError::InactiveSession))
+    ));
+    assert!(trace.borrow().calls.is_empty());
+    assert_eq!(wts::counts(), (1, 1, 0));
+    wts::reset(|_| {});
+    let (mut valid, _) = install();
+    valid.shutdown(); // no registration was leaked
+}
+#[test]
+fn changed_wts_baseline_cannot_activate_even_when_new_session_is_unlocked() {
+    use super::super::session_info::api as wts;
+    let (mut session, trace) = install();
+    wts::MOCK.with(|m| m.borrow_mut().logon += 1);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Probe(ProbeError::Changed))
+    ));
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert!(trace.borrow().calls.is_empty());
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+}
+#[test]
+fn active_wts_disconnect_stops_before_tick_and_recovers_after_unhook() {
+    use super::super::session_info::api as wts;
+    // Test each terminal condition in its own native test thread (TLS is poisoned).
+    let (mut session, trace, _) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    wts::MOCK.with(|m| m.borrow_mut().state = 4);
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)),
+        Err(HookSessionError::Callback(HookFault::InputAccess(
+            ProbeError::InactiveSession
+        )))
+    );
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Probe(ProbeError::InactiveSession))
+    ));
+    let report = session.shutdown_report().unwrap();
+    assert!(!report.untracked_input && report.recovery.is_ok());
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(trace.borrow().calls[1][0].flags & 2, 2);
+}
+#[test]
+fn active_wts_logon_change_is_compared_to_initial_identity_on_refresh() {
+    use super::super::session_info::api as wts;
+    let (mut session, trace, _) = timed_session(config());
+    test_send(0x1e, false);
+    wts::MOCK.with(|m| m.borrow_mut().logon += 1);
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    let identity = session.session;
+    assert_eq!(
+        session.hook.poll_with_control(&mut || monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || Some(MonoTime(crate::access::REFRESH_NS)),
+            || check_input_access_in_session(identity)
+        )),
+        Err(HookSessionError::Callback(HookFault::InputAccess(
+            ProbeError::Changed
+        )))
+    );
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Probe(ProbeError::Changed))
+    ));
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert_eq!(trace.borrow().calls.len(), 2);
+}
+#[test]
+fn foreign_callback_in_wts_query_wins_and_retains_untracked_recovery_risk() {
+    use super::super::session_info::api as wts;
+    let (mut session, trace, _) = timed_session(config());
+    test_send(0x1e, false);
+    wts::MOCK.with(|m| m.borrow_mut().callback = Some(external_record()));
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    let identity = session.session;
+    assert_eq!(
+        session.hook.poll_with_control(&mut || monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || Some(MonoTime(crate::access::REFRESH_NS)),
+            || check_input_access_in_session(identity)
+        )),
+        Err(HookSessionError::Callback(HookFault::UntrackedInput))
+    );
+    assert!(session.poll().is_err());
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+    let (queries, freed, live) = wts::counts();
+    assert_eq!(queries, freed);
+    assert_eq!(live, 0);
+}
+
+#[test]
+fn active_wts_lock_stops_without_scanning_keys_and_does_not_renew_lease() {
+    use super::super::session_info::api as wts;
+    let (mut session, trace, _) = timed_session(config());
+    test_send(0x1e, false);
+    let before = session.access.borrow().clone();
+    wts::MOCK.with(|m| m.borrow_mut().flags = 0);
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)),
+        Err(HookSessionError::Callback(HookFault::InputAccess(
+            ProbeError::LockedSession
+        )))
+    );
+    assert_eq!(*session.access.borrow(), before);
+    assert_eq!(super::super::input_probe::test_access_counts().0, 0);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Probe(ProbeError::LockedSession))
+    ));
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert_eq!(trace.borrow().calls.len(), 2);
 }

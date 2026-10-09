@@ -217,3 +217,61 @@ fn runtime_access_query_is_refused_inside_callback_before_any_native_calls() {
         assert_eq!(mock.key_reads, 0);
     });
 }
+
+#[test]
+fn wts_disconnected_or_locked_context_fails_before_key_observation() {
+    use super::super::session_info::api as wts;
+    for (state, flags, expected) in [
+        (4, 1, ProbeError::InactiveSession),
+        (0, 0, ProbeError::LockedSession),
+        (0, -1, ProbeError::UnknownSession),
+    ] {
+        reset(|_| {});
+        wts::reset(|m| {
+            m.state = state;
+            m.flags = flags;
+        });
+        assert_eq!(sample_input_state(), Err(expected));
+        api::MOCK.with(|m| assert_eq!(m.borrow().key_reads, 0));
+        assert_eq!(wts::counts(), (1, 1, 0));
+        assert_closed();
+    }
+}
+#[test]
+fn wts_identity_changes_during_metadata_observations_are_not_access_grants() {
+    use super::super::session_info::api as wts;
+    reset(|_| {});
+    wts::reset(|m| m.change_after = Some(2));
+    assert_eq!(check_input_access(), Err(ProbeError::Changed));
+    api::MOCK.with(|m| assert_eq!(m.borrow().key_reads, 0));
+    assert_eq!(wts::counts(), (2, 2, 0));
+    assert_closed();
+}
+#[test]
+fn valid_new_wts_identity_does_not_renew_a_previous_session_baseline() {
+    use super::super::session_info::{self, api as wts};
+    reset(|_| {});
+    wts::reset(|_| {});
+    let Ok(expected) = session_info::own_session() else {
+        panic!("default WTS fixture must provide an active session");
+    };
+    wts::MOCK.with(|m| m.borrow_mut().logon += 1);
+    assert_eq!(
+        check_input_access_in_session(expected),
+        Err(ProbeError::Changed)
+    );
+    assert_eq!(check_input_access(), Ok(())); // standalone observation, not a lease
+    api::MOCK.with(|m| assert_eq!(m.borrow().key_reads, 0));
+    assert_eq!(wts::counts(), (5, 5, 0));
+    assert_closed();
+}
+#[test]
+fn foreground_in_different_wts_session_is_not_a_valid_context() {
+    use super::super::session_info::api as wts;
+    reset(|_| {});
+    wts::reset(|m| m.foreground = 2);
+    assert_eq!(check_input_access(), Err(ProbeError::Changed));
+    api::MOCK.with(|m| assert_eq!(m.borrow().key_reads, 0));
+    assert_closed();
+    assert_eq!(wts::counts(), (1, 1, 0));
+}

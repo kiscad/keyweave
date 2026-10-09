@@ -89,3 +89,11 @@ Windows 物理重复转发现已接入 SessionActor（[ADR-0042](ADR-0042-window
 未归属输入保护见 [ADR-0043](ADR-0043-windows-untracked-input.md)。真机需区分OwnInjected与外部自动化/触屏Unicode/unsupported键、外部注入交付时机、发送中fault后下一批拒绝、故障先发生再有旁路、空账本停止与submitted/unknown的Unresolved；保留原主因与ShutdownReport.untracked_input/unhook/recovery。新策略在active旁路时停止，尚未提供逐键共存；callback触发emergency若同时放行down/repeat可能Unresolved，无旁路的idle emergency仍有限恢复。不能把这种保守停止视为完成所有碰撞/紧急恢复真机验收。
 
 未归属保护实测：固定1.97.1 x64/i686各460 tests、生产链接、clippy与SDK oracle通过；[验证记录](validation/windows-2026-10-09-untracked.json) 固定本次源码manifest/hash。前文432/445计数对应历史功能切片，保留各自记录。
+
+
+WTS查询新增 wtsapi32 链接与ProcessIdToSessionId，SDK oracle核验Unicode WTSINFOEXW/level1大小、offset/alignment、enum/flag及WINAPI prototypes；Rust/SDK必须在两个目标共同通过。只接受本地本进程session的Active/Unlock与startup identity，API buffer用WTSFreeMemory，不读取账号字符串或padding。检查在callback外，metadata-only正常循环零VK扫描。详见 [ADR-0044](ADR-0044-windows-wts-access.md)。
+
+只读诊断：`cargo run --locked -p keyweave-windows --example check_access --target x86_64-pc-windows-msvc`（i686也可）。或运行Windows-local验证目录的 `target/<target>/debug/examples/check_access.exe`。只输出input_access observed/unavailable与错误类别，不记录账号、session时间、foreground内容或按键；不安装Hook/注入，成功不是neutral/capture-ready。实际锁定/RDP断连/注销/快速重连与通知丢失仍需完整host和测试系统验收。
+
+
+2026-10-09 WTS补验：[验证报告](validation/windows-2026-10-09-wts.json)记录固定1.97.1 x64/i686各477 tests、143 Windowsunit、native_link、all-targets Clippy及双架构SDK oracle通过，132份源码hash一致。宿主x64例程真实执行一次，返回input_access=observed/exit0；只读metadata成功，不安装Hook、不调用SendInput、不采样VK。完整记录在ignored target/validation/windows-20261009-wts-{x64,x86}-1.97.1，x64另含metadata-probe.log。未实测锁屏/RDP/注销状态变化，不能据此声明这些转移或实际键盘安全恢复已验收。

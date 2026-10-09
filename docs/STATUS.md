@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、497 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、514 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -131,3 +131,9 @@ D08 未归属输入边界/发送重入停止（2026-10-09）：native/hook_threa
 
 
 D08 未归属保护Windows补验：固定1.97.1 x64/i686各460 workspace tests、126 Windowsunit、生产native_link与clippy -D warnings通过，SDK10.0.26100.0/MSVC19.44.35229.0双架构compile-only通过；最终验证父进程exit0。两个128文件快照hash匹配本次实现，docs/validation/windows-2026-10-09-untracked.json与 ignored target/validation/windows-20261009-untracked-{x64,x86}-1.97.1保留完整日志/manifest/validate.cmd。16个已有本地链接/围栏检查通过，新增报告链接另检。Windows CI、真实Hook/SendInput/driver/键盘验收未执行；本次停止保护不能替代逐键共存与完整后端，原全部目标未完成。
+
+
+D08 WTS会话身份/租约（2026-10-09）：native/session_info.rs 新增本地ProcessIdToSessionId/WTSSessionInfoEx scalar metadata、owned WTSFreeMemory、完整Unicode level1布局与长度核验，Active/Unlock/id/logon gate；不读取账号字符串、padding或键状态。input_probe Context pre/post与foreground session gate、SessionIdentity比较已接入；CaptureSession保存startup身份，passive启用最后Hook binding检查前重验、活动metadata refresh比较同baseline。公开metadata-only check_input_access与examples/check_access.rs可一次诊断，不授予lease/neutral。SDK oracle新增WTS enum/232-byte外层与224-bytelevel1 offset/alignment/调用约定检查，native_link保留新公开接口。新增7 WTS ABI/owner/status、4 context/baseline、6 session行为tests，覆盖断连/锁定/新身份、失败/malformed/NULL/清理、callback禁止、WTS query中foreign callback主故障与Untracked保持；6session测试用显式control时间，无sleep掩盖deadline。Linux514 tests+独立main-thread harness、fmt/source verifier通过；新增fixture unwrap在Clippy失败，改let-else并单项test/全workspace clippy通过；生产语义未改。Windows首次x64 SDK/tests通过但同unwrap Clippy exit101，结束后再生成修正快照双架构验证；实际结果另记。WTS通知窗口/独立监督/Hook存活/可执行host、外部共存、D05/Linuxbootstrap/GUI/driver与全部原目标保留，真机锁屏/RDP/注销未执行。
+
+
+D08 WTS Windows补验：固定Rust1.97.1 x64/i686各477 workspace tests（143 Windowsunit、1生产native_link）、all-targets Clippy -D warnings及两种MSVC/SDK compile-only oracle通过，最终验证进程exit0。两个132文件manifest SHA256全部匹配本次源码；报告 [windows-2026-10-09-wts.json](validation/windows-2026-10-09-wts.json)，完整日志/manifest/validate.cmd位于 ignored target/validation/windows-20261009-wts-{x64,x86}-1.97.1。通过WSL调用宿主实际x64 check_access.exe一次，exit0/input_access=observed，执行真实WTS/desktop/token只读查询，无Hook安装/SendInput/VK采样。该成功路径不能代替锁屏/RDP/注销切换、实际捕获/恢复或Windows CI验收。Linux514全套在fixture let-else改写前通过，改写后对应单项及全workspace Clippy通过；生产代码不变。原跨平台目标与全部未完余项保持。

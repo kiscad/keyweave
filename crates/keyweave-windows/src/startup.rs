@@ -6,6 +6,12 @@ pub enum InputSample {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProbeError {
+    #[error("the local WTS session is not active")]
+    InactiveSession,
+    #[error("the local WTS session is locked")]
+    LockedSession,
+    #[error("the local WTS session state is unknown")]
+    UnknownSession,
     #[error("thread impersonation is unsupported during input sampling")]
     Impersonating,
     #[error("asynchronous state must not be queried from a Hook callback")]

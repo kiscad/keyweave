@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-09",
+  "feature": "WTS session identity and access lease (ADR-0044)",
+  "source_base_commit": "3616f07fed35abd193b1d09848d45dac962582c5",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 477,
+      "windows_unit_tests_passed": 143,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 132,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-wts-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "7a3955bd01d0c55d871bcdf1d3b6cb4c0014ca3796cf9502355f46204157e07a",
+        "clippy.log": "2f1bd6a14a94a84e20945ee09d8164e869174c9aa846f472b67db39164677ac9",
+        "source-manifest.json": "073743801cd00c2c3d026e2374640bdee1ecd19f17b75c309dc97471c4d27b95",
+        "validate.cmd": "70e310aa683b778c936002f06e5e96aaed71896f96c616acf57e7c8440142065"
+      },
+      "metadata_probe": {
+        "output": "input_access=observed",
+        "exit_code": 0,
+        "artifact_sha256": "289d0790f55b3c224f136ad54ca865920084c8164f0ec3b2c93811b7e733e0cf"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 477,
+      "windows_unit_tests_passed": 143,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 132,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-wts-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "f87dfc27383fdf4d996f8ffd4bb9c8d54550f961104b2809e54cbf2d8680b966",
+        "clippy.log": "237fba6932157b91f5b97f188e95cdc234dbfb23c142a48e8be958db7c2ee366",
+        "source-manifest.json": "073743801cd00c2c3d026e2374640bdee1ecd19f17b75c309dc97471c4d27b95",
+        "validate.cmd": "d30edf19c3c13c6e55a269bb2cfc5258ec1f9a9b9dd0c56ff9fdb58c05f0968d"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 514,
+    "worker_main_thread_harness": "passed",
+    "fixture_correction": "full suite before let-else test-fixture correction; affected test rerun passed",
+    "fmt": "passed",
+    "clippy": "passed after fixture correction",
+    "source_verifier": "60 hashes and fixture copies passed"
+  },
+  "input_operations": {
+    "real_metadata_probe_called": true,
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Native metadata success path observed once; lock/unlock/RDP/logoff transitions not exercised",
+    "Unit Win32 APIs replaced; production native_link retains symbols without input calls",
+    "i686 binaries run under WoW64, not native 32-bit OS acceptance",
+    "WTS calls have no enforced wall-clock deadline; metadata observations are not atomic",
+    "WTS notifications, hook liveness, independent supervision and executable host remain incomplete",
+    "D05/Linux bootstrap/GUI/driver and full cross-platform goal remain incomplete"
+  ]
+}

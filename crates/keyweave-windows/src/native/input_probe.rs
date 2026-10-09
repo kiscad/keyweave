@@ -1,4 +1,5 @@
 //! Read-only access checks and aggregate key observation; never capture-ready.
+use super::session_info::{self, SessionIdentity};
 use crate::startup::{InputSample, ProbeError};
 use std::{ffi::c_void, mem::size_of, ptr::null_mut};
 type Handle = *mut c_void;
@@ -232,6 +233,7 @@ fn parse_integrity(buffer: &[u64; 32], length: usize) -> Result<u32, ProbeError>
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Context {
+    session: SessionIdentity,
     station: Name,
     desktop: Name,
     foreground: usize,
@@ -241,6 +243,7 @@ struct Context {
 }
 fn context() -> Result<(Context, Owned), ProbeError> {
     no_impersonation()?;
+    let session = session_info::own_session()?;
     // SAFETY: these USER/thread handles are borrowed; they are never closed.
     let (station, thread) = unsafe {
         (
@@ -321,6 +324,7 @@ fn context() -> Result<(Context, Owned), ProbeError> {
     if unsafe { GetWindowThreadProcessId(foreground, &mut pid) } == 0 || pid == 0 {
         return Err(ProbeError::NoForeground);
     }
+    session_info::check_foreground(pid, session)?;
     // SAFETY: current-process pseudo handle is borrowed and never closed.
     let caller_rid = integrity(unsafe { GetCurrentProcess() })?;
     // SAFETY: numeric current pid query with no pointers.
@@ -341,6 +345,7 @@ fn context() -> Result<(Context, Owned), ProbeError> {
     }
     Ok((
         Context {
+            session,
             station: station_name,
             desktop,
             foreground: foreground as usize,
@@ -379,13 +384,19 @@ pub fn sample_input_state() -> Result<InputSample, ProbeError> {
 
 /// Metadata-only runtime check. Never samples keys or changes desktop/token.
 /// Context transitions during the two observations conservatively stop capture.
-pub(super) fn check_input_access() -> Result<(), ProbeError> {
+pub fn check_input_access() -> Result<(), ProbeError> {
+    check_access(None)
+}
+pub(super) fn check_input_access_in_session(expected: SessionIdentity) -> Result<(), ProbeError> {
+    check_access(Some(expected))
+}
+fn check_access(expected: Option<SessionIdentity>) -> Result<(), ProbeError> {
     if !super::hook_thread::outside_callback() {
         return Err(ProbeError::InCallback);
     }
     let (before, mut before_handle) = context()?;
     let (after, mut after_handle) = context()?;
-    if before != after {
+    if before != after || expected.is_some_and(|expected| expected != before.session) {
         return Err(ProbeError::Changed);
     }
     before_handle.close()?;
