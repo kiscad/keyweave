@@ -4,7 +4,7 @@ use crate::keys::{KeyboardPacket, MAX_BATCH};
 #[cfg(any(target_os = "windows", test))]
 mod hook_thread;
 #[cfg(target_os = "windows")]
-pub use hook_thread::{HookSession, HookSessionError};
+pub use hook_thread::{HookSession, HookSessionError, LoopStep};
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]

@@ -106,6 +106,12 @@ impl<B: SendBackend> SessionActor<B> {
     pub fn failure(&self) -> Option<&RuntimeError> {
         self.failure.as_ref()
     }
+    pub(crate) fn control_failed(&mut self, error: RuntimeError) {
+        if self.phase == ActorPhase::Active {
+            self.phase = ActorPhase::StopRequired;
+        }
+        self.failure.get_or_insert(error);
+    }
     pub fn next_wakeup(&self) -> Option<MonoTime> {
         if self.phase != ActorPhase::Active {
             return None;

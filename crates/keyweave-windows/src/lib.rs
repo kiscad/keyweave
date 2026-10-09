@@ -4,8 +4,9 @@ pub mod keys;
 #[cfg(any(target_os = "windows", test))]
 mod native;
 pub mod pump;
+pub mod reactor;
 pub mod runtime;
 #[cfg(target_os = "windows")]
 pub use native::SendInputBackend;
 #[cfg(target_os = "windows")]
-pub use native::{HookSession, HookSessionError};
+pub use native::{HookSession, HookSessionError, LoopStep};

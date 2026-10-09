@@ -298,3 +298,31 @@ fn exhausted_callback_budget_keeps_unsent_timer_edges_out_of_recovery() {
     assert_eq!(calls.borrow()[1][0].scan, 0x30);
     assert_eq!(calls.borrow()[1][0].flags, 10);
 }
+
+#[test]
+fn control_delivers_held_action_without_another_input_event() {
+    use crate::reactor::SessionControl;
+    let mut map = mapping(4, 5);
+    map.extras.if_held_down = vec![key(6).into()];
+    map.extras.held_threshold_ns = 10;
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "idle".into(),
+        simple: vec![],
+        complex: vec![map],
+    });
+    let (mut actor, calls) = actor(cfg, vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    let actor = Rc::new(RefCell::new(actor));
+    let mut times = VecDeque::from([MonoTime(9), MonoTime(10)]);
+    let mut control = SessionControl {
+        actor: actor.clone(),
+        clock: || times.pop_front(),
+    };
+    assert_eq!(control.next_wait().unwrap().timeout_ms(), 1);
+    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(control.next_wait().unwrap().timeout_ms(), 20);
+    assert_eq!(calls.borrow().last().unwrap().last().unwrap().scan, 0x2e);
+    assert!(actor.borrow().next_wakeup().is_none());
+    actor.borrow_mut().stop_after_unhook().unwrap();
+}

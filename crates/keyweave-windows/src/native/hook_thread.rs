@@ -2,6 +2,7 @@ use super::{KeyboardHook, Message};
 use crate::{
     hook::{HookDispatcher, HookFault, HookHandler},
     keys::{HookRecord, IdentityPolicy, InjectionTag, Origin},
+    reactor::WaitPlan,
 };
 use keyweave_types::CaptureDecision;
 use std::{
@@ -38,6 +39,20 @@ mod api {
         pub(super) fn TranslateMessage(message: *const Message) -> i32;
         pub(super) fn DispatchMessageW(message: *const Message) -> isize;
         pub(super) fn PostQuitMessage(code: i32);
+        pub(super) fn PeekMessageW(
+            message: *mut Message,
+            window: Handle,
+            min: u32,
+            max: u32,
+            remove: u32,
+        ) -> i32;
+        pub(super) fn MsgWaitForMultipleObjectsEx(
+            count: u32,
+            handles: *const Handle,
+            timeout: u32,
+            mask: u32,
+            flags: u32,
+        ) -> u32;
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -54,6 +69,8 @@ pub enum HookSessionError {
     Install(u32),
     #[error("Windows message loop failed: {0}")]
     Message(u32),
+    #[error("unexpected message wait result: {0}")]
+    InvalidWait(u32),
     #[error("hook callback stopped: {0:?}")]
     Callback(HookFault),
     #[error("Windows hook removal failed: {0}")]
@@ -67,7 +84,80 @@ pub struct HookSession {
     handle: Handle,
     _thread: PhantomData<Rc<()>>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoopStep {
+    Continue,
+    Quit,
+}
 impl HookSession {
+    /// One bounded cycle; control advances deadlines with a fresh clock before
+    /// sent callbacks and again before waiting. Host handles Quit by unhooking
+    /// and performing explicit actor recovery. No borrow is held during Win32.
+    pub fn poll_with_control<F: FnMut() -> Result<WaitPlan, HookFault>>(
+        &mut self,
+        control: &mut F,
+    ) -> Result<LoopStep, HookSessionError> {
+        if self.handle.is_null() {
+            return Err(HookSessionError::Closed);
+        }
+        if let Some(fault) = self.fault() {
+            return Err(HookSessionError::Callback(fault));
+        }
+        if TAG.with(Cell::get) == 0 {
+            return Err(HookSessionError::Closed);
+        }
+        checked_control(control)?;
+        for _ in 0..64 {
+            let mut message = Message::default();
+            // SAFETY: initialized writable repr(C) MSG, current thread/null HWND,
+            // zero filters, PM_REMOVE=1. Sent callbacks run synchronously here;
+            // control returned and holds no actor or dispatcher mutable borrow.
+            let present = unsafe { PeekMessageW(&mut message, null_mut(), 0, 0, 1) };
+            if let Some(fault) = self.fault() {
+                return Err(HookSessionError::Callback(fault));
+            }
+            if present == 0 {
+                let plan = checked_control(control)?;
+                // SAFETY: zero handles means message-only wait; null handles is
+                // never read. timeout is 0..=20ms, QS_ALLINPUT=0x04ff and
+                // MWMO_INPUTAVAILABLE=4 include seen-but-unremoved input. No
+                // alertable APCs or owned handle copies/lifetime races are used.
+                let result = unsafe {
+                    MsgWaitForMultipleObjectsEx(0, std::ptr::null(), plan.timeout_ms(), 0x04ff, 4)
+                };
+                if result == u32::MAX {
+                    // SAFETY: immediate thread-local error retrieval.
+                    let error = unsafe { GetLastError() };
+                    stop(HookFault::Handler);
+                    return Err(HookSessionError::Message(error));
+                }
+                if let Some(fault) = self.fault() {
+                    return Err(HookSessionError::Callback(fault));
+                }
+                if !matches!(result, 0 | 258) {
+                    stop(HookFault::Handler);
+                    return Err(HookSessionError::InvalidWait(result));
+                }
+                return Ok(LoopStep::Continue);
+            }
+            if message.message == 0x12 {
+                TAG.with(|tag| tag.set(0));
+                return Ok(LoopStep::Quit);
+            }
+            // SAFETY: PeekMessage initialized this thread's MSG; synchronous
+            // borrowed pointer, no callback/user state borrow spans dispatch.
+            unsafe {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            if let Some(fault) = self.fault() {
+                return Err(HookSessionError::Callback(fault));
+            }
+        }
+        // A busy queue cannot suppress deadlines indefinitely or wait 20ms while
+        // messages remain. Outer loop/control gets another bounded turn now.
+        Ok(LoopStep::Continue)
+    }
     pub fn fault(&self) -> Option<HookFault> {
         FAULT.with(Cell::get)
     }
@@ -173,6 +263,22 @@ impl HookSession {
         (handler, result)
     }
 }
+fn checked_control<F: FnMut() -> Result<WaitPlan, HookFault>>(
+    control: &mut F,
+) -> Result<WaitPlan, HookSessionError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(control)) {
+        Ok(Ok(plan)) => Ok(plan),
+        Ok(Err(fault)) => {
+            stop(fault);
+            Err(HookSessionError::Callback(fault))
+        }
+        Err(payload) => {
+            std::mem::forget(payload);
+            stop(HookFault::Panic);
+            Err(HookSessionError::Callback(HookFault::Panic))
+        }
+    }
+}
 impl Drop for HookSession {
     fn drop(&mut self) {
         let _ = self.close();
@@ -251,6 +357,39 @@ unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> is
 mod api {
     use super::*;
     thread_local! { pub(super) static UNHOOK_FAIL: Cell<bool> = const { Cell::new(false) }; pub(super) static INSTALL_FAIL: Cell<bool> = const { Cell::new(false) }; pub(super) static LOOP_RESULT: Cell<i32> = const { Cell::new(0) }; }
+    thread_local! {
+        pub(super) static MESSAGES: RefCell<std::collections::VecDeque<u32>> = const { RefCell::new(std::collections::VecDeque::new()) };
+        pub(super) static WAIT_RESULT: Cell<u32> = const { Cell::new(258) };
+        pub(super) static WAIT_CALLS: RefCell<Vec<(u32,u32,u32,u32)>> = const { RefCell::new(Vec::new()) };
+    }
+    pub(super) unsafe fn PeekMessageW(
+        message: *mut Message,
+        _: Handle,
+        _: u32,
+        _: u32,
+        _: u32,
+    ) -> i32 {
+        if let Some(code) = MESSAGES.with(|queue| queue.borrow_mut().pop_front()) {
+            // SAFETY: the tested call supplied its live initialized MSG output.
+            unsafe {
+                (*message).message = code;
+            }
+            1
+        } else {
+            0
+        }
+    }
+    pub(super) unsafe fn MsgWaitForMultipleObjectsEx(
+        count: u32,
+        handles: *const Handle,
+        timeout: u32,
+        mask: u32,
+        flags: u32,
+    ) -> u32 {
+        assert!(handles.is_null());
+        WAIT_CALLS.with(|calls| calls.borrow_mut().push((count, timeout, mask, flags)));
+        WAIT_RESULT.with(Cell::get)
+    }
     pub(super) unsafe fn GetModuleHandleW(_: *const u16) -> Handle {
         1usize as Handle
     }
@@ -425,5 +564,107 @@ mod tests {
             ),
             Err((HookSessionError::Busy, _))
         ));
+    }
+    #[test]
+    fn bounded_message_batch_yields_and_fresh_control_sets_next_wait() {
+        let (mut session, _) = install(None);
+        api::MESSAGES.with(|messages| messages.borrow_mut().extend(std::iter::repeat_n(0x400, 65)));
+        let mut calls = 0;
+        let mut control = || {
+            calls += 1;
+            Ok(WaitPlan::for_deadline(
+                keyweave_types::MonoTime(0),
+                Some(keyweave_types::MonoTime(if calls < 3 {
+                    5_000_000
+                } else {
+                    1
+                })),
+            ))
+        };
+        assert_eq!(
+            session.poll_with_control(&mut control).unwrap(),
+            LoopStep::Continue
+        );
+        assert!(api::WAIT_CALLS.with(|calls| calls.borrow().is_empty()));
+        assert_eq!(
+            session.poll_with_control(&mut control).unwrap(),
+            LoopStep::Continue
+        );
+        assert_eq!(calls, 3);
+        assert_eq!(
+            api::WAIT_CALLS.with(|calls| calls.borrow().clone()),
+            vec![(0, 1, 0x04ff, 4)]
+        );
+        session.close().1.unwrap();
+    }
+    #[test]
+    fn quit_disables_capture_before_returning_to_host() {
+        let (mut session, _) = install(None);
+        api::MESSAGES.with(|messages| messages.borrow_mut().push_back(0x12));
+        assert_eq!(
+            session
+                .poll_with_control(&mut || Ok(WaitPlan::for_deadline(
+                    keyweave_types::MonoTime(0),
+                    None
+                )))
+                .unwrap(),
+            LoopStep::Quit
+        );
+        assert_eq!(send(0x1e, false), 9);
+        assert_eq!(
+            session.poll_with_control(&mut || panic!("control must not run after Quit")),
+            Err(HookSessionError::Closed)
+        );
+        assert!(api::WAIT_CALLS.with(|calls| calls.borrow().is_empty()));
+        session.close().1.unwrap();
+    }
+    #[test]
+    fn wait_failures_stop_capture_and_keep_error_diagnostics() {
+        for (result, expected) in [
+            (u32::MAX, HookSessionError::Message(5)),
+            (0xc0, HookSessionError::InvalidWait(0xc0)),
+        ] {
+            std::thread::spawn(move || {
+                let (mut session, _) = install(None);
+                api::WAIT_RESULT.with(|value| value.set(result));
+                assert_eq!(
+                    session.poll_with_control(&mut || Ok(WaitPlan::for_deadline(
+                        keyweave_types::MonoTime(0),
+                        None
+                    ))),
+                    Err(expected)
+                );
+                assert_eq!(send(0x1e, false), 9);
+                session.close().1.unwrap();
+                assert!(POISONED.with(Cell::get));
+            })
+            .join()
+            .unwrap();
+        }
+    }
+    #[test]
+    fn control_panic_and_error_stop_before_any_message_wait() {
+        for panic in [false, true] {
+            std::thread::spawn(move || {
+                let (mut session, _) = install(None);
+                let result = session.poll_with_control(&mut || {
+                    assert!(!panic, "control failure");
+                    Err(HookFault::Handler)
+                });
+                assert_eq!(
+                    result,
+                    Err(HookSessionError::Callback(if panic {
+                        HookFault::Panic
+                    } else {
+                        HookFault::Handler
+                    }))
+                );
+                assert_eq!(send(0x1e, false), 9);
+                assert!(api::WAIT_CALLS.with(|calls| calls.borrow().is_empty()));
+                session.close().1.unwrap();
+            })
+            .join()
+            .unwrap();
+        }
     }
 }
