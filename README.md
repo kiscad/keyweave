@@ -65,4 +65,8 @@ Windows worker 启动准入与 private async 进度端点接收已实现，固�
 
 Windows 已有独占自有Job child与异步进度管道的Supervisor，真实无输入例程验证lease超时终止、错误回应、Stopped仍存活与主动停止，均等待进程句柄确认退出。[设计](docs/ADR-0053-windows-progress-supervisor.md)、[验证记录及异常限制](docs/validation/windows-2026-10-09-supervisor.json)。真实捕获worker/完整host尚未接入。
 
-Windows Worker执行循环已将启动token、private进度客户端与CaptureSession接齐；回应来自challenge之后实际完成的poll，终止保留主错误和独立恢复结果。[设计](docs/ADR-0054-windows-capture-worker.md)、[mock/生产链接验证](docs/validation/windows-2026-10-09-capture-worker.json)。完整exe/配置控制/host与真实Hook输入验收仍待完成。
+Windows Worker执行循环已将启动token、private进度客户端与CaptureSession接齐；回应来自challenge之后实际完成的poll，终止保留主错误和独立恢复结果。[设计](docs/ADR-0054-windows-capture-worker.md)、[mock/生产链接验证](docs/validation/windows-2026-10-09-capture-worker.json)。执行入口见 ADR-0055；配置控制/host与真实Hook输入验收仍待完成。
+
+## Worker 可执行入口
+
+`keyweave-worker` 已增加 Windows 真实 main：父保护核验先于配置加载和捕获安装，配置读取有界且拒绝有损激活，终止检查独立 shutdown 结果后实际退出。它使用私有二进制协议，用户 parent host、控制/热更新与正常键盘验收仍待接入；Linux 捕获入口暂未接入。[设计与退出契约](docs/ADR-0055-worker-executable-bootstrap.md)。

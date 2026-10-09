@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-09",
+  "feature": "Real Windows keyweave-worker main with guarded config/bootstrap and explicit exit classification (ADR-0055)",
+  "source_base_commit": "1450e10e88189aff853c8d74666f6acb0af581b5",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 588,
+      "worker_library_tests_passed": 6,
+      "worker_real_executable_tests_passed": 3,
+      "windows_unit_tests_passed": 244,
+      "clippy": "passed workspace all-targets -D warnings",
+      "fmt": "passed exact snapshot, separate process terminal0",
+      "sdk_oracle": "existing /W4 /WX /std:c11 /Zs passed; no FFI changes; stdout observed not separately archived",
+      "production_main": "compiled and linked; actual initial main used for all rejection tests",
+      "source_files_hash_checked": 167,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit0; no replacement while previous session active",
+      "native_entry": "Supervisor owned Job spawn -> WorkerStartup claim -> absent config -> real observed exit66; zero epoch and explicit parent pipe cleanup complete",
+      "artifact_directory": "target/validation/windows-20261009-worker-entry-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "498a988b2a1eb287fcc01ce75577d3e58cac4800ecac9f77c34f7e9a6f799cfb",
+        "clippy.log": "21867a934b0e879d36f79f7e8fd90ca1b87745c05e83a1268f630c0436502e69",
+        "source-manifest.json": "d87f02fb7d63188bb64bcc38bacd04cdec7dd5f3d6746294fd8875319f6e13e2",
+        "validate.cmd": "c6751226c17656790549b167334411af196f1b72963f7d19c8bf866a869d92e2",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 588,
+      "worker_library_tests_passed": 6,
+      "worker_real_executable_tests_passed": 3,
+      "windows_unit_tests_passed": 244,
+      "clippy": "passed workspace all-targets -D warnings",
+      "fmt": "passed exact snapshot, separate process terminal0",
+      "sdk_oracle": "existing /W4 /WX /std:c11 /Zs passed; no FFI changes; stdout observed not separately archived",
+      "production_main": "compiled and linked; actual initial main used for all rejection tests",
+      "source_files_hash_checked": 167,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit0; no replacement while previous session active",
+      "native_entry": "Supervisor owned Job spawn -> WorkerStartup claim -> absent config -> real observed exit66; zero epoch and explicit parent pipe cleanup complete",
+      "artifact_directory": "target/validation/windows-20261009-worker-entry-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "035ae6def5f732daa551ca0408170f5ddea0f10fef2bc7e882b89fb431b9144b",
+        "clippy.log": "1ac22df276515a3f198fe56894a12aba2f4da3db54c1a7f32b3f02bab1f059f9",
+        "source-manifest.json": "d87f02fb7d63188bb64bcc38bacd04cdec7dd5f3d6746294fd8875319f6e13e2",
+        "validate.cmd": "5bf721b25206404856d0b1e503430dd46a8a9a6053b9895fcd364e49900322f2",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "initial_failure": {
+    "arch": "x64",
+    "validation_process": "confirmed terminal101 before x86 started",
+    "observed": "Exited code66 with receipt UnexpectedEof channel reason; test expected reason=None",
+    "resolution": "retain independent EOF/BrokenPipe terminal reason; still require real config exit66, no lease/other reason and zero epoch; no production Supervisor change",
+    "artifact_directory": "target/validation/windows-20261009-worker-entry-before-eof-assert",
+    "artifacts_sha256": {
+      "source-manifest.json": "6a163db644d5e42f320c31649aca2a70c443872de64435760b4fbf1c027b3414",
+      "validate.cmd": "e8b104554582e7328000e8fa4b28873835dbd34034bb570b55461efdaa0f8280",
+      "tests.log": "96e214f160a79693ea48db4470fc5f391611fdcc93ab5c7ff6626371f9d6e6ed",
+      "entry-before.rs": "9c50a9ff51490d45e8d99ff0e368c44e52dd31316326b92aabffbda0476084e0"
+    }
+  },
+  "linux": {
+    "workspace_tests_passed": 625,
+    "worker_library_tests_passed": 7,
+    "worker_real_executable_tests_passed": 2,
+    "worker_main_thread_harness": "passed no-device harness",
+    "clippy": "passed workspace all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 source hashes and fixture copies verified",
+    "artifact_directory": "target/validation/linux-20261009-worker-entry",
+    "artifacts_sha256": {
+      "tests.log": "837b0a403d52c1a05890720d6509b0ba975cdd4ea95109b29a5c22eeff417694",
+      "clippy.log": "160891ea8f711467fde63bdb1de9415a9fedfb7e3286d01d7438473c0aa48cbe"
+    }
+  },
+  "implementation_checks": [
+    "strict nine-argument private format, positive canonical PID/u64 run/u32 marker and explicit identity; bounded producer consumption",
+    "non-Unicode absolute OsString path preserved on Unix; host-native absolute Windows path required",
+    "real main claims owned parent protection before file read, backend/input/threads/sync stdio; silent ordinary panic hook",
+    "8MiB+1 bounded reader, UTF8/JSONC Windows compilation generation1, diagnostics retained and disabled rules rejected",
+    "native output/Engine validation still precedes input APIs inside Worker.install",
+    "terminal classification includes all independent shutdown failures and Unresolved; main actually returns, original binary std handles close only with process lifetime"
+  ],
+  "input_operations": {
+    "real_windows_hook_installed": false,
+    "real_windows_sendinput_called": false,
+    "driver_loaded": false,
+    "physical_keyboard_validated": false,
+    "actual_worker_process_started": true,
+    "actual_worker_capture_activated": false,
+    "actual_worker_config_missing_exit": true
+  },
+  "limits": [
+    "Complete parent host/user stop/config control, immutable config handoff and diagnostics protocol still required; private entry is not a deployable user flow",
+    "No normal capture/Hook/SendInput/input recovery or liveness acceptance; no Windows11 or physical keyboard tests",
+    "Exit0 means known per-process shutdown results, not application delivery/global output clean; scalar exit classification does not transport detailed reports",
+    "Blocking special-file/config work remains subject to independent startup lease, byte limit is not an IO time bound",
+    "Run/FrameSent/EOF do not prove exit; Supervisor observes owned signaled process; EOF may precede exit and is preserved",
+    "Marker is explicit provenance, not authentication; host allocation/collision prevention still pending",
+    "Linux executable capture bootstrap is not connected; valid Linux invocation exits78",
+    "Initial Linux test asserted the wrong diagnostic pointer shape; corrected to existing whole-action /to/0 KW-CAP-001, without changing compiler",
+    "Prior x86 native anomalies in ADR-0053 remain recorded, not diagnosed or claimed fixed here",
+    "Original advanced rules/Linux consumer-ready/GUI/packaging/Rust driver/companion audit/hardware objectives remain unfinished"
+  ]
+}

@@ -1,0 +1,166 @@
+//! Private worker entry contract. Parsing/compilation have no input side effects.
+use keyweave_config::{ConfigError, Diagnostic, MAX_CONFIG_BYTES};
+use keyweave_engine::ConfigSnapshot;
+use keyweave_types::{BackendCapabilities, ConfigGeneration};
+use keyweave_windows::keys::{IdentityPolicy, InjectionTag};
+use std::{ffi::OsString, io::Read, path::PathBuf, sync::Arc};
+
+pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
+pub const ARGUMENT_COUNT: usize = 9;
+
+/// Stable, deliberately small exit codes. No error text enters binary stdio.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorkerExit {
+    Clean = 0,
+    Arguments = 64,
+    Admission = 65,
+    Config = 66,
+    Install = 67,
+    Loop = 68,
+    Cleanup = 69,
+    UnsupportedPlatform = 78,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid private worker arguments")]
+pub struct ArgumentError;
+
+#[derive(Debug)]
+pub struct Arguments {
+    pub parent: u32,
+    pub run_id: u64,
+    pub config: PathBuf,
+    pub tag: InjectionTag,
+    pub identity: IdentityPolicy,
+}
+
+fn decimal(value: &std::ffi::OsStr) -> Result<u64, ArgumentError> {
+    let value = value.to_str().ok_or(ArgumentError)?;
+    // Canonical positive decimal only: no whitespace, signs or zero padding.
+    if value.is_empty()
+        || value.len() > 20
+        || value.starts_with('0')
+        || !value.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(ArgumentError);
+    }
+    value.parse().map_err(|_| ArgumentError)
+}
+
+impl Arguments {
+    /// Consume at most ten OS arguments; preserve non-Unicode configuration paths.
+    /// Fixed ordering prevents duplicate/unknown switches from reaching admission.
+    pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, ArgumentError> {
+        let args: Vec<_> = args.into_iter().take(ARGUMENT_COUNT + 1).collect();
+        if args.len() != ARGUMENT_COUNT
+            || args[0] != WORKER_ARGUMENT
+            || args[3] != "--config"
+            || args[5] != "--tag"
+            || args[7] != "--identity"
+        {
+            return Err(ArgumentError);
+        }
+        let parent = u32::try_from(decimal(&args[1])?).map_err(|_| ArgumentError)?;
+        let run_id = decimal(&args[2])?;
+        // Marker is explicitly restricted to nonzero u32 on both architectures.
+        let marker = u32::try_from(decimal(&args[6])?).map_err(|_| ArgumentError)?;
+        let tag = InjectionTag::new(marker as usize).map_err(|_| ArgumentError)?;
+        let config = PathBuf::from(&args[4]);
+        if !config.is_absolute() {
+            return Err(ArgumentError);
+        }
+        let identity = match args[8].to_str() {
+            Some("strict") => IdentityPolicy::StrictUnique,
+            Some("canonical-scan") => IdentityPolicy::CanonicalScan,
+            _ => return Err(ArgumentError),
+        };
+        Ok(Self {
+            parent,
+            run_id,
+            config,
+            tag,
+            identity,
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("configuration exceeds {MAX_CONFIG_BYTES} bytes")]
+    TooLarge,
+    #[error(transparent)]
+    Utf8(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    Compile(#[from] ConfigError),
+    #[error("configuration cannot be activated without loss")]
+    Loss {
+        disabled: usize,
+        diagnostics: Vec<Diagnostic>,
+    },
+}
+
+/// Must run after native parent admission and before constructing input resources.
+/// Native output/engine compatibility is also checked by Worker.install before
+/// its first input probe/notification/Hook call. No metadata/script evaluation.
+pub fn load_config(reader: impl Read) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_CONFIG_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_CONFIG_BYTES {
+        return Err(LoadError::TooLarge);
+    }
+    let text = String::from_utf8(bytes)?;
+    let compiled = keyweave_config::compile(
+        &text,
+        &BackendCapabilities::windows_hook(),
+        ConfigGeneration(1),
+    )?;
+    if !compiled.executable_without_loss() {
+        return Err(LoadError::Loss {
+            disabled: compiled.disabled_rules,
+            diagnostics: compiled.diagnostics,
+        });
+    }
+    Ok(Arc::new(compiled.snapshot))
+}
+
+/// Facts include every independent shutdown result, not just the primary fault.
+#[derive(Clone, Copy, Debug)]
+pub struct TerminalFacts {
+    pub fault: bool,
+    pub progress_failed: bool,
+    pub shutdown_present: bool,
+    pub stopped: bool,
+    pub unhook_ok: bool,
+    pub recovery_ok: bool,
+    pub notifications_ok: bool,
+    pub access_lost: bool,
+    pub session_changed: bool,
+    pub untracked_input: bool,
+}
+impl TerminalFacts {
+    pub fn exit(self) -> WorkerExit {
+        if !self.shutdown_present
+            || !self.stopped
+            || !self.unhook_ok
+            || !self.recovery_ok
+            || !self.notifications_ok
+            || self.access_lost
+            || self.session_changed
+            || self.untracked_input
+        {
+            WorkerExit::Cleanup
+        } else if self.fault || self.progress_failed {
+            WorkerExit::Loop
+        } else {
+            WorkerExit::Clean
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

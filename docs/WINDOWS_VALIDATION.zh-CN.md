@@ -168,3 +168,12 @@ cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_super
 2026-10-09 最终独立监督：[报告](validation/windows-2026-10-09-supervisor.json)记录Linux606、固定Windows1.97.1双架构各569 tests/234 Windowsunit、Clippy/fmt/SDK及160文件hash匹配，验证进程终止exit0。两个Supervisor原生六场景实际通过；x64组合native exit0，x86组合先因旧挂起交付fixture异常0xc000004b退出1，同源码受影响路径重跑exit0并补齐父死亡。失败与重跑日志均保留，异常原因未确定；早先一次x86对象路径构建失败也独立归档，不拿native通过替代失败的编译检查。最终源码的queued fast-reply/延后Write ack回归证明旧逻辑误报Identity，最终全套重新验收。完整host/真实CaptureSession/Hook活性/Win11与实际键盘仍未验收。
 
 2026-10-09 捕获worker接线：[报告](validation/windows-2026-10-09-capture-worker.json)记录Linux616、固定Windows1.97.1双架构各579 tests/244 Windowsunit、Clippy/fmt/SDK、162源文件hash一致与验证进程terminal0。新增10worker tests执行真实Session.poll/handler/ledger代码，OS入口用mocks；native_link只链接Worker<SendInputBackend>生产方法地址。本轮没有运行真实捕获worker/Hook/SendInput，也没有用旧无输入fixture冒充新loop系统验收。原生运行需完整可信exe/main/配置和独立Supervisor host，后续按实际输入授权与实机门槛验证；已有CLI尚不能启动这个loop。
+
+
+## 真实 worker 入口补验（2026-10-09，ADR-0055）
+
+固定 Rust1.97.1/MSVC19.44.35229.0/SDK10.0.26100.0 在Windows10 build19045执行x64与i686独占local TEMP快照：各588 workspace tests、all-targets Clippy -D warnings、fmt及原SDK compile-only oracle通过，最终验证与fmt进程确认exit0；各167源文件SHA匹配最终工作区。实际debug binary的初始main接入WorkerStartup、配置、SendInputBackend/Worker，生产路径编译链接；未做release/安装验收。[报告与artifact hashes](validation/windows-2026-10-09-worker-entry.json)。
+
+实际binary test检查错误argv静默64，未受保护直接调用静默65；真正Supervisor/owned Job启动后claim成功，再打开不存在配置路径，真实观察Exited code66且epoch0，两个parent进度pipe明确清理。该test不创建配置目录、不安装Hook、不调用SendInput、无driver/键盘操作，仅证明准入→配置失败→进程退出。首轮x64在真实code66时先见receipt EOF，原test要求reason=None而失败terminal101；保留原log/manifest/entry，允许保留独立EOF/BrokenPipe channel reason后双架构全部重验，未更改生产Supervisor或抹去故障原因。code66仍必需，lease/其他reason不予通过。
+
+新增6个portable库tests（Linux另有非Unicode路径test）与3个Windows真实binary tests，Linux最终625项及独立main-thread无设备harness通过。源代码无新FFI/SDK声明，SDK stdout已观察而未单独归档；所有原日志/manifest/cmd、前述失败证据位于ignored target/validation/windows-20261009-worker-entry-*，Linux日志在linux-20261009-worker-entry。普通panic hook静默不证明fatal abort或全局输入恢复；退出0不替代owned process signaled观察。完整用户host/控制/诊断、正常捕获/Hook存活/真实输入恢复与Windows11/实机依旧未验证，ADR-0053以前x86异常原因仍未知，不因此轮入口通过称已修复。

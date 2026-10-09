@@ -186,6 +186,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyweave-worker"
+version = "0.1.0"
+dependencies = [
+ "keyweave-config",
+ "keyweave-engine",
+ "keyweave-progress",
+ "keyweave-types",
+ "keyweave-windows",
+ "thiserror",
+]
+
+[[package]]
 name = "keyweavectl"
 version = "0.1.0"
 dependencies = [

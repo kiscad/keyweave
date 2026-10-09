@@ -1,0 +1,19 @@
+[package]
+name = "keyweave-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+keyweave-config.workspace = true
+keyweave-engine.workspace = true
+keyweave-types.workspace = true
+keyweave-windows = { path = "../keyweave-windows" }
+thiserror.workspace = true
+
+[dev-dependencies]
+keyweave-progress.workspace = true
+
+[lints]
+workspace = true
