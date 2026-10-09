@@ -41,6 +41,12 @@ pub enum WorkerStartupError {
     PipeAccess,
     #[error("worker progress pipe name or distinct identity is invalid")]
     PipeIdentity,
+    #[error("config file claim was already attempted")]
+    ConfigClaimed,
+    #[error("inherited config handle, mode or access differs from startup contract")]
+    ConfigHandle,
+    #[error("inherited config metadata failed: {0}")]
+    Config(#[from] super::config_artifact::ArtifactError),
     #[error("{call} failed: {code}")]
     Api { call: &'static str, code: u32 },
     #[error("Native file query class {class} returned {status:#010x}; outputs retained until exit")]
@@ -379,13 +385,55 @@ pub fn check_synchronous_progress_pipe_rejected() -> Result<(), WorkerStartupErr
         Ok(_) => Err(WorkerStartupError::PipeMode),
     }
 }
-#[derive(Debug)]
 pub struct WorkerParentGuard {
     parent: u32,
     pid: u32,
+    std_handles: [usize; 3],
+    config_attempted: bool,
     _thread: PhantomData<Rc<()>>,
 }
+impl std::fmt::Debug for WorkerParentGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerParentGuard")
+            .field("parent", &self.parent)
+            .field("pid", &self.pid)
+            .finish_non_exhaustive()
+    }
+}
 impl WorkerParentGuard {
+    /// Real main, after parent/Job claim and before input/threads. A failed
+    /// attempt requires exit; rejected numeric handles remain borrowed/unclosed.
+    /// Structural admission is not cross-user authentication or an OS main proof.
+    pub fn claim_config_reader(
+        &mut self,
+        value: usize,
+    ) -> Result<super::config_artifact::ConfigReader, WorkerStartupError> {
+        if !super::outside_callback() {
+            return Err(WorkerStartupError::InCallback);
+        }
+        if self.config_attempted {
+            return Err(WorkerStartupError::ConfigClaimed);
+        }
+        self.config_attempted = true;
+        if value == 0 || value == usize::MAX || self.std_handles.contains(&value) {
+            return Err(WorkerStartupError::ConfigHandle);
+        }
+        let handle = value as Handle;
+        // Borrowed handle only. Native queries retain stable buffers on nonzero
+        // status as in pipe admission; never read a pending output or close it.
+        if scalar(handle, 8)? != 0x120089 || scalar(handle, 16)? & 0x30 != 0x20 {
+            return Err(WorkerStartupError::ConfigHandle);
+        }
+        super::config_artifact::ConfigReader::inspect_inherited(handle)?;
+        // SAFETY: admitted distinct inherited sync disk file; clear inheritance
+        // before taking unique ownership, not a borrowed std or pseudo handle.
+        if unsafe { SetHandleInformation(handle, 1, 0) } == 0 {
+            return Err(error("SetHandleInformation(config)"));
+        }
+        // SAFETY: no Rust owner exists; exact READ, synchronous mode, disk/local
+        // metadata and inheritance verified; real parent guard already admitted.
+        Ok(unsafe { super::config_artifact::ConfigReader::adopt_inherited(handle) })
+    }
     pub fn parent_pid(&self) -> u32 {
         self.parent
     }
@@ -479,12 +527,20 @@ impl WorkerStartup {
             guard: WorkerParentGuard {
                 parent,
                 pid,
+                std_handles: handles.map(|h| h as usize),
+                config_attempted: false,
                 _thread: PhantomData,
             },
             run_id,
             reader,
             writer,
         })
+    }
+    pub fn claim_config_reader(
+        &mut self,
+        value: usize,
+    ) -> Result<super::config_artifact::ConfigReader, WorkerStartupError> {
+        self.guard.claim_config_reader(value)
     }
     pub fn guard(&self) -> &WorkerParentGuard {
         &self.guard

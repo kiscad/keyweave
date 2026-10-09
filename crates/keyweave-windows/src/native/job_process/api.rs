@@ -9,6 +9,8 @@ pub(super) struct Mock {
     pub initialized_list: usize,
     pub job_value: usize,
     pub handles_value: usize,
+    pub handles_count: usize,
+    pub command: Vec<u16>,
     pub attribute_count: u32,
     pub inheritance: std::collections::BTreeMap<usize, bool>,
     pub fail_inherit: Option<(usize, bool)>,
@@ -79,6 +81,16 @@ pub(super) unsafe fn CreateProcessW(
     assert_eq!(unsafe { (*start).size } as usize, size_of::<StartupEx>());
     // SAFETY: caller passes a complete StartupEx via its repr(C) first field.
     let ex = unsafe { &*start.cast::<StartupEx>() };
+    let mut command = Vec::new();
+    for i in 0..32768 {
+        // SAFETY: tested caller has a bounded terminated mutable command buffer.
+        let u = unsafe { *line.add(i) };
+        if u == 0 {
+            break;
+        }
+        command.push(u);
+    }
+    MOCK.with(|m| m.borrow_mut().command = command);
     MOCK.with(|m| {
         let m = m.borrow();
         assert_ne!(m.initialized_list, 0);
@@ -96,9 +108,13 @@ pub(super) unsafe fn CreateProcessW(
             assert_eq!(inherit, 1);
             assert_eq!(ex.info.numbers[7], 0x100);
             // SAFETY: stable three-handle array lives through list deletion.
-            let handles =
-                unsafe { std::slice::from_raw_parts(m.handles_value as *const Handle, 3) };
-            assert_eq!(handles, [ex.info.stdin, ex.info.stdout, ex.info.stderr]);
+            let handles = unsafe {
+                std::slice::from_raw_parts(m.handles_value as *const Handle, m.handles_count)
+            };
+            assert_eq!(
+                handles[..3],
+                [ex.info.stdin, ex.info.stdout, ex.info.stderr]
+            );
             for &h in handles {
                 assert!(!matches!(h as usize, 0..=3 | 300..=399));
                 assert_eq!(m.inheritance.get(&(h as usize)), Some(&true));
@@ -176,12 +192,16 @@ pub(super) unsafe fn UpdateProcThreadAttribute(
         MOCK.with(|m| m.borrow_mut().job_value = value as usize);
     } else {
         assert_eq!(attribute, 0x20002);
-        assert_eq!(bytes, 3 * size_of::<Handle>());
+        assert!(matches!(bytes / size_of::<Handle>(), 3 | 4));
         assert_eq!(MOCK.with(|m| m.borrow().attribute_count), 2);
         if !call("attribute-handles") {
             return 0;
         }
-        MOCK.with(|m| m.borrow_mut().handles_value = value as usize);
+        MOCK.with(|m| {
+            let mut m = m.borrow_mut();
+            m.handles_value = value as usize;
+            m.handles_count = bytes / size_of::<Handle>();
+        });
     }
     1
 }
@@ -197,8 +217,9 @@ pub(super) unsafe fn DeleteProcThreadAttributeList(list: *mut c_void) {
         }
         if m.handles_value != 0 {
             // SAFETY: handle array must also survive through Delete.
-            let handles =
-                unsafe { std::slice::from_raw_parts(m.handles_value as *const Handle, 3) };
+            let handles = unsafe {
+                std::slice::from_raw_parts(m.handles_value as *const Handle, m.handles_count)
+            };
             for h in handles {
                 assert_eq!(m.inheritance.get(&(*h as usize)), Some(&true));
             }

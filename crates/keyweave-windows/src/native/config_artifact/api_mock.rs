@@ -2,7 +2,7 @@
 use super::*;
 use std::cell::RefCell;
 #[derive(Default)]
-pub(super) struct Mock {
+pub(crate) struct Mock {
     pub fail: Option<&'static str>,
     pub calls: Vec<&'static str>,
     pub data: Vec<u8>,
@@ -19,7 +19,7 @@ pub(super) struct Mock {
     pub dirty_failure_output: bool,
     pub cursor: usize,
 }
-thread_local! {pub(super) static MOCK:RefCell<Mock>=RefCell::new(Mock::default());}
+thread_local! {pub(crate) static MOCK:RefCell<Mock>=RefCell::new(Mock::default());}
 fn call(name: &'static str) -> bool {
     MOCK.with(|m| {
         let mut m = m.borrow_mut();

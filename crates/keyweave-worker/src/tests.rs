@@ -79,7 +79,7 @@ fn unbounded_argument_producer_is_consumed_only_to_rejection_boundary() {
         Some(OsString::from("x"))
     });
     assert!(Arguments::parse(stream).is_err());
-    assert_eq!(seen, ARGUMENT_COUNT + 1);
+    assert_eq!(seen, MAX_ARGUMENT_COUNT + 1);
 }
 #[cfg(unix)]
 #[test]
@@ -221,4 +221,37 @@ fn primary_and_each_independent_cleanup_failure_cannot_report_clean_exit() {
     ] {
         assert_eq!(dirty.exit(), WorkerExit::Cleanup);
     }
+}
+#[test]
+fn inherited_handle_suffix_is_explicit_canonical_and_pointer_bounded() {
+    let mut raw = arguments();
+    raw.extend(["--keyweave-config-handle".into(), "512".into()]);
+    assert_eq!(
+        Arguments::parse(raw.clone()).unwrap().config_handle,
+        Some(512)
+    );
+    assert_eq!(Arguments::parse(arguments()).unwrap().config_handle, None);
+    for bad in [
+        "0",
+        "01",
+        "+1",
+        "-1",
+        " 1",
+        "1 ",
+        "0x200",
+        "18446744073709551616",
+    ] {
+        let mut args = raw.clone();
+        args[10] = bad.into();
+        assert!(Arguments::parse(args).is_err());
+    }
+    let mut args = raw.clone();
+    args[10] = usize::MAX.to_string().into();
+    assert!(Arguments::parse(args).is_err());
+    let mut args = raw.clone();
+    args[9] = "--arbitrary-handle".into();
+    assert!(Arguments::parse(args).is_err());
+    let mut args = raw;
+    args.push("extra".into());
+    assert!(Arguments::parse(args).is_err());
 }

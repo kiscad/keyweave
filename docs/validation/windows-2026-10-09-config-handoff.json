@@ -1,0 +1,202 @@
+{
+  "date": "2026-10-09",
+  "feature": "Owned four-handle config transfer, guarded read-only admission and real worker file-object load (ADR-0058)",
+  "source_base_commit": "fb89853223740280352e646bfcb9b93ac09bb0a9",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "dd82c98019d34f19b709b11041df9f2c",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 633,
+      "windows_unit_tests_passed": 279,
+      "new_mock_behavior_tests": 14,
+      "new_actual_worker_entry_test": 1,
+      "actual_worker_entry_cases": [
+        "invalid UTF8 actual Exited66",
+        "invalid JSON actual Exited66"
+      ],
+      "source_files_hash_checked": 176,
+      "source_mismatches": 0,
+      "validation_session": 80512,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 39837,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "fmt": "exact final Windows snapshot passed",
+      "sdk": "existing compile-only /W4 /WX /std:c11 /Zs passed; no new FFI; stdout observed not separately archived",
+      "native_cases": [
+        {
+          "mode": "read",
+          "observed_exit": 0,
+          "exact_synthetic_bytes_read": true,
+          "repeat_config_claim": "rejected",
+          "actual_deletion_notfound": true
+        },
+        {
+          "mode": "reject",
+          "observed_exit": 0,
+          "config_zero_handle": "rejected before read",
+          "exact_synthetic_bytes_read": false,
+          "actual_deletion_notfound": true
+        },
+        {
+          "mode": "stall",
+          "observed_exit": 3763033857,
+          "exact_synthetic_bytes_read": true,
+          "owned_job_forced_stop": true,
+          "actual_deletion_notfound": true
+        }
+      ],
+      "legacy_three_handle_fixture": "passed actual protected admission/receipt40/frozen epoch refusal/repeated startup claim/synchronous rejection/wrong parent/direct denial/observed259/EOF",
+      "native_capture": "none; synthetic file bytes/fixture progress only, not actual CaptureSession or input",
+      "artifact_directory": "target/validation/windows-20261009-config-handoff-x64-1.97.1",
+      "artifacts_sha256": {
+        "clippy.log": "cbbc8eeedb3d297e0aad2763ed14877bbe3bd8fc4e0fbf6dff79d5526e9ff986",
+        "config-handoff-smoke.log": "a2533a9b407889bf3558ae785f07a0f1159172ddda6cecb269680555cbbad68e",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "5827a073ccd1667c48d41aab631146c4aa0c8b35e7d4383a8c701032f45978bf",
+        "native-smoke.cmd": "37521ba735c1ccc7f4e03f9f3725858c753ba877cc8ab52c03c7599cd13efbfc",
+        "source-manifest.json": "e798a1f0c7f26aec6670ca281f18bc556bb4112bfac0364a8f0cabbcd8dc42d5",
+        "tests.log": "72c0e9c0bf11827ba33807438b0a1e4bf1ba0a84441817c54be0e1df94a6022c",
+        "validate.cmd": "f00c5d2e1233ab4148b62ced601f74ba0ac5b5b5dc3bcc8a9b12511404e35a41",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1"
+      }
+    },
+    {
+      "arch": "x86",
+      "snapshot": "578cd01dedbb49ea94dcd93d3c465b8f",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 633,
+      "windows_unit_tests_passed": 279,
+      "new_mock_behavior_tests": 14,
+      "new_actual_worker_entry_test": 1,
+      "actual_worker_entry_cases": [
+        "invalid UTF8 actual Exited66",
+        "invalid JSON actual Exited66"
+      ],
+      "source_files_hash_checked": 176,
+      "source_mismatches": 0,
+      "validation_session": 80512,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 39837,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "fmt": "exact final Windows snapshot passed",
+      "sdk": "existing compile-only /W4 /WX /std:c11 /Zs passed; no new FFI; stdout observed not separately archived",
+      "native_cases": [
+        {
+          "mode": "read",
+          "observed_exit": 0,
+          "exact_synthetic_bytes_read": true,
+          "repeat_config_claim": "rejected",
+          "actual_deletion_notfound": true
+        },
+        {
+          "mode": "reject",
+          "observed_exit": 0,
+          "config_zero_handle": "rejected before read",
+          "exact_synthetic_bytes_read": false,
+          "actual_deletion_notfound": true
+        },
+        {
+          "mode": "stall",
+          "observed_exit": 3763033857,
+          "exact_synthetic_bytes_read": true,
+          "owned_job_forced_stop": true,
+          "actual_deletion_notfound": true
+        }
+      ],
+      "legacy_three_handle_fixture": "passed actual protected admission/receipt40/frozen epoch refusal/repeated startup claim/synchronous rejection/wrong parent/direct denial/observed259/EOF",
+      "native_capture": "none; synthetic file bytes/fixture progress only, not actual CaptureSession or input",
+      "artifact_directory": "target/validation/windows-20261009-config-handoff-x86-1.97.1",
+      "artifacts_sha256": {
+        "clippy.log": "df30fb1daa1a5ff4e186b74f724d0c4dd1eab254e88f763b5adedfc21219338a",
+        "config-handoff-smoke.log": "a2533a9b407889bf3558ae785f07a0f1159172ddda6cecb269680555cbbad68e",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "4f2c1df1603530ca8ef3f768f30e6ed4ed746da837638a70bdc46ad09174a475",
+        "native-smoke.cmd": "ffe0f2af3310c02f8a3610ad3fa469dace9d442fe7c072d32580f8ecec4e75a7",
+        "source-manifest.json": "e798a1f0c7f26aec6670ca281f18bc556bb4112bfac0364a8f0cabbcd8dc42d5",
+        "tests.log": "20bb22166d49e51eaa92846720919327eeae448c5fdd0a49da97b4a957abb638",
+        "validate.cmd": "2cde8229eba0bfb09a03dfa9016fe065b92909c29509f9597c08155756dd3270",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 666,
+    "workspace_test_session": 51479,
+    "workspace_terminal_exit": 0,
+    "clippy_session": 38931,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "main_thread_no_device_harness": "passed",
+    "fmt": "passed",
+    "source_verifier": "60 source hashes/fixture copies verified",
+    "artifact_directory": "target/validation/linux-20261009-config-handoff",
+    "artifacts_sha256": {
+      "before-preflight-cleanup-tests.log": "11af2da63fd6f721dc340b2994b3f2e7addde0849c59ddf6bc7caf34e4880cae",
+      "clippy.log": "01d44ae8bcd460b176aa2f295a44c87a4b387e20178e6d5ef2b402d011dad12d",
+      "tests.log": "cc904bcd7eea4cb3f8cfdef8c8a1233199932de7c14ce6b5326fdf39a660ba6b"
+    }
+  },
+  "failures_before_final": [
+    {
+      "snapshot": "ea7e4451bde54896b76531e5fa42e8e2",
+      "arch": "x64",
+      "session": 68374,
+      "terminal_exit": 101,
+      "cause": "Real worker Config66 admission/load path succeeded, immediate metadata NotFound assertion raced actual deletion. Changed to bounded 2s explicit NotFound observation, no code66 relaxation. Snapshot predates three additional tests/unique absent path.",
+      "artifact_directory": "target/validation/windows-20261009-config-handoff-before-deletion-wait",
+      "artifacts_sha256": {
+        "original-entry.rs": "473ef9530fd6b6fc2a65f8cdfe41e37e84d2b0db8e844665b0e2a367bdf391db",
+        "source-manifest.json": "ad006742355fa25a0ffcd601ace4cbc9521a6122a8bca16d4b559869ac964c02",
+        "tests.log": "cf773534bd1701e9dcbd2b7dbf3baa036f7ec82d59bd7dd2f3fb36edd63059c7",
+        "validate.cmd": "3f4729393a43ebb1568737707a12fc2ad843e21bbb38be8694e3c30bc56405a5"
+      }
+    },
+    {
+      "snapshot": "9eabdb2a0eb7455b89233bbd948bbfce",
+      "arch": "x64",
+      "session": 99240,
+      "terminal_exit": 101,
+      "cause": "New suffix-preflight mock wrongly prohibited rollback inheritance-clear of consumed idle pipe endpoints; now permits exactly two clears and still prohibits reader preparation/Job/child start. Same failure observed in Linux tests before final separate passing workspace run.",
+      "artifact_directory": "target/validation/windows-20261009-config-handoff-before-preflight-cleanup",
+      "artifacts_sha256": {
+        "original-job-tests.rs": "bb6e4f9c8babbabc71cc15f695663581cb884fda9bf2f8bc48fa0dba20ce4395",
+        "source-manifest.json": "af13688319cfd22f08e1a601e83cf88354de9021c83ad3b3c5237e4dacbc6f97",
+        "tests.log": "35b6ff9f84f35686705b00ec76b2d4c1b24a4dd7cea5f8f146a1c518b5c8d247",
+        "validate.cmd": "09c78ff464056c1a61eef7b933590bc1b17cc262045e8b945ab4f090573aaeb2"
+      }
+    }
+  ],
+  "initial_issues": [
+    "Rust borrow checker required saving HANDLE_LIST byte length before mutable attribute pointer lookup",
+    "Clippy large-error result addressed by boxing uniquely owned sealed writer; public cleanup retry validated by meaningful fault test rather than lint suppression",
+    "One intermediate Linux shell returned final Clippy0 despite earlier test failure; raw test log failure was inspected and archived, final workspace tests rerun separately to confirmed terminal0"
+  ],
+  "input_operations": {
+    "owned_synthetic_temporary_file_io": true,
+    "owned_guarded_fixture_processes": true,
+    "real_worker_entry_invalid_config_only": true,
+    "real_hook_installed": false,
+    "sendinput_called": false,
+    "driver_loaded": false,
+    "user_config_read": false,
+    "physical_keyboard_validated": false
+  },
+  "limits": [
+    "Full Supervisor config factory and complete parent host still required; four-handle library/main path is not full user flow",
+    "Old nine-argument/path-based worker mode remains explicit legacy; complete host must select four-handle file-object handoff",
+    "Child structural admission is not cross-user authentication, OS initial-thread attestation, same-privilege injection defense or an effective ACL audit",
+    "Parent sealed writer stays until actual Exited; unresolved Drop intentionally retains resource until parent process exit, not cleanup proof",
+    "Native config receipt epoch is synthetic read-completion fixture only; no real CaptureSession/Hook/SendInput/global recovery acceptance",
+    "Known actual file tests observe bounded NotFound; close success alone is not deletion proof",
+    "Earlier ADR-0053 x86 anomalies remain unexplained and not claimed fixed",
+    "All original Linux bootstrap/consumer-ready/advanced rules/GUI/packaging/Rust driver/companion audit scope continues; full goal unfinished"
+  ]
+}

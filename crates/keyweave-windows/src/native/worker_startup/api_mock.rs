@@ -232,7 +232,7 @@ pub(super) unsafe fn GetNamedPipeClientProcessId(_h: Handle, pid: *mut u32) -> i
     1
 }
 pub(super) unsafe fn SetHandleInformation(handle: Handle, mask: u32, flags: u32) -> i32 {
-    assert!(matches!(handle as usize, 100 | 210 | 400));
+    assert!(matches!(handle as usize, 100 | 210 | 400 | 512));
     assert_eq!((mask, flags), (1, 0));
     i32::from(call("clear-inherit"))
 }
@@ -270,7 +270,7 @@ pub(super) unsafe fn NtQueryInformationFile(
     length: u32,
     class: i32,
 ) -> i32 {
-    assert!(matches!(h as usize, 100 | 210));
+    assert!(matches!(h as usize, 100 | 210 | 512));
     assert!(matches!((class, length), (8 | 16, 4) | (9, 256)));
     call("native-query");
     MOCK.with(|m| {
@@ -286,7 +286,8 @@ pub(super) unsafe fn NtQueryInformationFile(
         if class == 16 {
             data.extend_from_slice(
                 &if selected {
-                    m.native_mode.unwrap_or(0)
+                    m.native_mode
+                        .unwrap_or(if h as usize == 512 { 0x20 } else { 0 })
                 } else {
                     0u32
                 }
@@ -296,7 +297,9 @@ pub(super) unsafe fn NtQueryInformationFile(
         if class == 8 {
             data.extend_from_slice(
                 &if selected { m.access } else { None }
-                    .unwrap_or(if h as usize == 100 {
+                    .unwrap_or(if h as usize == 512 {
+                        0x120089
+                    } else if h as usize == 100 {
                         0x1a0089
                     } else {
                         0x120196

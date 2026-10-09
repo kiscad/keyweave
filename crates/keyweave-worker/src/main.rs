@@ -27,14 +27,29 @@ fn execute(args: Arguments) -> WorkerExit {
     };
     // Initial main thread: no other thread, logging, input API, or synchronous
     // stdio before this claim. Rejection is final; never retry/install directly.
-    let startup = match WorkerStartup::claim(args.parent, args.run_id) {
+    let mut startup = match WorkerStartup::claim(args.parent, args.run_id) {
         Ok(startup) => startup,
         Err(_) => return WorkerExit::Admission,
     };
-    let config = match std::fs::File::open(&args.config)
-        .map_err(keyweave_worker::LoadError::from)
-        .and_then(keyweave_worker::load_config)
-    {
+    let loaded = if let Some(value) = args.config_handle {
+        let mut reader = match startup.claim_config_reader(value) {
+            Ok(reader) => reader,
+            Err(_) => return WorkerExit::Admission,
+        };
+        // Consume the inherited file object, never reopen the diagnostic path.
+        let loaded = keyweave_worker::load_config(&mut reader);
+        if reader.close().is_err() {
+            return WorkerExit::Cleanup;
+        }
+        loaded
+    } else {
+        // Explicit legacy three-handle mode only; complete host must select
+        // the immutable four-handle contract instead of reopening user paths.
+        std::fs::File::open(&args.config)
+            .map_err(keyweave_worker::LoadError::from)
+            .and_then(keyweave_worker::load_config)
+    };
+    let config = match loaded {
         Ok(config) => config,
         Err(_) => return WorkerExit::Config,
     };

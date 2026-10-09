@@ -107,3 +107,66 @@ fn missing_config_after_owned_admission_exits_before_input_installation() {
     assert_eq!(supervisor.progress_epoch(), 0);
     assert!(supervisor.close_channels().unwrap().complete());
 }
+#[cfg(windows)]
+#[test]
+fn inherited_invalid_config_exits_after_file_admission_before_input() {
+    use keyweave_windows::{ConfigArtifact, OwnedJobProcess, PipeReader};
+    use std::time::{Duration, Instant};
+    for bytes in [&b"\xff"[..], &b"{synthetic invalid JSON"[..]] {
+        let config = ConfigArtifact::create(&std::env::temp_dir(), bytes).unwrap();
+        let path = config.path().unwrap().to_path_buf();
+        let (reader, mut parent_writer) = PipeReader::pair().unwrap();
+        let (mut parent_reader, writer) = PipeReader::pair().unwrap();
+        let mut args: Vec<OsString> = vec![
+            WORKER_ARGUMENT.into(),
+            std::process::id().to_string().into(),
+            "42".into(),
+        ];
+        // This path is diagnostic only and is deliberately different from the
+        // handed-off artifact. Both images always fail before capture install.
+        let absent = std::env::temp_dir().join(format!(
+            "keyweave-handoff-absent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!absent.exists());
+        args.extend(extra(absent.join("config.jsonc").into()));
+        let mut child = OwnedJobProcess::spawn_suspended_with_config(
+            std::path::Path::new(env!("CARGO_BIN_EXE_keyweave-worker")),
+            &args,
+            reader,
+            writer,
+            config,
+        )
+        .unwrap();
+        child.resume().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let code = loop {
+            assert!(Instant::now() < deadline, "config worker exit timeout");
+            if let Some(code) = child.poll_exit(Duration::from_millis(20)).unwrap() {
+                break code;
+            }
+        };
+        assert_eq!(code, WorkerExit::Config as u32);
+        assert!(child.close_config().unwrap().unwrap().complete());
+        assert!(parent_reader.close().unwrap().complete());
+        assert!(parent_writer.close().unwrap().complete());
+        let deletion_deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match std::fs::metadata(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => panic!("deletion observation failed: {error}"),
+                Ok(_) => {
+                    assert!(
+                        Instant::now() < deletion_deadline,
+                        "config deletion timeout"
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+    }
+}

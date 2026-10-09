@@ -27,7 +27,7 @@ union LargeInteger {
 #[cfg(not(test))]
 mod api;
 #[cfg(test)]
-mod api_mock;
+pub(super) mod api_mock;
 use api::*;
 #[cfg(test)]
 use api_mock as api;
@@ -176,6 +176,65 @@ fn directory(path: &Path) -> Result<PathBuf, ArtifactError> {
         Ok(resolved)
     }
 }
+fn validate_file(handle: Handle, expected_flags: u32) -> Result<PathBuf, ArtifactError> {
+    // SAFETY: owned factory handle or borrowed candidate from guarded startup;
+    // OS scalar type query does not dereference/export the numeric handle.
+    if unsafe { GetFileType(handle) } != 1 {
+        return Err(ArtifactError::Metadata);
+    }
+    let mut flags = 0;
+    // SAFETY: unique live out DWORD; verify the caller-specific inherit contract.
+    if unsafe { GetHandleInformation(handle, &mut flags) } == 0 {
+        return Err(error("config handle flags"));
+    }
+    if flags != expected_flags {
+        return Err(ArtifactError::Metadata);
+    }
+    let mut path = vec![0u16; PATH_CAP];
+    // SAFETY: fixed bounded writable UTF16 buffer, normalized DOS path0.
+    let n = unsafe { GetFinalPathNameByHandleW(handle, path.as_mut_ptr(), PATH_CAP as u32, 0) }
+        as usize;
+    if n == 0 {
+        return Err(error("config final path"));
+    }
+    if n >= PATH_CAP || path[n] != 0 || !local_path(&path[..n]) {
+        return Err(ArtifactError::Volume);
+    }
+    let mut volume = vec![0u16; PATH_CAP];
+    // SAFETY: live terminated normalized input and bounded output buffer.
+    if unsafe { GetVolumePathNameW(path.as_ptr(), volume.as_mut_ptr(), PATH_CAP as u32) } == 0 {
+        return Err(error("config volume path"));
+    }
+    if !volume.contains(&0) || volume[0] == 0 {
+        return Err(ArtifactError::Metadata);
+    }
+    // SAFETY: terminated volume root obtained from actual file path.
+    if unsafe { GetDriveTypeW(volume.as_ptr()) } != 3 {
+        return Err(ArtifactError::Volume);
+    }
+    let mut fs_flags = 0;
+    // SAFETY: optional outputs NULL, live flags; actual nearest volume root.
+    if unsafe {
+        GetVolumeInformationW(
+            volume.as_ptr(),
+            null_mut(),
+            0,
+            null_mut(),
+            null_mut(),
+            &mut fs_flags,
+            null_mut(),
+            0,
+        )
+    } == 0
+    {
+        return Err(error("config volume information"));
+    }
+    if fs_flags & 8 == 0 {
+        return Err(ArtifactError::Volume);
+    }
+    from_units(&path[..n])
+}
+
 /// Keep this original owner until the child has actually exited. Path alone is
 /// not an immutable handoff; future host must transfer its unique reader object.
 pub struct ConfigArtifact {
@@ -312,62 +371,7 @@ impl ConfigArtifact {
         }
     }
     fn validate(&mut self) -> Result<(), ArtifactError> {
-        // SAFETY: this factory's owned file handle, immediate scalar query.
-        if unsafe { GetFileType(self.handle) } != 1 {
-            return Err(ArtifactError::Metadata);
-        }
-        let mut flags = 0;
-        // SAFETY: unique live out DWORD; no handle inheritance permitted.
-        if unsafe { GetHandleInformation(self.handle, &mut flags) } == 0 {
-            return Err(error("config handle flags"));
-        }
-        if flags != 0 {
-            return Err(ArtifactError::Metadata);
-        }
-        let mut path = vec![0u16; PATH_CAP];
-        // SAFETY: fixed bounded writable UTF16 buffer, normalized DOS path0.
-        let n = unsafe {
-            GetFinalPathNameByHandleW(self.handle, path.as_mut_ptr(), PATH_CAP as u32, 0)
-        } as usize;
-        if n == 0 {
-            return Err(error("config final path"));
-        }
-        if n >= PATH_CAP || path[n] != 0 || !local_path(&path[..n]) {
-            return Err(ArtifactError::Volume);
-        }
-        let mut volume = vec![0u16; PATH_CAP];
-        // SAFETY: live terminated normalized input and bounded output buffer.
-        if unsafe { GetVolumePathNameW(path.as_ptr(), volume.as_mut_ptr(), PATH_CAP as u32) } == 0 {
-            return Err(error("config volume path"));
-        }
-        if !volume.contains(&0) || volume[0] == 0 {
-            return Err(ArtifactError::Metadata);
-        }
-        // SAFETY: terminated volume root obtained from actual file path.
-        if unsafe { GetDriveTypeW(volume.as_ptr()) } != 3 {
-            return Err(ArtifactError::Volume);
-        }
-        let mut fs_flags = 0;
-        // SAFETY: optional outputs NULL, live flags; actual nearest volume root.
-        if unsafe {
-            GetVolumeInformationW(
-                volume.as_ptr(),
-                null_mut(),
-                0,
-                null_mut(),
-                null_mut(),
-                &mut fs_flags,
-                null_mut(),
-                0,
-            )
-        } == 0
-        {
-            return Err(error("config volume information"));
-        }
-        if fs_flags & 8 == 0 {
-            return Err(ArtifactError::Volume);
-        }
-        self.path = from_units(&path[..n])?;
+        self.path = validate_file(self.handle, 0)?;
         Ok(())
     }
     fn release_security(&mut self) -> Result<(), ArtifactError> {
@@ -421,6 +425,7 @@ impl ConfigArtifact {
         let reader = ConfigReader {
             handle,
             failed: false,
+            transferring: false,
             _thread: PhantomData,
         };
         let mut flags = 0;
@@ -475,6 +480,7 @@ impl Drop for ConfigArtifact {
 pub struct ConfigReader {
     handle: Handle,
     failed: bool,
+    transferring: bool,
     _thread: PhantomData<Rc<()>>,
 }
 impl std::fmt::Debug for ConfigReader {
@@ -486,6 +492,47 @@ impl std::fmt::Debug for ConfigReader {
     }
 }
 impl ConfigReader {
+    // Crate-private only: no raw handle escapes the owned spawn transaction.
+    pub(super) fn transfer_handle(&self) -> Handle {
+        self.handle
+    }
+    pub(super) fn prepare_transfer(&mut self) -> Result<Handle, ArtifactError> {
+        context()?;
+        if self.failed || self.transferring || self.handle.is_null() {
+            return Err(ArtifactError::NotSealed);
+        }
+        // Lock before the syscall: failures cannot permit a new transfer/read.
+        self.transferring = true;
+        // SAFETY: factory-owned sync file, exclusive reader owner; sealed writer
+        // exports no IO. Rewind again because the parent may have consumed bytes.
+        if unsafe { SetFilePointerEx(self.handle, LargeInteger { quad: 0 }, null_mut(), 0) } == 0 {
+            self.failed = true;
+            return Err(error("config transfer rewind"));
+        }
+        Ok(self.handle)
+    }
+    // Borrowed inspection never claims/closes an arbitrary rejected handle.
+    pub(super) fn inspect_inherited(handle: Handle) -> Result<(), ArtifactError> {
+        context()?;
+        validate_file(handle, 1)?;
+        // SAFETY: called only after guarded startup confirms synchronous mode
+        // and exact READ access; sole transferred file object, no parent IO.
+        if unsafe { SetFilePointerEx(handle, LargeInteger { quad: 0 }, null_mut(), 0) } == 0 {
+            return Err(error("inherited config rewind"));
+        }
+        Ok(())
+    }
+    // SAFETY: caller must have admitted a distinct inherited synchronous disk
+    // handle with exact read-only access after real main's parent/Job claim, and
+    // must have cleared inheritance. No other Rust owner may use this handle.
+    pub(super) unsafe fn adopt_inherited(handle: Handle) -> Self {
+        Self {
+            handle,
+            failed: false,
+            transferring: false,
+            _thread: PhantomData,
+        }
+    }
     pub fn close(&mut self) -> Result<(), ArtifactError> {
         context()?;
         if self.handle.is_null() {
@@ -502,7 +549,7 @@ impl ConfigReader {
 impl Read for ConfigReader {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         context().map_err(io::Error::other)?;
-        if self.failed || self.handle.is_null() {
+        if self.failed || self.transferring || self.handle.is_null() {
             return Err(io::Error::other(ArtifactError::NotSealed));
         }
         if bytes.is_empty() {

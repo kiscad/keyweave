@@ -1,6 +1,7 @@
 //! Owned suspended worker, atomically assigned to its Job at creation. No input APIs.
 mod attributes;
 mod channels;
+use super::config_artifact::{ArtifactCleanup, ArtifactError, ArtifactReaderError, ConfigArtifact};
 use super::progress_pipe::{PipeReader, PipeWriter};
 use attributes::Attributes;
 pub use channels::ChannelCleanupReport;
@@ -65,6 +66,8 @@ pub enum JobError {
     AttributeSize,
     #[error("progress endpoints must be distinct, idle, open pipe pairs")]
     PipeState,
+    #[error("config resource failed: {0}")]
+    Config(ArtifactError),
     #[error("parent-side worker channel cleanup is incomplete")]
     ChannelCleanup,
     #[error("job process operation is not valid in its current state")]
@@ -252,6 +255,8 @@ pub struct OwnedJobProcess {
     state: JobProcessState,
     channels: Option<Box<ChildProgress>>,
     channel_cleanup: Option<Box<ChannelCleanupReport>>,
+    config: Option<Box<ConfigArtifact>>,
+    config_preparation_error: Option<Box<ArtifactReaderError>>,
     _thread: PhantomData<Rc<()>>,
 }
 impl std::fmt::Debug for OwnedJobProcess {
@@ -263,7 +268,7 @@ impl std::fmt::Debug for OwnedJobProcess {
 }
 impl OwnedJobProcess {
     pub fn spawn_suspended(path: &Path, args: &[OsString]) -> Result<Self, JobSpawnError> {
-        Self::start(path, args, None)
+        Self::start(path, args, None, None)
     }
     /// Consumes the two idle worker ends; the caller retains the parent ends.
     /// stdin/stderr are reserved for binary progress, stdout is NUL. Must not
@@ -274,14 +279,66 @@ impl OwnedJobProcess {
         reader: PipeReader,
         writer: PipeWriter,
     ) -> Result<Self, JobSpawnError> {
-        Self::start(path, args, Some(ChildProgress::new(reader, writer)))
+        Self::start(path, args, Some(ChildProgress::new(reader, writer)), None)
+    }
+    /// Opt-in four-handle contract; appends --keyweave-config-handle VALUE.
+    /// Consumes the sealed writer and prepares its sole read-only reader.
+    /// The writer stays owned until actual exit; no path-based reopen is used.
+    /// Caller must serialize against other ambient inheriting process spawns.
+    pub fn spawn_suspended_with_config(
+        path: &Path,
+        args: &[OsString],
+        reader: PipeReader,
+        writer: PipeWriter,
+        config: ConfigArtifact,
+    ) -> Result<Self, JobSpawnError> {
+        Self::start(
+            path,
+            args,
+            Some(ChildProgress::new(reader, writer)),
+            Some(config),
+        )
+    }
+    pub fn config_preparation_error(&self) -> Option<&ArtifactReaderError> {
+        self.config_preparation_error.as_deref()
+    }
+    /// Retry only the retained preparation reader's cleanup; original rollback
+    /// error remains available for diagnostics even after successful close.
+    pub fn close_config_preparation_reader(&mut self) -> Result<(), JobError> {
+        context()?;
+        if let Some(error) = self.config_preparation_error.as_mut()
+            && let Some(reader) = error.owner.as_mut()
+        {
+            reader.close().map_err(JobError::Config)?;
+        }
+        Ok(())
+    }
+    /// Only Prepared (no child) or confirmed Exited can release the writer.
+    /// A complete report is resource cleanup, not independent deletion proof.
+    pub fn close_config(&mut self) -> Result<Option<ArtifactCleanup>, JobError> {
+        context()?;
+        if !matches!(
+            self.state,
+            JobProcessState::Prepared | JobProcessState::Exited(_)
+        ) {
+            return Err(JobError::State);
+        }
+        let Some(config) = self.config.as_mut() else {
+            return Ok(None);
+        };
+        let report = config.close().map_err(JobError::Config)?;
+        if report.complete() {
+            self.config = None;
+        }
+        Ok(Some(report))
     }
     fn start(
         path: &Path,
         args: &[OsString],
         channels: Option<ChildProgress>,
+        config: Option<ConfigArtifact>,
     ) -> Result<Self, JobSpawnError> {
-        Self::spawn(path, args, channels).map_err(|(cause, owner)| {
+        Self::spawn(path, args, channels, config).map_err(|(cause, owner)| {
             let mut owner = owner;
             if let Some(owner) = owner.as_mut()
                 && owner.state == JobProcessState::Suspended
@@ -317,6 +374,7 @@ impl OwnedJobProcess {
         path: &Path,
         args: &[OsString],
         channels: Option<ChildProgress>,
+        config: Option<ConfigArtifact>,
     ) -> Result<Self, (JobError, Option<Self>)> {
         let mut owner = Self {
             job: null_mut(),
@@ -325,13 +383,41 @@ impl OwnedJobProcess {
             state: JobProcessState::Prepared,
             channels: channels.map(Box::new),
             channel_cleanup: None,
+            config: config.map(Box::new),
+            config_preparation_error: None,
             _thread: PhantomData,
         };
-        let early = context().and_then(|()| command(path, args));
+        // Validate the original command and space for the fixed handle suffix
+        // before file/Job operations; scalar max-size suffix bounds both arches.
+        let early = context().and_then(|()| {
+            if owner.config.is_some() {
+                if args.len() > 126 {
+                    return Err(JobError::Command);
+                }
+                let mut bounded = args.to_vec();
+                bounded.push("--keyweave-config-handle".into());
+                bounded.push(usize::MAX.to_string().into());
+                command(path, &bounded)?;
+            }
+            command(path, args)
+        });
         let (application, mut line) = match early {
             Ok(command) => command,
             Err(cause) => return Err((cause, owner.channels.is_some().then_some(owner))),
         };
+        if let Some(config) = owner.config.as_mut() {
+            let Some(channels) = owner.channels.as_mut() else {
+                return Err((JobError::State, Some(owner)));
+            };
+            match config.prepare_reader() {
+                Ok(reader) => channels.config = Some(reader),
+                Err(cause) => {
+                    let primary = JobError::Config(cause.cause);
+                    owner.config_preparation_error = Some(Box::new(cause));
+                    return Err((primary, Some(owner)));
+                }
+            }
+        }
         // SAFETY: null security attributes make the new unnamed Job handle
         // noninheritable; no existing named object or borrowed handle is opened.
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
@@ -366,7 +452,7 @@ impl OwnedJobProcess {
         } else {
             None
         };
-        let mut attributes = match Attributes::new(job, handles) {
+        let mut attributes = match Attributes::new(job, handles.clone()) {
             Ok(attributes) => attributes,
             Err(cause) => return Err((cause, Some(owner))),
         };
@@ -374,7 +460,17 @@ impl OwnedJobProcess {
         // is valid for every field, no reference/enum/owned resource is created.
         let mut startup: StartupEx = unsafe { std::mem::zeroed() };
         startup.info.size = size_of::<StartupEx>() as u32;
-        if let Some([stdin, stdout, stderr]) = handles {
+        if let Some(handles) = &handles {
+            let [stdin, stdout, stderr] = [handles[0], handles[1], handles[2]];
+            if handles.len() == 4 {
+                let mut args = args.to_vec();
+                args.push("--keyweave-config-handle".into());
+                args.push((handles[3] as usize).to_string().into());
+                line = match command(path, &args) {
+                    Ok((_, line)) => line,
+                    Err(cause) => return Err((cause, Some(owner))),
+                };
+            }
             startup.info.numbers[7] = 0x100;
             startup.info.stdin = stdin;
             startup.info.stdout = stdout;
@@ -386,7 +482,7 @@ impl OwnedJobProcess {
         // buffers live through CreateProcessW; exact SDK STARTUPINFOEX/PROCESS_INFO.
         // Attribute storage and Job array stay pinned/alive through the call;
         // JOB_LIST assigns this private Job as part of process creation.
-        // Inheritance only with our exact three-handle list; no supplied env/cwd.
+        // Inheritance only with our exact three/four-handle list; no supplied env/cwd.
         // Detached console contract: no console helper belongs to the one-worker
         // Job. Explicit STARTF_USESTDHANDLES pipes/NUL remain valid independently.
         // Returned handles are uniquely owned on success.
@@ -537,6 +633,16 @@ impl Drop for OwnedJobProcess {
             self.job = null_mut();
         }
         let _ = self.poll_exit(Duration::from_millis(20));
+        if !matches!(
+            self.state,
+            JobProcessState::Prepared | JobProcessState::Exited(_)
+        ) {
+            // A kill/Job close is not observed exit. Retain sealed writer until
+            // parent process exit rather than unlock a possibly-live child's file.
+            if let Some(config) = self.config.take() {
+                std::mem::forget(config);
+            }
+        }
         if !self.process.is_null() {
             // SAFETY: unique process handle is no longer needed after bounded
             // shutdown attempts. Closing it is not proof of process exit.

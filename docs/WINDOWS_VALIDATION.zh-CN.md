@@ -191,3 +191,8 @@ ignored target/validation/windows-20261009-cooperative-{x64,x86}-1.97.1保留tes
 Windows 配置文件资源层（2026-10-09）：固定 Rust1.97.1/MSVC19.44/SDK10.0.26100.0，x64/i686 各618 workspace tests、alltargetsClippy/fmt、更新 SDK prototype/constants oracle 通过；各有3个实际自有临时文件 tests、11个新mock/fault tests。Linux652通过。实际文件验收包括读取、写/删/重命名拒绝、8MiB内容与最后 reader 关闭后实际 NotFound；无 Hook/SendInput/系统驱动操作。两份175源hash匹配，验证父进程与独立fmt均terminal0。初次 OVERLAPPED 声明类型冲突的Clippy失败terminal101另归档，未压lint。
 
 [完整证据与限制](validation/windows-2026-10-09-config-artifact.json)、[ADR-0057](ADR-0057-owned-config-artifact.md)。配置跨进程句柄交付/完整host、有效ACL跨用户审计尚未执行；现有路径不是端到端不可变身份，文件close不独立证明删除。上一轮x86进程异常原因仍未知；本轮未重复旧Job fixture作修复证明。原完整开发范围继续。
+
+
+Windows 配置对象交付（2026-10-09）：固定1.97.1 x64/i686最终各633 workspace tests（279 Windowsunit），SDK/alltargetsClippy/fmt通过，176源file SHA均匹配；fullvalidation terminal0后运行nativefixtures并确认terminal0。新check_config_handoff各arch3例验证真实guard/继承READ文件对象exact synthetic bytes/重复claim拒绝、bad0拒绝、read后stall被ownedJob终止并实际退出，最后close后实际NotFound；bad0例无数据读取。旧三句柄check_worker_startup全例继续通过。真实keyweave-worker还执行UTF8/JSON两无效image、均实际Config66先于安装；不会打开有效配置，无Hook/SendInput/driver。Linux666与独立无设备harness/Clippy/fmt/source60通过。
+
+[报告与原始证据hash](validation/windows-2026-10-09-config-handoff.json)、[ADR-0058](ADR-0058-owned-config-handoff.md)。保留第一次x64立即删除断言失败、第二x64新增preflight误禁止rollback clear及Linux同断言失败日志；最终改为有界实际NotFound/允许必要清理，并全量复验双arch。native epochs仅fixture read进度，不证明CaptureSession；完整Supervisor config factory/parenthost尚未接入，old9项path模式仅legacy。旧x86异常仍未知，不称已修复；正常输入/Windows11/硬件与所有原范围继续。

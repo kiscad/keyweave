@@ -576,3 +576,196 @@ fn supervisor_cooperative_api_rejects_callback_without_changing_owned_state() {
     );
     assert!(owner.close_channels().unwrap().complete());
 }
+fn artifact() -> ConfigArtifact {
+    ConfigArtifact::create(&std::env::temp_dir(), b"sealed config").unwrap()
+}
+#[test]
+fn config_spawn_has_exact_four_handles_and_keeps_writer_until_observed_exit() {
+    let (reader, writer, _pr, _pw) = channels();
+    let mut child =
+        OwnedJobProcess::spawn_suspended_with_config(&path(), &[], reader, writer, artifact())
+            .unwrap();
+    assert_eq!(child.state(), JobProcessState::Suspended);
+    assert!(child.channels.is_none());
+    api::MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.handles_count, 4);
+        assert_eq!(m.inheritance.get(&512), Some(&false));
+        assert!(
+            String::from_utf16(&m.command)
+                .unwrap()
+                .ends_with("\"--keyweave-config-handle\" \"512\"")
+        );
+    });
+    use super::super::config_artifact::api_mock::MOCK as FILE;
+    FILE.with(|m| assert_eq!(m.borrow().closes, [512]));
+    assert_eq!(child.close_config(), Err(JobError::State));
+    child.resume().unwrap();
+    child.request_stop().unwrap();
+    assert_eq!(child.close_config(), Err(JobError::State));
+    assert_eq!(child.poll_exit(Duration::ZERO).unwrap(), None);
+    api::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.wait = 0;
+        m.exit = 0;
+    });
+    assert_eq!(child.poll_exit(Duration::ZERO).unwrap(), Some(0));
+    assert!(child.close_config().unwrap().unwrap().complete());
+    FILE.with(|m| assert_eq!(m.borrow().closes, [512, 256]));
+    assert_eq!(child.close_config().unwrap(), None);
+}
+#[test]
+fn config_channel_cleanup_failure_retains_owner_and_never_resumes() {
+    use super::super::config_artifact::api_mock::MOCK as FILE;
+    let (reader, writer, _pr, _pw) = channels();
+    FILE.with(|m| m.borrow_mut().close_fail = true);
+    let mut error =
+        OwnedJobProcess::spawn_suspended_with_config(&path(), &[], reader, writer, artifact())
+            .unwrap_err();
+    assert_eq!(error.cause, JobError::ChannelCleanup);
+    assert!(
+        error
+            .channel_cleanup
+            .as_ref()
+            .unwrap()
+            .config_close_error
+            .is_some()
+    );
+    let owner = error.owner.as_mut().unwrap();
+    assert_eq!(owner.state(), JobProcessState::StopRequested);
+    assert_eq!(owner.resume(), Err(JobError::State));
+    assert_eq!(owner.close_config(), Err(JobError::State));
+    FILE.with(|m| m.borrow_mut().close_fail = false);
+    assert!(owner.finish_channel_transfer().unwrap().complete());
+    assert_eq!(owner.resume(), Err(JobError::State));
+    api::MOCK.with(|m| m.borrow_mut().wait = 0);
+    owner.poll_exit(Duration::ZERO).unwrap();
+    assert!(owner.close_config().unwrap().unwrap().complete());
+    assert!(!error.channel_cleanup.unwrap().complete());
+}
+#[test]
+fn config_prepare_failure_preserves_independent_reader_rollback_and_writer() {
+    use super::super::config_artifact::api_mock::MOCK as FILE;
+    let (reader, writer, _pr, _pw) = channels();
+    let config = artifact();
+    FILE.with(|m| {
+        let mut m = m.borrow_mut();
+        m.fail = Some("rewind");
+        m.close_fail = true;
+    });
+    let mut error =
+        OwnedJobProcess::spawn_suspended_with_config(&path(), &[], reader, writer, config)
+            .unwrap_err();
+    assert!(matches!(
+        error.cause,
+        JobError::Config(ArtifactError::Api {
+            call: "config reader rewind",
+            ..
+        })
+    ));
+    let owner = error.owner.as_mut().unwrap();
+    let preparation = owner.config_preparation_error().unwrap();
+    assert!(preparation.rollback.is_some());
+    assert!(preparation.owner.is_some());
+    assert_eq!(owner.state(), JobProcessState::Prepared);
+    assert!(api::MOCK.with(|m| !m.borrow().calls.contains(&"create")));
+    FILE.with(|m| {
+        let mut m = m.borrow_mut();
+        m.fail = None;
+        m.close_fail = false;
+    });
+    owner.close_config_preparation_reader().unwrap();
+    assert!(owner.close_config().unwrap().unwrap().complete());
+    assert!(owner.config_preparation_error().unwrap().rollback.is_some());
+}
+#[test]
+fn callback_config_spawn_retains_all_owners_without_file_or_process_io() {
+    use super::super::config_artifact::api_mock::MOCK as FILE;
+    let (reader, writer, _pr, _pw) = channels();
+    let config = artifact();
+    let before = FILE.with(|m| m.borrow().calls.len());
+    let mut error = super::super::hook_thread::with_callback_borrow(|| {
+        OwnedJobProcess::spawn_suspended_with_config(&path(), &[], reader, writer, config)
+            .unwrap_err()
+    });
+    assert_eq!(error.cause, JobError::InCallback);
+    assert_eq!(FILE.with(|m| m.borrow().calls.len()), before);
+    assert!(api::MOCK.with(|m| m.borrow().calls.is_empty()));
+    let owner = error.owner.as_mut().unwrap();
+    assert!(owner.finish_channel_transfer().unwrap().complete());
+    assert!(owner.close_config().unwrap().unwrap().complete());
+}
+#[test]
+fn unresolved_child_drop_retains_writer_but_confirmed_exit_drop_closes_it() {
+    use super::super::config_artifact::api_mock::MOCK as FILE;
+    for exited in [false, true] {
+        std::thread::spawn(move || {
+            let (reader, writer, _pr, _pw) = channels();
+            let mut child = OwnedJobProcess::spawn_suspended_with_config(
+                &path(),
+                &[],
+                reader,
+                writer,
+                artifact(),
+            )
+            .unwrap();
+            child.resume().unwrap();
+            if exited {
+                api::MOCK.with(|m| m.borrow_mut().wait = 0);
+                child.poll_exit(Duration::ZERO).unwrap();
+            }
+            drop(child);
+            FILE.with(|m| assert_eq!(m.borrow().closes.contains(&256), exited));
+        })
+        .join()
+        .unwrap();
+    }
+}
+#[test]
+fn config_inheritance_failure_clears_all_four_and_preserves_sealed_owner() {
+    let (reader, writer, _pr, _pw) = channels();
+    api::MOCK.with(|m| m.borrow_mut().fail_inherit = Some((512, true)));
+    let mut error =
+        OwnedJobProcess::spawn_suspended_with_config(&path(), &[], reader, writer, artifact())
+            .unwrap_err();
+    assert!(error.channel_cleanup.as_ref().unwrap().complete());
+    api::MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.inheritance.len(), 4);
+        assert!(m.inheritance.values().all(|v| !v));
+        assert!(!m.calls.contains(&"create"));
+    });
+    let owner = error.owner.as_mut().unwrap();
+    assert_eq!(owner.state(), JobProcessState::Prepared);
+    assert!(owner.close_config().unwrap().unwrap().complete());
+}
+#[test]
+fn config_suffix_preflight_rejects_before_preparing_reader_or_native_job() {
+    use super::super::config_artifact::api_mock::MOCK as FILE;
+    let (reader, writer, _pr, _pw) = channels();
+    let config = artifact();
+    let before = FILE.with(|m| m.borrow().calls.len());
+    let mut error = OwnedJobProcess::spawn_suspended_with_config(
+        &path(),
+        &vec!["x".into(); 127],
+        reader,
+        writer,
+        config,
+    )
+    .unwrap_err();
+    assert_eq!(error.cause, JobError::Command);
+    assert_eq!(FILE.with(|m| m.borrow().calls.len()), before);
+    // Consumed idle pipe ends still require rollback: only inheritance-clear
+    // calls are allowed here; no Job creation/reader preparation/child start.
+    api::MOCK.with(|m| assert_eq!(m.borrow().calls, ["clear-inherit", "clear-inherit"]));
+    assert!(
+        error
+            .owner
+            .as_mut()
+            .unwrap()
+            .close_config()
+            .unwrap()
+            .unwrap()
+            .complete()
+    );
+}

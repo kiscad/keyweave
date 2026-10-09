@@ -76,3 +76,6 @@ Windows 已增加显式协作停止：合法私有Stop帧让worker关闭捕获�
 
 
 Windows 已增加独占配置文件资源层与唯一只读 reader，双架构实际临时文件测试验证内容、共享访问限制与最后 reader 关闭后删除。[设计](docs/ADR-0057-owned-config-artifact.md)、[验证记录](docs/validation/windows-2026-10-09-config-artifact.json)。跨进程配置句柄移交、完整 parent host 与正常键盘验收仍待接入。
+
+
+Windows 现有显式四句柄启动：Job 持有 sealed 配置 writer，worker 接收唯一只读文件对象并在真实 main 核验后直接加载。双架构原生例程验证跨进程实际 bytes、拒绝路径与退出后文件删除；各633项测试通过。[设计](docs/ADR-0058-owned-config-handoff.md)、[证据](docs/validation/windows-2026-10-09-config-handoff.json)。完整 Supervisor 配置 factory/用户 parent host 与正常键盘验收仍在开发。

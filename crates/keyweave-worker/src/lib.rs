@@ -7,6 +7,7 @@ use std::{ffi::OsString, io::Read, path::PathBuf, sync::Arc};
 
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
 pub const ARGUMENT_COUNT: usize = 9;
+pub const MAX_ARGUMENT_COUNT: usize = 11;
 
 /// Stable, deliberately small exit codes. No error text enters binary stdio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub struct Arguments {
     pub parent: u32,
     pub run_id: u64,
     pub config: PathBuf,
+    pub config_handle: Option<usize>,
     pub tag: InjectionTag,
     pub identity: IdentityPolicy,
 }
@@ -49,11 +51,11 @@ fn decimal(value: &std::ffi::OsStr) -> Result<u64, ArgumentError> {
 }
 
 impl Arguments {
-    /// Consume at most ten OS arguments; preserve non-Unicode configuration paths.
+    /// Consume at most twelve OS arguments; preserve non-Unicode configuration paths.
     /// Fixed ordering prevents duplicate/unknown switches from reaching admission.
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, ArgumentError> {
-        let args: Vec<_> = args.into_iter().take(ARGUMENT_COUNT + 1).collect();
-        if args.len() != ARGUMENT_COUNT
+        let args: Vec<_> = args.into_iter().take(MAX_ARGUMENT_COUNT + 1).collect();
+        if ![ARGUMENT_COUNT, MAX_ARGUMENT_COUNT].contains(&args.len())
             || args[0] != WORKER_ARGUMENT
             || args[3] != "--config"
             || args[5] != "--tag"
@@ -61,6 +63,18 @@ impl Arguments {
         {
             return Err(ArgumentError);
         }
+        let config_handle = if args.len() == MAX_ARGUMENT_COUNT {
+            if args[9] != "--keyweave-config-handle" {
+                return Err(ArgumentError);
+            }
+            let value = usize::try_from(decimal(&args[10])?).map_err(|_| ArgumentError)?;
+            if value == usize::MAX {
+                return Err(ArgumentError);
+            }
+            Some(value)
+        } else {
+            None
+        };
         let parent = u32::try_from(decimal(&args[1])?).map_err(|_| ArgumentError)?;
         let run_id = decimal(&args[2])?;
         // Marker is explicitly restricted to nonzero u32 on both architectures.
@@ -79,6 +93,7 @@ impl Arguments {
             parent,
             run_id,
             config,
+            config_handle,
             tag,
             identity,
         })

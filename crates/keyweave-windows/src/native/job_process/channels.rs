@@ -1,4 +1,5 @@
 //! Owned worker endpoints, retained until all parent-side cleanup is confirmed.
+use super::super::config_artifact::{ArtifactError, ConfigReader};
 use super::super::progress_pipe::{PipeCloseReport, PipeReader, PipeWriter};
 use super::*;
 
@@ -9,6 +10,8 @@ pub struct ChannelCleanupReport {
     pub reader: PipeCloseReport,
     pub writer: PipeCloseReport,
     pub stdout_close_error: Option<u32>,
+    pub config_inheritance_error: Option<u32>,
+    pub config_close_error: Option<ArtifactError>,
 }
 impl ChannelCleanupReport {
     pub fn complete(&self) -> bool {
@@ -16,12 +19,15 @@ impl ChannelCleanupReport {
             && self.reader.complete()
             && self.writer.complete()
             && self.stdout_close_error.is_none()
+            && self.config_inheritance_error.is_none()
+            && self.config_close_error.is_none()
     }
 }
 pub(super) struct ChildProgress {
     reader: PipeReader,
     writer: PipeWriter,
     stdout: Handle,
+    pub(super) config: Option<ConfigReader>,
 }
 impl ChildProgress {
     pub(super) fn new(reader: PipeReader, writer: PipeWriter) -> Self {
@@ -29,20 +35,28 @@ impl ChildProgress {
             reader,
             writer,
             stdout: null_mut(),
+            config: None,
         }
     }
-    fn handles(&self) -> [Handle; 3] {
-        [
+    fn handles(&self) -> Vec<Handle> {
+        let mut handles = vec![
             self.reader.transfer_state().0,
             self.stdout,
             self.writer.transfer_state().0,
-        ]
+        ];
+        if let Some(config) = &self.config {
+            handles.push(config.transfer_handle());
+        }
+        handles
     }
-    pub(super) fn prepare(&mut self) -> Result<[Handle; 3], JobError> {
+    pub(super) fn prepare(&mut self) -> Result<Vec<Handle>, JobError> {
         let (reader, reader_id, reader_idle) = self.reader.transfer_state();
         let (writer, writer_id, writer_idle) = self.writer.transfer_state();
         if !reader_idle || !writer_idle || reader == writer || reader_id == writer_id {
             return Err(JobError::PipeState);
+        }
+        if let Some(config) = self.config.as_mut() {
+            config.prepare_transfer().map_err(JobError::Config)?;
         }
         const NUL: [u16; 4] = [78, 85, 76, 0];
         // SAFETY: fixed NUL device, write-only, share read/write; no inheritance
@@ -63,7 +77,7 @@ impl ChildProgress {
             return Err(error("CreateFileW(NUL)"));
         }
         let handles = self.handles();
-        for handle in handles {
+        for &handle in &handles {
             // SAFETY: actual uniquely owned idle pipe/NUL handle, mask=INHERIT.
             // No Job, parent endpoint or event handle is marked inheritable.
             if unsafe { SetHandleInformation(handle, 1, 1) } == 0 {
@@ -79,9 +93,16 @@ impl ChildProgress {
                 // SAFETY: still owned handle, mask only clears inheritance;
                 // permitted even if a pipe IO awaits cancellation completion.
                 if unsafe { SetHandleInformation(handle, 1, 0) } == 0 {
-                    report.inheritance_errors[index] = Some(last_error_code());
+                    if index < 3 {
+                        report.inheritance_errors[index] = Some(last_error_code());
+                    } else {
+                        report.config_inheritance_error = Some(last_error_code());
+                    }
                 }
             }
+        }
+        if let Some(config) = self.config.as_mut() {
+            report.config_close_error = config.close().err();
         }
         report.reader = self.reader.close_for_transfer();
         report.writer = self.writer.close_for_transfer();

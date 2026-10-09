@@ -259,3 +259,38 @@ fn reader_validation_failure_retains_primary_cleanup_error_and_unique_owner() {
     assert!(artifact.close().unwrap().complete());
     assert!(error.rollback.is_some());
 }
+#[test]
+fn transfer_rewinds_after_local_read_and_permanently_locks_reader_io() {
+    let mut artifact = create(b"unchanged image");
+    let mut reader = artifact.prepare_reader().unwrap();
+    reader.read_exact(&mut [0; 4]).unwrap();
+    assert_eq!(MOCK.with(|m| m.borrow().cursor), 4);
+    assert_eq!(reader.prepare_transfer().unwrap() as usize, 0x200);
+    assert_eq!(MOCK.with(|m| m.borrow().cursor), 0);
+    let before = MOCK.with(|m| m.borrow().calls.len());
+    assert!(reader.read(&mut [0; 1]).is_err());
+    assert_eq!(reader.prepare_transfer(), Err(ArtifactError::NotSealed));
+    assert_eq!(MOCK.with(|m| m.borrow().calls.len()), before);
+    reader.close().unwrap();
+}
+#[test]
+fn failed_transfer_and_callback_cannot_rewind_or_reuse_reader() {
+    let mut artifact = create(b"image");
+    let mut reader = artifact.prepare_reader().unwrap();
+    let before = MOCK.with(|m| m.borrow().calls.len());
+    super::super::hook_thread::with_callback_borrow(|| {
+        assert_eq!(reader.prepare_transfer(), Err(ArtifactError::InCallback));
+    });
+    assert_eq!(MOCK.with(|m| m.borrow().calls.len()), before);
+    MOCK.with(|m| m.borrow_mut().fail = Some("rewind"));
+    assert!(matches!(
+        reader.prepare_transfer(),
+        Err(ArtifactError::Api { .. })
+    ));
+    MOCK.with(|m| m.borrow_mut().fail = None);
+    let before = MOCK.with(|m| m.borrow().calls.len());
+    assert!(reader.prepare_transfer().is_err());
+    assert!(reader.read(&mut [0; 1]).is_err());
+    assert_eq!(MOCK.with(|m| m.borrow().calls.len()), before);
+    reader.close().unwrap();
+}
