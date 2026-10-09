@@ -107,6 +107,10 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 
 ## 检查和完成证据
 
+- GetNamedPipeInfo 在已测 Windows 10 返回创建时的 PIPE_REJECT_REMOTE_CLIENTS bit（server=0x9、client=0x8）；工厂严格要求该 bit 与方向，不能仅按 Learn 表中的端点/type 枚举判定未知，也不能忽略所有未知 bit。保留缺失 remote restriction、message type 与未知 bit 的拒绝测试；Windows 11 单独验收。
+
+- Windows 管道写端保留 `GENERIC_WRITE | FILE_READ_ATTRIBUTES`，后者用于 GetNamedPipeInfo/GetNamedPipeHandleStateW 的写端查询；不开放 payload read。pair 在 Connect/Read/Write 前核验 reader/server 与 writer/client、byte type/read mode、PIPE_WAIT、max instances=1，元数据错误关闭已拥有资源并保留主错误。不查询账号字符串。PIPE_WAIT 不是生产 Read/Write 会阻塞的证据，异步保证来自本工厂的 FILE_FLAG_OVERLAPPED；这两个元数据 API 不能核验任意继承端点的 async 属性，WorkerStartup 不得仅据此放行。
+
 - 本机 Windows Rust 入口为 `C:\Users\sam chen\.cargo\bin`，WSL 使用 `/mnt/c/Users/sam chen/.cargo/bin`；含空格路径必须完整引用。Windows 开发优先复用该原生工具链，按 `docs/WINDOWS_VALIDATION.zh-CN.md` 调用 MSVC/SDK 验证，不更改用户默认工具链。只读版本探测、原生编译、mock 测试和真实桌面输入验收分别报告。
 
 文档阶段：验证路径、链接、manifest 校验和、任务依赖与状态一致；没有 workspace 时说明尚不能跑 cargo。

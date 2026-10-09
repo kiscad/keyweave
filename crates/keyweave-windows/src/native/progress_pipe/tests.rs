@@ -5,6 +5,96 @@ fn pair() -> (PipeReader, PipeWriter) {
     PipeReader::pair().unwrap()
 }
 #[test]
+fn factory_checks_both_endpoints_before_connecting() {
+    let (mut reader, mut writer) = pair();
+    api::MOCK.with(|m| {
+        let m = m.borrow();
+        let calls: Vec<_> = m
+            .calls
+            .iter()
+            .copied()
+            .filter(|name| {
+                name.starts_with("info-") || name.starts_with("state-") || *name == "connect"
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                "info-reader",
+                "state-reader",
+                "info-writer",
+                "state-writer",
+                "connect"
+            ]
+        );
+        assert!(!m.calls.contains(&"read") && !m.calls.contains(&"write"));
+    });
+    assert!(reader.close().unwrap().complete());
+    assert!(writer.close().unwrap().complete());
+}
+#[test]
+fn factory_rejects_changed_metadata_and_closes_without_starting_io() {
+    for handle in [100, 200] {
+        // flags: wrong endpoint, message type, unknown type; instance limits;
+        // state: NOWAIT, message read mode, unknown mode.
+        for (flags, instances, state) in [
+            (Some(8 | u32::from(handle != 100)), None, None),
+            (Some(8 | u32::from(handle == 100) | 4), None, None),
+            (Some(u32::from(handle == 100)), None, None),
+            (Some(16), None, None),
+            (None, Some(0), None),
+            (None, Some(2), None),
+            (None, Some(255), None),
+            (None, None, Some(1)),
+            (None, None, Some(2)),
+            (None, None, Some(4)),
+        ] {
+            api::MOCK.with(|m| {
+                let mut m = m.borrow_mut();
+                *m = api::Mock::default();
+                m.metadata_handle = Some(handle);
+                m.pipe_flags = flags;
+                m.pipe_instances = instances;
+                m.pipe_state = state;
+            });
+            let Err(cause) = PipeReader::pair() else {
+                panic!("invalid pipe admitted")
+            };
+            assert_eq!(cause.kind(), io::ErrorKind::InvalidData);
+            api::MOCK.with(|m| {
+                let m = m.borrow();
+                assert!(!m.calls.contains(&"connect") && !m.calls.contains(&"cancel"));
+                assert!(!m.calls.contains(&"read") && !m.calls.contains(&"write"));
+                assert_eq!(m.closes.len(), 4);
+                for handle in [100, 200, 301, 302] {
+                    assert!(m.closes.contains(&handle));
+                }
+            });
+            assert!(!POISONED.get());
+        }
+    }
+}
+#[test]
+fn metadata_api_failures_preserve_primary_error_and_close_endpoints() {
+    for fail in ["info-reader", "info-writer", "state-reader", "state-writer"] {
+        api::MOCK.with(|m| {
+            let mut m = m.borrow_mut();
+            *m = api::Mock::default();
+            m.fail = Some(fail);
+        });
+        let Err(cause) = PipeReader::pair() else {
+            panic!("failed query admitted")
+        };
+        assert_eq!(cause.raw_os_error(), Some(5));
+        api::MOCK.with(|m| {
+            let m = m.borrow();
+            assert_eq!(m.closes.len(), 4);
+            assert!(!m.calls.contains(&"connect") && !m.calls.contains(&"cancel"));
+        });
+        assert!(!POISONED.get());
+    }
+}
+#[test]
 fn overlapped_security_layouts_match_sdk() {
     let wide = size_of::<usize>() == 8;
     assert_eq!(size_of::<Overlapped>(), if wide { 32 } else { 20 });

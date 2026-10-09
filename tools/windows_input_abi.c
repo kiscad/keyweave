@@ -55,6 +55,9 @@ CHECK(ERROR_IO_PENDING == 997 && ERROR_IO_INCOMPLETE == 996);
 CHECK(ERROR_PIPE_CONNECTED == 535 && ERROR_BROKEN_PIPE == 109);
 CHECK(ERROR_NOT_FOUND == 1168 && BCRYPT_USE_SYSTEM_PREFERRED_RNG == 2);
 CHECK(SDDL_REVISION_1 == 1 && GENERIC_WRITE == 0x40000000 && OPEN_EXISTING == 3);
+CHECK(FILE_READ_ATTRIBUTES == 0x80);
+CHECK(PIPE_CLIENT_END == 0 && PIPE_SERVER_END == 1 && PIPE_TYPE_MESSAGE == 4);
+CHECK(PIPE_NOWAIT == 1 && PIPE_READMODE_MESSAGE == 2);
 CHECK(sizeof(WORD) == 2);
 CHECK(sizeof(DWORD) == 4);
 CHECK(sizeof(LONG) == 4);
@@ -165,6 +168,8 @@ int main(void) {
     HANDLE (WINAPI *create_pipe)(LPCWSTR, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, LPSECURITY_ATTRIBUTES) = CreateNamedPipeW;
     HANDLE (WINAPI *open_pipe)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) = CreateFileW;
     BOOL (WINAPI *connect_pipe)(HANDLE, LPOVERLAPPED) = ConnectNamedPipe;
+    BOOL (WINAPI *pipe_info)(HANDLE, LPDWORD, LPDWORD, LPDWORD, LPDWORD) = GetNamedPipeInfo;
+    BOOL (WINAPI *pipe_state)(HANDLE, LPDWORD, LPDWORD, LPDWORD, LPDWORD, LPWSTR, DWORD) = GetNamedPipeHandleStateW;
     HANDLE (WINAPI *create_event)(LPSECURITY_ATTRIBUTES, BOOL, BOOL, LPCWSTR) = CreateEventW;
     BOOL (WINAPI *reset_event)(HANDLE) = ResetEvent;
     BOOL (WINAPI *read_pipe)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) = ReadFile;
@@ -175,6 +180,7 @@ int main(void) {
     HLOCAL (WINAPI *free_local)(HLOCAL) = LocalFree;
     NTSTATUS (WINAPI *random_bytes)(BCRYPT_ALG_HANDLE, PUCHAR, ULONG, ULONG) = BCryptGenRandom;
     (void)create_pipe; (void)open_pipe; (void)connect_pipe; (void)create_event;
+    (void)pipe_info; (void)pipe_state;
     (void)reset_event; (void)read_pipe; (void)write_pipe; (void)pipe_result;
     (void)cancel_pipe; (void)convert_security; (void)free_local; (void)random_bytes;
 

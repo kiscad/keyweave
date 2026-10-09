@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-09",
+  "feature": "Windows progress pipe metadata gates and write-end query access (ADR-0050)",
+  "source_base_commit": "54a111dbd8f4a8b558aaaab2a84f0ba71a3fbf5a",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 537,
+      "windows_unit_tests_passed": 202,
+      "pipe_unit_tests": 14,
+      "production_native_link": "passed via production pipe factory and transport symbols",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; new pipe-info/state WINAPI prototypes and metadata constants; stdout observed, not separately archived",
+      "source_files_hash_checked": 150,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": "metadata checks on both endpoints, 24/40-byte same-process protocol roundtrip with fixture epoch11, real EOF and completed pending-read cancellation; explicit close reports complete",
+      "artifact_directory": "target/validation/windows-20261009-pipe-metadata-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "f39ccf41691e331ef0342c80b9b488e2e4e5e9290a0b9caf4fcc53ea7783b10c",
+        "clippy.log": "4b7d664e0e034f387203fdee1c2dc55a2d830cf01b3791931f68a3e02ca87f3a",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "ac8277de90f9388cbc06a3dae56dbd8aa3dd1c7e1bf2ef48992c1762064fba72",
+        "validate.cmd": "ba613cc5b0dad45a581a7a98edca41e553a088a1b686e7af8ee98f63a82df0a6",
+        "pipe-build.log": "3b20d954c7367ec62768cba145dbb8432c22243e08564f700dd9482d1b86fedb",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "pipe-smoke.cmd": "126f515cec023bd3c26b6419070ca7ee00880d262a07b13d925d4acdef51c6cf"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 537,
+      "windows_unit_tests_passed": 202,
+      "pipe_unit_tests": 14,
+      "production_native_link": "passed via production pipe factory and transport symbols",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; new pipe-info/state WINAPI prototypes and metadata constants; stdout observed, not separately archived",
+      "source_files_hash_checked": 150,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": "metadata checks on both endpoints, 24/40-byte same-process protocol roundtrip with fixture epoch11, real EOF and completed pending-read cancellation; explicit close reports complete",
+      "artifact_directory": "target/validation/windows-20261009-pipe-metadata-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "bb261806aed274a7458ab82b6561f96774a6d3419d6e38a853b6bbc5b72348a0",
+        "clippy.log": "3fa21854190ebc1ea651d3688b5a15af97b9b444b421917747a4a427fe6e495f",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "ac8277de90f9388cbc06a3dae56dbd8aa3dd1c7e1bf2ef48992c1762064fba72",
+        "validate.cmd": "45edc8f17f5308417c1453074317c1c1ed277b97b595360940761a6fb0fbf97c",
+        "pipe-build.log": "ff69484bf6b46005a107d3c69ab85a23a180532866372b987eabcf3a23ced541",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "pipe-smoke.cmd": "14ee2e905e023fb119aa1a29a87cfee800dfd43ab3731825dd2accd8df4e3777"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 574,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-pipe-metadata",
+    "artifacts_sha256": {
+      "tests.log": "fe8344dbd06490a2221bcddfaf554fa8634ac9bef618fae116fc13602e3c9c2a",
+      "clippy.log": "3f98b664d85bd3186ed836ce1149fdd50dc98fa8b019e55158c53ddf1fb59918"
+    }
+  },
+  "regression": {
+    "first_run": "both architecture compile/test/SDK/Clippy passed; x64 native smoke failed InvalidData before x86 smoke was started",
+    "probe": "own private pipe scalar query observed server flags=0x9, client flags=0x8, max instances=1 on each; terminal exit 0, stdout observed in tool output",
+    "cause": "PIPE_REJECT_REMOTE_CLIENTS appears in metadata flags but was absent from the initial strict comparison and mock",
+    "fix": "strictly require reject-remote bit plus expected endpoint; reject missing restriction, message/unknown flags, invalid mode/count",
+    "final": "all Linux and both Windows checks/native smoke repeated on corrected source",
+    "superseded_artifact_directories": [
+      "target/validation/windows-20261009-pipe-metadata-before-reject-flag-x64-1.97.1",
+      "target/validation/windows-20261009-pipe-metadata-before-reject-flag-x86-1.97.1"
+    ]
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "native_private_pipes_created": true
+  },
+  "limits": [
+    "metadata queries do not attest arbitrary inherited handles FILE_FLAG_OVERLAPPED",
+    "no child channel delivery, WorkerStartup gate, cross-process watchdog or full host yet",
+    "Windows 11 and actual input/session/hardware validation remain",
+    "epochs in native smoke are fixtures, not CaptureSession progress",
+    "all original rule/Linux bootstrap/consumer-ready/GUI/packaging/driver scope remains"
+  ]
+}

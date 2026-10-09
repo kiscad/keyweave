@@ -21,6 +21,10 @@ pub(super) struct Mock {
     pub defer_cancel: bool,
     pub error_signaled: bool,
     pub connect_pending: bool,
+    pub pipe_flags: Option<u32>,
+    pub pipe_instances: Option<u32>,
+    pub pipe_state: Option<u32>,
+    pub metadata_handle: Option<usize>,
     events: BTreeMap<usize, bool>,
     pending: BTreeMap<usize, Pending>,
     next_event: usize,
@@ -108,12 +112,67 @@ pub(super) unsafe fn CreateFileW(
 ) -> Handle {
     assert!(!n.is_null());
     assert!(sa.is_null() && t.is_null());
-    assert_eq!((a, s, d, f), (0x40000000, 0, 3, 0x40100000));
+    assert_eq!((a, s, d, f), (0x40000080, 0, 3, 0x40100000));
     if call("client") {
         200usize as Handle
     } else {
         usize::MAX as Handle
     }
+}
+pub(super) unsafe fn GetNamedPipeInfo(
+    h: Handle,
+    flags: *mut u32,
+    output: *mut u32,
+    input: *mut u32,
+    instances: *mut u32,
+) -> i32 {
+    assert!(matches!(h as usize, 100 | 200));
+    assert!(output.is_null() && input.is_null());
+    if !call(if h as usize == 100 {
+        "info-reader"
+    } else {
+        "info-writer"
+    }) {
+        return 0;
+    }
+    MOCK.with(|m| {
+        let m = m.borrow();
+        let selected = m.metadata_handle.is_none_or(|value| value == h as usize);
+        // SAFETY: tested caller retains initialized scalar outputs for the call.
+        unsafe {
+            *flags = if selected { m.pipe_flags } else { None }
+                .unwrap_or(8 | u32::from(h as usize == 100));
+            *instances = if selected { m.pipe_instances } else { None }.unwrap_or(1);
+        }
+    });
+    1
+}
+pub(super) unsafe fn GetNamedPipeHandleStateW(
+    h: Handle,
+    state: *mut u32,
+    instances: *mut u32,
+    count: *mut u32,
+    timeout: *mut u32,
+    username: *mut u16,
+    username_size: u32,
+) -> i32 {
+    assert!(matches!(h as usize, 100 | 200));
+    assert!(instances.is_null() && count.is_null() && timeout.is_null() && username.is_null());
+    assert_eq!(username_size, 0);
+    if !call(if h as usize == 100 {
+        "state-reader"
+    } else {
+        "state-writer"
+    }) {
+        return 0;
+    }
+    MOCK.with(|m| {
+        let m = m.borrow();
+        let selected = m.metadata_handle.is_none_or(|value| value == h as usize);
+        // SAFETY: tested caller retains initialized DWORD output for this call.
+        unsafe { *state = if selected { m.pipe_state } else { None }.unwrap_or(0) };
+    });
+    1
 }
 pub(super) unsafe fn CreateEventW(
     a: *const SecurityAttributes,

@@ -1,6 +1,22 @@
 use super::*;
 #[link(name = "kernel32")]
 unsafe extern "system" {
+    pub(super) fn GetNamedPipeInfo(
+        pipe: Handle,
+        flags: *mut u32,
+        output_buffer: *mut u32,
+        input_buffer: *mut u32,
+        instances: *mut u32,
+    ) -> i32;
+    pub(super) fn GetNamedPipeHandleStateW(
+        pipe: Handle,
+        state: *mut u32,
+        instances: *mut u32,
+        collection_count: *mut u32,
+        collection_timeout: *mut u32,
+        username: *mut u16,
+        username_size: u32,
+    ) -> i32;
     pub(super) fn CreateNamedPipeW(
         name: *const u16,
         open: u32,

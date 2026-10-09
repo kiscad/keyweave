@@ -138,6 +138,59 @@ struct Endpoint {
     _thread: PhantomData<Rc<()>>,
 }
 impl Endpoint {
+    fn verify_shape(&self, server: bool) -> io::Result<()> {
+        let mut flags = 0;
+        let mut instances = 0;
+        // SAFETY: live owned local pipe; initialized DWORD outputs borrowed only
+        // for this call. Buffer-size outputs are intentionally not requested.
+        if unsafe {
+            GetNamedPipeInfo(
+                self.handle,
+                &mut flags,
+                null_mut(),
+                null_mut(),
+                &mut instances,
+            )
+        } == 0
+        {
+            return Err(os_error(last_error()));
+        }
+        // Windows also reports PIPE_REJECT_REMOTE_CLIENTS in these flags; keep
+        // that creation restriction rather than treating it as an unknown bit.
+        if flags != (8 | u32::from(server)) || instances != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unexpected progress pipe type, endpoint or instance limit",
+            ));
+        }
+        let mut state = 0;
+        // SAFETY: owned local endpoint; only scalar state is requested. All
+        // collection/timeout/account outputs are NULL; no user string is read.
+        if unsafe {
+            GetNamedPipeHandleStateW(
+                self.handle,
+                &mut state,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                0,
+            )
+        } == 0
+        {
+            return Err(os_error(last_error()));
+        }
+        // PIPE_WAIT | PIPE_READMODE_BYTE. Nonblocking operation is provided by
+        // our FILE_FLAG_OVERLAPPED creation contract, not by PIPE_NOWAIT. These
+        // metadata queries alone cannot attest another handle's async mode.
+        if state != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unexpected progress pipe read/wait mode",
+            ));
+        }
+        Ok(())
+    }
     fn new(handle: Handle) -> io::Result<Self> {
         let mut owner = Self {
             handle,
@@ -473,11 +526,13 @@ impl PipeReader {
         }
         let mut reader = Endpoint::new(server)?;
         // SAFETY: open our local pipe, no inheritance; async, SECURITY_ANONYMOUS
-        // SQOS prevents server impersonation. Name not exported to external peers.
+        // SQOS prevents server impersonation. FILE_READ_ATTRIBUTES is needed
+        // for write-only pipe metadata queries; it does not grant payload reads.
+        // Name not exported to external peers.
         let client = unsafe {
             CreateFileW(
                 name.as_ptr(),
-                0x40000000,
+                0x40000080,
                 0,
                 std::ptr::null(),
                 3,
@@ -489,6 +544,8 @@ impl PipeReader {
             return Err(os_error(last_error()));
         }
         let writer = Endpoint::new(client)?;
+        reader.verify_shape(true)?;
+        writer.verify_shape(false)?;
         reader.connect()?;
         security.release()?;
         Ok((Self(reader), PipeWriter(writer)))
