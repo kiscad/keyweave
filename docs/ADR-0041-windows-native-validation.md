@@ -6,7 +6,10 @@
 
 证据：本机 Windows SDK 10.0.26100.0 的 um/WinUser.h tagMSG 声明；MSVC 19.44.35229.0（工具目录 14.44.35207），首个 x64 /Zs oracle 编译报 lPrivate 非 MSG 成员。参考 [Microsoft MSG 文档](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-msg)；公开文档展示的保留字段不能覆盖安装 SDK 的条件声明。
 
-边界：本机仅安装 x86_64-pc-windows-msvc stable target，i686 Rust target 与固定版本尚未证明；SDK x86 compile 不等于 Rust x86 编译/运行。WSL 文件共享上的 Cargo SQLite cache 锁警告不能伪装为编译成功，需以最终退出/测试结果记录；后续优先使用 Windows 本地临时 cache/target。没有硬件捕获/注入、driver 或完整会话验收；独立监督/重复/碰撞/可执行 host 等工作继续保留。
+首次验证边界：当时本机仅安装 x86_64-pc-windows-msvc stable target，i686 Rust target 与固定版本尚未证明；SDK x86 compile 不等于 Rust x86 编译/运行。WSL 文件共享上的 Cargo SQLite cache 锁警告不能伪装为编译成功，需以最终退出/测试结果记录；后续优先使用 Windows 本地临时 cache/target。没有硬件捕获/注入、driver 或完整会话验收；独立监督/重复/碰撞/可执行 host 等工作继续保留。
 
 
 结果：改 Windows-local 源快照/cache/target 后，Rust1.99.0 x64 workspace432 tests、native_link 与 clippy -D warnings通过；x64/x86 SDK实际通过。portable Linux mocks 改host-absolute identity，保持所有生产检查与故障测试；新Clippy切片lint采用as_chunks，Linux1.97.1验证通过。tools/validate_windows.ps1 已在 Windows PowerShell5实际执行 x64完整与x86 SDKOnly；输出源码hash与日志，94源文件hash匹配工作区。版本、命令范围和边界见 docs/validation/windows-2026-10-09.json；Windows固定1.97.1/i686仍未执行。
+
+
+固定版本补验（2026-10-09）：独占临时 RUSTUP_HOME 安装1.97.1及 x64/i686 targets，不改用户默认。两个实际Windows目标各432 workspace tests、native_link、fmt/clippy、12个离线回放通过；两个SDK oracle通过，127个快照文件hash无差异，见 [固定版本记录](validation/windows-2026-10-09-pinned.json)。首次安装launcher自更新失败不冒充成功，实际版本/targets/构建已独立确认；未来用 --no-self-update。i686通过WoW64运行；原32位布局已由真实Rust断言与x86 SDK共同验证。旧1.99结果保留历史证据，其当时“待验”不再表示当前状态。CI、实际输入及完整会话验收仍未执行。

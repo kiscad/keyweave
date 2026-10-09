@@ -1,6 +1,6 @@
 # Windows 原生验证入口
 
-已通过 WSL2 调用 Windows Rust 1.99.0：x64 workspace 432 个测试、生产 Win32 符号链接与 clippy 通过；SDK x64/x86 oracle 均通过。结果和版本见 [本机验证记录](validation/windows-2026-10-09.json)。项目固定 Rust 1.97.1 的 Windows 验证、i686 Rust 测试与实际输入验收仍待执行。生产代码与 unit-test 的 Win32 API 替换分开验证。
+已通过 WSL2 调用固定 Windows Rust 1.97.1：x64/i686 各 432 个 workspace 测试、生产 Win32 符号链接、fmt/clippy 和 12 个离线回放通过；SDK x64/x86 oracle 均通过。结果和日志 hash 见 [固定版本验证记录](validation/windows-2026-10-09-pinned.json)。此前的 [1.99 x64 验证记录](validation/windows-2026-10-09.json) 保留历史结果。实际输入验收仍待执行，生产代码与 unit-test 的 Win32 API 替换分开验证。
 
 ## SDK 与编译
 
@@ -18,7 +18,7 @@ SDK oracle 为 `tools/windows_input_abi.c`，只编译 `/Zs`，不链接/执行�
 
 Rust `native_link` integration test 通过正常 crate 依赖构建生产模块，保留 Hook/SendInput/MsgWait/desktop-token sampling 等函数地址以验证链接；只构造固定内存 buffer，不调用安装/注入。Rust native 布局断言与 SDK oracle 在同一个 x86/x64 CI job 中运行，任一 mismatch 阻止通过。workspace unit tests 在 Windows 也替换 Hook API，不进行全局捕获。
 
-`.github/workflows/rust.yml` 已配置两种 MSVC 目标。工作流存在不等于已经执行或通过；真实结果须记录 runner、SDK/MSVC/Rust 版本、target 与 job URL。此前仅使用 Linux rust-std，隔离到 `/tmp` 的 Windows target 下载因 DNS 失败。现已发现并实际使用宿主 Windows 的 Rust/MSVC/SDK：Windows 10 build 19045、Rust 1.99.0、MSVC 19.44.35229.0 / tools 14.44.35207、SDK 10.0.26100.0；本机通过不代表 CI 已运行。
+`.github/workflows/rust.yml` 已配置两种 MSVC 目标。工作流存在不等于已经执行或通过；真实结果须记录 runner、SDK/MSVC/Rust 版本、target 与 job URL。此前仅使用 Linux rust-std，隔离到 `/tmp` 的 Windows target 下载因 DNS 失败。现已发现并实际使用宿主 Windows 的 Rust/MSVC/SDK：Windows 10 build 19045、固定 Rust 1.97.1（此前也验证1.99.0）、MSVC 19.44.35229.0 / tools 14.44.35207、SDK 10.0.26100.0；本机通过不代表 CI 已运行。
 
 ## 真机门槛仍未完成
 
@@ -29,13 +29,13 @@ Rust `native_link` integration test 通过正常 crate 依赖构建生产模块�
 只读采样新增 sample_input_state 的 WinSta0/UOI_IO/desktop access、foreground token integrity 与无 thread impersonation 检查；此路径依赖 user32/kernel32/advapi32，布局和 symbol retention 已加入验证入口。IdleObserved 不是 neutral/capture-ready，不能代替 passive Hook 启动 barrier，所有 API 替换测试不证明 Windows 访问成功。
 
 
-CaptureSession 现有 explicit install/poll/shutdown：安装初始 passive，poll 返回 Waiting/Activated/Continue/Quit；poll 的错误或 Quit 已关闭 Hook 并尝试有界 recovery，调用者另读 shutdown_report 的 unhook/recovery 两个结果。shutdown 幂等；必须显式调用，Drop 只停 Hook、不 SendInput。生产链接测试保留这些入口，已在 Windows x64 Rust 1.99.0 执行通过。16 个新增 mock tests 在 Linux 运行，不证明桌面采样/Hook 安装或发送成功；2s/20ms 仅期限和等待参数，不是墙钟实时保证。neutral barrier 现有组件不补足 repeat/物理 Pass 冲突/紧急退出/监督/可执行 host，真实验收仍等完整接入。
+CaptureSession 现有 explicit install/poll/shutdown：安装初始 passive，poll 返回 Waiting/Activated/Continue/Quit；poll 的错误或 Quit 已关闭 Hook 并尝试有界 recovery，调用者另读 shutdown_report 的 unhook/recovery 两个结果。shutdown 幂等；必须显式调用，Drop 只停 Hook、不 SendInput。生产链接测试保留这些入口，已在 Windows 固定 Rust 1.97.1 的 x64/i686 执行通过。16 个新增 mock tests 在 Linux 运行，不证明桌面采样/Hook 安装或发送成功；2s/20ms 仅期限和等待参数，不是墙钟实时保证。neutral barrier 现有组件不补足 repeat/物理 Pass 冲突/紧急退出/监督/可执行 host，真实验收仍等完整接入。
 
 
 SessionStep 新增 Emergency：固定原 physical Ctrl+Alt+Shift+F12 连续 >=1s，callback/control 都在相同 delivery time 的 actor 工作之前检查。15 个新增离线 tests 覆盖 threshold、取消、重映射、注入、同刻 up/held deadline 与 close-first 恢复；不替代 Windows 实际输入。真机增加按住期间无新事件、左右/AltGr 布局、两个键盘组合、映射紧急键、Hook 移除/线程停滞，以及恢复短返回验收。允许跨键盘组成是合并 Hook 流的明确边界；独立监督和可执行 host 仍需接入。
 
 
-活动访问保护新增 metadata-only check_input_access 与 AccessLease（100ms refresh/500ms expiry），不新增 Win32 ABI；CaptureSession::poll 生产链接路径包含此检查，Windows x64 本机生产链接已通过；Windows CI 工作流仍未执行。16 个新增 Linux/mock tests 验证零 VK 调用、持键更新不丢 binding、权限/metadata 错误、callback 期间 stop 与迟到租约。真机需增加持键切换普通/管理员前台、安全桌面、拒绝 token/desktop access 与检查耗时；观察实际捕获释放、accepted ups 和 UIPI 失败。该层不能替代 Hook 存活/独立进度监督或 WTS 断连验收，pre/post 与检查间隔竞态必须保留在结果中。
+活动访问保护新增 metadata-only check_input_access 与 AccessLease（100ms refresh/500ms expiry），不新增 Win32 ABI；CaptureSession::poll 生产链接路径包含此检查，Windows x64/i686 本机生产链接已通过；Windows CI 工作流仍未执行。16 个新增 Linux/mock tests 验证零 VK 调用、持键更新不丢 binding、权限/metadata 错误、callback 期间 stop 与迟到租约。真机需增加持键切换普通/管理员前台、安全桌面、拒绝 token/desktop access 与检查耗时；观察实际捕获释放、accepted ups 和 UIPI 失败。该层不能替代 Hook 存活/独立进度监督或 WTS 断连验收，pre/post 与检查间隔竞态必须保留在结果中。
 
 
 ## WSL2 调用宿主 Windows 工具链
@@ -47,13 +47,35 @@ SessionStep 新增 Emergency：固定原 physical Ctrl+Alt+Shift+F12 连续 >=1s
 ```bash
 win_source=$(wslpath -w "$PWD")
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-  -File "$win_source\\tools\\validate_windows.ps1" -Toolchain stable -Arch x64
+  -File "$win_source\\tools\\validate_windows.ps1" -Toolchain 1.97.1 -Arch x64
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-  -File "$win_source\\tools\\validate_windows.ps1" -Arch x86 -SdkOnly
+  -File "$win_source\\tools\\validate_windows.ps1" -Toolchain 1.97.1 -Arch x86
 ```
 
 `-Offline -SeedCargoHome <Windows-cargo-cache-path>` 可复用已有锁定依赖；输出的 `ValidationRoot` 包含本次独占日志/快照。ExecutionPolicy Bypass 只作用于该进程。Codex 受限沙箱内 WSL interop 的 vsock 返回 EPERM 时需按权限流程在沙箱外执行；此次已授权并成功执行，无自动审批拒绝。直接把 Windows Cargo cache/target 放在 `\\wsl.localhost` 曾出现 SQLite locked 和长时间停留，已结束该次独占进程树，再改 Windows-local 目录；不要把缓存锁警告/存活 PID 当作测试成功。
 
 此次发现并修复真实 ABI 问题：SDK MSG 的 lPrivate 仅在 `_MAC` 分支，Windows Rust 删除该字段；x64 size 48 含尾部 padding，x86 size 28。Rust/C oracle 同步修正，x64/x86 实际 SDK 均通过。公开 MSG 文档展示保留字段，具体条件以安装 SDK header 为准，见 ADR-0041。Linux portable mock 的 `/sys/...` 在 Windows 不含 drive prefix，改成 host-absolute mock identity，保留生产检查/全部故障断言；新 Clippy chunks lint 采用 as_chunks，Linux 1.97.1 也通过。
 
-本机测试日志及源 hash 副本位于 `target/validation/windows-20261009-x64-1.99/`（Git ignored），报告包含路径。Windows 432 测试包括 portable Linux mocks 和 103 Windows unit tests、1 个生产链接测试；Linux 专有 ioctl/进程 tests 只在 Linux 跑。未安装实际 Hook、调用 SendInput 或加载 driver，完整输入恢复/性能/桌面验收继续保留。
+固定版本两次测试日志及源 hash 副本位于 `target/validation/windows-20261009-{x64,x86}-1.97.1/`（Git ignored），报告包含各文件SHA256及路径。每份源码快照全部127个文件hash与提交e0796d2一致（包括fixture与工具）；此前1.99记录只检查94个编译源文件。每个目标的 Windows 432 测试包括 portable Linux mocks 和 103 Windows unit tests、1 个生产链接测试；Linux 专有 ioctl/进程 tests 只在 Linux 跑。未安装实际 Hook、调用 SendInput 或加载 driver，完整输入恢复/性能/桌面验收继续保留。
+
+
+## 独立固定工具链与回放检查
+
+本次使用独占临时 `RUSTUP_HOME` 安装1.97.1，保留现有宿主 stable1.99.0 和用户默认配置；路径只在当前 PowerShell 及其子进程环境生效。需要复现时，可在 Windows PowerShell 设置新目录，然后调用上面的验证脚本：
+
+```powershell
+$env:RUSTUP_HOME = Join-Path $env:TEMP ('keyweave-rustup-' + [Guid]::NewGuid().ToString('N'))
+$rustBin = Join-Path $env:USERPROFILE '.cargo\bin'
+& (Join-Path $rustBin 'rustup.exe') toolchain install 1.97.1 --no-self-update `
+    --profile minimal --component rustfmt,clippy `
+    --target x86_64-pc-windows-msvc,i686-pc-windows-msvc
+if ($LASTEXITCODE -ne 0) { throw 'Toolchain installation failed' }
+& (Join-Path $rustBin 'rustc.exe') +1.97.1 -vV
+& (Join-Path $rustBin 'rustup.exe') target list --installed --toolchain 1.97.1
+```
+
+初次安装另设临时 `CARGO_HOME` 后，组件全部安装，但 launcher 自更新提示 rustup 未安装于该目录并返回失败。后续改为仅设 `RUSTUP_HOME`、实际查询两个 std targets，再完成真实构建，证明工具链完整；不能仅根据“6 components installed”宣称通过。`--no-self-update` 跳过不相关的 launcher 更新，不忽略组件安装错误。不把该次临时目录设为持久用户变量；重开 PowerShell 恢复用户环境。
+
+两个架构的测试在同一 Windows10 x64 主机执行，i686 可执行文件通过 WoW64 运行。本次两个目标各432 tests且全部0 failed，无改动生产代码。fmt 和回放是对上述已核对hash的同一快照补跑：`cargo +1.97.1 fmt --all --check`，以及对应 `target/<target>/debug/keyweavectl.exe replay --fixture tests/fixtures/<name>.json --assert`。12个fixture为 basic、sequence、tap-alone、modifiers、output-shortcuts、device-context、text-context、variables、held、delayed、delayed-pending、lazy-halt；退出均0。验证脚本本身仍负责 SDK/tests/clippy，fmt/replay须单独补跑并保存日志，不将当前本机完整检查误解为脚本自动覆盖。
+
+SDK /Zs 成功与 MSVC 版本输出已在此次命令结果中观察；未单独存SDK stdout日志。报告准确区分已保存的 tests/clippy/fmt/replay/source-manifest/validate.cmd 与未归档的 SDK 输出。报告固定源码提交，后续文档提交不等于重新构建过修改后的源码；代码变化后重新生成快照/证据。GitHub Actions 与真实输入验收仍未执行，不能由这组本机编译检查推断通过。

@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-09",
+  "source_commit": "e0796d2197c565692de2fd0f0d26c5c704fd1cc9",
+  "os": {
+    "windows_build": "10.0.19045",
+    "entry": "WSL2 interop; Windows-local owned source/cache/target; x86 tests execute under WoW64"
+  },
+  "rust": {
+    "version": "1.97.1",
+    "commit_hash": "8bab26f4f68e0e26f0bb7960be334d5b520ea452",
+    "cargo_version": "1.97.1",
+    "host": "x86_64-pc-windows-msvc",
+    "llvm": "22.1.6",
+    "pinned_windows_tested": true,
+    "provisioning": "Isolated temporary RUSTUP_HOME; existing Windows Rust default unchanged"
+  },
+  "msvc": {
+    "compiler": "19.44.35229.0",
+    "tools": "14.44.35207",
+    "vs_build_tools": "17.14.41",
+    "sdk": "10.0.26100.0"
+  },
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 432,
+      "windows_unit_tests_passed": 103,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed --all --check",
+      "replay_assertions_passed": 12,
+      "sdk_oracle": "passed cl /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 127,
+      "source_mismatches": 0,
+      "source_manifest_and_logs": "target/validation/windows-20261009-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "2803a8148f68c2b8457e41bcee7fe19704ec64e989f142d5e0c05e39f2f0a8f3",
+        "clippy.log": "364ee44262a275f8ec0e73a155ff0a2a559527dbaaba759f0d0ebbdf97e6c90b",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "replay.log": "0e336485bfc44a5653585f4bb56ebe28409bffe7c29d28972762de062e737a12",
+        "source-manifest.json": "0adbcc7e4289de66c8f087f7cbb6ea01e2d95ff67334e23f74369ae331341bd3",
+        "validate.cmd": "fc1caf436045ef34898a2a472f2136f44668080bff4e0f555b61ba8a4dcbb47a"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 432,
+      "windows_unit_tests_passed": 103,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed --all --check",
+      "replay_assertions_passed": 12,
+      "sdk_oracle": "passed cl /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 127,
+      "source_mismatches": 0,
+      "source_manifest_and_logs": "target/validation/windows-20261009-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "4db5aaf077a8acaae13ba9fb4555b9778bcfa83e00a05e6a2a77077639338f2e",
+        "clippy.log": "b851b1873db3d0a5377f465ad2d180438d5c16dfc651b38fe37f1e381eea2b72",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "replay.log": "0e336485bfc44a5653585f4bb56ebe28409bffe7c29d28972762de062e737a12",
+        "source-manifest.json": "0adbcc7e4289de66c8f087f7cbb6ea01e2d95ff67334e23f74369ae331341bd3",
+        "validate.cmd": "9ee31b87466f0fb573dcbf975e433fe1fa7e919935594c4becd18b0446731b26"
+      }
+    }
+  ],
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Local runs, not GitHub Actions; CI jobs not executed",
+    "Native unit APIs mocked; production native_link retains symbols without calling input APIs",
+    "SDK oracle compile-only stdout observed, not archived as a standalone SDK log",
+    "No real desktop/access/Hook/SendInput/session/hardware acceptance",
+    "Linux-specific ioctl/worker-process tests require Linux, not covered by Windows runs"
+  ]
+}

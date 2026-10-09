@@ -55,7 +55,7 @@ held 展开、future macros/suppression/deadline token 在原 down 一并预留�
 
 Linux 原生转换组件已有 159 HID/native 对与 154 canonical codes，但未接入 validate/backend；粗粒度 linux-evdev 页声明不能证明任意 HID 输出可用。keyboard 音量、non_us_pound/clear 等五个 native 别名明确拒绝保真输出；canonical evdev 身份不证明原始 HID usage，可信 scan 需 driver/descriptor 核验。详细策略见 ADR-0019。尚无真实设备抓取/注入。
 
-Windows 后端进展：已有 portable scan codec、默认 injected bypass、保存 down identity 的 normalizer，以及处理部分插入/显式停捕获恢复的 OutputPump。cfg Windows 原生 SendInput 已编写，已在宿主 Windows Rust 1.99.0 通过 x64 编译/生产链接，x64/x86 SDK ABI oracle 通过；固定 Windows 1.97.1/i686 Rust 与真机验证待执行；已有同步决策绑定和原生 HookSession 注册/消息循环/卸载代码；无完整可执行会话运行时，CLI Windows capability 仍是规划的配置检查范围，不代表可安装运行。特殊 scan/别名输出在 backend 验证中拒绝。SendInput 的全局状态不会随 backend Drop 清除；未知接受量保留 quarantine，未捕获物理键碰撞协调仍待实现（ADR-0032/0033）。
+Windows 后端进展：已有 portable scan codec、默认 injected bypass、保存 down identity 的 normalizer，以及处理部分插入/显式停捕获恢复的 OutputPump。cfg Windows 原生 SendInput 已编写，已在宿主 Windows 固定 Rust 1.97.1 通过 x64/i686 编译/生产链接，x64/x86 SDK ABI oracle 通过；真机验证待执行；已有同步决策绑定和原生 HookSession 注册/消息循环/卸载代码；无完整可执行会话运行时，CLI Windows capability 仍是规划的配置检查范围，不代表可安装运行。特殊 scan/别名输出在 backend 验证中拒绝。SendInput 的全局状态不会随 backend Drop 清除；未知接受量保留 quarantine，未捕获物理键碰撞协调仍待实现（ADR-0032/0033）。
 
 Windows SessionActor 已连接共享引擎与输出账本，ActorHandler 可交付同步 HookHandler；覆盖标准键捕获重发、持键热更新与显式 tick 推进时间任务。Engine 物理 Repeat 不重播宏，Windows 专用重复源仍缺；已有具体同 epoch SessionClock/SessionControl 与原生定时 poll_with_control 源码；Windows 实际等待未验证；已有 passive neutral 启动组件，已有映射前固定紧急组合；碰撞/监督与可执行启动尚未完成，不能视为可运行 Windows 后端（ADR-0035）。
 
@@ -68,4 +68,4 @@ Windows CaptureSession 紧急退出：原 physical Ctrl+Alt+Shift+F12 左右任�
 Windows 活动访问检查已接入 CaptureSession：100ms 到期在 callback 外仅复核桌面/访问权限与前台 integrity，零 GetAsyncKeyState 调用；成功按完成时刻续期 500ms lease，callback 与 control 同 delivery time 检查有效期。高 integrity、失去输入 desktop、API/close/metadata 错误或过期/迟到结果终止会话并先停 Hook 再恢复，正常成功检查保留持键绑定。query 期间 callback 已停止时，不再续期/推进 actor。metadata pre/post 不原子，变化至下一检查之间仍可发生访问竞态；参数不提供墙钟时限，不能检测 Hook 静默移除/线程卡死，完整 WTS/session disconnect 与独立监督仍待实现（ADR-0040）。
 
 
-当前 Windows 编译证据：宿主 Windows 10 build 19045 / Rust 1.99.0 / MSVC 19.44.35229.0 / SDK 10.0.26100.0，x64 workspace 432 tests/clippy 和 native_link 通过，SDK x64/x86 compile-only oracle 通过。MSG 的 `_MAC` 保留字段已删除，Windows size48/28。生产符号链接不执行 Hook/SendInput；固定 1.97.1/i686 Rust、独立监督、完整可执行 runtime 与真实设备语义/故障仍待完成（ADR-0041）。
+当前 Windows 编译证据：宿主 Windows 10 build 19045 / Rust 1.97.1 / MSVC 19.44.35229.0 / SDK 10.0.26100.0，x64/i686 各 workspace 432 tests、fmt/clippy、native_link 和12个离线回放通过，SDK x64/x86 compile-only oracle 通过。MSG 的 `_MAC` 保留字段已删除，Windows size48/28。生产符号链接不执行 Hook/SendInput；独立监督、完整可执行 runtime 与真实设备语义/故障仍待完成（ADR-0041；[固定版本证据](validation/windows-2026-10-09-pinned.json)）。
