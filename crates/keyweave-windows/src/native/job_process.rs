@@ -1,6 +1,10 @@
 //! Owned suspended worker, atomically assigned to its Job at creation. No input APIs.
 mod attributes;
+mod channels;
+use super::progress_pipe::{PipeReader, PipeWriter};
 use attributes::Attributes;
+pub use channels::ChannelCleanupReport;
+use channels::ChildProgress;
 use std::ffi::OsString;
 use std::{
     ffi::c_void, marker::PhantomData, mem::size_of, path::Path, ptr::null_mut, rc::Rc,
@@ -59,6 +63,10 @@ pub enum JobError {
     Command,
     #[error("invalid process attribute-list buffer size")]
     AttributeSize,
+    #[error("progress endpoints must be distinct, idle, open pipe pairs")]
+    PipeState,
+    #[error("parent-side worker channel cleanup is incomplete")]
+    ChannelCleanup,
     #[error("job process operation is not valid in its current state")]
     State,
     #[error("job operations are forbidden in a keyboard callback")]
@@ -75,6 +83,8 @@ pub enum JobProcessState {
     /// The Job exists; process creation has not succeeded.
     Prepared,
     Suspended,
+    /// A child was created but startup failed; cleanup can never permit resume.
+    StartupFailed,
     /// Resume was attempted; retrying could execute an unverified worker.
     ResumeAttempted,
     Running,
@@ -86,9 +96,10 @@ pub enum JobProcessState {
 pub struct JobSpawnError {
     pub cause: JobError,
     pub rollback: Option<JobError>,
+    pub channel_cleanup: Option<Box<ChannelCleanupReport>>,
     /// Partial resources remain owned. Prepared means no process was created.
     /// Other states may retain a child pending termination or observed exited.
-    pub owner: Option<OwnedJobProcess>,
+    pub owner: Option<Box<OwnedJobProcess>>,
 }
 #[cfg(not(test))]
 mod api {
@@ -135,15 +146,28 @@ mod api {
         pub(super) fn WaitForSingleObject(process: Handle, milliseconds: u32) -> u32;
         pub(super) fn GetExitCodeProcess(process: Handle, code: *mut u32) -> i32;
         pub(super) fn CloseHandle(handle: Handle) -> i32;
+        pub(super) fn SetHandleInformation(handle: Handle, mask: u32, flags: u32) -> i32;
+        pub(super) fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            attributes: *const super::super::progress_pipe::SecurityAttributes,
+            disposition: u32,
+            flags: u32,
+            template: Handle,
+        ) -> Handle;
         pub(super) fn GetLastError() -> u32;
     }
 }
 use api::*;
-fn error(call: &'static str) -> JobError {
+fn last_error_code() -> u32 {
     // SAFETY: immediate thread-local last error, no pointers or ownership.
+    unsafe { GetLastError() }
+}
+fn error(call: &'static str) -> JobError {
     JobError::Api {
         call,
-        code: unsafe { GetLastError() },
+        code: last_error_code(),
     }
 }
 fn context() -> Result<(), JobError> {
@@ -226,6 +250,8 @@ pub struct OwnedJobProcess {
     process: Handle,
     thread: Handle,
     state: JobProcessState,
+    channels: Option<Box<ChildProgress>>,
+    channel_cleanup: Option<Box<ChannelCleanupReport>>,
     _thread: PhantomData<Rc<()>>,
 }
 impl std::fmt::Debug for OwnedJobProcess {
@@ -237,8 +263,40 @@ impl std::fmt::Debug for OwnedJobProcess {
 }
 impl OwnedJobProcess {
     pub fn spawn_suspended(path: &Path, args: &[OsString]) -> Result<Self, JobSpawnError> {
-        Self::spawn(path, args).map_err(|(cause, owner)| {
+        Self::start(path, args, None)
+    }
+    /// Consumes the two idle worker ends; the caller retains the parent ends.
+    /// stdin/stderr are reserved for binary progress, stdout is NUL. Must not
+    /// overlap another ambient inheriting spawn on another parent thread.
+    pub fn spawn_suspended_with_progress(
+        path: &Path,
+        args: &[OsString],
+        reader: PipeReader,
+        writer: PipeWriter,
+    ) -> Result<Self, JobSpawnError> {
+        Self::start(path, args, Some(ChildProgress::new(reader, writer)))
+    }
+    fn start(
+        path: &Path,
+        args: &[OsString],
+        channels: Option<ChildProgress>,
+    ) -> Result<Self, JobSpawnError> {
+        Self::spawn(path, args, channels).map_err(|(cause, owner)| {
             let mut owner = owner;
+            if let Some(owner) = owner.as_mut()
+                && owner.state == JobProcessState::Suspended
+            {
+                owner.state = JobProcessState::StartupFailed;
+            }
+            let channel_cleanup = owner.as_mut().and_then(|owner| {
+                if let Some(report) = owner.channel_cleanup.as_deref() {
+                    Some(*report)
+                } else if owner.channels.is_some() {
+                    owner.finish_channel_transfer().ok()
+                } else {
+                    None
+                }
+            });
             let rollback = if let Some(owner) = owner.as_mut() {
                 owner
                     .request_stop()
@@ -250,26 +308,40 @@ impl OwnedJobProcess {
             JobSpawnError {
                 cause,
                 rollback,
-                owner,
+                channel_cleanup: channel_cleanup.map(Box::new),
+                owner: owner.map(Box::new),
             }
         })
     }
-    fn spawn(path: &Path, args: &[OsString]) -> Result<Self, (JobError, Option<Self>)> {
-        context().map_err(|e| (e, None))?;
-        let (application, mut line) = command(path, args).map_err(|e| (e, None))?;
+    fn spawn(
+        path: &Path,
+        args: &[OsString],
+        channels: Option<ChildProgress>,
+    ) -> Result<Self, (JobError, Option<Self>)> {
+        let mut owner = Self {
+            job: null_mut(),
+            process: null_mut(),
+            thread: null_mut(),
+            state: JobProcessState::Prepared,
+            channels: channels.map(Box::new),
+            channel_cleanup: None,
+            _thread: PhantomData,
+        };
+        let early = context().and_then(|()| command(path, args));
+        let (application, mut line) = match early {
+            Ok(command) => command,
+            Err(cause) => return Err((cause, owner.channels.is_some().then_some(owner))),
+        };
         // SAFETY: null security attributes make the new unnamed Job handle
         // noninheritable; no existing named object or borrowed handle is opened.
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if job.is_null() {
-            return Err((error("CreateJobObjectW"), None));
+            return Err((
+                error("CreateJobObjectW"),
+                owner.channels.is_some().then_some(owner),
+            ));
         }
-        let mut owner = Self {
-            job,
-            process: null_mut(),
-            thread: null_mut(),
-            state: JobProcessState::Prepared,
-            _thread: PhantomData,
-        };
+        owner.job = job;
         let mut limits = ExtendedLimits::default();
         limits.basic.flags = 0x2008;
         limits.basic.active = 1;
@@ -286,7 +358,15 @@ impl OwnedJobProcess {
         {
             return Err((error("SetInformationJobObject"), Some(owner)));
         }
-        let mut attributes = match Attributes::new(job) {
+        let handles = if let Some(channels) = owner.channels.as_mut() {
+            match channels.prepare() {
+                Ok(handles) => Some(handles),
+                Err(cause) => return Err((cause, Some(owner))),
+            }
+        } else {
+            None
+        };
+        let mut attributes = match Attributes::new(job, handles) {
             Ok(attributes) => attributes,
             Err(cause) => return Err((cause, Some(owner))),
         };
@@ -294,13 +374,19 @@ impl OwnedJobProcess {
         // is valid for every field, no reference/enum/owned resource is created.
         let mut startup: StartupEx = unsafe { std::mem::zeroed() };
         startup.info.size = size_of::<StartupEx>() as u32;
+        if let Some([stdin, stdout, stderr]) = handles {
+            startup.info.numbers[7] = 0x100;
+            startup.info.stdin = stdin;
+            startup.info.stdout = stdout;
+            startup.info.stderr = stderr;
+        }
         startup.attributes = attributes.pointer();
         let mut info: ProcessInfo = unsafe { std::mem::zeroed() };
         // SAFETY: bounded nul-terminated absolute application and mutable command
         // buffers live through CreateProcessW; exact SDK STARTUPINFOEX/PROCESS_INFO.
         // Attribute storage and Job array stay pinned/alive through the call;
         // JOB_LIST assigns this private Job as part of process creation.
-        // No handle inheritance, no supplied security/env/cwd pointers. Suspended
+        // Inheritance only with our exact three-handle list; no supplied env/cwd.
         // plus no-window flags; returned handles are uniquely owned on success.
         if unsafe {
             CreateProcessW(
@@ -308,7 +394,7 @@ impl OwnedJobProcess {
                 line.as_mut_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
-                0,
+                i32::from(handles.is_some()),
                 0x08080004,
                 std::ptr::null(),
                 std::ptr::null(),
@@ -322,14 +408,43 @@ impl OwnedJobProcess {
         owner.process = info.process;
         owner.thread = info.thread;
         owner.state = JobProcessState::Suspended;
+        // Attribute values must remain alive until deletion, before closing
+        // any of the handles referenced by HANDLE_LIST.
+        drop(attributes);
+        if owner.channels.is_some() {
+            let report = match owner.finish_channel_transfer() {
+                Ok(report) => report,
+                Err(cause) => return Err((cause, Some(owner))),
+            };
+            if !report.complete() {
+                return Err((JobError::ChannelCleanup, Some(owner)));
+            }
+        }
         Ok(owner)
+    }
+    /// Retry parent-side endpoint cleanup. A complete report does not prove
+    /// child exit; failed startup still requires request_stop/poll_exit.
+    pub fn finish_channel_transfer(&mut self) -> Result<ChannelCleanupReport, JobError> {
+        context()?;
+        let Some(channels) = self.channels.as_mut() else {
+            return Ok(self.channel_cleanup.as_deref().copied().unwrap_or_default());
+        };
+        let report = channels.close();
+        self.channel_cleanup = Some(Box::new(report));
+        if report.complete() {
+            self.channels = None;
+        }
+        Ok(report)
     }
     pub fn state(&self) -> JobProcessState {
         self.state
     }
     pub fn resume(&mut self) -> Result<(), JobError> {
         context()?;
-        if self.state != JobProcessState::Suspended || self.thread.is_null() {
+        if self.state != JobProcessState::Suspended
+            || self.thread.is_null()
+            || self.channels.is_some()
+        {
             return Err(JobError::State);
         }
         // SAFETY: uniquely retained primary thread, created suspended and already
@@ -408,6 +523,7 @@ impl Drop for OwnedJobProcess {
     fn drop(&mut self) {
         let _ = self.request_stop();
         let _ = self.poll_exit(Duration::from_millis(20));
+        let _ = self.finish_channel_transfer();
         let _ = self.close_thread();
         // SAFETY: this uniquely owned private job closes before the process
         // handle, so KILL_ON_JOB_CLOSE remains a fallback when termination failed.

@@ -1,0 +1,122 @@
+{
+  "date": "2026-10-09",
+  "feature": "Owned exact progress channel inheritance into atomically Job-assigned suspended workers (ADR-0051)",
+  "source_base_commit": "ac36b3e8c2d4b807d95536c38c4cf3a9d19492c4",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 546,
+      "windows_unit_tests_passed": 211,
+      "job_unit_tests": 18,
+      "pipe_unit_tests": 16,
+      "production_native_link": "passed including owned progress startup and cleanup entrypoints",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; HANDLE_LIST, STARTF_USESTDHANDLES, HANDLE_FLAG_INHERIT, share flags and SetHandleInformation WINAPI prototype; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 152,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": [
+        "check_job_progress: write 24-byte fixture challenge while child suspended, reply read pending while inherited writer held, actual resumed exit259 then EOF, explicit channel cleanup complete",
+        "check_job: ordinary argv/exit259 and own Job stop still pass",
+        "check_windows_job -ProgressDelivery: abruptly terminate own fixture parent launched with progress channels; retained process handle observes worker exit, no Rust Drop",
+        "check_progress_pipe: same-process fixture epoch11 shared 24/40-byte roundtrip, EOF, completed pending-read cancellation"
+      ],
+      "artifact_directory": "target/validation/windows-20261009-channel-delivery-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "0069884c877d1b9132eb253b9ad7ec757933e08d7b213534e6b8613e2c12c620",
+        "clippy.log": "bfce911e15c46b386fb897885d9f89b7784d8834eb23c7bb6e5bfa9e72e373eb",
+        "source-manifest.json": "ff897248d1f34e98c02c9954d7feb91a6f7ae35160823bdfb8398f0f192665c5",
+        "validate.cmd": "b06cd84bbb2e4b2f3b14ea3c22edd5a0d2054689d0c31d1cce8036ebc4eca194",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "8c622c8f05f734db6e0544d885bf5e7a33482d7a7de33ed625a7957bc581b336",
+        "native-smoke.cmd": "c86e11e440381ef953524d76e632adcbdb6c7a52731d3da5a15fa97147c67b23",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 546,
+      "windows_unit_tests_passed": 211,
+      "job_unit_tests": 18,
+      "pipe_unit_tests": 16,
+      "production_native_link": "passed including owned progress startup and cleanup entrypoints",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; HANDLE_LIST, STARTF_USESTDHANDLES, HANDLE_FLAG_INHERIT, share flags and SetHandleInformation WINAPI prototype; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 152,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": [
+        "check_job_progress: write 24-byte fixture challenge while child suspended, reply read pending while inherited writer held, actual resumed exit259 then EOF, explicit channel cleanup complete",
+        "check_job: ordinary argv/exit259 and own Job stop still pass",
+        "check_windows_job -ProgressDelivery: abruptly terminate own fixture parent launched with progress channels; retained process handle observes worker exit, no Rust Drop",
+        "check_progress_pipe: same-process fixture epoch11 shared 24/40-byte roundtrip, EOF, completed pending-read cancellation"
+      ],
+      "artifact_directory": "target/validation/windows-20261009-channel-delivery-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "f4deadd5e8d309633aa3a5e20431c0546d794c06e405d00aea16370036749528",
+        "clippy.log": "a29a83531b1d35bfac3d8950fd4b8935a1e47cbf80f8170e598a81fa88649e20",
+        "source-manifest.json": "ff897248d1f34e98c02c9954d7feb91a6f7ae35160823bdfb8398f0f192665c5",
+        "validate.cmd": "d0685396cb48df7b1e4795b726ea613b52610213c2e46f67349bfb237b609b6e",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "78f477ee6d9764a7666825980b0c49d32b0aa5c96ec07108479afcfec5860e19",
+        "native-smoke.cmd": "84b8f749e7e26ecfbef98fba6af6476ad67e8dc644594747eda6183bdda5569c",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 583,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-channel-delivery",
+    "artifacts_sha256": {
+      "tests.log": "1c83a76e5d535ca0c55d647af830ac5befcd3f6ae3424bc1713b61ff6a90455f",
+      "clippy.log": "e6044fbac8ff52cfe36ada0ffefb7afcc4c2439856198b21733726bbb4a30383"
+    }
+  },
+  "superseded_validation": {
+    "first_x64": "SDK and tests passed, production Clippy failed clashing-extern-declarations CreateFileW safety-attributes pointer type; parent confirmed terminal exit101 before restarting",
+    "fix": "one shared private SecurityAttributes type in both production declarations; mock signature also matches, no lint suppression",
+    "final": "all Linux, Windows x64/x86 and native fixtures repeated on corrected snapshots",
+    "artifact_directory": "target/validation/windows-20261009-channel-delivery-before-ffi-x64-1.97.1",
+    "artifacts_sha256": {
+      "tests.log": "769b138d98a36b46544836fa0bba33860a4fa82aabe60b8491bf9ebfb9434260",
+      "clippy.log": "43da137e1bb52018e4171167a8eb3bf4bf13082951ab8f51217d0f7f69109db1",
+      "source-manifest.json": "66a9d1cc85560a072a0f8bb640df9b2d3cdfc42de011a7e18c152c2587f7688d",
+      "validate.cmd": "b3e5b70db4c962d9719fe537c87cdc8af9e141796aaf654d3671ddf371f9db33"
+    }
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "native_private_pipes_created": true,
+    "owned_fixture_processes_created": true,
+    "own_fixture_parent_abruptly_terminated": true,
+    "arbitrary_pid_terminated": false
+  },
+  "limits": [
+    "progress endpoints are transferred but worker-side startup admission/private async adoption and cross-process challenge receipts remain unimplemented",
+    "native suspended transfer fixture does not read progress or prove CaptureSession poll liveness",
+    "ambient inheriting spawns must not overlap the parent transaction on other threads",
+    "stop request and bounded cleanup do not prove process exit; signaled poll/retained observer handle required",
+    "Job exit does not prove globally injected keys released",
+    "Windows 11, actual input/session/hardware, Hook liveness, full host and all original advanced rules/Linux bootstrap/consumer-ready/GUI/packaging/driver scope remain"
+  ]
+}

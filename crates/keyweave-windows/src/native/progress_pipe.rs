@@ -20,7 +20,7 @@ struct Overlapped {
     event: Handle,
 }
 #[repr(C)]
-struct SecurityAttributes {
+pub(super) struct SecurityAttributes {
     length: u32,
     descriptor: *mut c_void,
     inherit: i32,
@@ -128,6 +128,7 @@ impl PipeCloseReport {
 }
 struct Endpoint {
     handle: Handle,
+    identity: [u8; 16],
     event: Handle,
     operation: Option<Box<Operation>>,
     flight: Option<Flight>,
@@ -191,9 +192,10 @@ impl Endpoint {
         }
         Ok(())
     }
-    fn new(handle: Handle) -> io::Result<Self> {
+    fn new(handle: Handle, identity: [u8; 16]) -> io::Result<Self> {
         let mut owner = Self {
             handle,
+            identity,
             event: null_mut(),
             operation: None,
             flight: None,
@@ -524,7 +526,7 @@ impl PipeReader {
         if server as usize == usize::MAX {
             return Err(os_error(last_error()));
         }
-        let mut reader = Endpoint::new(server)?;
+        let mut reader = Endpoint::new(server, random)?;
         // SAFETY: open our local pipe, no inheritance; async, SECURITY_ANONYMOUS
         // SQOS prevents server impersonation. FILE_READ_ATTRIBUTES is needed
         // for write-only pipe metadata queries; it does not grant payload reads.
@@ -543,7 +545,7 @@ impl PipeReader {
         if client as usize == usize::MAX {
             return Err(os_error(last_error()));
         }
-        let writer = Endpoint::new(client)?;
+        let writer = Endpoint::new(client, random)?;
         reader.verify_shape(true)?;
         writer.verify_shape(false)?;
         reader.connect()?;
@@ -566,6 +568,27 @@ impl Read for PipeReader {
         self.0.read(out)
     }
 }
+// Borrowed handle remains inside the private native boundary; caller owns the
+// endpoint throughout spawn/cleanup. No public raw handle or clone API.
+macro_rules! transfer_endpoint {
+    ($type:ty) => {
+        impl $type {
+            pub(super) fn transfer_state(&self) -> (Handle, [u8; 16], bool) {
+                let e = &self.0;
+                (
+                    e.handle,
+                    e.identity,
+                    !e.dead && !e.handle.is_null() && e.flight.is_none() && e.ready.0 == e.ready.1,
+                )
+            }
+            pub(super) fn close_for_transfer(&mut self) -> PipeCloseReport {
+                self.0.close_inner(20)
+            }
+        }
+    };
+}
+transfer_endpoint!(PipeReader);
+transfer_endpoint!(PipeWriter);
 impl Write for PipeWriter {
     fn write(&mut self, input: &[u8]) -> io::Result<usize> {
         self.0.write(input)

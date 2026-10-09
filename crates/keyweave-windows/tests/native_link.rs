@@ -15,6 +15,8 @@ fn production_native_symbols_link_without_installation_or_injection() {
         <keyweave_windows::PipeReader as std::io::Read>::read as *const () as usize,
         <keyweave_windows::PipeWriter as std::io::Write>::write as *const () as usize,
         keyweave_windows::OwnedJobProcess::spawn_suspended as *const () as usize,
+        keyweave_windows::OwnedJobProcess::spawn_suspended_with_progress as *const () as usize,
+        keyweave_windows::OwnedJobProcess::finish_channel_transfer as *const () as usize,
         keyweave_windows::OwnedJobProcess::resume as *const () as usize,
         keyweave_windows::OwnedJobProcess::request_stop as *const () as usize,
         keyweave_windows::OwnedJobProcess::poll_exit as *const () as usize,

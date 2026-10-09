@@ -28,6 +28,7 @@ pub(super) struct Mock {
     events: BTreeMap<usize, bool>,
     pending: BTreeMap<usize, Pending>,
     next_event: usize,
+    next_pair: usize,
 }
 thread_local! { pub(super) static MOCK:RefCell<Mock>=RefCell::new(Mock {error_signaled:true,..Mock::default()}); }
 fn call(name: &'static str) -> bool {
@@ -51,7 +52,12 @@ pub(super) unsafe fn BCryptGenRandom(a: Handle, b: *mut u8, n: u32, f: u32) -> i
         return -1;
     }
     // SAFETY: tested caller supplies initialized writable 16-byte RNG output.
-    unsafe { std::ptr::write_bytes(b, 17, 16) };
+    let value = MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.next_pair += 1;
+        16 + m.next_pair as u8
+    });
+    unsafe { std::ptr::write_bytes(b, value, 16) };
     0
 }
 pub(super) unsafe fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -96,7 +102,7 @@ pub(super) unsafe fn CreateNamedPipeW(
     assert_eq!(attrs.inherit, 0);
     assert_eq!(attrs.descriptor as usize, 1);
     if call("server") {
-        100usize as Handle
+        MOCK.with(|m| (100 + (m.borrow().next_pair - 1) * 10) as Handle)
     } else {
         usize::MAX as Handle
     }
@@ -114,7 +120,7 @@ pub(super) unsafe fn CreateFileW(
     assert!(sa.is_null() && t.is_null());
     assert_eq!((a, s, d, f), (0x40000080, 0, 3, 0x40100000));
     if call("client") {
-        200usize as Handle
+        MOCK.with(|m| (200 + (m.borrow().next_pair - 1) * 10) as Handle)
     } else {
         usize::MAX as Handle
     }
@@ -126,9 +132,9 @@ pub(super) unsafe fn GetNamedPipeInfo(
     input: *mut u32,
     instances: *mut u32,
 ) -> i32 {
-    assert!(matches!(h as usize, 100 | 200));
+    assert!((100..300).contains(&(h as usize)));
     assert!(output.is_null() && input.is_null());
-    if !call(if h as usize == 100 {
+    if !call(if (h as usize) < 200 {
         "info-reader"
     } else {
         "info-writer"
@@ -141,7 +147,7 @@ pub(super) unsafe fn GetNamedPipeInfo(
         // SAFETY: tested caller retains initialized scalar outputs for the call.
         unsafe {
             *flags = if selected { m.pipe_flags } else { None }
-                .unwrap_or(8 | u32::from(h as usize == 100));
+                .unwrap_or(8 | u32::from((h as usize) < 200));
             *instances = if selected { m.pipe_instances } else { None }.unwrap_or(1);
         }
     });
@@ -156,10 +162,10 @@ pub(super) unsafe fn GetNamedPipeHandleStateW(
     username: *mut u16,
     username_size: u32,
 ) -> i32 {
-    assert!(matches!(h as usize, 100 | 200));
+    assert!((100..300).contains(&(h as usize)));
     assert!(instances.is_null() && count.is_null() && timeout.is_null() && username.is_null());
     assert_eq!(username_size, 0);
-    if !call(if h as usize == 100 {
+    if !call(if (h as usize) < 200 {
         "state-reader"
     } else {
         "state-writer"

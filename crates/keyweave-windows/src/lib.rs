@@ -25,6 +25,6 @@ pub use native::{CaptureSession, SessionError, SessionStep, ShutdownReport};
 pub use native::{NotificationCleanup, NotificationError, SessionNotifications};
 
 #[cfg(target_os = "windows")]
-pub use native::{JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
+pub use native::{ChannelCleanupReport, JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
 #[cfg(target_os = "windows")]
 pub use native::{PipeCloseReport, PipeReader, PipeWriter};

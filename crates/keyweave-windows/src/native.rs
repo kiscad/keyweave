@@ -15,7 +15,9 @@ pub use hook_thread::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
 pub use input_probe::{check_input_access, sample_input_state};
 #[cfg(target_os = "windows")]
-pub use job_process::{JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
+pub use job_process::{
+    ChannelCleanupReport, JobError, JobProcessState, JobSpawnError, OwnedJobProcess,
+};
 #[cfg(target_os = "windows")]
 pub use progress_pipe::{PipeCloseReport, PipeReader, PipeWriter};
 #[cfg(target_os = "windows")]

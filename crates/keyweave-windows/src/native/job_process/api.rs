@@ -8,6 +8,11 @@ pub(super) struct Mock {
     pub query_success: bool,
     pub initialized_list: usize,
     pub job_value: usize,
+    pub handles_value: usize,
+    pub attribute_count: u32,
+    pub inheritance: std::collections::BTreeMap<usize, bool>,
+    pub fail_inherit: Option<(usize, bool)>,
+    pub fail_close: Option<usize>,
     pub fail: Option<&'static str>,
     pub calls: Vec<&'static str>,
     pub resumed: bool,
@@ -69,7 +74,7 @@ pub(super) unsafe fn CreateProcessW(
 ) -> i32 {
     assert!(!app.is_null() && !line.is_null());
     assert!(pa.is_null() && ta.is_null() && env.is_null() && dir.is_null());
-    assert_eq!((inherit, flags), (0, 0x08080004));
+    assert_eq!(flags, 0x08080004);
     // SAFETY: initialized input and output are live for synchronous mock call.
     assert_eq!(unsafe { (*start).size } as usize, size_of::<StartupEx>());
     // SAFETY: caller passes a complete StartupEx via its repr(C) first field.
@@ -81,6 +86,24 @@ pub(super) unsafe fn CreateProcessW(
         assert_ne!(m.job_value, 0);
         // SAFETY: live one-HANDLE array owned by Attributes through Create call.
         assert_eq!(unsafe { *(m.job_value as *const Handle) } as usize, 1);
+        if m.handles_value == 0 {
+            assert_eq!(inherit, 0);
+            assert_eq!(ex.info.numbers[7], 0);
+            assert!(
+                ex.info.stdin.is_null() && ex.info.stdout.is_null() && ex.info.stderr.is_null()
+            );
+        } else {
+            assert_eq!(inherit, 1);
+            assert_eq!(ex.info.numbers[7], 0x100);
+            // SAFETY: stable three-handle array lives through list deletion.
+            let handles =
+                unsafe { std::slice::from_raw_parts(m.handles_value as *const Handle, 3) };
+            assert_eq!(handles, [ex.info.stdin, ex.info.stdout, ex.info.stderr]);
+            for &h in handles {
+                assert!(!matches!(h as usize, 0..=3 | 300..=399));
+                assert_eq!(m.inheritance.get(&(h as usize)), Some(&true));
+            }
+        }
     });
     if !call("create") {
         return 0;
@@ -101,11 +124,13 @@ pub(super) unsafe fn InitializeProcThreadAttributeList(
     flags: u32,
     bytes: *mut usize,
 ) -> i32 {
-    assert_eq!((count, flags), (1, 0));
+    assert!(matches!(count, 1 | 2));
+    assert_eq!(flags, 0);
     if list.is_null() {
         let ok = call("attribute-size");
         MOCK.with(|m| {
             let mut m = m.borrow_mut();
+            m.attribute_count = count;
             // SAFETY: caller provides a live initialized SIZE_T for this query.
             unsafe {
                 *bytes = m.query_bytes.unwrap_or(96);
@@ -120,7 +145,11 @@ pub(super) unsafe fn InitializeProcThreadAttributeList(
         if !call("attribute-init") {
             return 0;
         }
-        MOCK.with(|m| m.borrow_mut().initialized_list = list as usize);
+        MOCK.with(|m| {
+            let mut m = m.borrow_mut();
+            assert_eq!(count, m.attribute_count);
+            m.initialized_list = list as usize;
+        });
         1
     }
 }
@@ -133,16 +162,27 @@ pub(super) unsafe fn UpdateProcThreadAttribute(
     previous: *mut c_void,
     returned: *mut usize,
 ) -> i32 {
-    assert_eq!((flags, attribute, bytes), (0, 0x2000d, size_of::<Handle>()));
+    assert_eq!(flags, 0);
     assert!(previous.is_null() && returned.is_null());
     assert_eq!(list as usize, MOCK.with(|m| m.borrow().initialized_list));
     assert!(!value.is_null());
-    // SAFETY: mock caller supplies a live, aligned one-HANDLE array.
-    assert_eq!(unsafe { *value.cast::<Handle>() } as usize, 1);
-    if !call("attribute-job") {
-        return 0;
+    if attribute == 0x2000d {
+        assert_eq!(bytes, size_of::<Handle>());
+        // SAFETY: mock caller supplies a live, aligned one-HANDLE array.
+        assert_eq!(unsafe { *value.cast::<Handle>() } as usize, 1);
+        if !call("attribute-job") {
+            return 0;
+        }
+        MOCK.with(|m| m.borrow_mut().job_value = value as usize);
+    } else {
+        assert_eq!(attribute, 0x20002);
+        assert_eq!(bytes, 3 * size_of::<Handle>());
+        assert_eq!(MOCK.with(|m| m.borrow().attribute_count), 2);
+        if !call("attribute-handles") {
+            return 0;
+        }
+        MOCK.with(|m| m.borrow_mut().handles_value = value as usize);
     }
-    MOCK.with(|m| m.borrow_mut().job_value = value as usize);
     1
 }
 pub(super) unsafe fn DeleteProcThreadAttributeList(list: *mut c_void) {
@@ -155,8 +195,17 @@ pub(super) unsafe fn DeleteProcThreadAttributeList(list: *mut c_void) {
             // SAFETY: owned array must remain alive through list deletion.
             assert_eq!(unsafe { *(m.job_value as *const Handle) } as usize, 1);
         }
+        if m.handles_value != 0 {
+            // SAFETY: handle array must also survive through Delete.
+            let handles =
+                unsafe { std::slice::from_raw_parts(m.handles_value as *const Handle, 3) };
+            for h in handles {
+                assert_eq!(m.inheritance.get(&(*h as usize)), Some(&true));
+            }
+        }
         m.initialized_list = 0;
         m.job_value = 0;
+        m.handles_value = 0;
     });
 }
 pub(super) unsafe fn ResumeThread(thread: Handle) -> u32 {
@@ -195,5 +244,52 @@ pub(super) unsafe fn GetExitCodeProcess(process: Handle, code: *mut u32) -> i32 
 }
 pub(super) unsafe fn CloseHandle(handle: Handle) -> i32 {
     MOCK.with(|m| m.borrow_mut().closes.push(handle as usize));
+    if MOCK.with(|m| m.borrow().fail_close == Some(handle as usize)) {
+        MOCK.with(|m| m.borrow_mut().last_error = 6);
+        return 0;
+    }
     i32::from(call("close"))
+}
+pub(super) unsafe fn SetHandleInformation(handle: Handle, mask: u32, flags: u32) -> i32 {
+    assert_eq!(mask, 1);
+    assert!(flags <= 1);
+    assert!(!matches!(handle as usize, 0..=3 | 300..=399));
+    if !call(if flags == 1 {
+        "inherit"
+    } else {
+        "clear-inherit"
+    }) {
+        return 0;
+    }
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.fail_inherit == Some((handle as usize, flags != 0)) {
+            m.last_error = 5;
+            return 0;
+        }
+        m.inheritance.insert(handle as usize, flags != 0);
+        1
+    })
+}
+pub(super) unsafe fn CreateFileW(
+    name: *const u16,
+    access: u32,
+    share: u32,
+    attrs: *const super::super::progress_pipe::SecurityAttributes,
+    disposition: u32,
+    flags: u32,
+    template: Handle,
+) -> Handle {
+    // SAFETY: caller supplies fixed terminated NUL buffer.
+    assert_eq!(
+        unsafe { std::slice::from_raw_parts(name, 4) },
+        [78, 85, 76, 0]
+    );
+    assert_eq!((access, share, disposition, flags), (0x40000000, 3, 3, 0));
+    assert!(attrs.is_null() && template.is_null());
+    if call("nul") {
+        400usize as Handle
+    } else {
+        usize::MAX as Handle
+    }
 }

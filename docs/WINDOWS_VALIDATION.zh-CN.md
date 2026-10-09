@@ -138,3 +138,6 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 
 
 2026-10-09 管道元数据补验：[报告](validation/windows-2026-10-09-pipe-metadata.json)保存最终固定1.97.1双架构各537 tests、202 Windowsunit、native_link、Clippy/fmt/SDK及两个真实无输入 pipe smoke exit0。新SDK原型 GetNamedPipeInfo/GetNamedPipeHandleStateW 与 FILE_READ_ATTRIBUTES/endpoint/message/NOWAIT constants 已核验。首轮 native 的 InvalidData 发现查询返回包括 PIPE_REJECT_REMOTE_CLIENTS（本机 server0x9/client0x8）；修正严格比较和 mock 后完整重验，初轮编译通过不能替代失败的 native 验收。最终150源文件快照hash一致；Windows11及跨进程启动/监督/真实输入仍待执行，元数据不证明任意handle的async属性。
+
+
+2026-10-09 精确进度端点交付：[报告](validation/windows-2026-10-09-channel-delivery.json)记录最终固定1.97.1双架构各546 tests（211 Windowsunit）、Clippy/fmt/SDK和152源文件快照一致。SDK新增 HANDLE_LIST/STARTF_USESTDHANDLES/INHERIT/share flags与SetHandleInformation原型。先编译 `cargo build --locked --offline -p keyweave-windows --example check_job --example check_job_progress --example check_progress_pipe --target <target>`，再在对应Windows-local ValidationRoot调用 `tools/check_windows_job.ps1 -ValidationRoot <root> -Target <target> -ProgressDelivery`。脚本只启动本次自己的fixture、强制停止own parent并以retained handle观察child退出；两个架构最终exit0，另重验same-process pipe roundtrip。挂起时端点存活、恢复exit259/EOF与进度通道启动后的父死亡保护已实测，不是worker receipt/真实CaptureSession/Hook活性验收。首轮production CreateFileW重复声明类型不一致被Clippy定位，修正后全套重跑，旧日志单列不作通过证据。worker标准管道是overlapped，后续须经过启动核验并交给private异步端点，禁止直接用同步std::io读写。

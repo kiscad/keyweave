@@ -30,6 +30,9 @@ CHECK(sizeof(STARTUPINFOEXW) == (WIDE ? 112 : 72));
 CHECK(offsetof(STARTUPINFOEXW, lpAttributeList) == (WIDE ? 104 : 68));
 CHECK(EXTENDED_STARTUPINFO_PRESENT == 0x00080000);
 CHECK(PROC_THREAD_ATTRIBUTE_JOB_LIST == 0x2000d);
+CHECK(PROC_THREAD_ATTRIBUTE_HANDLE_LIST == 0x20002);
+CHECK(STARTF_USESTDHANDLES == 0x100 && HANDLE_FLAG_INHERIT == 1);
+CHECK(FILE_SHARE_READ == 1 && FILE_SHARE_WRITE == 2);
 CHECK(sizeof(PROCESS_INFORMATION) == (WIDE ? 24 : 16));
 CHECK(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0x2000);
 CHECK(JOB_OBJECT_LIMIT_ACTIVE_PROCESS == 8);
@@ -187,6 +190,7 @@ int main(void) {
     HANDLE (WINAPI *create_job)(LPSECURITY_ATTRIBUTES, LPCWSTR) = CreateJobObjectW;
     BOOL (WINAPI *set_job)(HANDLE, JOBOBJECTINFOCLASS, LPVOID, DWORD) = SetInformationJobObject;
     BOOL (WINAPI *create_process)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION) = CreateProcessW;
+    BOOL (WINAPI *handle_information)(HANDLE, DWORD, DWORD) = SetHandleInformation;
     BOOL (WINAPI *initialize_attributes)(LPPROC_THREAD_ATTRIBUTE_LIST, DWORD, DWORD, PSIZE_T) = InitializeProcThreadAttributeList;
     BOOL (WINAPI *update_attributes)(LPPROC_THREAD_ATTRIBUTE_LIST, DWORD, DWORD_PTR, PVOID, SIZE_T, PVOID, PSIZE_T) = UpdateProcThreadAttribute;
     void (WINAPI *delete_attributes)(LPPROC_THREAD_ATTRIBUTE_LIST) = DeleteProcThreadAttributeList;
@@ -195,6 +199,7 @@ int main(void) {
     DWORD (WINAPI *wait_process)(HANDLE, DWORD) = WaitForSingleObject;
     BOOL (WINAPI *exit_process)(HANDLE, LPDWORD) = GetExitCodeProcess;
     (void)create_job; (void)set_job; (void)create_process;
+    (void)handle_information;
     (void)initialize_attributes; (void)update_attributes; (void)delete_attributes;
     (void)resume_thread; (void)terminate_job;
     (void)wait_process; (void)exit_process;

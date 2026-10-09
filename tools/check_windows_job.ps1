@@ -4,13 +4,23 @@
 param(
     [Parameter(Mandatory=$true)][string]$ValidationRoot,
     [ValidateSet('x86_64-pc-windows-msvc','i686-pc-windows-msvc')]
-    [string]$Target = 'x86_64-pc-windows-msvc'
+    [string]$Target = 'x86_64-pc-windows-msvc',
+    [switch]$ProgressDelivery
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath $ValidationRoot).Path
 if ($root.StartsWith('\\')) { throw 'Windows-local validation directory required' }
 $exe = Join-Path $root ('target\' + $Target + '\debug\examples\check_job.exe')
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Build check_job first' }
+if ($ProgressDelivery) {
+    $delivery = Join-Path $root ('target\' + $Target + '\debug\examples\check_job_progress.exe')
+    if (-not (Test-Path -LiteralPath $delivery -PathType Leaf)) { throw 'Build check_job_progress first' }
+    $ErrorActionPreference = 'Continue'
+    & $delivery
+    $deliveryCode = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($deliveryCode -ne 0) { throw ('Progress delivery smoke failed: ' + $deliveryCode) }
+}
 $ErrorActionPreference = 'Continue'
 & $exe
 $smokeCode = $LASTEXITCODE

@@ -47,9 +47,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if arguments.len() == 2 && arguments[0] == "--fixture-parent-death" {
         let executable = std::env::current_exe()?;
-        let mut child = OwnedJobProcess::spawn_suspended(
+        let (reader, _parent_writer) = keyweave_windows::PipeReader::pair()?;
+        let (_parent_reader, writer) = keyweave_windows::PipeReader::pair()?;
+        let mut child = OwnedJobProcess::spawn_suspended_with_progress(
             &executable,
             &["--fixture-ready-idle".into(), arguments[1].clone()],
+            reader,
+            writer,
         )?;
         child.resume()?;
         // Test observer abruptly terminates this fixture parent. No Drop runs;

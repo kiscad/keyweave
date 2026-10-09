@@ -5,6 +5,64 @@ fn pair() -> (PipeReader, PipeWriter) {
     PipeReader::pair().unwrap()
 }
 #[test]
+fn job_transfer_retains_both_endpoint_close_errors_and_can_retry() {
+    use super::super::job_process::{JobError, JobProcessState, OwnedJobProcess};
+    let (reader, _parent_writer) = pair();
+    let (_parent_reader, writer) = pair();
+    api::MOCK.with(|m| m.borrow_mut().fail = Some("close"));
+    let mut failure = OwnedJobProcess::spawn_suspended_with_progress(
+        &std::env::temp_dir().join("worker.exe"),
+        &[],
+        reader,
+        writer,
+    )
+    .unwrap_err();
+    assert_eq!(failure.cause, JobError::ChannelCleanup);
+    let report = failure.channel_cleanup.as_ref().unwrap();
+    for endpoint in [report.reader, report.writer] {
+        assert_eq!(endpoint.pipe_close_error, Some(5));
+        assert_eq!(endpoint.event_close_error, Some(5));
+        assert!(!endpoint.completion_pending);
+    }
+    assert_eq!(report.stdout_close_error, None);
+    let owner = failure.owner.as_mut().unwrap();
+    assert_eq!(owner.state(), JobProcessState::StopRequested);
+    assert_eq!(owner.resume(), Err(JobError::State));
+    api::MOCK.with(|m| m.borrow_mut().fail = None);
+    assert!(owner.finish_channel_transfer().unwrap().complete());
+    assert_eq!(owner.resume(), Err(JobError::State));
+    assert!(!failure.channel_cleanup.as_ref().unwrap().complete());
+}
+#[test]
+fn pending_transfer_cancellation_keeps_buffers_until_confirmed_completion() {
+    use super::super::job_process::{JobError, JobProcessState, OwnedJobProcess};
+    let (mut reader, _parent_writer) = pair();
+    let (_parent_reader, writer) = pair();
+    reader.read(&mut [0u8; 24]).unwrap_err();
+    api::MOCK.with(|m| m.borrow_mut().defer_cancel = true);
+    let mut failure = OwnedJobProcess::spawn_suspended_with_progress(
+        &std::env::temp_dir().join("worker.exe"),
+        &[],
+        reader,
+        writer,
+    )
+    .unwrap_err();
+    assert_eq!(failure.cause, JobError::PipeState);
+    let report = failure.channel_cleanup.as_ref().unwrap();
+    assert!(report.reader.completion_pending);
+    assert!(report.writer.complete());
+    api::MOCK.with(|m| {
+        let m = m.borrow();
+        assert!(!m.closes.contains(&100) && !m.closes.contains(&301));
+    });
+    let owner = failure.owner.as_mut().unwrap();
+    assert_eq!(owner.state(), JobProcessState::Prepared);
+    assert_eq!(owner.poll_exit(std::time::Duration::ZERO).unwrap(), None);
+    api::MOCK.with(|m| m.borrow_mut().defer_cancel = false);
+    assert!(owner.finish_channel_transfer().unwrap().complete());
+    assert!(!POISONED.get());
+}
+#[test]
 fn factory_checks_both_endpoints_before_connecting() {
     let (mut reader, mut writer) = pair();
     api::MOCK.with(|m| {

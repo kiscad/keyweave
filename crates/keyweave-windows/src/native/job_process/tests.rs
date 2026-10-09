@@ -7,6 +7,216 @@ fn path() -> std::path::PathBuf {
 fn spawn() -> OwnedJobProcess {
     OwnedJobProcess::spawn_suspended(&path(), &[]).unwrap()
 }
+fn channels() -> (PipeReader, PipeWriter, PipeReader, PipeWriter) {
+    let (worker_reader, parent_writer) = PipeReader::pair().unwrap();
+    let (parent_reader, worker_writer) = PipeReader::pair().unwrap();
+    (worker_reader, worker_writer, parent_reader, parent_writer)
+}
+#[test]
+fn exact_three_handles_are_inherited_and_closed_before_resume() {
+    let (reader, writer, _parent_reader, _parent_writer) = channels();
+    let mut child =
+        OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer).unwrap();
+    assert_eq!(child.state(), JobProcessState::Suspended);
+    assert!(child.channels.is_none());
+    assert!(child.finish_channel_transfer().unwrap().complete());
+    api::MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.attribute_count, 2);
+        assert!(m.calls.contains(&"attribute-handles"));
+        let deleted = m
+            .calls
+            .iter()
+            .position(|&s| s == "attribute-delete")
+            .unwrap();
+        let cleared = m.calls.iter().position(|&s| s == "clear-inherit").unwrap();
+        assert!(deleted < cleared);
+        assert!(!m.calls.contains(&"resume"));
+        assert_eq!(m.inheritance.len(), 3);
+        for handle in [100, 210, 400] {
+            assert_eq!(m.inheritance.get(&handle), Some(&false));
+        }
+        assert_eq!(m.closes, [400]);
+    });
+    child.resume().unwrap();
+    assert_eq!(child.state(), JobProcessState::Running);
+}
+#[test]
+fn handle_list_or_creation_failure_closes_channels_without_running_child() {
+    for fail in [
+        "nul",
+        "inherit",
+        "attribute-size",
+        "attribute-init",
+        "attribute-job",
+        "attribute-handles",
+        "create",
+    ] {
+        std::thread::spawn(move || {
+            let (reader, writer, _parent_reader, _parent_writer) = channels();
+            api::MOCK.with(|m| m.borrow_mut().fail = Some(fail));
+            let error =
+                OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer)
+                    .unwrap_err();
+            assert!(matches!(error.cause, JobError::Api { code: 5, .. }));
+            assert!(error.channel_cleanup.unwrap().complete());
+            let owner = error.owner.as_ref().unwrap();
+            assert_eq!(owner.state(), JobProcessState::Prepared);
+            assert!(owner.channels.is_none());
+            assert!(!api::MOCK.with(|m| m.borrow().calls.contains(&"resume")));
+            assert_eq!(api::MOCK.with(|m| m.borrow().initialized_list), 0);
+        })
+        .join()
+        .unwrap();
+    }
+}
+#[test]
+fn partial_inheritance_failure_is_cleared_for_all_owned_handles() {
+    for handle in [100, 400, 210] {
+        std::thread::spawn(move || {
+            let (reader, writer, _parent_reader, _parent_writer) = channels();
+            api::MOCK.with(|m| m.borrow_mut().fail_inherit = Some((handle, true)));
+            let error =
+                OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer)
+                    .unwrap_err();
+            assert_eq!(
+                error.cause,
+                JobError::Api {
+                    call: "SetHandleInformation(inherit)",
+                    code: 5
+                }
+            );
+            assert!(error.channel_cleanup.unwrap().complete());
+            api::MOCK.with(|m| {
+                let m = m.borrow();
+                assert_eq!(m.inheritance.len(), 3);
+                assert!(m.inheritance.values().all(|value| !value));
+                assert!(!m.calls.contains(&"create"));
+            });
+        })
+        .join()
+        .unwrap();
+    }
+}
+#[test]
+fn channel_cleanup_failure_retains_report_and_stops_suspended_child() {
+    for fail_clear in [true, false] {
+        std::thread::spawn(move || {
+            let (reader, writer, _parent_reader, _parent_writer) = channels();
+            api::MOCK.with(|m| {
+                let mut m = m.borrow_mut();
+                if fail_clear {
+                    m.fail_inherit = Some((100, false));
+                } else {
+                    m.fail_close = Some(400);
+                }
+            });
+            let mut error =
+                OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer)
+                    .unwrap_err();
+            assert_eq!(error.cause, JobError::ChannelCleanup);
+            let report = error.channel_cleanup.as_ref().unwrap();
+            assert!(!report.complete());
+            assert_eq!(
+                report.inheritance_errors[0],
+                if fail_clear { Some(5) } else { None }
+            );
+            assert_eq!(
+                report.stdout_close_error,
+                if fail_clear { None } else { Some(6) }
+            );
+            assert!(report.reader.complete() && report.writer.complete());
+            let owner = error.owner.as_mut().unwrap();
+            assert_eq!(owner.state(), JobProcessState::StopRequested);
+            assert!(owner.channels.is_some());
+            assert_eq!(owner.resume(), Err(JobError::State));
+            assert_eq!(owner.poll_exit(Duration::ZERO).unwrap(), None);
+            api::MOCK.with(|m| {
+                let mut m = m.borrow_mut();
+                m.fail_inherit = None;
+                m.fail_close = None;
+            });
+            assert!(owner.finish_channel_transfer().unwrap().complete());
+            assert!(owner.channels.is_none());
+            assert_eq!(owner.resume(), Err(JobError::State));
+            // Original failure remains independently available after retry.
+            assert!(!error.channel_cleanup.unwrap().complete());
+        })
+        .join()
+        .unwrap();
+    }
+}
+#[test]
+fn failed_startup_and_stop_can_never_resume_after_cleanup_retry() {
+    let (reader, writer, _parent_reader, _parent_writer) = channels();
+    api::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.fail_close = Some(400);
+        m.fail = Some("kill-job");
+    });
+    let mut error =
+        OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer).unwrap_err();
+    assert_eq!(error.cause, JobError::ChannelCleanup);
+    assert_eq!(
+        error.rollback,
+        Some(JobError::Api {
+            call: "TerminateJobObject",
+            code: 5
+        })
+    );
+    let owner = error.owner.as_mut().unwrap();
+    assert_eq!(owner.state(), JobProcessState::StartupFailed);
+    api::MOCK.with(|m| m.borrow_mut().fail_close = None);
+    assert!(owner.finish_channel_transfer().unwrap().complete());
+    assert_eq!(owner.resume(), Err(JobError::State));
+    assert!(!api::MOCK.with(|m| m.borrow().calls.contains(&"resume")));
+    api::MOCK.with(|m| m.borrow_mut().fail = None);
+    owner.request_stop().unwrap();
+    assert_eq!(owner.poll_exit(Duration::ZERO).unwrap(), None);
+}
+#[test]
+fn busy_closed_and_same_pair_channels_are_rejected_before_process_creation() {
+    for kind in [0, 1, 2, 3] {
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut reader, mut writer, _parent_reader, _parent_writer) = channels();
+            if kind == 0 {
+                reader.read(&mut [0u8; 24]).unwrap_err();
+            }
+            if kind == 1 {
+                writer.write(&[1; 24]).unwrap_err();
+            }
+            if kind == 2 {
+                reader.close().unwrap();
+            }
+            if kind == 3 {
+                let pair = PipeReader::pair().unwrap();
+                reader = pair.0;
+                writer = pair.1;
+            }
+            let error =
+                OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer)
+                    .unwrap_err();
+            assert_eq!(error.cause, JobError::PipeState);
+            assert!(error.channel_cleanup.unwrap().complete());
+            assert!(!api::MOCK.with(|m| m.borrow().calls.contains(&"create")));
+        })
+        .join()
+        .unwrap();
+    }
+}
+#[test]
+fn callback_channel_spawn_keeps_owner_without_native_calls_until_outside() {
+    let (reader, writer, _parent_reader, _parent_writer) = channels();
+    let mut error = super::super::hook_thread::with_callback_borrow(|| {
+        OwnedJobProcess::spawn_suspended_with_progress(&path(), &[], reader, writer).unwrap_err()
+    });
+    assert_eq!(error.cause, JobError::InCallback);
+    assert!(api::MOCK.with(|m| m.borrow().calls.is_empty()));
+    let owner = error.owner.as_mut().unwrap();
+    assert_eq!(owner.state(), JobProcessState::Prepared);
+    assert!(owner.finish_channel_transfer().unwrap().complete());
+}
 #[test]
 fn sdk_job_startup_process_layouts() {
     let wide = size_of::<usize>() == 8;
