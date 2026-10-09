@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-09",
+  "feature": "WTS notification window and revoked submission gate (ADR-0045)",
+  "source_base_commit": "cf13c7ccf4bc4a074bac8170582dbda35eb1689a",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 496,
+      "windows_unit_tests_passed": 162,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 136,
+      "source_mismatches": 0,
+      "notification_probe": {
+        "output": "session_notifications=registered_and_closed",
+        "exit_code": 0,
+        "native_window_created": true,
+        "wts_registered_and_unregistered": true,
+        "native_window_and_class_destroyed": true,
+        "state_transitions_exercised": false
+      },
+      "artifact_directory": "target/validation/windows-20261009-notifications-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "33f4d64d9d591ba34bd89ad2797494605a350fcbed3d262935b3c7e861eb94bf",
+        "clippy.log": "348d238721ed6d012c1150040bdb445a4d3b27fb6272b8a9f61a762cd3bc97f7",
+        "source-manifest.json": "8d606eeeb1a66da2c51b3003925ab80af31c6e115756d242ede2ac2a0d7b343a",
+        "validate.cmd": "b38f592ec67ff01d064eafc97b2e40806d57d94e2a1e2cabd2c3fa25e52c0098",
+        "notification-probe.log": "90c0ac7bd1310c8eb5419e9179339d6eb33bf47687e06abb44bad177bc69779f"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 496,
+      "windows_unit_tests_passed": 162,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs",
+      "source_files_hash_checked": 136,
+      "source_mismatches": 0,
+      "notification_probe": {
+        "output": "session_notifications=registered_and_closed",
+        "exit_code": 0,
+        "native_window_created": true,
+        "wts_registered_and_unregistered": true,
+        "native_window_and_class_destroyed": true,
+        "state_transitions_exercised": false
+      },
+      "artifact_directory": "target/validation/windows-20261009-notifications-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "0a569f1be4ca88f01aaa9d6905fc7d24752faec83a9c609b358fde3b4020684e",
+        "clippy.log": "05da57be78c0c79fb6a356820ff906205f63ed80042a28901e432781dae621be",
+        "source-manifest.json": "8d606eeeb1a66da2c51b3003925ab80af31c6e115756d242ede2ac2a0d7b343a",
+        "validate.cmd": "7418f33610b86740ccb2c3373a743743ce1a52907b62689247b6b0f57616931c",
+        "notification-probe.log": "90c0ac7bd1310c8eb5419e9179339d6eb33bf47687e06abb44bad177bc69779f"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 533,
+    "worker_main_thread_harness": "passed",
+    "fmt": "passed",
+    "clippy": "passed",
+    "source_verifier": "60 hashes and fixture copies passed"
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Notification resource acquisition/cleanup observed natively on x64 and i686; lock/RDP/logoff transitions not exercised",
+    "Unit Win32 APIs replaced; native_link proves production symbol linkage without input operations",
+    "i686 native smoke executes under WoW64, not a native 32-bit OS",
+    "Notifications are unauthenticated, delivered asynchronously and do not grant or restore access/neutral leases",
+    "A notification before hook TLS initialization remains latched; poll and final activation checks reject it",
+    "Unexpected destruction does not reuse the stale HWND, including reentry during unregistration",
+    "Metadata-only loss recovery without a notification still requires a separate review",
+    "Independent supervision, hook liveness, executable host and D05/Linux/GUI/driver scope remain incomplete"
+  ]
+}

@@ -344,6 +344,14 @@ impl Drop for HookSession {
         let _ = self.close();
     }
 }
+pub(super) fn session_changed() {
+    // A standalone notification probe has no Hook to stop or message loop to
+    // quit. An installed passive/active Hook must be disabled without borrowing.
+    if TAG.try_with(Cell::get).unwrap_or(0) != 0 || GUARD_TAG.try_with(Cell::get).unwrap_or(0) != 0
+    {
+        stop(HookFault::SessionChanged);
+    }
+}
 fn stop(fault: HookFault) {
     let _ = TAG.try_with(|tag| tag.set(0));
     let _ = POISONED.try_with(|poisoned| poisoned.set(true));
@@ -487,7 +495,14 @@ mod api {
         WAIT_CALLS.with(|calls| calls.borrow_mut().push((count, timeout, mask, flags)));
         WAIT_RESULT.with(Cell::get)
     }
+    thread_local! { static NOTIFY_INSTALL: Cell<bool> = const { Cell::new(false) }; }
+    pub(super) fn notify_install() {
+        NOTIFY_INSTALL.with(|n| n.set(true));
+    }
     pub(super) unsafe fn GetModuleHandleW(_: *const u16) -> Handle {
+        if NOTIFY_INSTALL.with(|n| n.replace(false)) {
+            super::super::session_notifications::api::send(7, 1);
+        }
         1usize as Handle
     }
     pub(super) unsafe fn SetWindowsHookExW(_: i32, _: Callback, _: Handle, _: u32) -> Handle {
@@ -808,4 +823,9 @@ pub(super) fn test_record(record: HookRecord) -> isize {
 #[cfg(test)]
 pub(super) fn test_wait_calls() -> usize {
     api::WAIT_CALLS.with(|calls| calls.borrow().len())
+}
+
+#[cfg(test)]
+pub(super) fn test_notify_before_install() {
+    api::notify_install();
 }

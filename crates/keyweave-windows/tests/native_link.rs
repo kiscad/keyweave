@@ -20,6 +20,8 @@ fn production_native_symbols_link_without_installation_or_injection() {
         <SendInputBackend as SendBackend>::submit as *const () as usize,
         keyweave_windows::sample_input_state as *const () as usize,
         keyweave_windows::check_input_access as *const () as usize,
+        keyweave_windows::SessionNotifications::install as *const () as usize,
+        keyweave_windows::SessionNotifications::close as *const () as usize,
     ];
     std::hint::black_box(addresses);
     // Construction allocates the fixed buffer only; Drop does not inject.

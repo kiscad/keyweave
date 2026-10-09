@@ -45,3 +45,5 @@ WSL 内安装的 `stable` 经核验为 1.97.1；离线开发环境用 `RUSTUP_TO
 
 
 Windows 本机验证（2026-10-09）：已用 WSL interop 调用宿主固定 Rust 1.97.1 + MSVC/SDK；x64/i686 各 432 个 workspace 测试、生产 Win32 符号链接、fmt/clippy 和 12 个离线回放，以及 x64/x86 SDK compile-only oracle 通过。使用 [Windows 验证脚本](tools/validate_windows.ps1) 把源码与产物放在 Windows-local 临时目录，避免 UNC cache 锁；入口和证据见 WINDOWS_VALIDATION。[固定版本验证记录](docs/validation/windows-2026-10-09-pinned.json) 已补齐；真实键盘仍待验证，项目工具链固定值未变。
+
+Windows 另有同线程 WTS 通知窗口，绑定本会话变更停止与输出提交 gate；通知资源诊断例程 `check_notifications` 仅创建/注册/关闭隐藏窗口，不安装键盘 Hook。[设计与限制](docs/ADR-0045-windows-session-notifications.md)。

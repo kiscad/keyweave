@@ -15,6 +15,7 @@ struct Trace {
     unknown: bool,
     zero_recovery: bool,
     inject_during_submit: Option<crate::keys::HookRecord>,
+    notify_during_submit: Option<(usize, isize)>,
 }
 struct Backend(Rc<RefCell<Trace>>);
 impl SendBackend for Backend {
@@ -25,6 +26,9 @@ impl SendBackend for Backend {
             assert_eq!(test_send(0x30, false), 9);
         }
         trace.calls.push(packets.to_vec());
+        if let Some((event, id)) = trace.notify_during_submit.take() {
+            super::super::session_notifications::api::send(event, id);
+        }
         if let Some(record) = trace.inject_during_submit.take() {
             assert_eq!(super::super::hook_thread::test_record(record), 9);
         }
@@ -367,6 +371,7 @@ fn timed_session(
     (
         CaptureSession {
             session: own_session().unwrap(),
+            notifications: SessionNotifications::install().unwrap(),
             actor,
             emergency,
             access,
@@ -1265,4 +1270,127 @@ fn active_wts_lock_stops_without_scanning_keys_and_does_not_renew_lease() {
     ));
     assert!(session.shutdown_report().unwrap().recovery.is_ok());
     assert_eq!(trace.borrow().calls.len(), 2);
+}
+
+#[test]
+fn passive_session_notification_stops_before_activation_and_closes_resources() {
+    let (mut session, trace) = install();
+    super::super::session_notifications::api::send(7, 1);
+    assert_eq!(test_send(0x1e, false), 9);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Hook(HookSessionError::Callback(
+            HookFault::SessionChanged
+        )))
+    ));
+    let report = session.shutdown_report().unwrap();
+    assert!(report.session_changed && !report.untracked_input);
+    assert_eq!(report.notifications, NotificationCleanup::default());
+    assert!(report.recovery.is_ok() && report.unhook.is_ok());
+    assert!(trace.borrow().calls.is_empty());
+}
+#[test]
+fn own_notification_preserves_submitted_and_does_not_send_ups_to_changed_session() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(test_send(0x1e, false), 1);
+    super::super::session_notifications::api::send(4, 1);
+    assert_eq!(session.hook.fault(), Some(HookFault::SessionChanged));
+    super::super::session_notifications::api::send(8, 1);
+    assert!(session.poll().is_err());
+    let report = session.shutdown_report().unwrap();
+    assert!(report.session_changed && !report.untracked_input);
+    assert!(matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+    assert_eq!(session.actor.borrow().output().phase(), Phase::Quarantined);
+}
+#[test]
+fn other_session_notification_keeps_original_lease_and_mapping() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    super::super::session_notifications::api::send(7, 2);
+    assert!(!session.notifications.access_lost());
+    assert_eq!(session.hook.fault(), None);
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(test_send(0x1e, true), 1);
+    assert!(!session.shutdown().session_changed);
+    assert_eq!(trace.borrow().calls.len(), 2);
+}
+#[test]
+fn session_change_during_submit_is_borrow_free_and_preserves_real_receipt() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    trace.borrow_mut().notify_during_submit = Some((7, 1));
+    assert_eq!(test_send(0x1e, false), 9);
+    assert_eq!(session.hook.fault(), Some(HookFault::SessionChanged));
+    assert!(session.notifications.access_lost());
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+    assert!(session.poll().is_err());
+    assert!(session.shutdown_report().unwrap().session_changed);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn session_latch_survives_earlier_fault_and_empty_ledger_stops_without_submission() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(super::super::hook_thread::test_record(external_record()), 9);
+    super::super::session_notifications::api::send(6, 1);
+    assert_eq!(session.hook.fault(), Some(HookFault::UntrackedInput));
+    assert!(session.poll().is_err());
+    let report = session.shutdown_report().unwrap();
+    assert!(report.session_changed && report.untracked_input && report.recovery.is_ok());
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert!(trace.borrow().calls.is_empty());
+}
+#[test]
+fn notification_cleanup_errors_are_reported_without_hiding_hook_or_recovery() {
+    let (mut session, _) = install();
+    session.poll().unwrap();
+    super::super::session_notifications::api::fail("unregister");
+    let report = session.shutdown();
+    assert_eq!(report.notifications.unregister, Some(5));
+    assert!(report.unhook.is_ok() && report.recovery.is_ok());
+    assert!(!report.session_changed);
+    assert_eq!(session.shutdown().notifications.unregister, Some(5));
+}
+#[test]
+fn notification_reentry_during_recovery_rejects_next_submission() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(test_send(0x1e, false), 1);
+    trace.borrow_mut().zero_recovery = true;
+    trace.borrow_mut().notify_during_submit = Some((7, 1));
+    let report = session.shutdown();
+    assert!(report.session_changed && matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    // One real rejected recovery API receipt, then the gate prevents all retries.
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+}
+#[test]
+fn notification_before_hook_tls_initialization_cannot_be_erased_by_install() {
+    super::super::hook_thread::test_notify_before_install();
+    let (mut session, trace) = install();
+    assert!(session.notifications.access_lost());
+    assert_eq!(session.phase(), ActorPhase::Standby);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Hook(HookSessionError::Callback(
+            HookFault::SessionChanged
+        )))
+    ));
+    assert!(session.shutdown_report().unwrap().session_changed);
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert!(trace.borrow().calls.is_empty());
 }

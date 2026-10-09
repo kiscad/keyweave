@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、514 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、533 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -137,3 +137,9 @@ D08 WTS会话身份/租约（2026-10-09）：native/session_info.rs 新增本地
 
 
 D08 WTS Windows补验：固定Rust1.97.1 x64/i686各477 workspace tests（143 Windowsunit、1生产native_link）、all-targets Clippy -D warnings及两种MSVC/SDK compile-only oracle通过，最终验证进程exit0。两个132文件manifest SHA256全部匹配本次源码；报告 [windows-2026-10-09-wts.json](validation/windows-2026-10-09-wts.json)，完整日志/manifest/validate.cmd位于 ignored target/validation/windows-20261009-wts-{x64,x86}-1.97.1。通过WSL调用宿主实际x64 check_access.exe一次，exit0/input_access=observed，执行真实WTS/desktop/token只读查询，无Hook安装/SendInput/VK采样。该成功路径不能代替锁屏/RDP/注销切换、实际捕获/恢复或Windows CI验收。Linux514全套在fixture let-else改写前通过，改写后对应单项及全workspace Clippy通过；生产代码不变。原跨平台目标与全部未完余项保持。
+
+
+D08 WTS通知窗口（2026-10-09）：native/session_notifications.rs拥有独立class/隐藏HWND/THIS_SESSION注册；本session变更、非法数字id或意外窗口销毁锁存停止，通知与actor无借用/字符串/键查询，其他session忽略、不自动resume。CaptureSession在Hook前注册、poll入口与启用最后binding检查前重验，GuardedBackend含recovery前禁止通知后的新submit，旧实际receipt照常确认；runtime stop_for_access_loss_after_unhook保留非空/unknown ledger并Reset tasks为Unresolved，空ledger正常停止。ShutdownReport含session_changed/完整NotificationCleanup，install failure保留Hook primary与rollback；注销通知→destroy→unregister-class，失败毒化线程。公开SessionNotifications与check_notifications例程用于无Hook的资源诊断，native_link/双架构SDK oracle新增窗口符号与布局。新增11窗口owner/enum/rollback/cleanup/重入tests与8session行为tests；Linux533全workspace及独立main-thread harness、全workspace/alltargets Clippy通过。增量脚本错误覆盖两个test文件被编译定位，恢复已提交session tests及原新窗口tests，再补新增并全套通过；没有删旧tests或削弱断言。Windows验证与资源smoke另记。独立监督/Hook存活/host、外部共存、metadata无通知时恢复边界、D05/Linuxbootstrap/GUI/driver及全部原目标继续保留，尚无真实键盘/锁屏/RDP/注销验收。ADR-0045。
+
+
+D08 通知Windows补验：最终固定Rust1.97.1 x64/i686各496 workspace tests（162 Windowsunit+1生产native_link）、all-targets Clippy -D warnings与两种SDK /Zs oracle通过，父进程exit0；两个136文件SHA256全部匹配最终工作区。首轮通过后发现并修正NCDESTROY后及注销回调期间的HWND重用风险，增加一例，再全Linux533及双Windows重验。宿主两个架构的check_notifications.exe各执行一次，exit0/session_notifications=registered_and_closed，真实创建隐藏窗口、WTS注册/注销、destroy/unregister-class成功，无键盘Hook/SendInput/VK采样。i686在WoW64运行；不能证明真实锁屏/RDP/注销转移、捕获/恢复、独立监督或Windows CI通过。[报告](validation/windows-2026-10-09-notifications.json)与ignored target/validation/windows-20261009-notifications-{x64,x86}-1.97.1的日志/manifest/cmd/UTF16 probe log保留证据。原完整目标继续未完成；下一步审查metadata/lease失效无通知时的恢复提交边界，再独立监督/可执行host以及其他既定余项。

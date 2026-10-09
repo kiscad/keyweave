@@ -7,12 +7,15 @@ mod hook_thread;
 mod input_probe;
 mod session;
 mod session_info;
+mod session_notifications;
 #[cfg(target_os = "windows")]
 pub use hook_thread::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
 pub use input_probe::{check_input_access, sample_input_state};
 #[cfg(target_os = "windows")]
 pub use session::{CaptureSession, SessionError, SessionStep, ShutdownReport};
+#[cfg(target_os = "windows")]
+pub use session_notifications::{NotificationCleanup, NotificationError, SessionNotifications};
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]

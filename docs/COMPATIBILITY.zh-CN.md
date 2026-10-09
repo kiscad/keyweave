@@ -75,3 +75,5 @@ Windows 未归属输入保护（ADR-0043）：active会话在other injected、un
 
 
 Windows WTS租约检查（ADR-0044）：本地caller与foreground所属session必须相同且非0/保留值，WTSSessionInfoEx level1/完整长度、Active+Unlock和有效LogonTime均要求。Context两次比较包含session identity；CaptureSession也比较startup基线，已有新active session观察不能续旧会话。锁定/断连/身份变更/未知/权限或服务失败停止并沿用close-first恢复或untracked Unresolved规则。WTS所有操作在callback外，租约100/500ms不是RPC时长保证；Windows10/11目标，Win7反转flags不支持。尚无WTS事件通知/独立监督，检查间隔与pre/post非原子竞态保留；不能宣称真实锁屏/RDP/注销验收通过。
+
+Windows WTS通知在本session任何变更时停止，包括unlock/connect/desktop-ready，不能由消息授予或恢复lease。另session消息忽略；通知不认证发送者且有交付延迟。通知发生后保留非空/unknown submitted，禁止recovery新提交；通知前已进行的API仍按真实receipt确认，不宣称跨桌面原子性。没有独立监督或真机验收；metadata查询失败且尚无通知时的恢复边界仍须独立审查。见ADR-0045。

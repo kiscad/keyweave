@@ -25,6 +25,8 @@ pub enum ActorPhase {
 pub enum RuntimeError {
     #[error("untracked input may have changed global output ownership")]
     UntrackedInput,
+    #[error("desktop/session access was revoked")]
+    AccessLost,
     #[error(transparent)]
     Engine(#[from] EngineError),
     #[error(transparent)]
@@ -270,10 +272,21 @@ impl<B: SendBackend> SessionActor<B> {
     /// ownership even when its native code appears unrelated. Never release a
     /// possibly shared down; only a known empty ledger can stop normally.
     pub fn stop_for_untracked_input_after_unhook(&mut self) -> Result<(), RuntimeError> {
+        self.stop_without_delivery_after_unhook(RuntimeError::UntrackedInput)
+    }
+    /// A revoked desktop/session cannot receive recovery ups. Preserve unknown
+    /// or nonempty submitted evidence; only known empty output can stop cleanly.
+    pub fn stop_for_access_loss_after_unhook(&mut self) -> Result<(), RuntimeError> {
+        self.stop_without_delivery_after_unhook(RuntimeError::AccessLost)
+    }
+    fn stop_without_delivery_after_unhook(
+        &mut self,
+        reason: RuntimeError,
+    ) -> Result<(), RuntimeError> {
         if matches!(self.phase, ActorPhase::Stopped | ActorPhase::Unresolved) {
             return Err(RuntimeError::NotActive);
         }
-        self.failure.get_or_insert(RuntimeError::UntrackedInput);
+        self.failure.get_or_insert(reason);
         if self.output.ledger().submitted().is_empty()
             && !matches!(self.output.phase(), Phase::Quarantined | Phase::Closed)
         {
@@ -281,7 +294,7 @@ impl<B: SendBackend> SessionActor<B> {
         }
         self.phase = ActorPhase::Unresolved;
         let _ = self.engine.reset(self.now);
-        self.output.quarantine_untracked_input();
+        self.output.quarantine_without_delivery();
         Err(RuntimeError::Unresolved)
     }
     /// Host MUST disable/unhook first. No OS calls or fabricated neutral proof.

@@ -114,9 +114,9 @@ impl<B: SendBackend> OutputPump<B> {
         self.queue.quarantine();
         self.phase = Phase::Quarantined;
     }
-    /// Capture must have stopped. Unowned input may have changed global state;
-    /// preserve the accepted ledger without injecting releases or dropping it.
-    pub(crate) fn quarantine_untracked_input(&mut self) {
+    /// Capture must have stopped. Unowned input or revoked delivery access may
+    /// invalidate cleanup; preserve the accepted ledger without injecting ups.
+    pub(crate) fn quarantine_without_delivery(&mut self) {
         if self.phase != Phase::Closed {
             self.quarantine();
         }

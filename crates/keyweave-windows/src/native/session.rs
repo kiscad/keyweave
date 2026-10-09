@@ -3,6 +3,7 @@ use super::{
     hook_thread::{HookSession, HookSessionError, LoopStep},
     input_probe::{check_input_access_in_session, sample_input_state},
     session_info::{SessionIdentity, own_session},
+    session_notifications::{NotificationCleanup, NotificationError, SessionNotifications},
 };
 use crate::{
     access::{AccessError, AccessLease},
@@ -26,6 +27,13 @@ const STARTUP_NS: u64 = 2_000_000_000;
 pub enum SessionError {
     #[error(transparent)]
     Probe(#[from] ProbeError),
+    #[error(transparent)]
+    Notifications(#[from] NotificationError),
+    #[error("Hook installation failed: {hook}; notification cleanup: {notifications:?}")]
+    HookInstall {
+        hook: HookSessionError,
+        notifications: NotificationCleanup,
+    },
     #[error(transparent)]
     Hook(#[from] HookSessionError),
     #[error(transparent)]
@@ -51,6 +59,8 @@ pub enum SessionStep {
 }
 #[derive(Debug)]
 pub struct ShutdownReport {
+    pub session_changed: bool,
+    pub notifications: NotificationCleanup,
     pub untracked_input: bool,
     pub unhook: Result<(), HookSessionError>,
     pub recovery: Result<(), RuntimeError>,
@@ -65,7 +75,9 @@ impl<B: SendBackend> SendBackend for GuardedBackend<B> {
         // Reject only before calling this backend; its actual prior receipt was
         // acknowledged by the pump. Explicit shutdown disables this gate so
         // ordinary known recovery remains possible after close/unhook.
-        if self.enabled.get() && super::hook_thread::current_fault().is_some() {
+        if super::session_notifications::access_lost()
+            || self.enabled.get() && super::hook_thread::current_fault().is_some()
+        {
             return Err(SubmitError::Rejected);
         }
         self.backend.submit(packets)
@@ -194,6 +206,7 @@ fn monitored_wait<B: SendBackend>(
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
     session: SessionIdentity,
+    notifications: SessionNotifications,
     hook: HookSession,
     actor: Rc<RefCell<SessionActor<GuardedBackend<B>>>>,
     enabled: Rc<Cell<bool>>,
@@ -238,10 +251,19 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             access: access.clone(),
             clock: move || handler_clock.now(),
         };
-        let hook =
-            HookSession::install(Box::new(handler), tag, policy).map_err(|(error, _)| error)?;
+        let mut notifications = SessionNotifications::install_for(session)?;
+        let hook = match HookSession::install(Box::new(handler), tag, policy) {
+            Ok(hook) => hook,
+            Err((hook, _)) => {
+                return Err(SessionError::HookInstall {
+                    hook,
+                    notifications: notifications.close(),
+                });
+            }
+        };
         Ok(Self {
             session,
+            notifications,
             hook,
             actor,
             enabled,
@@ -284,7 +306,18 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         }
         result
     }
+    fn check_notifications(&self) -> Result<(), SessionError> {
+        if self.notifications.access_lost() {
+            super::hook_thread::session_changed();
+            return Err(HookSessionError::Callback(
+                super::hook_thread::current_fault().unwrap_or(HookFault::SessionChanged),
+            )
+            .into());
+        }
+        Ok(())
+    }
     fn poll_inner(&mut self) -> Result<SessionStep, SessionError> {
+        self.check_notifications()?;
         if self.enabled.get() {
             let session = self.session;
             let clock = self.clock.clone();
@@ -346,6 +379,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         // Win32 may deliver callbacks during queries: do not retain any borrow.
         let sample = sample()?;
         check_input_access_in_session(self.session)?;
+        self.check_notifications()?;
         let after = self.hook.held_keys()?;
         let completed = now(&self.clock);
         self.check_deadline(completed)?;
@@ -375,14 +409,19 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         self.shutdown.get_or_insert_with(|| {
             let untracked_input = self.hook.untracked_input();
             let (_, unhook) = self.hook.close();
-            let recovery = if untracked_input {
+            let recovery = if self.notifications.access_lost() {
+                self.actor.borrow_mut().stop_for_access_loss_after_unhook()
+            } else if untracked_input {
                 self.actor
                     .borrow_mut()
                     .stop_for_untracked_input_after_unhook()
             } else {
                 self.actor.borrow_mut().stop_after_unhook()
             };
+            let notifications = self.notifications.close();
             ShutdownReport {
+                session_changed: self.notifications.access_lost(),
+                notifications,
                 untracked_input,
                 unhook,
                 recovery,
@@ -394,6 +433,7 @@ impl<B: SendBackend + 'static> Drop for CaptureSession<B> {
     fn drop(&mut self) {
         self.enabled.set(false);
         let _ = self.hook.close();
+        self.notifications.close();
     }
 }
 #[cfg(test)]

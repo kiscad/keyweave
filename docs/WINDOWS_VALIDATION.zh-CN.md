@@ -97,3 +97,7 @@ WTS查询新增 wtsapi32 链接与ProcessIdToSessionId，SDK oracle核验Unicode
 
 
 2026-10-09 WTS补验：[验证报告](validation/windows-2026-10-09-wts.json)记录固定1.97.1 x64/i686各477 tests、143 Windowsunit、native_link、all-targets Clippy及双架构SDK oracle通过，132份源码hash一致。宿主x64例程真实执行一次，返回input_access=observed/exit0；只读metadata成功，不安装Hook、不调用SendInput、不采样VK。完整记录在ignored target/validation/windows-20261009-wts-{x64,x86}-1.97.1，x64另含metadata-probe.log。未实测锁屏/RDP/注销状态变化，不能据此声明这些转移或实际键盘安全恢复已验收。
+
+`cargo run --locked --offline -p keyweave-windows --example check_notifications` 是明确调用的通知资源smoke：查询本进程session，创建不显示/不激活的owned窗口，注册THIS_SESSION后注销、销毁、注销class，成功打印session_notifications=registered_and_closed。它不泵消息等待变更，不安装Hook/调用SendInput/键采样；不能替代锁屏/RDP/注销实测。新增WNDCLASSW布局、消息/样式/通知枚举与API原型须通过双架构SDK oracle。
+
+2026-10-09 通知窗口实测：[报告](validation/windows-2026-10-09-notifications.json)记录最终1.97.1双架构各496 tests、162 Windowsunit/native_link/Clippy/SDK通过，136源码hash匹配；两种check_notifications.exe真实注册/关闭资源各一次exit0。原始probe log为Windows PowerShell Tee-Object生成的UTF16，连同完整编译日志/manifest/cmd在ignored target/validation/windows-20261009-notifications-{x64,x86}-1.97.1。没有真实状态变化、键盘操作或驱动验收。

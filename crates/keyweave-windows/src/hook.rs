@@ -11,6 +11,7 @@ pub enum HookFault {
     Reentrant,
     Emergency,
     UntrackedInput,
+    SessionChanged,
     AccessLease(crate::access::AccessError),
     InputAccess(crate::startup::ProbeError),
     EmergencyDetector(crate::emergency::EmergencyError),
