@@ -73,3 +73,6 @@ Windows Worker执行循环已将启动token、private进度客户端与CaptureSe
 
 
 Windows 已增加显式协作停止：合法私有Stop帧让worker关闭捕获、恢复已知输出并退出；父Supervisor用不延长旧lease的期限等待实际退出，超时仍终止自有Job。[设计](docs/ADR-0056-cooperative-worker-stop.md)、[双架构mock/无输入跨进程验证](docs/validation/windows-2026-10-09-cooperative-stop.json)。正常键盘恢复及完整parent host/用户控制/配置交付尚未验收；Linux默认进度协议保持原行为。
+
+
+Windows 已增加独占配置文件资源层与唯一只读 reader，双架构实际临时文件测试验证内容、共享访问限制与最后 reader 关闭后删除。[设计](docs/ADR-0057-owned-config-artifact.md)、[验证记录](docs/validation/windows-2026-10-09-config-artifact.json)。跨进程配置句柄移交、完整 parent host 与正常键盘验收仍待接入。

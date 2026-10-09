@@ -155,3 +155,10 @@ keyweave-worker已有真实Windows main入口，完整parent host/控制/正常�
 
 
 协作停止已有ADR-0056：shared StopRequest=KWPS/v1/24bytes reserved0 + 同run正u64连续id，旧KWPC/KWPR bytes与Linux/default receive不变且拒绝Stop；Windows Worker才opt-in receive_command。停止可先于Standby ticket/partial reply完成，无实际poll/新epoch/flush，旧response/native飞行owner保留；先关捕获再已知恢复，Requested/FramePending不等于确认。最多停放一个先序合法challenge，旧reply完成后才接受/保存当时baseline；malformed即错，不能提前交付queued挑战。Supervisor.request_shutdown只对已知支持worker，callback先拒绝；deadline=min(old lease,now+2s)，重复不延长，queued receipt不Read/不续租。untouched挑战可替换；尝试过（即written0/WouldBlock）须同shadow完成，随后下一id Stop且每poll至多一次Write；reader已有稳定IO存储至实际Exited后close。request_sent仅Write ack，Exited Cooperative只是意图/exitcode仍独立检查；clock/expiry/channel/耗尽强制ownJob，hard reason保留/stop失败零IO重试。即刻request_stop仍强制旧Requested，Job/Drop不能清全局按键。check_cooperative真实5例程与旧Supervisor6回归均无输入/synthetic epoch，不代替捕获/恢复真机；完整parent host/config快照/诊断/热更新仍继续。
+
+
+## Windows 配置资源层与下一步交付
+
+ADR-0057 的 ConfigArtifact/ConfigReader 已实现：callback 外、8MiB 有界、固定本地持久 ACL 卷、protected DACL/非继承/delete-on-close、sealed writer 与仅一次 GENERIC_READ 降权 duplicate。path 仅作元数据，不能宣称端到端不可变交付；reader 与 writer 共享文件位置，未来移交必须重新定位0、消费唯一 reader owner，禁止 parent/child 并行读取。父 writer 必须保持到真实 owned child Exited。close 成功不证明最后 reader 已关或文件已删除；失败保留主错误、独立 rollback 和可重试 owner。同步准备不能放在 active watchdog/keyboard callback 中。
+
+下一步扩展 owned Job 的精确 HANDLE_LIST，增加唯一只读配置文件交付，并在真实 worker main 的 claim 阶段核验/接收同一文件对象；当前三句柄启动契约仍然有效，尚未更改。更新启动协议与 ADR，补足挂起交付、失败回滚、原 owner 生命周期、权限/offset/字节边界测试后再接完整 host。不要以现有临时文件 tests 代替跨进程交付验证。Linux/D05/GUI/打包/driver 等原任务继续。验证报告：docs/validation/windows-2026-10-09-config-artifact.json。

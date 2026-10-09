@@ -12,7 +12,7 @@ type Handle = *mut c_void;
 const CAPACITY: usize = 64;
 #[repr(C)]
 #[derive(Default)]
-struct Overlapped {
+pub(super) struct Overlapped {
     internal: usize,
     internal_high: usize,
     offset: u32,

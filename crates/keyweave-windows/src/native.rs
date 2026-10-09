@@ -1,11 +1,17 @@
 //! Private Windows unsafe boundary; native calls require explicit session actions.
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
+mod config_artifact;
 #[cfg(any(target_os = "windows", test))]
 mod hook_thread;
 #[cfg(any(target_os = "windows", test))]
 mod input_probe;
 mod job_process;
+#[cfg(target_os = "windows")]
+pub use config_artifact::{
+    ArtifactCleanup, ArtifactCreateError, ArtifactError, ArtifactReaderError, ConfigArtifact,
+    ConfigReader, MAX_ARTIFACT_BYTES,
+};
 mod supervisor;
 #[cfg(target_os = "windows")]
 pub use supervisor::{

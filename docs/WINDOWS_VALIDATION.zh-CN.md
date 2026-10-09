@@ -186,3 +186,8 @@ cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_super
 完整validation terminal后才在相同final snapshots fmt/check/build/run native，父进程terminal0。两个arch的check_cooperative五场景：initial/active/standby真实WorkerStartup后接Stop并确认自然exit0（initial/standby epoch0），stop_stall读Stop不退出和startup_stall不读被owned Job有限停止、确认exit0xe04b5701；父两个pipe cleanup完整。旧check_supervisor六场景各arch回归通过，healthy真正259、其他expected reason/停止/exit均核对。共22个自有进程场景无输入，fixture epoch是合成值，未安装Hook/SendInput/driver，不证明实际CaptureSession停止/全局按键恢复。SDK无声明改动，stdout观察而未单独归档。
 
 ignored target/validation/windows-20261009-cooperative-{x64,x86}-1.97.1保留tests/clippy/fmt/source-manifest/validate/native-build/native-smoke.cmd与两个smoke logs；linux-20261009-cooperative及windows-20261009-cooperative-before-owner-*保留初始Read断言/unused-wrapper失败与preliminary快照。request_sent/Cooperative reason不能代替接收/恢复/退出证据，Stop deadline不续lease；全局输入/正常worker捕获/Windows11/完整host仍待验收，ADR-0053 x86异常仍未解释。
+
+
+Windows 配置文件资源层（2026-10-09）：固定 Rust1.97.1/MSVC19.44/SDK10.0.26100.0，x64/i686 各618 workspace tests、alltargetsClippy/fmt、更新 SDK prototype/constants oracle 通过；各有3个实际自有临时文件 tests、11个新mock/fault tests。Linux652通过。实际文件验收包括读取、写/删/重命名拒绝、8MiB内容与最后 reader 关闭后实际 NotFound；无 Hook/SendInput/系统驱动操作。两份175源hash匹配，验证父进程与独立fmt均terminal0。初次 OVERLAPPED 声明类型冲突的Clippy失败terminal101另归档，未压lint。
+
+[完整证据与限制](validation/windows-2026-10-09-config-artifact.json)、[ADR-0057](ADR-0057-owned-config-artifact.md)。配置跨进程句柄交付/完整host、有效ACL跨用户审计尚未执行；现有路径不是端到端不可变身份，文件close不独立证明删除。上一轮x86进程异常原因仍未知；本轮未重复旧Job fixture作修复证明。原完整开发范围继续。

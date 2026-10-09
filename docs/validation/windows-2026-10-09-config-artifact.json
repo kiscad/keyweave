@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-09",
+  "feature": "Owned sealed Windows config artifact and unique read-only reader (ADR-0057)",
+  "source_base_commit": "38342b31e8ed75e02ddc324069dfa261ef6512ce",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "d62c1c94eee849c591293d69a8291dd7",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 618,
+      "windows_unit_tests_passed": 266,
+      "new_mock_tests_passed": 11,
+      "actual_owned_file_tests_passed": 3,
+      "source_files_hash_checked": 175,
+      "source_mismatches": 0,
+      "validation_session": 38284,
+      "validation_terminal_exit": 0,
+      "fmt_session": 40587,
+      "fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "compile-only /W4 /WX /std:c11 /Zs passed; stdout observed, not separately archived",
+      "artifact_directory": "target/validation/windows-20261009-config-artifact-x64-1.97.1",
+      "artifacts_sha256": {
+        "clippy.log": "2066f7081e27c0e1843ec4924921170ff7031eacd69fd2aec05d654a6b13eda5",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "aa0eccbbe27f0264dc18b5cdb2b3f6eb3cf58c15f96b9b346a3f6f91645c3376",
+        "tests.log": "b100ce5f1a2a8a32835e62abdf313a10c4c34605553211628b09d5c372de3a6c",
+        "validate.cmd": "f58efc05b6719c272b8ad6ec9cd8f8049b4d792700b2355c5d14890d70c10c31"
+      }
+    },
+    {
+      "arch": "x86",
+      "snapshot": "6924461a6f7849639fbda1bf44746ea3",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 618,
+      "windows_unit_tests_passed": 266,
+      "new_mock_tests_passed": 11,
+      "actual_owned_file_tests_passed": 3,
+      "source_files_hash_checked": 175,
+      "source_mismatches": 0,
+      "validation_session": 38284,
+      "validation_terminal_exit": 0,
+      "fmt_session": 40587,
+      "fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "compile-only /W4 /WX /std:c11 /Zs passed; stdout observed, not separately archived",
+      "artifact_directory": "target/validation/windows-20261009-config-artifact-x86-1.97.1",
+      "artifacts_sha256": {
+        "clippy.log": "8c387aaa3b11502d87d81434c97d38e0a788ee1ae448c221f171f140c79d19df",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "aa0eccbbe27f0264dc18b5cdb2b3f6eb3cf58c15f96b9b346a3f6f91645c3376",
+        "tests.log": "0d0f7cc1b8b1faf6ba684cd6bc360e33b053962893d3580595e7b4aefcdcb018",
+        "validate.cmd": "acd54d96bd49fb783e8037085f016b832705450bfef575f2c6040adac62f7304"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 652,
+    "main_thread_no_device_harness": "passed",
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_verifier": "60 source hashes and fixture copies verified",
+    "terminal_exit": 0,
+    "artifact_directory": "target/validation/linux-20261009-config-artifact",
+    "artifacts_sha256": {
+      "tests.log": "0758cecf124f9a3b94a30719e5967d9053b104776af7ce364e4ac8fb65b080ef",
+      "clippy.log": "402671df90e2cdc120c94179e9ae11cdc4f1b34be281a223711b0b07cde7c604"
+    }
+  },
+  "initial_failure": {
+    "snapshot": "keyweave-validation-b780027cb70e411ba44b06614bfca8fd",
+    "arch": "x64",
+    "session": 43964,
+    "terminal_exit": 101,
+    "tests": "passed before Clippy failure; not final source evidence",
+    "cause": "ReadFile/WriteFile OVERLAPPED pointer declarations differed from existing pipe declarations; Clippy clashing_extern_declarations rejected. Reused existing typed OVERLAPPED with parent visibility, no suppression. Both architectures rerun on final snapshot.",
+    "artifact_directory": "target/validation/windows-20261009-config-artifact-before-overlapped",
+    "artifacts_sha256": {
+      "clippy.log": "e4d9a2c83c58001b4eff2ec5124328a1437943fb6b9ebbe423c4c5ff36eea492",
+      "source-manifest.json": "dd60cd5effaaa5c98eaa96955d5abaa06dee3bbf8b867df9cd8b78636351d4e3",
+      "tests.log": "a227110e0696a8c59490bed4b45d9887312b543d00626b3a271c095b05cac98b",
+      "validate.cmd": "0e065a57e3382f6e955d4b3ef80668efbc3a694b6d1d20e1473cdfffe1b60bed",
+      "original-config_artifact-api.rs": "ca7fb0e4be46c829eb7d9ab35605c28a5deb4758e70831b83c6d9495e24ca2fe",
+      "original-progress_pipe.rs": "b6a56955a5cf5b125f780718b4077b4b9480aad7997b76eb9ed23ce8d35f8259"
+    }
+  },
+  "input_operations": {
+    "owned_temporary_file_io": true,
+    "real_hook_installed": false,
+    "sendinput_called": false,
+    "driver_loaded": false,
+    "physical_keyboard_validated": false,
+    "actual_worker_config_handle_handoff": false
+  },
+  "limits": [
+    "Resource layer only; exact HANDLE_LIST reader transfer, worker read-only file admission and complete parent host still required",
+    "Path is metadata, not end-to-end immutable identity; future handoff consumes unique reader and resets shared cursor before transfer",
+    "Protected SDDL/persistent ACL gate tested; cross-user effective ACL audit not executed",
+    "Synchronous preparation may block on disk; prepare before capture, not in active watchdog loop",
+    "Close result is not deletion proof while readers remain; native tests separately observe NotFound after last close",
+    "Earlier ADR-0053 x86 anomalies remain unresolved; current passing tests do not prove them fixed",
+    "Linux bootstrap/consumer-ready, advanced rules, GUI, packaging, Rust driver/companion audit and original full goal remain unfinished"
+  ]
+}

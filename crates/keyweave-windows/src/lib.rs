@@ -14,6 +14,11 @@ pub mod startup;
 #[cfg(target_os = "windows")]
 pub use native::SendInputBackend;
 #[cfg(target_os = "windows")]
+pub use native::{
+    ArtifactCleanup, ArtifactCreateError, ArtifactError, ArtifactReaderError, ConfigArtifact,
+    ConfigReader, MAX_ARTIFACT_BYTES,
+};
+#[cfg(target_os = "windows")]
 pub use native::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
 pub use native::{check_input_access, sample_input_state};
