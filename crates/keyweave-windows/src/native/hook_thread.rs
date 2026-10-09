@@ -119,11 +119,11 @@ impl HookSession {
             if present == 0 {
                 let plan = checked_control(control)?;
                 // SAFETY: zero handles means message-only wait; null handles is
-                // never read. timeout is 0..=20ms, QS_ALLINPUT=0x04ff and
+                // never read. timeout is 0..=20ms, QS_ALLINPUT=0x1cff and
                 // MWMO_INPUTAVAILABLE=4 include seen-but-unremoved input. No
                 // alertable APCs or owned handle copies/lifetime races are used.
                 let result = unsafe {
-                    MsgWaitForMultipleObjectsEx(0, std::ptr::null(), plan.timeout_ms(), 0x04ff, 4)
+                    MsgWaitForMultipleObjectsEx(0, std::ptr::null(), plan.timeout_ms(), 0x1cff, 4)
                 };
                 if result == u32::MAX {
                     // SAFETY: immediate thread-local error retrieval.
@@ -593,7 +593,7 @@ mod tests {
         assert_eq!(calls, 3);
         assert_eq!(
             api::WAIT_CALLS.with(|calls| calls.borrow().clone()),
-            vec![(0, 1, 0x04ff, 4)]
+            vec![(0, 1, 0x1cff, 4)]
         );
         session.close().1.unwrap();
     }

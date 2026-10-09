@@ -30,3 +30,22 @@ jobs:
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/delayed.json --assert
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/delayed-pending.json --assert
       - run: cargo run --locked -p keyweavectl -- replay --fixture tests/fixtures/lazy-halt.json --assert
+  windows-abi:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: x86
+            target: i686-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+      - run: python tools/verify_windows_abi.py --arch ${{ matrix.arch }}
+      # Link and run tests, including Rust layout assertions, for the same ABI.
+      # Hook tests replace Win32 APIs; no global capture/injection is executed.
+      - run: cargo test --locked --workspace --target ${{ matrix.target }}

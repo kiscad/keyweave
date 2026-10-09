@@ -1,4 +1,4 @@
-//! The only Windows unsafe boundary. No Hook installation or implicit injection.
+//! Private Windows unsafe boundary; native calls require explicit session actions.
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
 #[cfg(any(target_os = "windows", test))]
@@ -189,11 +189,18 @@ mod tests {
     fn input_layout_includes_larger_mouse_union() {
         let wide = size_of::<usize>() == 8;
         assert_eq!(size_of::<HardwareInput>(), 8);
+        assert_eq!(offset_of!(HardwareInput, message), 0);
+        assert_eq!(offset_of!(HardwareInput, low), 4);
+        assert_eq!(offset_of!(HardwareInput, high), 6);
         assert_eq!(size_of::<KeyboardInput>(), if wide { 24 } else { 16 });
         assert_eq!(size_of::<MouseInput>(), if wide { 32 } else { 24 });
         assert_eq!(size_of::<Input>(), if wide { 40 } else { 28 });
         assert_eq!(align_of::<Input>(), align_of::<usize>());
+        assert_eq!(offset_of!(Input, kind), 0);
         assert_eq!(offset_of!(Input, payload), if wide { 8 } else { 4 });
+        assert_eq!(offset_of!(KeyboardInput, vk), 0);
+        assert_eq!(offset_of!(KeyboardInput, scan), 2);
+        assert_eq!(offset_of!(KeyboardInput, flags), 4);
         assert_eq!(offset_of!(KeyboardInput, time), 8);
         assert_eq!(
             offset_of!(KeyboardInput, extra_info),
@@ -203,6 +210,11 @@ mod tests {
             offset_of!(MouseInput, extra_info),
             if wide { 24 } else { 20 }
         );
+        assert_eq!(offset_of!(MouseInput, dx), 0);
+        assert_eq!(offset_of!(MouseInput, dy), 4);
+        assert_eq!(offset_of!(MouseInput, data), 8);
+        assert_eq!(offset_of!(MouseInput, flags), 12);
+        assert_eq!(offset_of!(MouseInput, time), 16);
         let packet = KeyboardPacket {
             vk: 0,
             scan: 0x1d,
@@ -264,10 +276,19 @@ mod tests {
     fn hook_and_message_layouts_match_pointer_width() {
         let wide = size_of::<usize>() == 8;
         assert_eq!(size_of::<KeyboardHook>(), if wide { 24 } else { 20 });
+        assert_eq!(offset_of!(KeyboardHook, vk), 0);
+        assert_eq!(offset_of!(KeyboardHook, scan), 4);
+        assert_eq!(offset_of!(KeyboardHook, flags), 8);
+        assert_eq!(offset_of!(KeyboardHook, time), 12);
         assert_eq!(offset_of!(KeyboardHook, extra_info), 16);
         assert_eq!(size_of::<Message>(), if wide { 48 } else { 32 });
+        assert_eq!(offset_of!(Message, window), 0);
+        assert_eq!(offset_of!(Message, message), if wide { 8 } else { 4 });
         assert_eq!(offset_of!(Message, wparam), if wide { 16 } else { 8 });
         assert_eq!(offset_of!(Message, lparam), if wide { 24 } else { 12 });
+        assert_eq!(offset_of!(Message, time), if wide { 32 } else { 16 });
+        assert_eq!(offset_of!(Message, x), if wide { 36 } else { 20 });
+        assert_eq!(offset_of!(Message, y), if wide { 40 } else { 24 });
         assert_eq!(offset_of!(Message, private), if wide { 44 } else { 28 });
     }
 }

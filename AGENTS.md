@@ -83,6 +83,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 - Windows Hook 运行在会话消息线程，有界同步 capture 决策；不能 queue 后先放行，再发送映射。禁止 RawInput 与 Hook 时戳猜设备关联。
 - down 的 capture/pass 策略保持到 up；自身注入 marker + flag bypass，其他 injected 默认 bypass。
 - Windows OutputPump 的短正常返回进入 StopRequired，停捕获后显式 begin_recovery，再发已知 ups；恢复短返回不重发 down。SendInput 没有独占虚拟设备，close/Drop/卸载 Hook/进程退出不证明全局键已释放；不得调用 backend_destroyed 或清未知 ledger。Unknown/非法 receipt 保持 quarantine，禁止猜零接受或全键 up；native.rs 为唯一 Windows unsafe 边界，x86/x64 INPUT ABI 与 Windows 编译/SDK/真机分别核验，见 ADR-0033。
+- Windows FFI/ABI/constants 改动须在 Windows 跑 tools/verify_windows_abi.py --arch x64/x86 与对应 Rust target tests；SDK oracle C11 compile-only，不执行 Hook/SendInput。native_link integration test 依赖生产 crate，保留函数地址证明链接而不调用接口。QS_ALLINPUT 目标 Windows 10/11 为 0x1cff，不能复制旧 0x04ff；脚本/CI 未运行须明确标记，不用 Linux/mock tests 代替，入口 docs/WINDOWS_VALIDATION.zh-CN.md。
 - SendInput 处理部分成功与 submitted 状态；UIPI、Hook 超时移除、安全桌面、Raw Input 游戏都是明确限制，不当作自动已解决。
 - VHF 只解决虚拟输出；可靠物理屏蔽另做过滤方案。Kbfiltr 不是通用 USB/蓝牙安装器。
 - driver callback 不等待用户态、不解析 JSON/规则，IRQL/PnP/电源/Verifier 单独检查；无人连接/租约失效必须恢复。

@@ -27,7 +27,7 @@ cargo run --locked -p keyweavectl -- doctor
 
 目前 `validate` / `import-karabiner` / `replay` 都不访问真实键盘，不执行导入脚本；不支持的功能禁用整条规则并返回诊断。`import-karabiner` 只输出无损副本，发现不支持功能时写报告并拒绝生成可激活副本。`examples/karabiner-basic.json` 已可通过验证，并由 tap-alone fixture 离线验证 Caps Lock→Control、独立轻触 Escape、严格超时与滚轮取消行为。
 
-本机安装的 `stable` 经核验实际为 1.97.1；离线开发环境用 `RUSTUP_TOOLCHAIN=stable cargo ... --offline` 复用已安装工具链，CI 仍使用固定 1.97.1。尚未运行 Windows CI，不将其配置存在视为已通过。
+本机安装的 `stable` 经核验实际为 1.97.1；离线开发环境用 `RUSTUP_TOOLCHAIN=stable cargo ... --offline` 复用已安装工具链，CI 仍使用固定 1.97.1。尚未运行 Windows CI，不将其配置存在视为已通过。Windows x64/x86 SDK ABI、生产 FFI 链接与真机验证入口见 [WINDOWS_VALIDATION](docs/WINDOWS_VALIDATION.zh-CN.md)。
 
 ## 阅读顺序
 
