@@ -1,6 +1,32 @@
 //! The only Windows unsafe boundary. No Hook installation or implicit injection.
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
+#[cfg(any(target_os = "windows", test))]
+mod hook_thread;
+#[cfg(target_os = "windows")]
+pub use hook_thread::{HookSession, HookSessionError};
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct KeyboardHook {
+    vk: u32,
+    scan: u32,
+    flags: u32,
+    time: u32,
+    extra_info: usize,
+}
+#[repr(C)]
+#[derive(Default)]
+struct Message {
+    window: usize,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+    time: u32,
+    x: i32,
+    y: i32,
+    private: u32,
+}
 #[cfg(target_os = "windows")]
 use crate::{
     keys::InjectionTag,
@@ -233,5 +259,15 @@ mod tests {
         ] {
             assert!(!valid(&[packet, invalid], 1));
         }
+    }
+    #[test]
+    fn hook_and_message_layouts_match_pointer_width() {
+        let wide = size_of::<usize>() == 8;
+        assert_eq!(size_of::<KeyboardHook>(), if wide { 24 } else { 20 });
+        assert_eq!(offset_of!(KeyboardHook, extra_info), 16);
+        assert_eq!(size_of::<Message>(), if wide { 48 } else { 32 });
+        assert_eq!(offset_of!(Message, wparam), if wide { 16 } else { 8 });
+        assert_eq!(offset_of!(Message, lparam), if wide { 24 } else { 12 });
+        assert_eq!(offset_of!(Message, private), if wide { 44 } else { 28 });
     }
 }

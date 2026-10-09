@@ -55,4 +55,4 @@ held 展开、future macros/suppression/deadline token 在原 down 一并预留�
 
 Linux 原生转换组件已有 159 HID/native 对与 154 canonical codes，但未接入 validate/backend；粗粒度 linux-evdev 页声明不能证明任意 HID 输出可用。keyboard 音量、non_us_pound/clear 等五个 native 别名明确拒绝保真输出；canonical evdev 身份不证明原始 HID usage，可信 scan 需 driver/descriptor 核验。详细策略见 ADR-0019。尚无真实设备抓取/注入。
 
-Windows 后端进展：已有 portable scan codec、默认 injected bypass、保存 down identity 的 normalizer，以及处理部分插入/显式停捕获恢复的 OutputPump。cfg Windows 原生 SendInput 已编写，尚未完成 Windows 编译/SDK ABI/真机验证；无 Hook 可执行运行时，CLI Windows capability 仍是规划的配置检查范围，不代表可安装运行。特殊 scan/别名输出在 backend 验证中拒绝。SendInput 的全局状态不会随 backend Drop 清除；未知接受量保留 quarantine，未捕获物理键碰撞协调仍待实现（ADR-0032/0033）。
+Windows 后端进展：已有 portable scan codec、默认 injected bypass、保存 down identity 的 normalizer，以及处理部分插入/显式停捕获恢复的 OutputPump。cfg Windows 原生 SendInput 已编写，尚未完成 Windows 编译/SDK ABI/真机验证；已有同步决策绑定和原生 HookSession 注册/消息循环/卸载代码；无完整可执行会话运行时，CLI Windows capability 仍是规划的配置检查范围，不代表可安装运行。特殊 scan/别名输出在 backend 验证中拒绝。SendInput 的全局状态不会随 backend Drop 清除；未知接受量保留 quarantine，未捕获物理键碰撞协调仍待实现（ADR-0032/0033）。

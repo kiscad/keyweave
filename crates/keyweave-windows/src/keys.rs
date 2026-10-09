@@ -43,7 +43,7 @@ impl ScanId {
     pub fn extended(self) -> bool {
         self.extended
     }
-    fn slot(self) -> usize {
+    pub(crate) fn slot(self) -> usize {
         usize::from(self.code) + 256 * usize::from(self.extended)
     }
 }
@@ -76,7 +76,7 @@ pub enum Origin {
     OtherInjected,
 }
 impl HookRecord {
-    fn validate(self) -> Result<KeyEdge, KeyError> {
+    pub(crate) fn validate(self) -> Result<KeyEdge, KeyError> {
         let edge = match self.message {
             0x0100 | 0x0104 => KeyEdge::Down,
             0x0101 | 0x0105 => KeyEdge::Up,
@@ -102,7 +102,7 @@ impl HookRecord {
             Origin::Physical
         }
     }
-    fn scan(self) -> Result<ScanId, KeyError> {
+    pub(crate) fn scan(self) -> Result<ScanId, KeyError> {
         ScanId::new(self.scan_code, self.flags & EXTENDED != 0)
     }
 }

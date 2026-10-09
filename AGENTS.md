@@ -77,6 +77,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 - Linux 不抓自身 uinput，不对所有 `/dev/input` 设 666，不默认抓未支持混合触控接口。SYN_DROPPED 恢复只由选定 raw/sync 层负责。
 - Linux 的 repeat 来源只选一个，LED 锁状态来源明确；FD 副本不能阻止 broker/watchdog 释放 grab。
 - Windows keys 的 CanonicalScan 仅为 scan 位置证据；VK 不替代物理位置，E0 显式区分。132 项表含明确别名/特殊 gate，PrintScreen/Pause/NumLock/LANG1/2 不按普通单字节冒充支持。normalizer 先过滤 injected、保留 down 身份与 Repeat/up；marker 不是鉴权凭据，reset 不造 up。256-edge packet 整批验证不代表 SendInput 接受；native ABI、Hook 与 ledger 单独接入，见 ADR-0032。
+- HookDispatcher 首 down 同步保存 Capture/Pass，repeat/up 返回不能改变旧决策；unsupported 整个按住周期 Pass，孤立 up/injected 不触发 handler。错误/panic 保留 evidence、停止捕获；不把当前 fail-open 当作已清 submitted。HookSession 在 native/hook_thread.rs 归同一 native unsafe 边界；callback 先 injected bypass 再 try_borrow，物理重入禁用，GetMessage -1/0 分开，退出/卸载前禁用。close 返回 handler 供有限 output recovery，失败卸载/回调/消息故障禁止线程重注册；模拟 Win32 tests 不安装真实 Hook，生产 Windows 编译/SDK/真机分别证明，见 ADR-0034。
 - Windows Hook 运行在会话消息线程，有界同步 capture 决策；不能 queue 后先放行，再发送映射。禁止 RawInput 与 Hook 时戳猜设备关联。
 - down 的 capture/pass 策略保持到 up；自身注入 marker + flag bypass，其他 injected 默认 bypass。
 - Windows OutputPump 的短正常返回进入 StopRequired，停捕获后显式 begin_recovery，再发已知 ups；恢复短返回不重发 down。SendInput 没有独占虚拟设备，close/Drop/卸载 Hook/进程退出不证明全局键已释放；不得调用 backend_destroyed 或清未知 ledger。Unknown/非法 receipt 保持 quarantine，禁止猜零接受或全键 up；native.rs 为唯一 Windows unsafe 边界，x86/x64 INPUT ABI 与 Windows 编译/SDK/真机分别核验，见 ADR-0033。
