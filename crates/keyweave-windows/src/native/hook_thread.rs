@@ -91,7 +91,7 @@ pub enum HookSessionError {
     Closed,
 }
 /// One registration on this dedicated thread, never transferable. Installing
-/// requires the caller's real session/neutral/readiness gates to have passed.
+/// must use a passive handler until real session/neutral/readiness gates pass.
 pub struct HookSession {
     handle: Handle,
     _thread: PhantomData<Rc<()>>,
@@ -169,6 +169,25 @@ impl HookSession {
         // A busy queue cannot suppress deadlines indefinitely or wait 20ms while
         // messages remain. Outer loop/control gets another bounded turn now.
         Ok(LoopStep::Continue)
+    }
+    /// Callback evidence only, not a system-wide physical snapshot.
+    pub fn held_keys(&self) -> Result<usize, HookSessionError> {
+        if self.handle.is_null() {
+            return Err(HookSessionError::Closed);
+        }
+        if let Some(fault) = self.fault() {
+            return Err(HookSessionError::Callback(fault));
+        }
+        if TAG.with(Cell::get) == 0 {
+            return Err(HookSessionError::Closed);
+        }
+        DISPATCHER.with(|slot| {
+            let dispatcher = slot.try_borrow().map_err(|_| HookSessionError::Busy)?;
+            dispatcher
+                .as_ref()
+                .map(HookDispatcher::held_keys)
+                .ok_or(HookSessionError::Closed)
+        })
     }
     pub fn fault(&self) -> Option<HookFault> {
         FAULT.with(Cell::get)
@@ -679,4 +698,31 @@ mod tests {
             .unwrap();
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn test_send(scan: u32, up: bool) -> isize {
+    let keyboard = KeyboardHook {
+        vk: 0x41,
+        scan,
+        flags: if up { 0x80 } else { 0 },
+        time: 0,
+        extra_info: 0,
+    };
+    // SAFETY: test-owned initialized record remains live through callback.
+    unsafe {
+        callback(
+            0,
+            if up { 0x101 } else { 0x100 },
+            &keyboard as *const _ as isize,
+        )
+    }
+}
+#[cfg(test)]
+pub(super) fn test_fail_unhook() {
+    api::UNHOOK_FAIL.with(|fail| fail.set(true));
+}
+#[cfg(test)]
+pub(super) fn test_quit() {
+    api::MESSAGES.with(|messages| messages.borrow_mut().push_back(0x12));
 }

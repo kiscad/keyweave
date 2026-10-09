@@ -381,3 +381,11 @@ pub fn sample_input_state() -> Result<InputSample, ProbeError> {
 mod api;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(super) fn test_probe(key: i16, active: bool) {
+    api::MOCK.with(|mock| {
+        let mut mock = mock.borrow_mut();
+        mock.key = key;
+        mock.active = active;
+    });
+}

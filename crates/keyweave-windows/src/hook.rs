@@ -52,6 +52,10 @@ impl<H: HookHandler> HookDispatcher<H> {
     pub fn fault(&self) -> Option<HookFault> {
         self.fault
     }
+    /// Includes Pass and unsupported identities; startup needs all bindings.
+    pub fn held_keys(&self) -> usize {
+        self.slots.iter().flatten().count()
+    }
     pub fn held_captured(&self) -> usize {
         self.slots
             .iter()

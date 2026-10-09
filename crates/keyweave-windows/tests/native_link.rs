@@ -11,6 +11,10 @@ fn production_native_symbols_link_without_installation_or_injection() {
     let addresses = [
         HookSession::install as *const () as usize,
         HookSession::close as *const () as usize,
+        HookSession::held_keys as *const () as usize,
+        keyweave_windows::CaptureSession::<SendInputBackend>::install as *const () as usize,
+        keyweave_windows::CaptureSession::<SendInputBackend>::poll as *const () as usize,
+        keyweave_windows::CaptureSession::<SendInputBackend>::shutdown as *const () as usize,
         HookSession::run_until_quit as *const () as usize,
         HookSession::poll_with_control::<Control> as *const () as usize,
         <SendInputBackend as SendBackend>::submit as *const () as usize,

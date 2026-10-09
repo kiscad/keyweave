@@ -57,6 +57,6 @@ Linux 原生转换组件已有 159 HID/native 对与 154 canonical codes，但�
 
 Windows 后端进展：已有 portable scan codec、默认 injected bypass、保存 down identity 的 normalizer，以及处理部分插入/显式停捕获恢复的 OutputPump。cfg Windows 原生 SendInput 已编写，尚未完成 Windows 编译/SDK ABI/真机验证；已有同步决策绑定和原生 HookSession 注册/消息循环/卸载代码；无完整可执行会话运行时，CLI Windows capability 仍是规划的配置检查范围，不代表可安装运行。特殊 scan/别名输出在 backend 验证中拒绝。SendInput 的全局状态不会随 backend Drop 清除；未知接受量保留 quarantine，未捕获物理键碰撞协调仍待实现（ADR-0032/0033）。
 
-Windows SessionActor 已连接共享引擎与输出账本，ActorHandler 可交付同步 HookHandler；覆盖标准键捕获重发、持键热更新与显式 tick 推进时间任务。Engine 物理 Repeat 不重播宏，Windows 专用重复源仍缺；已有具体同 epoch SessionClock/SessionControl 与原生定时 poll_with_control 源码；Windows 实际等待未验证，neutral/碰撞/紧急组合/监督与可执行启动尚未完成，不能视为可运行 Windows 后端（ADR-0035）。
+Windows SessionActor 已连接共享引擎与输出账本，ActorHandler 可交付同步 HookHandler；覆盖标准键捕获重发、持键热更新与显式 tick 推进时间任务。Engine 物理 Repeat 不重播宏，Windows 专用重复源仍缺；已有具体同 epoch SessionClock/SessionControl 与原生定时 poll_with_control 源码；Windows 实际等待未验证；已有 passive neutral 启动组件，碰撞/紧急组合/监督与可执行启动尚未完成，不能视为可运行 Windows 后端（ADR-0035）。
 
-Windows startup 现有 callback 外只读采样：visible WinSta0/input desktop/HOOKCONTROL 与 foreground integrity 访问检查、无 impersonation、254 VK high-bit aggregate、pre/post context 重验。返回 Held/IdleObserved，不自动启用；不是原子 physical neutral。完整 passive Hook barrier/启动事务与实际 Windows API 验证继续待做（ADR-0037）。
+Windows startup 现有 callback 外只读采样：visible WinSta0/input desktop/HOOKCONTROL 与 foreground integrity 访问检查、无 impersonation、254 VK high-bit aggregate、pre/post context 重验。返回 Held/IdleObserved，不自动启用；不是原子 physical neutral。CaptureSession 已实现 passive Hook barrier/启动与关闭事务：启动 2s 期限、采样前后全部 binding 为空才同步启用，正常 capture 不全 VK 扫描；错误/Quit 先 close Hook 后有限恢复，保存卸载/恢复诊断；Drop 仅停 Hook，不注入或保证清全局键。实际 Windows API 与可执行 host 验证继续待做（ADR-0037/0038）。
