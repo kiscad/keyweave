@@ -454,6 +454,10 @@ fuzz 配置/协议/native packet 边界，限制深度、分配和执行时间�
 
 ### 9.3 平台与故障验证
 
+当前开发主机为 WSL2，Windows Rust 已安装在 `C:\Users\sam chen\.cargo\bin`。后续 Agent 在 WSL 内编写和验证纯引擎/Linux 代码，同时通过 WSL interop 调用 Windows 原生 Rust、MSVC 和 SDK 验证 Windows 后端；路径含空格，必须引用完整路径。具体命令、固定工具链隔离、Windows-local 源码快照与日志归档见 [Windows 验证指南](WINDOWS_VALIDATION.zh-CN.md)。MSVC linker/SDK 不齐全时先记录缺失条件，不能将安装 Rust 等同于 Windows 构建环境完整。
+
+验收分为三类：WSL 中的纯逻辑/回放与 Linux 编译；Windows 原生编译、SDK ABI 和不操作真实输入的测试；实际 Windows 桌面及 Linux 物理设备测试。前两类可用于持续开发，第三类须在对应系统完成。当前默认 Windows Rust 版本与项目固定工具链分别核验，不修改用户默认工具链来迁就项目；每次验证保存源码版本、target、工具链、命令与退出码，历史报告不替代修改后的重验。
+
 Linux：x86_64 为首发；ARM64 后续。实际 GNOME/KDE Wayland 与 X11，USB/蓝牙、至少两键盘、复合 consumer interface、ISO/JIS、睡眠/恢复、热拔插、VT/注销/锁屏。WSL 不作为直接控制 Windows 物理键盘的 Linux 测试环境。container CI 可做编译/纯引擎；uinput 集成需要专用权限和目标内核，不能用 mock 充当实测。
 
 Windows：Windows 11 x64 首发目标，明确测试 build；ARM64/Windows 10 暂不承诺。普通和提升权限程序、不同布局/中文 IME、桌面切换、RDP、多个用户会话、睡眠。驱动测试加 USB/蓝牙/PS2（若硬件存在）、PnP、电源、Secure Boot/HVCI、Verifier、安装升级回滚和完整卸载。

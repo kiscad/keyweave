@@ -103,6 +103,8 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 
 ## 检查和完成证据
 
+- 本机 Windows Rust 入口为 `C:\Users\sam chen\.cargo\bin`，WSL 使用 `/mnt/c/Users/sam chen/.cargo/bin`；含空格路径必须完整引用。Windows 开发优先复用该原生工具链，按 `docs/WINDOWS_VALIDATION.zh-CN.md` 调用 MSVC/SDK 验证，不更改用户默认工具链。只读版本探测、原生编译、mock 测试和真实桌面输入验收分别报告。
+
 文档阶段：验证路径、链接、manifest 校验和、任务依赖与状态一致；没有 workspace 时说明尚不能跑 cargo。
 
 创建 workspace 后按变化范围运行：

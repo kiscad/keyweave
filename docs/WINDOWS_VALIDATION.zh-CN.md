@@ -40,6 +40,13 @@ SessionStep 新增 Emergency：固定原 physical Ctrl+Alt+Shift+F12 连续 >=1s
 
 ## WSL2 调用宿主 Windows 工具链
 
+用户提供的 Windows Rust 入口是 `C:\Users\sam chen\.cargo\bin`，WSL 路径为 `/mnt/c/Users/sam chen/.cargo/bin`。2026-10-09 补充只读核验：直接调用该目录的 `rustc.exe -vV` 成功，当前默认版本为 1.99.0、host 为 `x86_64-pc-windows-msvc`。路径含空格，必须完整引用；此结果仅证明 Windows 编译器可执行，不是本次源码已编译通过的证据。项目仍使用固定 1.97.1，完整构建结果按下文各次报告的源码快照判断。
+
+```bash
+"/mnt/c/Users/sam chen/.cargo/bin/rustc.exe" -vV
+"/mnt/c/Users/sam chen/.cargo/bin/cargo.exe" -V
+```
+
 本机 Windows `cargo.exe` 位于用户 `.cargo/bin`，现有 stable 为 1.99.0。新增 `tools/validate_windows.ps1`：vswhere 自动定位 MSVC，源码、cache/target 放入唯一 Windows 本地 TEMP，先 SDK /Zs，再 tests/clippy；保留 `source-manifest.json` 与日志。仅复制 registry cache/index 作为可选 seed，不复制 credentials/config，不更改默认工具链。默认选择固定 1.97.1；未安装时明确拒绝，可显式指定已安装 stable。使用 PowerShell，无需 Windows Python。
 
 从 WSL 项目根目录执行：
