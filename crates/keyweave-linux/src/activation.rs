@@ -316,7 +316,7 @@ mod tests {
                 version: 1,
             },
             name: None,
-            input_syspath: path.into(),
+            input_syspath: crate::mock_syspath(path),
             capabilities: Capabilities {
                 events: bits(32, &[0, 1, 20]),
                 keys: bits(768, &keys::native_codes().collect::<Vec<_>>()),
@@ -377,7 +377,7 @@ mod tests {
     fn backend(trace: &Trace) -> Backend {
         Backend {
             spec: spec(),
-            path: OUTPUT.into(),
+            path: crate::mock_syspath(OUTPUT),
             trace: trace.clone(),
         }
     }
@@ -509,7 +509,7 @@ mod tests {
     fn late_capability_error_is_found_before_any_query_or_grab() {
         let trace = Trace::default();
         let mut second = source(2, &trace);
-        second.probe.input_syspath = OUTPUT.into();
+        second.probe.input_syspath = crate::mock_syspath(OUTPUT);
         let mut group =
             CaptureGroup::new(inputs(vec![source(1, &trace), second]), config()).unwrap();
         let spec = spec();
@@ -600,7 +600,8 @@ mod tests {
                 0 => vec![source(1, &trace), source(1, &trace)],
                 1 => {
                     let mut second = source(2, &trace);
-                    second.probe.input_syspath = "/sys/devices/mock/input/input1".into();
+                    second.probe.input_syspath =
+                        crate::mock_syspath("/sys/devices/mock/input/input1");
                     vec![source(1, &trace), second]
                 }
                 2 => (1..=MAX_DEVICES as u64 + 1)
@@ -654,7 +655,7 @@ mod tests {
             if armed {
                 let node = probe(OUTPUT);
                 group.try_arm(&proof(&backend.spec, &node)).unwrap();
-                backend.path = "/sys/devices/virtual/input/input998".into();
+                backend.path = crate::mock_syspath("/sys/devices/virtual/input/input998");
             }
             assert!(group.into_runtime(backend).is_err());
             assert_eq!(

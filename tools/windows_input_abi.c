@@ -48,7 +48,8 @@ CHECK(offsetof(KBDLLHOOKSTRUCT, scanCode) == 4);
 CHECK(offsetof(KBDLLHOOKSTRUCT, flags) == 8);
 CHECK(offsetof(KBDLLHOOKSTRUCT, time) == 12);
 CHECK(offsetof(KBDLLHOOKSTRUCT, dwExtraInfo) == 16);
-CHECK(sizeof(MSG) == (WIDE ? 48 : 32));
+/* Non-_MAC Windows SDK MSG has no lPrivate; x64 tail is alignment padding. */
+CHECK(sizeof(MSG) == (WIDE ? 48 : 28));
 CHECK(offsetof(MSG, hwnd) == 0);
 CHECK(offsetof(MSG, message) == (WIDE ? 8 : 4));
 CHECK(offsetof(MSG, wParam) == (WIDE ? 16 : 8));
@@ -56,7 +57,6 @@ CHECK(offsetof(MSG, lParam) == (WIDE ? 24 : 12));
 CHECK(offsetof(MSG, time) == (WIDE ? 32 : 16));
 CHECK(offsetof(MSG, pt) + offsetof(POINT, x) == (WIDE ? 36 : 20));
 CHECK(offsetof(MSG, pt) + offsetof(POINT, y) == (WIDE ? 40 : 24));
-CHECK(offsetof(MSG, lPrivate) == (WIDE ? 44 : 28));
 CHECK(sizeof(USEROBJECTFLAGS) == 12);
 CHECK(offsetof(USEROBJECTFLAGS, fInherit) == 0);
 CHECK(offsetof(USEROBJECTFLAGS, fReserved) == 4);

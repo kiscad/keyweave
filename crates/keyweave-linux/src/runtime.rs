@@ -707,7 +707,7 @@ mod tests {
                 version: 1,
             },
             name: None,
-            input_syspath: PathBuf::from(path),
+            input_syspath: crate::mock_syspath(path),
             capabilities: Capabilities {
                 events: bits(32, &[0, 1, 20]),
                 keys: bits(768, &keys::native_codes().collect::<Vec<_>>()),
@@ -736,7 +736,7 @@ mod tests {
             trace: trace.clone(),
             receipts: VecDeque::new(),
             flush: true,
-            path: PathBuf::from("/sys/devices/virtual/input/input999"),
+            path: crate::mock_syspath("/sys/devices/virtual/input/input999"),
         };
         let output_node = probe(backend.path.to_str().unwrap());
         let proof = OutputNodeReady::verify(&backend.spec, &backend.path, &output_node).unwrap();
@@ -1078,7 +1078,7 @@ mod tests {
             vec![Call::InputClose(1), Call::OutputClose]
         );
         let (inputs, mut backend, trace) = resources(vec![vec![]]);
-        backend.path = PathBuf::from("/sys/devices/virtual/input/input1000");
+        backend.path = crate::mock_syspath("/sys/devices/virtual/input/input1000");
         assert!(matches!(
             Runtime::new(inputs, backend, config(1, "b")),
             Err(RuntimeError::InvalidStartup)

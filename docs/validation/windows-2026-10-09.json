@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-09",
+  "os": {
+    "windows_build": "10.0.19045",
+    "entry": "WSL2 Windows interop, Windows-local isolated source/cache/target"
+  },
+  "rust": {
+    "version": "1.99.0",
+    "host": "x86_64-pc-windows-msvc",
+    "llvm": "23.1.1",
+    "project_pinned_version": "1.97.1",
+    "pinned_windows_tested": false
+  },
+  "msvc": {
+    "compiler": "19.44.35229.0",
+    "tools": "14.44.35207",
+    "vs_build_tools": "17.14.41",
+    "sdk": "10.0.26100.0"
+  },
+  "sdk_oracle": {
+    "x64": "passed",
+    "x86": "passed",
+    "operation": "cl /W4 /WX /std:c11 /Zs; no executable"
+  },
+  "rust_tests": {
+    "target": "x86_64-pc-windows-msvc",
+    "workspace_passed": 432,
+    "production_native_link": "passed",
+    "clippy": "passed -D warnings",
+    "i686": "not run; target absent"
+  },
+  "source_files_hash_checked": 94,
+  "source_manifest_and_logs": "target/validation/windows-20261009-x64-1.99",
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "fixes": [
+    "MSG excludes _MAC-only lPrivate; x64 size48/x86 size28",
+    "portable Linux mock syspaths use host-absolute identity",
+    "chunks_exact→as_chunks supported by Linux Rust1.97.1"
+  ],
+  "limits": [
+    "Windows fixed1.97.1 and i686 Rust tests pending",
+    "CI jobs not executed",
+    "actual hook/access/SendInput/recovery/session/hardware unverified"
+  ]
+}

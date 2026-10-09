@@ -32,7 +32,6 @@ struct Message {
     time: u32,
     x: i32,
     y: i32,
-    private: u32,
 }
 #[cfg(target_os = "windows")]
 use crate::{
@@ -288,7 +287,7 @@ mod tests {
         assert_eq!(offset_of!(KeyboardHook, flags), 8);
         assert_eq!(offset_of!(KeyboardHook, time), 12);
         assert_eq!(offset_of!(KeyboardHook, extra_info), 16);
-        assert_eq!(size_of::<Message>(), if wide { 48 } else { 32 });
+        assert_eq!(size_of::<Message>(), if wide { 48 } else { 28 });
         assert_eq!(offset_of!(Message, window), 0);
         assert_eq!(offset_of!(Message, message), if wide { 8 } else { 4 });
         assert_eq!(offset_of!(Message, wparam), if wide { 16 } else { 8 });
@@ -296,6 +295,5 @@ mod tests {
         assert_eq!(offset_of!(Message, time), if wide { 32 } else { 16 });
         assert_eq!(offset_of!(Message, x), if wide { 36 } else { 20 });
         assert_eq!(offset_of!(Message, y), if wide { 40 } else { 24 });
-        assert_eq!(offset_of!(Message, private), if wide { 44 } else { 28 });
     }
 }

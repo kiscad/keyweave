@@ -24,3 +24,16 @@ pub mod supervisor;
 pub mod uinput;
 #[cfg(target_os = "linux")]
 pub mod worker;
+
+#[cfg(test)]
+fn mock_syspath(value: &str) -> std::path::PathBuf {
+    // Portable mock identities need host-absolute paths. Real Linux discovery
+    // remains unchanged; no filesystem object or device is created here.
+    if cfg!(target_os = "windows") && value.starts_with('/') {
+        std::env::temp_dir()
+            .join("keyweave-mock-sys")
+            .join(value.trim_start_matches('/'))
+    } else {
+        value.into()
+    }
+}

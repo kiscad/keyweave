@@ -305,7 +305,7 @@ mod tests {
         output::RepeatPolicy,
         probe::{Capabilities, DeviceId},
     };
-    use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc};
+    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum Call {
         Query,
@@ -367,7 +367,7 @@ mod tests {
                 version: 1,
             },
             name: Some(b"KeyWeave".to_vec()),
-            input_syspath: PathBuf::from(path),
+            input_syspath: crate::mock_syspath(path),
             capabilities: Capabilities {
                 events: bits(32, &[0, 1, 20]),
                 keys: bits(768, codes),
@@ -415,7 +415,7 @@ mod tests {
             Err(CaptureError::OutputNodeMismatch)
         ));
         wrong = output.clone();
-        wrong.input_syspath = PathBuf::from(PHYSICAL);
+        wrong.input_syspath = crate::mock_syspath(PHYSICAL);
         assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &wrong).is_err());
         wrong = output.clone();
         wrong.capabilities.keys.set(48).unwrap();

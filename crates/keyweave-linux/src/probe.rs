@@ -26,10 +26,9 @@ impl Bits {
         if bytes.len() != bits.words.len() * 8 {
             return Err(InvalidBits);
         }
-        for (word, chunk) in bits.words.iter_mut().zip(bytes.chunks_exact(8)) {
-            *word = u64::from_ne_bytes([
-                chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-            ]);
+        // The exact length check above excludes any incomplete trailing word.
+        for (word, chunk) in bits.words.iter_mut().zip(bytes.as_chunks::<8>().0) {
+            *word = u64::from_ne_bytes(*chunk);
         }
         // Bits outside the requested known range are not silently truncated.
         if !count.is_multiple_of(64)
