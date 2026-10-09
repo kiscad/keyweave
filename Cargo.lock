@@ -169,6 +169,7 @@ dependencies = [
 name = "keyweave-windows"
 version = "0.1.0"
 dependencies = [
+ "keyweave-engine",
  "keyweave-output",
  "keyweave-types",
  "thiserror",
