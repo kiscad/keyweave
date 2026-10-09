@@ -30,3 +30,6 @@ Rust `native_link` integration test 通过正常 crate 依赖构建生产模块�
 
 
 CaptureSession 现有 explicit install/poll/shutdown：安装初始 passive，poll 返回 Waiting/Activated/Continue/Quit；poll 的错误或 Quit 已关闭 Hook 并尝试有界 recovery，调用者另读 shutdown_report 的 unhook/recovery 两个结果。shutdown 幂等；必须显式调用，Drop 只停 Hook、不 SendInput。生产链接测试保留这些入口，未执行 Windows 编译。16 个新增 mock tests 在 Linux 运行，不证明桌面采样/Hook 安装或发送成功；2s/20ms 仅期限和等待参数，不是墙钟实时保证。neutral barrier 现有组件不补足 repeat/物理 Pass 冲突/紧急退出/监督/可执行 host，真实验收仍等完整接入。
+
+
+SessionStep 新增 Emergency：固定原 physical Ctrl+Alt+Shift+F12 连续 >=1s，callback/control 都在相同 delivery time 的 actor 工作之前检查。15 个新增离线 tests 覆盖 threshold、取消、重映射、注入、同刻 up/held deadline 与 close-first 恢复；不替代 Windows 实际输入。真机增加按住期间无新事件、左右/AltGr 布局、两个键盘组合、映射紧急键、Hook 移除/线程停滞，以及恢复短返回验收。允许跨键盘组成是合并 Hook 流的明确边界；独立监督和可执行 host 仍需接入。

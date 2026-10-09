@@ -318,3 +318,273 @@ fn initial_probe_error_never_registers_hook_or_mutates_output() {
     let (mut valid, _) = install();
     valid.shutdown();
 }
+// Deterministic callback/control delivery without sleeping. Win32 remains the
+// replacement API; test fixture assumes neutral and starts the actor explicitly.
+fn timed_session(
+    config: Arc<ConfigSnapshot>,
+) -> (
+    CaptureSession<Backend>,
+    Rc<RefCell<Trace>>,
+    Rc<Cell<MonoTime>>,
+) {
+    let trace = Rc::new(RefCell::new(Trace::default()));
+    let actor = Rc::new(RefCell::new(
+        SessionActor::new(
+            Backend(trace.clone()),
+            InjectionTag::new(1).unwrap(),
+            config,
+        )
+        .unwrap(),
+    ));
+    actor.borrow_mut().start_after_neutral().unwrap();
+    let emergency = Rc::new(RefCell::new(EmergencyChord::new()));
+    let enabled = Rc::new(Cell::new(true));
+    let now = Rc::new(Cell::new(MonoTime(0)));
+    let handler_time = now.clone();
+    let handler = SessionHandler {
+        actor: actor.clone(),
+        emergency: emergency.clone(),
+        enabled: enabled.clone(),
+        clock: move || Some(handler_time.get()),
+    };
+    let hook = HookSession::install(
+        Box::new(handler),
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+    )
+    .unwrap_or_else(|(error, _)| panic!("{error}"));
+    (
+        CaptureSession {
+            actor,
+            emergency,
+            enabled,
+            hook,
+            clock: SessionClock::new(),
+            deadline: MonoTime(STARTUP_NS),
+            shutdown: None,
+        },
+        trace,
+        now,
+    )
+}
+fn press_emergency() {
+    for scan in [0x1d, 0x38, 0x2a, 0x58] {
+        assert_eq!(test_send(scan, false), 1);
+    }
+}
+#[test]
+fn emergency_idle_control_wakes_before_actor_timer_and_stops_native_hook() {
+    use keyweave_engine::{Mapping, MappingExtras};
+    use keyweave_types::{KEYBOARD_PAGE, KeyId};
+    let mut config = (*config()).clone();
+    config.complex.push(Mapping {
+        id: "held-f12".into(),
+        from: KeyId::new(KEYBOARD_PAGE, 0x45),
+        to: vec![KeyId::new(KEYBOARD_PAGE, 4).into()],
+        allow_extra_modifiers: true,
+        extras: MappingExtras {
+            if_held_down: vec![KeyId::new(KEYBOARD_PAGE, 5).into()],
+            held_threshold_ns: crate::emergency::HOLD_NS,
+            ..MappingExtras::default()
+        },
+    });
+    let (mut session, trace, now) = timed_session(Arc::new(config));
+    press_emergency();
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let at = crate::emergency::HOLD_NS;
+    assert_eq!(
+        active_wait(&actor, &emergency, Some(MonoTime(at - 1)))
+            .unwrap()
+            .timeout_ms(),
+        1
+    );
+    now.set(MonoTime(at));
+    let result = session
+        .hook
+        .poll_with_control(&mut || active_wait(&actor, &emergency, Some(now.get())));
+    assert_eq!(
+        result,
+        Err(HookSessionError::Callback(HookFault::Emergency))
+    );
+    assert_eq!(test_send(0x1e, false), 9); // native disabled already
+    assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert!(
+        !trace
+            .borrow()
+            .calls
+            .iter()
+            .flatten()
+            .any(|packet| packet.scan == 0x30)
+    ); // held B timer never delivered
+    let cleanup = trace.borrow().calls.last().unwrap().clone();
+    assert_eq!(cleanup[0].scan, 0x1e); // ordinary key before modifier releases
+    assert!(cleanup.iter().all(|packet| packet.flags & 2 != 0));
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        0
+    );
+}
+#[test]
+fn exact_deadline_physical_up_cannot_cancel_emergency_or_reach_actor() {
+    let (mut session, trace, now) = timed_session(config());
+    press_emergency();
+    let before = trace.borrow().calls.len();
+    now.set(MonoTime(crate::emergency::HOLD_NS));
+    assert_eq!(test_send(0x58, true), 9);
+    assert_eq!(session.hook.fault(), Some(HookFault::Emergency));
+    assert_eq!(trace.borrow().calls.len(), before); // no engine up before stop
+    assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
+    assert_eq!(trace.borrow().calls.len(), before + 1);
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+}
+#[test]
+fn early_physical_release_cancels_emergency_and_is_captured_normally() {
+    let (mut session, _, now) = timed_session(config());
+    press_emergency();
+    now.set(MonoTime(crate::emergency::HOLD_NS - 1));
+    assert_eq!(test_send(0x58, true), 1);
+    assert_eq!(session.emergency.borrow().next_deadline(), None);
+    assert!(
+        active_wait(
+            &session.actor,
+            &session.emergency,
+            Some(MonoTime(crate::emergency::HOLD_NS))
+        )
+        .is_ok()
+    );
+    assert_eq!(session.hook.fault(), None);
+    session.shutdown();
+}
+#[test]
+fn injected_chord_never_arms_or_enters_actor() {
+    use super::super::hook_thread::test_record;
+    use crate::keys::HookRecord;
+    let (mut session, trace, _) = timed_session(config());
+    for flags in [0x10, 0x12] {
+        for extra_info in [0, 1] {
+            for scan in [0x1d, 0x38, 0x2a, 0x58] {
+                assert_eq!(
+                    test_record(HookRecord {
+                        message: 0x100,
+                        vk_code: 0x41,
+                        scan_code: scan,
+                        flags,
+                        extra_info
+                    }),
+                    9
+                );
+            }
+        }
+    }
+    assert_eq!(session.emergency.borrow().next_deadline(), None);
+    assert_eq!(session.hook.held_keys().unwrap(), 0);
+    assert!(trace.borrow().calls.is_empty());
+    session.shutdown();
+}
+#[test]
+fn remapping_emergency_keys_does_not_change_physical_detector() {
+    use keyweave_engine::{Mapping, MappingExtras};
+    use keyweave_types::{KEYBOARD_PAGE, KeyId};
+    let mut config = (*config()).clone();
+    for usage in [0xe0, 0xe2, 0xe1, 0x45] {
+        config.simple.push(Mapping {
+            id: format!("map-{usage}"),
+            from: KeyId::new(KEYBOARD_PAGE, usage),
+            to: vec![KeyId::new(KEYBOARD_PAGE, 4).into()],
+            allow_extra_modifiers: true,
+            extras: MappingExtras::default(),
+        });
+    }
+    let (mut session, trace, now) = timed_session(Arc::new(config));
+    press_emergency();
+    assert_eq!(
+        session.emergency.borrow().next_deadline(),
+        Some(MonoTime(crate::emergency::HOLD_NS))
+    );
+    assert!(
+        trace
+            .borrow()
+            .calls
+            .iter()
+            .flatten()
+            .all(|packet| packet.scan == 0x1e)
+    );
+    now.set(MonoTime(crate::emergency::HOLD_NS));
+    assert_eq!(test_send(0x58, false), 9); // repeat doesn't rearm, due wins
+    assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+}
+#[test]
+fn emergency_detector_clock_error_stops_and_reports_error_not_success() {
+    let (mut session, trace, now) = timed_session(config());
+    now.set(MonoTime(10));
+    assert_eq!(test_send(0x1d, false), 1);
+    now.set(MonoTime(9));
+    assert_eq!(test_send(0x38, false), 9);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::EmergencyDetector(
+            EmergencyError::ClockBackwards
+        ))
+    ));
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert_eq!(trace.borrow().calls.len(), 2);
+}
+#[test]
+fn emergency_preserves_unhook_error_and_bounded_recovery_failure() {
+    let (mut session, trace, now) = timed_session(config());
+    press_emergency();
+    trace.borrow_mut().zero_recovery = true;
+    test_fail_unhook();
+    now.set(MonoTime(crate::emergency::HOLD_NS));
+    assert_eq!(test_send(0x58, true), 9);
+    assert_eq!(session.poll().unwrap(), SessionStep::Emergency);
+    let report = session.shutdown_report().unwrap();
+    assert!(matches!(report.unhook, Err(HookSessionError::Unhook(5))));
+    assert!(matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert_eq!(trace.borrow().calls.len(), 12); // four accepted down, eight cleanup attempts
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        4
+    );
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+}
+#[test]
+fn passive_chord_never_arms_and_neutral_activation_starts_with_empty_detector() {
+    let (mut session, trace) = install();
+    for scan in [0x1d, 0x38, 0x2a, 0x58] {
+        assert_eq!(test_send(scan, false), 9);
+    }
+    assert_eq!(session.poll().unwrap(), SessionStep::Waiting);
+    assert_eq!(session.emergency.borrow().next_deadline(), None);
+    for scan in [0x1d, 0x38, 0x2a, 0x58] {
+        assert_eq!(test_send(scan, true), 9);
+    }
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert_eq!(session.emergency.borrow().next_deadline(), None);
+    assert!(trace.borrow().calls.is_empty());
+    session.shutdown();
+}
+#[test]
+fn active_control_clock_failure_preserves_actor_reason_and_disables_native_hook() {
+    let (mut session, trace, _) = timed_session(config());
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    assert_eq!(
+        session
+            .hook
+            .poll_with_control(&mut || active_wait(&actor, &emergency, None)),
+        Err(HookSessionError::Callback(HookFault::Handler))
+    );
+    assert!(matches!(
+        actor.borrow().failure(),
+        Some(RuntimeError::Clock)
+    ));
+    assert_eq!(test_send(0x1e, false), 9);
+    assert!(session.poll().is_err());
+    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert!(trace.borrow().calls.is_empty());
+}

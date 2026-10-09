@@ -9,6 +9,8 @@ pub enum HookFault {
     Handler,
     Panic,
     Reentrant,
+    Emergency,
+    EmergencyDetector(crate::emergency::EmergencyError),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HookEvent {

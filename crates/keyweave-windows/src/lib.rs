@@ -1,4 +1,5 @@
 //! Windows keyboard semantics and explicit native integration. No automatic capture.
+pub mod emergency;
 pub mod hook;
 pub mod keys;
 #[cfg(any(target_os = "windows", test))]

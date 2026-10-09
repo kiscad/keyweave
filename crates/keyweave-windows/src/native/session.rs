@@ -4,11 +4,12 @@ use super::{
     input_probe::sample_input_state,
 };
 use crate::{
+    emergency::{EmergencyChord, EmergencyError},
     hook::{HookEvent, HookFault, HookHandler},
     keys::{IdentityPolicy, InjectionTag},
     pump::SendBackend,
-    reactor::{SessionClock, SessionControl, WaitPlan},
-    runtime::{ActorHandler, ActorPhase, RuntimeError, SessionActor},
+    reactor::{SessionClock, WaitPlan},
+    runtime::{ActorPhase, RuntimeError, SessionActor},
     startup::{InputSample, ProbeError},
 };
 use keyweave_engine::ConfigSnapshot;
@@ -31,6 +32,8 @@ pub enum SessionError {
     Timeout,
     #[error("session clock failed")]
     Clock,
+    #[error(transparent)]
+    EmergencyDetector(#[from] EmergencyError),
     #[error("session is closed")]
     Closed,
 }
@@ -40,27 +43,82 @@ pub enum SessionStep {
     Activated,
     Continue,
     Quit,
+    Emergency,
 }
 #[derive(Debug)]
 pub struct ShutdownReport {
     pub unhook: Result<(), HookSessionError>,
     pub recovery: Result<(), RuntimeError>,
 }
-struct Passive<H> {
+struct SessionHandler<B: SendBackend, C: FnMut() -> Option<MonoTime>> {
     enabled: Rc<Cell<bool>>,
-    handler: H,
+    actor: Rc<RefCell<SessionActor<B>>>,
+    emergency: Rc<RefCell<EmergencyChord>>,
+    clock: C,
 }
-impl<H: HookHandler> HookHandler for Passive<H> {
+fn guard(
+    chord: &RefCell<EmergencyChord>,
+    now: MonoTime,
+    event: Option<HookEvent>,
+) -> Result<Option<MonoTime>, HookFault> {
+    let mut chord = chord.try_borrow_mut().map_err(|_| HookFault::Reentrant)?;
+    if chord.advance(now).map_err(HookFault::EmergencyDetector)? {
+        return Err(HookFault::Emergency);
+    }
+    if let Some(event) = event {
+        chord
+            .observe(event.identity.key, event.edge, now)
+            .map_err(HookFault::EmergencyDetector)?;
+    }
+    Ok(chord.next_deadline())
+}
+impl<B: SendBackend, C: FnMut() -> Option<MonoTime>> HookHandler for SessionHandler<B, C> {
     fn handle(&mut self, event: HookEvent) -> Result<CaptureDecision, HookFault> {
-        if self.enabled.get() {
-            self.handler.handle(event)
-        } else {
-            Ok(CaptureDecision::Pass)
+        if !self.enabled.get() {
+            return Ok(CaptureDecision::Pass);
         }
+        let mut actor = self
+            .actor
+            .try_borrow_mut()
+            .map_err(|_| HookFault::Reentrant)?;
+        let Some(now) = (self.clock)() else {
+            actor.control_failed(RuntimeError::Clock);
+            return Err(HookFault::Handler);
+        };
+        // Exactly one fresh delivery time, shared with the engine. Emergency
+        // due wins before this up/down and before actor due timers/output.
+        guard(&self.emergency, now, Some(event))?;
+        actor.key(event, now).map_err(|error| {
+            actor.control_failed(error);
+            HookFault::Handler
+        })
     }
 }
+fn active_wait<B: SendBackend>(
+    actor: &RefCell<SessionActor<B>>,
+    emergency: &RefCell<EmergencyChord>,
+    now: Option<MonoTime>,
+) -> Result<WaitPlan, HookFault> {
+    let mut actor = actor.try_borrow_mut().map_err(|_| HookFault::Reentrant)?;
+    let Some(now) = now else {
+        actor.control_failed(RuntimeError::Clock);
+        return Err(HookFault::Handler);
+    };
+    let emergency_at = guard(emergency, now, None)?;
+    if let Err(error) = actor.tick(now) {
+        actor.control_failed(error);
+        return Err(HookFault::Handler);
+    }
+    Ok(WaitPlan::for_deadline(
+        now,
+        [emergency_at, actor.next_wakeup()]
+            .into_iter()
+            .flatten()
+            .min(),
+    ))
+}
 /// Construct only on the dedicated session thread. This component does not
-/// supply repeat, emergency, desktop supervision or a deployment-ready host.
+/// supply repeat, desktop supervision or a deployment-ready host.
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
     hook: HookSession,
@@ -68,6 +126,7 @@ pub struct CaptureSession<B: SendBackend + 'static> {
     enabled: Rc<Cell<bool>>,
     clock: SessionClock,
     deadline: MonoTime,
+    emergency: Rc<RefCell<EmergencyChord>>,
     shutdown: Option<ShutdownReport>,
 }
 impl<B: SendBackend + 'static> CaptureSession<B> {
@@ -88,12 +147,12 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         }
         let enabled = Rc::new(Cell::new(false));
         let handler_clock = clock.clone();
-        let handler = Passive {
+        let emergency = Rc::new(RefCell::new(EmergencyChord::new()));
+        let handler = SessionHandler {
             enabled: enabled.clone(),
-            handler: ActorHandler {
-                actor: actor.clone(),
-                clock: move || handler_clock.now(),
-            },
+            actor: actor.clone(),
+            emergency: emergency.clone(),
+            clock: move || handler_clock.now(),
         };
         let hook =
             HookSession::install(Box::new(handler), tag, policy).map_err(|(error, _)| error)?;
@@ -103,6 +162,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             enabled,
             clock,
             deadline,
+            emergency,
             shutdown: None,
         })
     }
@@ -118,8 +178,16 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         if self.shutdown.is_some() {
             return Err(SessionError::Closed);
         }
-        let result = self.poll_inner();
-        if result.is_err() || matches!(result, Ok(SessionStep::Quit)) {
+        let result = match self.poll_inner() {
+            Err(SessionError::Hook(HookSessionError::Callback(HookFault::Emergency))) => {
+                Ok(SessionStep::Emergency)
+            }
+            Err(SessionError::Hook(HookSessionError::Callback(HookFault::EmergencyDetector(
+                error,
+            )))) => Err(SessionError::EmergencyDetector(error)),
+            result => result,
+        };
+        if result.is_err() || matches!(result, Ok(SessionStep::Quit | SessionStep::Emergency)) {
             self.shutdown();
         }
         result
@@ -127,12 +195,13 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
     fn poll_inner(&mut self) -> Result<SessionStep, SessionError> {
         if self.enabled.get() {
             let clock = self.clock.clone();
-            let mut control = SessionControl {
-                actor: self.actor.clone(),
-                clock: move || clock.now(),
-            };
+            let actor = self.actor.clone();
+            let emergency = self.emergency.clone();
             return Ok(
-                match self.hook.poll_with_control(&mut || control.next_wait())? {
+                match self
+                    .hook
+                    .poll_with_control(&mut || active_wait(&actor, &emergency, clock.now()))?
+                {
                     LoopStep::Continue => SessionStep::Continue,
                     LoopStep::Quit => SessionStep::Quit,
                 },

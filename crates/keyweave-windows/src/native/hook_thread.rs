@@ -726,3 +726,16 @@ pub(super) fn test_fail_unhook() {
 pub(super) fn test_quit() {
     api::MESSAGES.with(|messages| messages.borrow_mut().push_back(0x12));
 }
+
+#[cfg(test)]
+pub(super) fn test_record(record: HookRecord) -> isize {
+    let keyboard = KeyboardHook {
+        vk: record.vk_code,
+        scan: record.scan_code,
+        flags: record.flags,
+        time: 0,
+        extra_info: record.extra_info,
+    };
+    // SAFETY: initialized test-owned record lives until callback returns.
+    unsafe { callback(0, record.message as usize, &keyboard as *const _ as isize) }
+}
