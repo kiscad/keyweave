@@ -7,7 +7,12 @@ license.workspace = true
 
 [dependencies]
 keyweave-types.workspace = true
+keyweave-output.workspace = true
 thiserror.workspace = true
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
