@@ -14,6 +14,18 @@ use std::{
 };
 type Handle = *mut c_void;
 type Callback = unsafe extern "system" fn(i32, usize, isize) -> isize;
+pub(super) fn outside_callback() -> bool {
+    DISPATCHER
+        .try_with(|slot| slot.try_borrow_mut().is_ok())
+        .unwrap_or(false)
+}
+#[cfg(test)]
+pub(super) fn with_callback_borrow<T>(call: impl FnOnce() -> T) -> T {
+    DISPATCHER.with(|slot| {
+        let _guard = slot.borrow_mut();
+        call()
+    })
+}
 thread_local! {
     static DISPATCHER: RefCell<Option<HookDispatcher<Box<dyn HookHandler>>>> = const { RefCell::new(None) };
     static TAG: Cell<usize> = const { Cell::new(0) };
