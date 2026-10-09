@@ -17,6 +17,13 @@ type Callback = unsafe extern "system" fn(i32, usize, isize) -> isize;
 pub(super) fn current_fault() -> Option<HookFault> {
     FAULT.with(Cell::get)
 }
+pub(super) fn access_lost() -> bool {
+    ACCESS_LOST.try_with(Cell::get).unwrap_or(true)
+}
+pub(super) fn revoke_access() {
+    let _ = ACCESS_LOST.try_with(|lost| lost.set(true));
+    let _ = POISONED.try_with(|poisoned| poisoned.set(true));
+}
 pub(super) fn outside_callback() -> bool {
     DISPATCHER
         .try_with(|slot| slot.try_borrow_mut().is_ok())
@@ -33,6 +40,7 @@ thread_local! {
     static DISPATCHER: RefCell<Option<HookDispatcher<Box<dyn HookHandler>>>> = const { RefCell::new(None) };
     static TAG: Cell<usize> = const { Cell::new(0) };
     static GUARD_TAG: Cell<usize> = const { Cell::new(0) };
+    static ACCESS_LOST: Cell<bool> = const { Cell::new(false) };
     static UNTRACKED: Cell<bool> = const { Cell::new(false) };
     static FAULT: Cell<Option<HookFault>> = const { Cell::new(None) };
     static POISONED: Cell<bool> = const { Cell::new(false) };
@@ -236,6 +244,7 @@ impl HookSession {
         FAULT.with(|fault| fault.set(None));
         GUARD_TAG.with(|guard| guard.set(0));
         UNTRACKED.with(|untracked| untracked.set(false));
+        ACCESS_LOST.with(|lost| lost.set(false));
         DISPATCHER
             .with(|slot| *slot.borrow_mut() = Some(HookDispatcher::new(handler, tag, policy)));
         TAG.with(|value| value.set(tag.value()));
@@ -353,6 +362,12 @@ pub(super) fn session_changed() {
     }
 }
 fn stop(fault: HookFault) {
+    if matches!(
+        fault,
+        HookFault::InputAccess(_) | HookFault::AccessLease(_) | HookFault::SessionChanged
+    ) {
+        revoke_access();
+    }
     let _ = TAG.try_with(|tag| tag.set(0));
     let _ = POISONED.try_with(|poisoned| poisoned.set(true));
     let _ = FAULT.try_with(|value| {

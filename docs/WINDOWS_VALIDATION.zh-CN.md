@@ -101,3 +101,7 @@ WTS查询新增 wtsapi32 链接与ProcessIdToSessionId，SDK oracle核验Unicode
 `cargo run --locked --offline -p keyweave-windows --example check_notifications` 是明确调用的通知资源smoke：查询本进程session，创建不显示/不激活的owned窗口，注册THIS_SESSION后注销、销毁、注销class，成功打印session_notifications=registered_and_closed。它不泵消息等待变更，不安装Hook/调用SendInput/键采样；不能替代锁屏/RDP/注销实测。新增WNDCLASSW布局、消息/样式/通知枚举与API原型须通过双架构SDK oracle。
 
 2026-10-09 通知窗口实测：[报告](validation/windows-2026-10-09-notifications.json)记录最终1.97.1双架构各496 tests、162 Windowsunit/native_link/Clippy/SDK通过，136源码hash匹配；两种check_notifications.exe真实注册/关闭资源各一次exit0。原始probe log为Windows PowerShell Tee-Object生成的UTF16，连同完整编译日志/manifest/cmd在ignored target/validation/windows-20261009-notifications-{x64,x86}-1.97.1。没有真实状态变化、键盘操作或驱动验收。
+
+ADR-0046把metadata/lease失效（无WTS消息）也接入recovery gate；8新增mock测试及5旧测试的保留ledger/禁恢复证据不能代替真实UIPI/锁屏/断连。该改动无新增native API/ABI，仍通过双架构编译/link/tests验证实际cfg Windows路径。先前notification资源smoke保持历史证据，本改动不重复真实窗口/键盘操作。
+
+2026-10-09 access-loss补验：[报告](validation/windows-2026-10-09-access-loss.json)记录最终1.97.1 x64/i686各504 tests、170 Windowsunit/native_link/Clippy与既有SDK oracle通过，两份136源码hash一致。完整证据在ignored target/validation/windows-20261009-access-loss-{x64,x86}-1.97.1；Linux另存单项修正前失败和最终全套记录。本次没有真实窗口/键盘操作，不把mock访问撤销当作真实桌面/锁屏/UIPI恢复验收。

@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、533 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、541 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -143,3 +143,11 @@ D08 WTS通知窗口（2026-10-09）：native/session_notifications.rs拥有独�
 
 
 D08 通知Windows补验：最终固定Rust1.97.1 x64/i686各496 workspace tests（162 Windowsunit+1生产native_link）、all-targets Clippy -D warnings与两种SDK /Zs oracle通过，父进程exit0；两个136文件SHA256全部匹配最终工作区。首轮通过后发现并修正NCDESTROY后及注销回调期间的HWND重用风险，增加一例，再全Linux533及双Windows重验。宿主两个架构的check_notifications.exe各执行一次，exit0/session_notifications=registered_and_closed，真实创建隐藏窗口、WTS注册/注销、destroy/unregister-class成功，无键盘Hook/SendInput/VK采样。i686在WoW64运行；不能证明真实锁屏/RDP/注销转移、捕获/恢复、独立监督或Windows CI通过。[报告](validation/windows-2026-10-09-notifications.json)与ignored target/validation/windows-20261009-notifications-{x64,x86}-1.97.1的日志/manifest/cmd/UTF16 probe log保留证据。原完整目标继续未完成；下一步审查metadata/lease失效无通知时的恢复提交边界，再独立监督/可执行host以及其他既定余项。
+
+
+D08 metadata/lease恢复提交边界（2026-10-09）：native/hook_thread.rs新增无按键内容ACCESS_LOST TLS锁存，InputAccess/AccessLease/SessionChanged停止标记；monitored_wait probe Err在首callback fault检查前独立保存loss，不覆盖主因。GuardedBackend所有实际submit（含unhook后recovery）检查该锁存；poll直接Probe/Lease错误也标记。shutdown先unhook再读loss，调用ADR-0045共有stop_for_access_loss_after_unhook，unknown/nonempty保留submitted+Reset tasks为Unresolved，known empty可Stopped；ShutdownReport新增access_lost，与session_changed/untracked/cleanup独立。修改5个旧WTS/desktop/integrity tests的错误恢复预期，保留primary/noVK/lease/binding/cleanup证据并要求禁止up/保留原ledger；新增8个测试覆盖callback/control expiry、迟到成功、次要probe错误与首callback fault、后续readonly成功不clear、known empty/unknown empty、recovery重入后禁止新API。两例新夹具分别未复原elevated flag、callback时间落后控制时间，已修正为真实desktop恢复及显式同刻MonoTime，并断言unknown调用确实发生；没有修改生产lease语义。Linux541全workspace与独立main-thread harness、全workspace/all-targets Clippy通过；Windows双架构另记。没有新增FFI/真实Hook/SendInput，真机/独立监督/Hook存活/host、外部共存、D05/Linuxbootstrap/GUI/driver完整余项继续，ADR-0046。
+
+补充同线程重注册审查：为recovery重入测试增加fresh Hook install必须Busy的断言，修正前单例确实失败（允许新Hook并清ACCESS_LOST），revoke_access现在同步POISONED；此锁存不依赖后续stop()是否执行。最终Linux/Windows检查以该修正后快照为准。
+
+
+D08 access-loss Windows补验：最终固定Rust1.97.1 x64/i686各504 workspace tests（170 Windowsunit+1生产native_link）、all-targets Clippy -D warnings与双架构SDK /Zs oracle通过，验证父进程exit0；两个136文件manifest SHA256与最终代码一致。首轮旧快照通过后新增同线程重注册回归断言与直接revoke poisoning，确认原单项失败后修正，全Linux541/Clippy与双Windows全部重验。[报告](validation/windows-2026-10-09-access-loss.json)；ignored target/validation/windows-20261009-access-loss-{x64,x86}-1.97.1保存日志/manifest/cmd，target/validation/linux-20261009-access-loss保留最终tests/clippy和reuse-before回归失败证据。不重复已有窗口资源smoke，本次没有真实窗口/Hook/SendInput/VK/driver/键盘操作；真机/Windows CI未执行。fmt/60-source verifier/diff通过。下一任务推进Windows独立进度监督与Hook存活/可执行host；Linuxbootstrap/consumer ready、D05/GUI/driver等全部原目标保留，完整开发未完成。

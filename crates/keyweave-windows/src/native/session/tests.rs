@@ -16,6 +16,7 @@ struct Trace {
     zero_recovery: bool,
     inject_during_submit: Option<crate::keys::HookRecord>,
     notify_during_submit: Option<(usize, isize)>,
+    revoke_during_submit: bool,
 }
 struct Backend(Rc<RefCell<Trace>>);
 impl SendBackend for Backend {
@@ -26,6 +27,9 @@ impl SendBackend for Backend {
             assert_eq!(test_send(0x30, false), 9);
         }
         trace.calls.push(packets.to_vec());
+        if std::mem::take(&mut trace.revoke_during_submit) {
+            super::super::hook_thread::revoke_access();
+        }
         if let Some((event, id)) = trace.notify_during_submit.take() {
             super::super::session_notifications::api::send(event, id);
         }
@@ -708,7 +712,7 @@ fn refreshed_lease_deadline_participates_in_message_wait() {
     session.shutdown();
 }
 #[test]
-fn higher_integrity_or_inactive_desktop_stops_and_recovers_accepted_output() {
+fn higher_integrity_stops_and_preserves_accepted_output_without_delivery() {
     let (mut session, trace, _) = timed_session(config());
     test_send(0x1e, false);
     super::super::input_probe::test_elevated();
@@ -722,9 +726,13 @@ fn higher_integrity_or_inactive_desktop_stops_and_recovers_accepted_output() {
         session.poll(),
         Err(SessionError::Probe(ProbeError::HigherIntegrity))
     ));
-    assert!(session.shutdown_report().unwrap().recovery.is_ok());
-    assert_eq!(trace.borrow().calls.len(), 2);
+    assert!(matches!(
+        session.shutdown_report().unwrap().recovery,
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(trace.borrow().calls.len(), 1);
     assert_eq!(test_send(0x1e, false), 9);
+    assert_access_loss_evidence(&session, &trace);
 }
 #[test]
 fn active_desktop_loss_is_reported_without_new_key_state_observation() {
@@ -736,9 +744,13 @@ fn active_desktop_loss_is_reported_without_new_key_state_observation() {
         session.poll(),
         Err(SessionError::Probe(ProbeError::InactiveDesktop))
     ));
-    assert!(session.shutdown_report().unwrap().recovery.is_ok());
+    assert!(matches!(
+        session.shutdown_report().unwrap().recovery,
+        Err(RuntimeError::Unresolved)
+    ));
     assert_eq!(super::super::input_probe::test_access_counts().0, 0);
-    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_access_loss_evidence(&session, &trace);
 }
 #[test]
 fn expired_callback_stops_before_actor_and_late_control_does_not_probe() {
@@ -1169,7 +1181,7 @@ fn changed_wts_baseline_cannot_activate_even_when_new_session_is_unlocked() {
     assert!(session.shutdown_report().unwrap().recovery.is_ok());
 }
 #[test]
-fn active_wts_disconnect_stops_before_tick_and_recovers_after_unhook() {
+fn active_wts_disconnect_stops_before_tick_and_preserves_output_after_unhook() {
     use super::super::session_info::api as wts;
     // Test each terminal condition in its own native test thread (TLS is poisoned).
     let (mut session, trace, _) = timed_session(config());
@@ -1186,10 +1198,11 @@ fn active_wts_disconnect_stops_before_tick_and_recovers_after_unhook() {
         Err(SessionError::Probe(ProbeError::InactiveSession))
     ));
     let report = session.shutdown_report().unwrap();
-    assert!(!report.untracked_input && report.recovery.is_ok());
-    assert_eq!(session.phase(), ActorPhase::Stopped);
-    assert_eq!(trace.borrow().calls.len(), 2);
-    assert_eq!(trace.borrow().calls[1][0].flags & 2, 2);
+    assert!(!report.untracked_input && matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+
+    assert_access_loss_evidence(&session, &trace);
 }
 #[test]
 fn active_wts_logon_change_is_compared_to_initial_identity_on_refresh() {
@@ -1217,8 +1230,9 @@ fn active_wts_logon_change_is_compared_to_initial_identity_on_refresh() {
         session.poll(),
         Err(SessionError::Probe(ProbeError::Changed))
     ));
-    assert_eq!(session.phase(), ActorPhase::Stopped);
-    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_access_loss_evidence(&session, &trace);
 }
 #[test]
 fn foreign_callback_in_wts_query_wins_and_retains_untracked_recovery_risk() {
@@ -1268,8 +1282,12 @@ fn active_wts_lock_stops_without_scanning_keys_and_does_not_renew_lease() {
         session.poll(),
         Err(SessionError::Probe(ProbeError::LockedSession))
     ));
-    assert!(session.shutdown_report().unwrap().recovery.is_ok());
-    assert_eq!(trace.borrow().calls.len(), 2);
+    assert!(matches!(
+        session.shutdown_report().unwrap().recovery,
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_access_loss_evidence(&session, &trace);
 }
 
 #[test]
@@ -1393,4 +1411,193 @@ fn notification_before_hook_tls_initialization_cannot_be_erased_by_install() {
     assert!(session.shutdown_report().unwrap().session_changed);
     assert!(session.shutdown_report().unwrap().recovery.is_ok());
     assert!(trace.borrow().calls.is_empty());
+}
+fn assert_access_loss_evidence(session: &CaptureSession<Backend>, trace: &Rc<RefCell<Trace>>) {
+    let report = session.shutdown_report().unwrap();
+    assert!(report.access_lost && !report.session_changed);
+    assert!(report.unhook.is_ok());
+    assert_eq!(report.notifications, NotificationCleanup::default());
+    assert!(matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+    assert_eq!(session.actor.borrow().output().phase(), Phase::Quarantined);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn callback_lease_expiry_with_saved_down_does_not_inject_recovery_up() {
+    let (mut session, trace, now) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    now.set(MonoTime(crate::access::LEASE_NS));
+    assert_eq!(test_send(0x1e, true), 9);
+    assert_eq!(
+        session.hook.fault(),
+        Some(HookFault::AccessLease(AccessError::Expired))
+    );
+    assert!(!session.hook.untracked_input());
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::AccessLease(AccessError::Expired))
+    ));
+    assert_access_loss_evidence(&session, &trace);
+}
+#[test]
+fn control_lease_expiry_with_saved_down_stops_without_metadata_query_or_delivery() {
+    let (mut session, trace, _) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(
+        monitored_step(&mut session, MonoTime(crate::access::LEASE_NS)),
+        Err(HookSessionError::Callback(HookFault::AccessLease(
+            AccessError::Expired
+        )))
+    );
+    assert_eq!(super::super::input_probe::test_access_counts(), (0, 0));
+    assert!(session.poll().is_err());
+    assert_access_loss_evidence(&session, &trace);
+}
+#[test]
+fn late_probe_success_with_saved_down_preserves_ledger_instead_of_recovering() {
+    let (mut session, trace, _) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    let times = RefCell::new(std::collections::VecDeque::from([
+        MonoTime(crate::access::REFRESH_NS),
+        MonoTime(crate::access::LEASE_NS),
+    ]));
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    assert_eq!(
+        session.hook.poll_with_control(&mut || monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || times.borrow_mut().pop_front(),
+            || Ok(())
+        )),
+        Err(HookSessionError::Callback(HookFault::AccessLease(
+            AccessError::Expired
+        )))
+    );
+    assert!(session.poll().is_err());
+    assert_access_loss_evidence(&session, &trace);
+}
+#[test]
+fn secondary_metadata_failure_retains_access_loss_and_original_callback_fault() {
+    let (mut session, trace, _) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    let before = access.borrow().clone();
+    assert_eq!(
+        session.hook.poll_with_control(&mut || monitored_wait(
+            &actor,
+            &emergency,
+            &access,
+            || Some(MonoTime(crate::access::REFRESH_NS)),
+            || {
+                assert_eq!(super::super::hook_thread::test_record(external_record()), 9);
+                Err(ProbeError::HigherIntegrity)
+            }
+        )),
+        Err(HookSessionError::Callback(HookFault::UntrackedInput))
+    );
+    assert_eq!(*access.borrow(), before);
+    assert!(session.poll().is_err());
+    assert!(session.shutdown_report().unwrap().untracked_input);
+    assert_access_loss_evidence(&session, &trace);
+}
+#[test]
+fn later_readonly_probe_success_does_not_clear_loss_or_restore_recovery() {
+    let (mut session, trace, _) = timed_session(config());
+    assert_eq!(test_send(0x1e, false), 1);
+    test_probe(0, false);
+    assert!(monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)).is_err());
+    test_probe(0, true);
+    assert!(check_input_access().is_ok());
+    assert!(super::super::hook_thread::access_lost());
+    assert!(session.poll().is_err());
+    assert_access_loss_evidence(&session, &trace);
+}
+#[test]
+fn access_failure_with_known_empty_ledger_stops_without_backend_call() {
+    let (mut session, trace, _) = timed_session(config());
+    test_probe(0, false);
+    assert!(monitored_step(&mut session, MonoTime(crate::access::REFRESH_NS)).is_err());
+    assert!(session.poll().is_err());
+    let report = session.shutdown_report().unwrap();
+    assert!(report.access_lost && !report.session_changed && report.recovery.is_ok());
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert!(trace.borrow().calls.is_empty());
+}
+#[test]
+fn secondary_access_failure_cannot_turn_unknown_empty_prefix_into_recovered_stop() {
+    let (mut session, trace, now) = timed_session(config());
+    now.set(MonoTime(crate::access::REFRESH_NS));
+    trace.borrow_mut().unknown = true;
+    let actor = session.actor.clone();
+    let emergency = session.emergency.clone();
+    let access = session.access.clone();
+    assert!(
+        session
+            .hook
+            .poll_with_control(&mut || monitored_wait(
+                &actor,
+                &emergency,
+                &access,
+                || Some(MonoTime(crate::access::REFRESH_NS)),
+                || {
+                    assert_eq!(test_send(0x1e, false), 9);
+                    Err(ProbeError::InactiveDesktop)
+                }
+            ))
+            .is_err()
+    );
+    assert_eq!(trace.borrow().calls.len(), 1);
+    assert_eq!(session.actor.borrow().output().phase(), Phase::Quarantined);
+    assert!(session.poll().is_err());
+    let report = session.shutdown_report().unwrap();
+    assert!(report.access_lost && matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert!(
+        session
+            .actor
+            .borrow()
+            .output()
+            .ledger()
+            .submitted()
+            .is_empty()
+    );
+    assert_eq!(session.actor.borrow().output().phase(), Phase::Quarantined);
+    assert_eq!(trace.borrow().calls.len(), 1);
+}
+#[test]
+fn access_revoked_during_recovery_blocks_all_subsequent_native_calls() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(test_send(0x1e, false), 1);
+    trace.borrow_mut().zero_recovery = true;
+    trace.borrow_mut().revoke_during_submit = true;
+    let report = session.shutdown();
+    assert!(report.access_lost && !report.session_changed);
+    assert!(matches!(report.recovery, Err(RuntimeError::Unresolved)));
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+    struct Passive;
+    impl HookHandler for Passive {
+        fn handle(&mut self, _: HookEvent) -> Result<CaptureDecision, HookFault> {
+            Ok(CaptureDecision::Pass)
+        }
+    }
+    assert!(matches!(
+        HookSession::install(
+            Box::new(Passive),
+            InjectionTag::new(1).unwrap(),
+            IdentityPolicy::CanonicalScan
+        ),
+        Err((HookSessionError::Busy, _))
+    ));
 }

@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-09",
+  "feature": "Metadata/lease revoked recovery access gate (ADR-0046)",
+  "source_base_commit": "fae50d707aa67124fb82f87b2e6c727d01b516f1",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 504,
+      "windows_unit_tests_passed": 170,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs (no new ABI in this change)",
+      "source_files_hash_checked": 136,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-access-loss-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "de4c1f69c44938289019f2fd7eeae0131846618a4c522493ce817d1ffec372a1",
+        "clippy.log": "5e9a42d960e952e802864abb49e3faa8f378b1519c1597d33c61b6357c89db87",
+        "source-manifest.json": "b2b825d0950c224fe5cf152820d0f9456d4f73434ce754a9e3dd7697d81f72b0",
+        "validate.cmd": "0c42ba8b48adf5bfdb1ad30967b45c23887c73941cb8b720493c5b5f07bea91f"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 504,
+      "windows_unit_tests_passed": 170,
+      "production_native_link": "passed",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs (no new ABI in this change)",
+      "source_files_hash_checked": 136,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-access-loss-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "a9930e72808cc0d17811040aae6e2950ff41a4407fd9fdf7b41d40670a34cd4b",
+        "clippy.log": "09990ada2a8a32e1059d03e73435271e7d2ba6e6c5f2b2d19efd1590e9effc9f",
+        "source-manifest.json": "b2b825d0950c224fe5cf152820d0f9456d4f73434ce754a9e3dd7697d81f72b0",
+        "validate.cmd": "d0261dd6944691e925342017e5a3cf63ea385e18f8e44b9578674fcfbb36518a"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 541,
+    "worker_main_thread_harness": "passed",
+    "fmt": "passed",
+    "clippy": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "regression_evidence": "recovery access-loss test plus fresh-Hook Busy assertion failed before direct revoke poisoned thread; passed after fix in full workspace",
+    "artifact_directory": "target/validation/linux-20261009-access-loss",
+    "artifacts_sha256": {
+      "tests.log": "017628eb401fed5643dd7644852f7e489e949aa1757a08bae8cb3adb02301d36",
+      "clippy.log": "5f83305a3578798a6959949b9369b4030b55b963b74916e73c6b169a0767db75",
+      "reuse-before.log": "178e2270b2d9bad9dd45df666331970f926d843dcb8d3d74e59253f84adc24bf"
+    }
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "real_window_created_in_this_change": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Unit Win32 APIs replaced; native_link retains production symbols without calling input APIs",
+    "i686 tests under WoW64, not native 32-bit OS acceptance",
+    "Access loss is sticky and independent of the primary fault; submitted nonempty/unknown is preserved as Unresolved",
+    "Known API receipt before access revocation remains authoritative; this does not make observations/submission atomic",
+    "Previous notification resource smoke is historical evidence and was not repeated",
+    "No actual UIPI/desktop/lock/RDP/logoff/capture/recovery or Windows Actions acceptance",
+    "Independent supervision, hook liveness, executable host and complete D05/Linux/GUI/driver scope remain incomplete"
+  ]
+}

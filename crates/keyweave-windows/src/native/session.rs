@@ -59,6 +59,7 @@ pub enum SessionStep {
 }
 #[derive(Debug)]
 pub struct ShutdownReport {
+    pub access_lost: bool,
     pub session_changed: bool,
     pub notifications: NotificationCleanup,
     pub untracked_input: bool,
@@ -73,9 +74,10 @@ impl<B: SendBackend> SendBackend for GuardedBackend<B> {
     fn submit(&mut self, packets: &[KeyboardPacket]) -> Result<Insertion, SubmitError> {
         // An earlier native submission may have delivered a reentrant fault.
         // Reject only before calling this backend; its actual prior receipt was
-        // acknowledged by the pump. Explicit shutdown disables this gate so
-        // ordinary known recovery remains possible after close/unhook.
-        if super::session_notifications::access_lost()
+        // acknowledged by the pump. Shutdown disables the generic fault gate;
+        // revoked access independently forbids recovery native submissions.
+        if super::hook_thread::access_lost()
+            || super::session_notifications::access_lost()
             || self.enabled.get() && super::hook_thread::current_fault().is_some()
         {
             return Err(SubmitError::Rejected);
@@ -182,6 +184,11 @@ fn monitored_wait<B: SendBackend>(
         // Metadata APIs may synchronously deliver sent callbacks. No actor or
         // lease borrow spans these calls, and an existing fault wins over work.
         let observed = probe();
+        if observed.is_err() {
+            // Keep independent access evidence even if a sent callback already
+            // selected the primary fault. No actor/dispatcher borrow is needed.
+            super::hook_thread::revoke_access();
+        }
         if let Some(fault) = super::hook_thread::current_fault() {
             return Err(fault);
         }
@@ -301,6 +308,12 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             }
             result => result,
         };
+        if matches!(
+            &result,
+            Err(SessionError::Probe(_) | SessionError::AccessLease(_))
+        ) {
+            super::hook_thread::revoke_access();
+        }
         if result.is_err() || matches!(result, Ok(SessionStep::Quit | SessionStep::Emergency)) {
             self.shutdown();
         }
@@ -409,7 +422,8 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         self.shutdown.get_or_insert_with(|| {
             let untracked_input = self.hook.untracked_input();
             let (_, unhook) = self.hook.close();
-            let recovery = if self.notifications.access_lost() {
+            let access_lost = super::hook_thread::access_lost() || self.notifications.access_lost();
+            let recovery = if access_lost {
                 self.actor.borrow_mut().stop_for_access_loss_after_unhook()
             } else if untracked_input {
                 self.actor
@@ -420,6 +434,9 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             };
             let notifications = self.notifications.close();
             ShutdownReport {
+                access_lost: access_lost
+                    || super::hook_thread::access_lost()
+                    || self.notifications.access_lost(),
                 session_changed: self.notifications.access_lost(),
                 notifications,
                 untracked_input,
