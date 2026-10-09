@@ -1,0 +1,128 @@
+{
+  "date": "2026-10-09",
+  "feature": "Windows one-shot worker startup admission and private async inherited progress copies (ADR-0052)",
+  "source_base_commit": "12586f373c0e5996d0cf9f63b30661c8a99ab78e",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 557,
+      "windows_unit_tests_passed": 222,
+      "startup_unit_tests": 11,
+      "job_unit_tests": 18,
+      "pipe_unit_tests": 16,
+      "production_native_link": "passed including worker admission and synchronous diagnostic entrypoints",
+      "clippy": "passed --workspace --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; Toolhelp, Job PID list, IO_STATUS_BLOCK layout, scalar flags and supported WINAPI prototypes; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 157,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": [
+        "check_worker_startup: actual protected detached child main admission, private async copies, real cross-process challenge24/receipt40, fixture epoch10->11, frozen and duplicate claim rejection, synchronous pipe mode rejection, wrong parent and direct launch rejection, actual exit259 and EOF, explicit parent endpoint cleanup complete",
+        "check_progress_pipe: same-process shared wire fixture, EOF and completed pending-read cancellation",
+        "check_job_progress: suspended exact progress endpoints held, resume/exit259/EOF",
+        "check_windows_job -ProgressDelivery: argv/own Job stop and abruptly terminated own parent, retained handle observes worker exit without Rust Drop"
+      ],
+      "artifact_directory": "target/validation/windows-20261009-worker-startup-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "144739c0aa0141f6fdcee37d0ed174eae2083995497785ab3071c37eecdfb284",
+        "clippy.log": "b585d8cfccad7d8d87d9d24625649a0a47aecd09269431a6a2860b66bf60142c",
+        "source-manifest.json": "0e249dbb0ec741a66df8af87c28097a8039ab64e974b774ec9c3977ad76f97ac",
+        "validate.cmd": "0376ce5cc8d1996f93fde7df24fd53c39d4d043fd040d5714bfd7579120844eb",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "0159810c7e8fad5c879cf64c6ea16007cc3990ec17b6a560b79a2e729b73be44",
+        "native-smoke.cmd": "f0e6d2b63229daea018d276946a673e735981b4c5621be09797bf9c83f13965e",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 557,
+      "windows_unit_tests_passed": 222,
+      "startup_unit_tests": 11,
+      "job_unit_tests": 18,
+      "pipe_unit_tests": 16,
+      "production_native_link": "passed including worker admission and synchronous diagnostic entrypoints",
+      "clippy": "passed --workspace --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; Toolhelp, Job PID list, IO_STATUS_BLOCK layout, scalar flags and supported WINAPI prototypes; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 157,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": [
+        "check_worker_startup: actual protected detached child main admission, private async copies, real cross-process challenge24/receipt40, fixture epoch10->11, frozen and duplicate claim rejection, synchronous pipe mode rejection, wrong parent and direct launch rejection, actual exit259 and EOF, explicit parent endpoint cleanup complete",
+        "check_progress_pipe: same-process shared wire fixture, EOF and completed pending-read cancellation",
+        "check_job_progress: suspended exact progress endpoints held, resume/exit259/EOF",
+        "check_windows_job -ProgressDelivery: argv/own Job stop and abruptly terminated own parent, retained handle observes worker exit without Rust Drop"
+      ],
+      "artifact_directory": "target/validation/windows-20261009-worker-startup-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "13f0e32c3233525171a9063b169c220fb5777b312e64d50b00406f3b7e7b7778",
+        "clippy.log": "6f8699cec04b1bf3f3988a8ca2a79bbde478b99792d0acaa8ece0c943cbae637",
+        "source-manifest.json": "0e249dbb0ec741a66df8af87c28097a8039ab64e974b774ec9c3977ad76f97ac",
+        "validate.cmd": "bcc4af45a67d8265379637b04237be5800c9db6f6c12fa9d49778247f3a74abf",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "41d30a1beb199ec4e403ee22c2baeeae71ab98d79a749b2ab6a2de08442245c7",
+        "native-smoke.cmd": "cc348d1bd53febe20fa37a7a248385bc275619403a54e0d9ac167a8bdc8d348b",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 594,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-worker-startup",
+    "artifacts_sha256": {
+      "tests.log": "ce7f6529c59d300d33ff3e049ad89b0998ef64e23f22a93967b01cb6bafc68e5",
+      "clippy.log": "e6044fbac8ff52cfe36ada0ffefb7afcc4c2439856198b21733726bbb4a30383"
+    }
+  },
+  "superseded_validation": {
+    "initial": "Both architectures SDK/tests/Clippy passed, first x64 native fixture terminal exit1 before receipt; QueryInformationJobObject(processes) ERROR_MORE_DATA 234",
+    "diagnosis": "Temporary 4-entry query under CREATE_NO_WINDOW returned assigned=count=2 (including child); detached returned exactly one current PID. Additional process identity not inspected; association with console helper is an inference.",
+    "fix": "DETACHED_PROCESS | EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED 0x8000c; strict one-PID guard retained, no widening/ignoring count. Final full Linux/Windows/native checks repeated.",
+    "diagnostic_scope": "Own temporary snapshot only, initial native log overwritten by probes; observed-diagnostics.txt records observed tool output, not an original log. Archived manifest refers to initial validation before diagnostic snapshot mutations.",
+    "artifact_directory": "target/validation/windows-20261009-worker-startup-before-detached-x64-1.97.1",
+    "artifacts_sha256": {
+      "source-manifest.json": "acc897866c5cde5d225113c9e6cbc5e32b86d808aa6de764d8a0115bce58f305",
+      "validate.cmd": "ce463d67f41a2757d9a7eadb89da873c507a4a8e7425db649c8b133255a61814",
+      "tests.log": "93ce3ddbac2a94c55303da1c24c21367c0bdabf3413e9d001edc9b50794353ce",
+      "clippy.log": "a049124a3249782ef30f71bfd0668187fd0a6ae0894a899ca5149144a3503495",
+      "observed-diagnostics.txt": "dceec1da6685cc93869c80907e9dc770e8946fe24ed213dd8cc9d188785b566a"
+    }
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "native_private_pipes_created": true,
+    "owned_fixture_processes_created": true,
+    "own_fixture_parent_abruptly_terminated": true,
+    "arbitrary_pid_terminated": false
+  },
+  "limits": [
+    "SDK winternl.h does not declare NtQueryInformationFile; signature/class8/9/16/payload semantics rely on official DDI, actual x64/x86 link/native tests; WDK oracle not run",
+    "Guard requires trusted main before other execution threads/input/stdio; token does not attest OS initial thread or authenticate cross-user host/sole ownership of Job handles",
+    "Original binary stdin/stderr remain borrowed until actual process exit; endpoint Drop does not establish EOF",
+    "Nonzero Native query retains stable outputs until process exit; no late-result retry or realtime guarantee",
+    "Cross-process progress uses fixture epochs10->11, not CaptureSession live poll; true independent supervisor/host/Hook liveness remain",
+    "Windows11, actual keyboard/session/hardware, advanced rules/Linux bootstrap/consumer-ready/GUI/packaging/driver scope remain; full development goal is unfinished"
+  ]
+}

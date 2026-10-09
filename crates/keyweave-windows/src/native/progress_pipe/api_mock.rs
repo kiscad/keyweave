@@ -29,6 +29,7 @@ pub(super) struct Mock {
     pending: BTreeMap<usize, Pending>,
     next_event: usize,
     next_pair: usize,
+    synchronous: bool,
 }
 thread_local! { pub(super) static MOCK:RefCell<Mock>=RefCell::new(Mock {error_signaled:true,..Mock::default()}); }
 fn call(name: &'static str) -> bool {
@@ -95,7 +96,9 @@ pub(super) unsafe fn CreateNamedPipeW(
     s: *const SecurityAttributes,
 ) -> Handle {
     assert!(!n.is_null());
-    assert_eq!((o, m, i, out, input, t), (0x40080001, 8, 1, 4096, 4096, 0));
+    assert!(matches!(o, 0x40080001 | 0x80001));
+    assert_eq!((m, i, out, input, t), (8, 1, 4096, 4096, 0));
+    MOCK.with(|m| m.borrow_mut().synchronous = o == 0x80001);
     // SAFETY: synchronous caller retains its complete security input.
     let attrs = unsafe { &*s };
     assert_eq!(attrs.length as usize, size_of::<SecurityAttributes>());
@@ -118,7 +121,15 @@ pub(super) unsafe fn CreateFileW(
 ) -> Handle {
     assert!(!n.is_null());
     assert!(sa.is_null() && t.is_null());
-    assert_eq!((a, s, d, f), (0x40000080, 0, 3, 0x40100000));
+    assert_eq!((a, s, d), (0x40000080, 0, 3));
+    assert_eq!(
+        f,
+        MOCK.with(|m| if m.borrow().synchronous {
+            0x100000
+        } else {
+            0x40100000
+        })
+    );
     if call("client") {
         MOCK.with(|m| (200 + (m.borrow().next_pair - 1) * 10) as Handle)
     } else {
@@ -238,6 +249,7 @@ pub(super) unsafe fn ReadFile(
     c: *mut u32,
     o: *mut Overlapped,
 ) -> i32 {
+    assert!(!MOCK.with(|m| m.borrow().synchronous));
     assert!(c.is_null());
     assert!(n <= 64 && n > 0);
     if !call("read") {
@@ -269,6 +281,7 @@ pub(super) unsafe fn WriteFile(
     c: *mut u32,
     o: *mut Overlapped,
 ) -> i32 {
+    assert!(!MOCK.with(|m| m.borrow().synchronous));
     assert!(c.is_null());
     assert!(n <= 64 && n > 0);
     if !call("write") {

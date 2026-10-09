@@ -6,6 +6,8 @@
 #include <wtsapi32.h>
 #include <sddl.h>
 #include <bcrypt.h>
+#include <tlhelp32.h>
+#include <winternl.h>
 #include <stddef.h>
 
 #define CHECK(expr) _Static_assert((expr), #expr)
@@ -15,6 +17,19 @@
 #endif
 CHECK(sizeof(void *) == KEYWEAVE_EXPECT_PTR);
 CHECK(sizeof(void *) == 4 || sizeof(void *) == 8);
+CHECK(sizeof(PROCESSENTRY32W) == (WIDE ? 568 : 556));
+CHECK(offsetof(PROCESSENTRY32W, th32ParentProcessID) == (WIDE ? 32 : 24));
+CHECK(sizeof(JOBOBJECT_BASIC_PROCESS_ID_LIST) == (WIDE ? 16 : 12));
+CHECK(offsetof(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList) == 8);
+CHECK(sizeof(IO_STATUS_BLOCK) == 2 * sizeof(void *));
+CHECK(_Alignof(IO_STATUS_BLOCK) == sizeof(void *));
+CHECK(offsetof(IO_STATUS_BLOCK, Information) == sizeof(void *));
+CHECK(sizeof(NTSTATUS) == 4 && sizeof(FILE_INFORMATION_CLASS) == 4);
+CHECK(FILE_SYNCHRONOUS_IO_ALERT == 0x10 && FILE_SYNCHRONOUS_IO_NONALERT == 0x20);
+CHECK(FILE_READ_DATA == 1 && FILE_WRITE_DATA == 2);
+CHECK(STD_INPUT_HANDLE == 0xfffffff6 && STD_OUTPUT_HANDLE == 0xfffffff5 && STD_ERROR_HANDLE == 0xfffffff4);
+CHECK(FILE_TYPE_PIPE == 3 && FILE_TYPE_CHAR == 2 && DUPLICATE_SAME_ACCESS == 2);
+CHECK(TH32CS_SNAPPROCESS == 2 && JobObjectBasicProcessIdList == 3);
 CHECK(sizeof(JOBOBJECT_BASIC_LIMIT_INFORMATION) == (WIDE ? 64 : 48));
 CHECK(_Alignof(JOBOBJECT_BASIC_LIMIT_INFORMATION) == 8);
 CHECK(offsetof(JOBOBJECT_BASIC_LIMIT_INFORMATION, LimitFlags) == 16);
@@ -39,6 +54,7 @@ CHECK(JOB_OBJECT_LIMIT_ACTIVE_PROCESS == 8);
 CHECK(JobObjectExtendedLimitInformation == 9);
 CHECK(CREATE_SUSPENDED == 4);
 CHECK(CREATE_NO_WINDOW == 0x08000000);
+CHECK(DETACHED_PROCESS == 0x00000008);
 CHECK(WAIT_OBJECT_0 == 0);
 CHECK(WAIT_TIMEOUT == 258);
 CHECK(WAIT_FAILED == 0xffffffff);
@@ -168,6 +184,19 @@ CHECK(WAIT_OBJECT_0 == 0 && WAIT_TIMEOUT == 258 && WAIT_FAILED == 0xffffffff);
 /* SDK prototype checks including WINAPI calling convention (especially x86).
    Compile with /WX: incompatible pointer assignment must fail. No calls. */
 int main(void) {
+    HANDLE (WINAPI *process_snapshot)(DWORD,DWORD) = CreateToolhelp32Snapshot;
+    BOOL (WINAPI *process_first)(HANDLE,LPPROCESSENTRY32W) = Process32FirstW;
+    BOOL (WINAPI *process_next)(HANDLE,LPPROCESSENTRY32W) = Process32NextW;
+    BOOL (WINAPI *query_job)(HANDLE,JOBOBJECTINFOCLASS,LPVOID,DWORD,LPDWORD) = QueryInformationJobObject;
+    VOID (WINAPI *startup_info)(LPSTARTUPINFOW) = GetStartupInfoW;
+    HANDLE (WINAPI *standard_handle)(DWORD) = GetStdHandle;
+    DWORD (WINAPI *file_type)(HANDLE) = GetFileType;
+    BOOL (WINAPI *server_process)(HANDLE,PULONG) = GetNamedPipeServerProcessId;
+    BOOL (WINAPI *client_process)(HANDLE,PULONG) = GetNamedPipeClientProcessId;
+    BOOL (WINAPI *duplicate_progress)(HANDLE,HANDLE,HANDLE,LPHANDLE,DWORD,BOOL,DWORD) = DuplicateHandle;
+    (void)process_snapshot;(void)process_first;(void)process_next;(void)query_job;
+    (void)startup_info;(void)standard_handle;(void)file_type;(void)server_process;
+    (void)client_process;(void)duplicate_progress;
     HANDLE (WINAPI *create_pipe)(LPCWSTR, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, LPSECURITY_ATTRIBUTES) = CreateNamedPipeW;
     HANDLE (WINAPI *open_pipe)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) = CreateFileW;
     BOOL (WINAPI *connect_pipe)(HANDLE, LPOVERLAPPED) = ConnectNamedPipe;

@@ -141,3 +141,15 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 
 
 2026-10-09 精确进度端点交付：[报告](validation/windows-2026-10-09-channel-delivery.json)记录最终固定1.97.1双架构各546 tests（211 Windowsunit）、Clippy/fmt/SDK和152源文件快照一致。SDK新增 HANDLE_LIST/STARTF_USESTDHANDLES/INHERIT/share flags与SetHandleInformation原型。先编译 `cargo build --locked --offline -p keyweave-windows --example check_job --example check_job_progress --example check_progress_pipe --target <target>`，再在对应Windows-local ValidationRoot调用 `tools/check_windows_job.ps1 -ValidationRoot <root> -Target <target> -ProgressDelivery`。脚本只启动本次自己的fixture、强制停止own parent并以retained handle观察child退出；两个架构最终exit0，另重验same-process pipe roundtrip。挂起时端点存活、恢复exit259/EOF与进度通道启动后的父死亡保护已实测，不是worker receipt/真实CaptureSession/Hook活性验收。首轮production CreateFileW重复声明类型不一致被Clippy定位，修正后全套重跑，旧日志单列不作通过证据。worker标准管道是overlapped，后续须经过启动核验并交给private异步端点，禁止直接用同步std::io读写。
+
+
+Worker 启动与跨进程验证入口（ADR-0052）：在 Windows-local 验证快照中运行下列命令，`<target>` 可取 `x86_64-pc-windows-msvc` 或 `i686-pc-windows-msvc`，使用与 SDK 检查相同的 vcvars 环境和固定工具链：
+
+```powershell
+cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_worker_startup --target <target>
+& "$env:CARGO_TARGET_DIR/<target>/debug/examples/check_worker_startup.exe"
+```
+
+例程只创建自己的 detached Job child 与私有管道，在真实 child main 准入后以 private async copies 读取24字节 challenge、返回40字节 receipt；测试 epoch10→11、冻结拒绝、重复 claim、错误父 PID、直接启动拒绝、同步模式拒绝、实际exit259/EOF与完整父端关闭。它不安装 Hook、不调用 SendInput，也不证明 CaptureSession 实际 poll 活性。Job/端点交付/父死亡旧例程需一并回归。Native 查询签名依据官方 DDI；SDK winternl.h 未声明 NtQueryInformationFile，不将 compile-only oracle 描述为独立验证其原型或 WDK 检查。真实 main 的调用时机由入口负责，token 不提供 OS 初始线程鉴权。
+
+2026-10-09 最终启动准入验收：[报告](validation/windows-2026-10-09-worker-startup.json)记录固定1.97.1 x64/i686各557 tests（222 Windowsunit）、Clippy/fmt/SDK通过与157源文件快照一致。两个架构 `check_worker_startup` 实际exit0；旧Job/父死亡/pipe例程也在最终detached标志下全部通过。首轮 native 发现 CREATE_NO_WINDOW Job名单含两个PID，修正detached后严格只接受当前PID，失败/诊断记录另列，不能把初轮编译通过当原生验收。Win11/真实输入/独立监督/完整host仍待实现与验收。

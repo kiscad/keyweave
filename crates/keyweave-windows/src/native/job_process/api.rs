@@ -74,7 +74,7 @@ pub(super) unsafe fn CreateProcessW(
 ) -> i32 {
     assert!(!app.is_null() && !line.is_null());
     assert!(pa.is_null() && ta.is_null() && env.is_null() && dir.is_null());
-    assert_eq!(flags, 0x08080004);
+    assert_eq!(flags, 0x0008000c);
     // SAFETY: initialized input and output are live for synchronous mock call.
     assert_eq!(unsafe { (*start).size } as usize, size_of::<StartupEx>());
     // SAFETY: caller passes a complete StartupEx via its repr(C) first field.

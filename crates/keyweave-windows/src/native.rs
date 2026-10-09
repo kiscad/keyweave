@@ -10,6 +10,7 @@ mod progress_pipe;
 mod session;
 mod session_info;
 mod session_notifications;
+mod worker_startup;
 #[cfg(target_os = "windows")]
 pub use hook_thread::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
@@ -24,6 +25,10 @@ pub use progress_pipe::{PipeCloseReport, PipeReader, PipeWriter};
 pub use session::{CaptureSession, SessionError, SessionStep, ShutdownReport};
 #[cfg(target_os = "windows")]
 pub use session_notifications::{NotificationCleanup, NotificationError, SessionNotifications};
+#[cfg(target_os = "windows")]
+pub use worker_startup::{
+    WorkerParentGuard, WorkerStartup, WorkerStartupError, check_synchronous_progress_pipe_rejected,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]

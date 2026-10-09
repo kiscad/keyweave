@@ -60,3 +60,5 @@ Windows worker 现于进程创建时准入自有 Job，已通过双架构无输�
 
 
 Windows 进度传输已有自有 overlapped byte-pipe pair，真实双架构无输入往返/EOF/取消例程通过。[传输契约与限制](docs/ADR-0050-windows-overlapped-progress-pipes.md)；worker 句柄交付、启动核验和独立超时监督仍待接入。
+
+Windows worker 启动准入与 private async 进度端点接收已实现，固定1.97.1双架构原生例程完成真实跨进程challenge/receipt往返与拒绝路径；独立supervisor、完整host与实际键盘仍待开发。[设计](docs/ADR-0052-windows-worker-startup-admission.md)、[验证证据](docs/validation/windows-2026-10-09-worker-startup.json)。

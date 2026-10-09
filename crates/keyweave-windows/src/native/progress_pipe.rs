@@ -497,7 +497,18 @@ impl Drop for Endpoint {
 pub struct PipeReader(Endpoint);
 pub struct PipeWriter(Endpoint);
 impl PipeReader {
+    pub(super) fn adopt_progress(handle: Handle, identity: [u8; 16]) -> io::Result<Self> {
+        Endpoint::new(handle, identity).map(Self)
+    }
     pub fn pair() -> io::Result<(Self, PipeWriter)> {
+        Self::pair_mode(true)
+    }
+    /// Private metadata-only diagnostic. Never expose these synchronous pipes
+    /// to protocol IO or the public factory; worker admission must reject them.
+    pub(super) fn synchronous_fixture() -> io::Result<(Self, PipeWriter)> {
+        Self::pair_mode(false)
+    }
+    fn pair_mode(overlapped: bool) -> io::Result<(Self, PipeWriter)> {
         context()?;
         if POISONED.get() {
             return Err(io::Error::other("pipe resource cleanup unresolved"));
@@ -521,7 +532,16 @@ impl PipeReader {
         // SAFETY: terminated random local name, live protected descriptor, one
         // byte-mode inbound instance, first-instance/overlapped/reject-remote.
         let server = unsafe {
-            CreateNamedPipeW(name.as_ptr(), 0x40080001, 8, 1, 4096, 4096, 0, &attributes)
+            CreateNamedPipeW(
+                name.as_ptr(),
+                if overlapped { 0x40080001 } else { 0x80001 },
+                8,
+                1,
+                4096,
+                4096,
+                0,
+                &attributes,
+            )
         };
         if server as usize == usize::MAX {
             return Err(os_error(last_error()));
@@ -538,7 +558,7 @@ impl PipeReader {
                 0,
                 std::ptr::null(),
                 3,
-                0x40100000,
+                if overlapped { 0x40100000 } else { 0x100000 },
                 null_mut(),
             )
         };
@@ -558,6 +578,9 @@ impl PipeReader {
     }
 }
 impl PipeWriter {
+    pub(super) fn adopt_progress(handle: Handle, identity: [u8; 16]) -> io::Result<Self> {
+        Endpoint::new(handle, identity).map(Self)
+    }
     pub fn close(&mut self) -> io::Result<PipeCloseReport> {
         context()?;
         Ok(self.0.close_inner(20))

@@ -13,37 +13,37 @@ use std::{
 type Handle = *mut c_void;
 #[repr(C)]
 #[derive(Default)]
-struct BasicLimits {
-    process_time: i64,
-    job_time: i64,
-    flags: u32,
-    minimum_ws: usize,
-    maximum_ws: usize,
-    active: u32,
-    affinity: usize,
-    priority: u32,
-    scheduling: u32,
+pub(super) struct BasicLimits {
+    pub(super) process_time: i64,
+    pub(super) job_time: i64,
+    pub(super) flags: u32,
+    pub(super) minimum_ws: usize,
+    pub(super) maximum_ws: usize,
+    pub(super) active: u32,
+    pub(super) affinity: usize,
+    pub(super) priority: u32,
+    pub(super) scheduling: u32,
 }
 #[repr(C)]
 #[derive(Default)]
-struct ExtendedLimits {
-    basic: BasicLimits,
-    io: [u64; 6],
-    memory: [usize; 4],
+pub(super) struct ExtendedLimits {
+    pub(super) basic: BasicLimits,
+    pub(super) io: [u64; 6],
+    pub(super) memory: [usize; 4],
 }
 #[repr(C)]
-struct Startup {
-    size: u32,
-    reserved: *mut u16,
-    desktop: *mut u16,
-    title: *mut u16,
-    numbers: [u32; 8],
-    show: u16,
-    reserved_bytes: u16,
-    reserved_ptr: *mut u8,
-    stdin: Handle,
-    stdout: Handle,
-    stderr: Handle,
+pub(super) struct Startup {
+    pub(super) size: u32,
+    pub(super) reserved: *mut u16,
+    pub(super) desktop: *mut u16,
+    pub(super) title: *mut u16,
+    pub(super) numbers: [u32; 8],
+    pub(super) show: u16,
+    pub(super) reserved_bytes: u16,
+    pub(super) reserved_ptr: *mut u8,
+    pub(super) stdin: Handle,
+    pub(super) stdout: Handle,
+    pub(super) stderr: Handle,
 }
 #[repr(C)]
 struct StartupEx {
@@ -387,7 +387,9 @@ impl OwnedJobProcess {
         // Attribute storage and Job array stay pinned/alive through the call;
         // JOB_LIST assigns this private Job as part of process creation.
         // Inheritance only with our exact three-handle list; no supplied env/cwd.
-        // plus no-window flags; returned handles are uniquely owned on success.
+        // Detached console contract: no console helper belongs to the one-worker
+        // Job. Explicit STARTF_USESTDHANDLES pipes/NUL remain valid independently.
+        // Returned handles are uniquely owned on success.
         if unsafe {
             CreateProcessW(
                 application.as_ptr(),
@@ -395,7 +397,7 @@ impl OwnedJobProcess {
                 std::ptr::null(),
                 std::ptr::null(),
                 i32::from(handles.is_some()),
-                0x08080004,
+                0x0008000c,
                 std::ptr::null(),
                 std::ptr::null(),
                 &startup.info,

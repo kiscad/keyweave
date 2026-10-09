@@ -28,3 +28,7 @@ pub use native::{NotificationCleanup, NotificationError, SessionNotifications};
 pub use native::{ChannelCleanupReport, JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
 #[cfg(target_os = "windows")]
 pub use native::{PipeCloseReport, PipeReader, PipeWriter};
+#[cfg(target_os = "windows")]
+pub use native::{
+    WorkerParentGuard, WorkerStartup, WorkerStartupError, check_synchronous_progress_pipe_rejected,
+};
