@@ -27,6 +27,11 @@ pub use native::{NotificationCleanup, NotificationError, SessionNotifications};
 #[cfg(target_os = "windows")]
 pub use native::{ChannelCleanupReport, JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
 #[cfg(target_os = "windows")]
+pub use native::{
+    ChannelDirection, ChannelFailure, Supervisor, SupervisorChannelCleanup, SupervisorError,
+    SupervisorSpawnError, SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
+};
+#[cfg(target_os = "windows")]
 pub use native::{PipeCloseReport, PipeReader, PipeWriter};
 #[cfg(target_os = "windows")]
 pub use native::{

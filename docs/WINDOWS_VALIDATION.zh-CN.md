@@ -153,3 +153,16 @@ cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_worke
 例程只创建自己的 detached Job child 与私有管道，在真实 child main 准入后以 private async copies 读取24字节 challenge、返回40字节 receipt；测试 epoch10→11、冻结拒绝、重复 claim、错误父 PID、直接启动拒绝、同步模式拒绝、实际exit259/EOF与完整父端关闭。它不安装 Hook、不调用 SendInput，也不证明 CaptureSession 实际 poll 活性。Job/端点交付/父死亡旧例程需一并回归。Native 查询签名依据官方 DDI；SDK winternl.h 未声明 NtQueryInformationFile，不将 compile-only oracle 描述为独立验证其原型或 WDK 检查。真实 main 的调用时机由入口负责，token 不提供 OS 初始线程鉴权。
 
 2026-10-09 最终启动准入验收：[报告](validation/windows-2026-10-09-worker-startup.json)记录固定1.97.1 x64/i686各557 tests（222 Windowsunit）、Clippy/fmt/SDK通过与157源文件快照一致。两个架构 `check_worker_startup` 实际exit0；旧Job/父死亡/pipe例程也在最终detached标志下全部通过。首轮 native 发现 CREATE_NO_WINDOW Job名单含两个PID，修正detached后严格只接受当前PID，失败/诊断记录另列，不能把初轮编译通过当原生验收。Win11/真实输入/独立监督/完整host仍待实现与验收。
+
+Windows 独立监督的无输入入口（ADR-0053）：用与 SDK 相同的 vcvars/固定工具链环境，在 Windows-local 验证快照执行：
+
+```powershell
+cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_supervisor --target <target>
+& "$env:CARGO_TARGET_DIR/<target>/debug/examples/check_supervisor.exe"
+```
+
+目标分别取x86_64-pc-windows-msvc/i686-pc-windows-msvc。例程父端是真正的Supervisor，child在真实main完成WorkerStartup；healthy完成两轮fixture进度并exit259，stall已回应后冻结事件循环但保留运行的后台线程，startup_stall不回应，wrong_run返回不匹配身份，stopped_stall已发送Stopped但不退出，requested由父主动请求停止。所有非healthy案例必须由自有Job终止并由process handle实际观察退出；父端随后完整显式close。后台线程在worker开始协议前已至少运行一次，不读写进度。此epoch10→11→12来自fixture，不能当CaptureSession实际poll/Hook健康或全局注入键恢复。
+
+完整Rust测试/Clippy结束后再运行原生例程，避免共用target目录的并发构建；每次unique snapshot/cache/target，最终manifest核对当前源码。存在的日志必须与已确认终止的具体验证进程关联，单独通过native例程不能代替workspace tests/Clippy。
+
+2026-10-09 最终独立监督：[报告](validation/windows-2026-10-09-supervisor.json)记录Linux606、固定Windows1.97.1双架构各569 tests/234 Windowsunit、Clippy/fmt/SDK及160文件hash匹配，验证进程终止exit0。两个Supervisor原生六场景实际通过；x64组合native exit0，x86组合先因旧挂起交付fixture异常0xc000004b退出1，同源码受影响路径重跑exit0并补齐父死亡。失败与重跑日志均保留，异常原因未确定；早先一次x86对象路径构建失败也独立归档，不拿native通过替代失败的编译检查。最终源码的queued fast-reply/延后Write ack回归证明旧逻辑误报Identity，最终全套重新验收。完整host/真实CaptureSession/Hook活性/Win11与实际键盘仍未验收。

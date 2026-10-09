@@ -188,7 +188,7 @@ fn wide(value: &std::ffi::OsStr) -> Vec<u16> {
         value.to_string_lossy().encode_utf16().take(32768).collect()
     }
 }
-fn command(path: &Path, args: &[OsString]) -> Result<(Vec<u16>, Vec<u16>), JobError> {
+pub(super) fn command(path: &Path, args: &[OsString]) -> Result<(Vec<u16>, Vec<u16>), JobError> {
     if !path.is_absolute()
         || !path
             .extension()

@@ -6,6 +6,12 @@ mod hook_thread;
 #[cfg(any(target_os = "windows", test))]
 mod input_probe;
 mod job_process;
+mod supervisor;
+#[cfg(target_os = "windows")]
+pub use supervisor::{
+    ChannelDirection, ChannelFailure, Supervisor, SupervisorChannelCleanup, SupervisorError,
+    SupervisorSpawnError, SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
+};
 mod progress_pipe;
 mod session;
 mod session_info;

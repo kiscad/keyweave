@@ -1,0 +1,197 @@
+{
+  "date": "2026-10-09",
+  "feature": "Windows owned independent progress Supervisor (ADR-0053)",
+  "source_base_commit": "a0fdc64735c38b106aafcec45d1f13e5723f1b5f",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 569,
+      "windows_unit_tests_passed": 234,
+      "supervisor_core_tests": 10,
+      "job_unit_tests": 20,
+      "pipe_unit_tests": 16,
+      "startup_unit_tests": 11,
+      "production_native_link": "passed including Supervisor spawn/poll/request_stop/cleanup",
+      "clippy": "passed --workspace --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed existing /W4 /WX /std:c11 /Zs; no new FFI declarations; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 160,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_supervisor_and_transport_stage": "native-smoke.cmd confirmed exit0; includes six Supervisor cases, worker_startup and same-process pipe",
+      "combined_native_process": "confirmed terminal exit0",
+      "affected_job_retry": "not required",
+      "native_no_input_smoke": [
+        "healthy two-round fixture epochs10->11->12 and actual exit259",
+        "stall after first reply with independently running background thread; lease expiry, own Job stop, actual observed exit",
+        "startup_stall no epoch, finite startup lease and actual exit",
+        "wrong_run frame refused by actual Supervisor, own Job termination and exit observation",
+        "Stopped receipt still live: finite final lease, own Job termination and actual exit",
+        "requested stop after first receipt; actual exit and explicit complete parent channel cleanup",
+        "previous worker admission, pipe/EOF/cancellation, suspended delivery and argv/stop regressions; underlying owned Job parent death observed without Rust Drop"
+      ],
+      "artifact_directory": "target/validation/windows-20261009-supervisor-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "3393cb5a204f2fb2118541b6ad706694c6ac0eaa67f2cbfa13d0438c0c28c920",
+        "clippy.log": "beef8c31b07df61b4c4b272f77aef17ab94bdb8c9a96a7ba47fb9974283b0f33",
+        "source-manifest.json": "d47440ccd8b28a1912bfa7d469a94068da7e947ad1454cd1bbb9595e06b40036",
+        "validate.cmd": "3aaec33a5b986d473623eaa0bebb825817e4c18b364e1db6997bc3031ac53b51",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "b9d851f088ffd9c6b291ac803f2cbb47c2c99a5e206e128912fdca30d7f4dd24",
+        "native-smoke.cmd": "677b7ed49820e6c9ad9ef1b5ac990ee2acc8c8451c2b6189b00525fb8e281c92",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 569,
+      "windows_unit_tests_passed": 234,
+      "supervisor_core_tests": 10,
+      "job_unit_tests": 20,
+      "pipe_unit_tests": 16,
+      "startup_unit_tests": 11,
+      "production_native_link": "passed including Supervisor spawn/poll/request_stop/cleanup",
+      "clippy": "passed --workspace --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed existing /W4 /WX /std:c11 /Zs; no new FFI declarations; SDK stdout observed, not separately archived",
+      "source_files_hash_checked": 160,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_supervisor_and_transport_stage": "native-smoke.cmd confirmed exit0; includes six Supervisor cases, worker_startup and same-process pipe",
+      "combined_native_process": "confirmed terminal exit1 after successful Supervisor/transport stage; preexisting job_progress child unexpectedly exited 0xc000004b",
+      "affected_job_retry": "same snapshot affected check_windows_job -ProgressDelivery confirmed terminal exit0: suspended channels, argv/stop and parent death all passed; initial failure preserved, cause unresolved",
+      "native_no_input_smoke": [
+        "healthy two-round fixture epochs10->11->12 and actual exit259",
+        "stall after first reply with independently running background thread; lease expiry, own Job stop, actual observed exit",
+        "startup_stall no epoch, finite startup lease and actual exit",
+        "wrong_run frame refused by actual Supervisor, own Job termination and exit observation",
+        "Stopped receipt still live: finite final lease, own Job termination and actual exit",
+        "requested stop after first receipt; actual exit and explicit complete parent channel cleanup",
+        "previous worker admission, pipe/EOF/cancellation, suspended delivery and argv/stop regressions; underlying owned Job parent death observed without Rust Drop"
+      ],
+      "artifact_directory": "target/validation/windows-20261009-supervisor-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "00c5a220548f6ca134d425b787942d4b8018cad5b3577658cfc3e601e45c5394",
+        "clippy.log": "274df42f50baf6e7c4fab75ffc03179bcb3f5bb8d7a3f33136ceb31dfad2c6a9",
+        "source-manifest.json": "d47440ccd8b28a1912bfa7d469a94068da7e947ad1454cd1bbb9595e06b40036",
+        "validate.cmd": "0e97d566da5cb93c657f3c8179ab1b4ce60dd3ddba19abe7ed464becd5bf76be",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "cbc3a6aad8a2c80867023651690b50d5927eafbb70483692bb42c5420c041bb9",
+        "native-smoke.cmd": "6f678717cbd419c2626b5db20f7bc2f2573a17307e58ae9140048e5580014eaa",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c",
+        "job-progress-smoke.log": "1c11cbc0ea8884da7cac15589ad4e0c7d5183084988dba1390f0540fccc0b292",
+        "job-progress-smoke-retry.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 606,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "delayed_write_ack_regression": "new targeted test failed old behavior with Progress(Identity); exact source restored before final full checks; final behavior accepts only after full Write ack",
+    "artifact_directory": "target/validation/linux-20261009-supervisor",
+    "artifacts_sha256": {
+      "tests.log": "da5cff66de5605709ed718adc08410325f5b2906bb1cb54b6d45ddb8dd20b604",
+      "clippy.log": "e0ecce72f50a9861753eba46d598db280141761548dfde76aa9759de7babf169",
+      "before-write-ack-regression.log": "a6f0e6235afbef29490af8c3498d8cdd03bda8d1b75b0b4b69b9b41ff5ae82c2"
+    }
+  },
+  "superseded_validation": [
+    {
+      "stage": "before-preflight",
+      "arch": "x64",
+      "description": "Both architectures checks passed but snapshots predate bounded command preflight and final ack regression",
+      "artifact_directory": "target/validation/windows-20261009-supervisor-before-preflight-x64-1.97.1",
+      "artifacts_sha256": {
+        "source-manifest.json": "ee3519b0a11dbce5cada203ac3574f98326e2d6d5517e4e022450cfb29cecd98",
+        "validate.cmd": "e0d76bb7bc0d71b02c5b6b9bb3c2ea3df13dbac51a42235c762070e788db699c",
+        "tests.log": "12e896033ce12e53890a28c57271d1527448a1e036c064a6f4f70d8133391e9c",
+        "clippy.log": "b752f7e15c4d80b9871d79ce59ccde9e08a25d1f0e92d1bb7ae8c8e47d837e94"
+      }
+    },
+    {
+      "stage": "before-preflight",
+      "arch": "x86",
+      "description": "Both architectures checks passed but snapshots predate bounded command preflight and final ack regression",
+      "artifact_directory": "target/validation/windows-20261009-supervisor-before-preflight-x86-1.97.1",
+      "artifacts_sha256": {
+        "source-manifest.json": "ee3519b0a11dbce5cada203ac3574f98326e2d6d5517e4e022450cfb29cecd98",
+        "validate.cmd": "6917c60cf8af9ddf7eca2a451e62466489027024c34935fdc33c86b1709870af",
+        "tests.log": "5627230ee279058e1ed415134319a0f4ade81d04bc4daf82ed5334e2f65ce5b9",
+        "clippy.log": "ddf5962e6c01b1ac6123c6788044e008f4a7c6f2de713df4fbe3d6a3ed0770e2"
+      }
+    },
+    {
+      "stage": "before-write-ack",
+      "arch": "x64",
+      "description": "x64 checks and both native Supervisor six-case stages passed; final ack behavior not yet applied",
+      "artifact_directory": "target/validation/windows-20261009-supervisor-before-write-ack-x64-1.97.1",
+      "artifacts_sha256": {
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-smoke.cmd": "9dee7f440330076789fc32926e9acd161648f12e6e711791fc4e80ceb6a1171c",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c",
+        "source-manifest.json": "33f2b5880a773392baf08f956c3594b5750cbabf8dbbb766952c2603d80cbda6",
+        "validate.cmd": "08cfca2d77208f6dd00fde3ad8ffca0e5d315db5c708686bae1d39e1e4186353",
+        "tests.log": "b9065695b88f92e779744a8366df2144cdfbb93cea7032e5bf6d37c772d456f2",
+        "native-build.log": "b8187cca227da1f4f8f917e302d75812b02ae7bda6da00924c114368569b5cbc",
+        "clippy.log": "541161ec7debf79734eccce13d7c0e2aa2428876946ec34b92e636c72b3300d2"
+      }
+    },
+    {
+      "stage": "before-write-ack",
+      "arch": "x86",
+      "description": "SDK passed, workspace build terminal101: missing object path i686-pc-windows%msvc, LNK1181/os3; no complete tests/Clippy. Native stage passed independently, not evidence of workspace success. Cause unresolved; final fresh snapshot full checks passed, with native builds started only after validation terminal.",
+      "artifact_directory": "target/validation/windows-20261009-supervisor-before-write-ack-x86-1.97.1",
+      "artifacts_sha256": {
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-smoke.cmd": "3c18c6ccb32f6f3276f71e491745319c56d8c70ba8e304841160809e1e5eaa69",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "job-progress-smoke.log": "6d57448ccdb7563cb6d3db4fa73941d0b62536f4625d2bfcec4ef8d8b25557bd",
+        "worker-startup-smoke.log": "56e17e9c42f8a05d8dcc6e10073a0ded04cfa8d4f98b26ddb8251f21cee261b1",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c",
+        "source-manifest.json": "33f2b5880a773392baf08f956c3594b5750cbabf8dbbb766952c2603d80cbda6",
+        "validate.cmd": "9cb89c9c0bc68cae1054bfbe5a31e92461760e2a280cc9d045eb93a16976f8c5",
+        "tests.log": "9e5b856d6fccc0a713f31192cf30b3789e40d8179e3467cfc6c69e2e256f7ce2",
+        "native-build.log": "7713afeae54c6fae37116fdb68b2a4100bc083c538b6c9482e5c47a878e741a7"
+      }
+    }
+  ],
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "native_private_pipes_created": true,
+    "owned_fixture_processes_created": true,
+    "owned_stalled_workers_terminated_by_job": true,
+    "own_fixture_parent_abruptly_terminated": true,
+    "arbitrary_pid_terminated": false
+  },
+  "limits": [
+    "One unexpected x86 preexisting suspended-delivery child exit0xc000004b was observed, cause not established; same-source isolated affected Job/parent-death retry passed. Keep failure in evidence; no reliability/release claim from a retry alone",
+    "Earlier x86 workspace object-path build failure cause not established; final isolated snapshot workspace checks completed, native execution followed compilation sequentially",
+    "Supervisor is independent owned process/transport orchestration, not a complete host or actual CaptureSession/Hook liveness integration",
+    "Epochs10->11->12 are fixture values; no physical keyboard, injected key state, desktop/session access or performance validation",
+    "Caller must supply fresh same-epoch MonoTime and drive the independent control loop; no realtime scheduling guarantee",
+    "Job stop/Stopped receipt/EOF are not exit proof, actual process wait is required; Job exit does not prove globally injected keys released",
+    "Parent-death regression uses underlying owned Job fixture, not an abrupt full Supervisor host failure with live capture",
+    "Windows11 and all original advanced rules/Linux bootstrap/consumer-ready/GUI/packaging/driver/actual hardware objectives remain; full goal unfinished"
+  ]
+}

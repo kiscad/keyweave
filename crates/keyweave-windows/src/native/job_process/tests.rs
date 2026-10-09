@@ -457,3 +457,93 @@ fn create_failure_deletes_initialized_attributes_without_claiming_child_exit() {
     assert!(!calls.contains(&"resume"));
     assert_eq!(api::MOCK.with(|m| m.borrow().initialized_list), 0);
 }
+
+#[test]
+fn supervisor_resume_failure_retains_owner_and_primary_until_exit_observation() {
+    use super::super::supervisor::{
+        Supervisor, SupervisorSpawnError, SupervisorStatus, TerminationReason,
+    };
+    use keyweave_progress::Policy;
+    use keyweave_types::MonoTime;
+    api::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.resume_count = Some(0);
+        m.fail = Some("kill-job");
+    });
+    let error = Supervisor::spawn(&path(), &[], 7, Policy::default(), MonoTime(0)).unwrap_err();
+    let SupervisorSpawnError::Resume {
+        cause,
+        stop,
+        mut owner,
+    } = error
+    else {
+        panic!("expected retained resume failure")
+    };
+    assert_eq!(cause, JobError::SuspendCount(0));
+    assert!(stop.is_some());
+    assert_eq!(
+        owner.status(),
+        SupervisorStatus::Stopping {
+            reason: TerminationReason::Process(cause),
+            stop_sent: false
+        }
+    );
+    api::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.fail = None;
+        m.wait = 258;
+    });
+    owner.poll(MonoTime(0)).unwrap();
+    assert_eq!(
+        owner.status(),
+        SupervisorStatus::Stopping {
+            reason: TerminationReason::Process(cause),
+            stop_sent: true
+        }
+    );
+    api::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.wait = 0;
+        m.exit = 259;
+    });
+    assert_eq!(
+        owner.poll(MonoTime(0)).unwrap(),
+        SupervisorStatus::Exited {
+            code: 259,
+            reason: Some(TerminationReason::Process(cause))
+        }
+    );
+    assert!(owner.close_channels().unwrap().complete());
+}
+
+#[test]
+fn supervisor_preflight_rejects_invalid_policy_and_oversize_command_before_child_creation() {
+    use super::super::supervisor::{Supervisor, SupervisorSpawnError};
+    use keyweave_progress::{Policy, ProgressError};
+    use keyweave_types::MonoTime;
+    assert!(matches!(
+        Supervisor::spawn(&path(), &[], 0, Policy::default(), MonoTime(0)),
+        Err(SupervisorSpawnError::Protocol(ProgressError::Policy))
+    ));
+    for args in [
+        vec!["x".into(); 126],
+        vec!["x".repeat(32768).into()],
+        vec!["bad\0arg".into()],
+    ] {
+        assert!(matches!(
+            Supervisor::spawn(&path(), &args, 7, Policy::default(), MonoTime(0)),
+            Err(SupervisorSpawnError::Command(JobError::Command))
+        ));
+    }
+    assert!(matches!(
+        Supervisor::spawn(
+            Path::new("relative.exe"),
+            &[],
+            7,
+            Policy::default(),
+            MonoTime(0)
+        ),
+        Err(SupervisorSpawnError::Command(JobError::Command))
+    ));
+    api::MOCK.with(|m| assert!(m.borrow().calls.is_empty()));
+}
