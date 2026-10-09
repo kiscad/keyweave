@@ -105,3 +105,7 @@ WTS查询新增 wtsapi32 链接与ProcessIdToSessionId，SDK oracle核验Unicode
 ADR-0046把metadata/lease失效（无WTS消息）也接入recovery gate；8新增mock测试及5旧测试的保留ledger/禁恢复证据不能代替真实UIPI/锁屏/断连。该改动无新增native API/ABI，仍通过双架构编译/link/tests验证实际cfg Windows路径。先前notification资源smoke保持历史证据，本改动不重复真实窗口/键盘操作。
 
 2026-10-09 access-loss补验：[报告](validation/windows-2026-10-09-access-loss.json)记录最终1.97.1 x64/i686各504 tests、170 Windowsunit/native_link/Clippy与既有SDK oracle通过，两份136源码hash一致。完整证据在ignored target/validation/windows-20261009-access-loss-{x64,x86}-1.97.1；Linux另存单项修正前失败和最终全套记录。本次没有真实窗口/键盘操作，不把mock访问撤销当作真实桌面/锁屏/UIPI恢复验收。
+
+共享keyweave-progress与Windows adapter的validation继续用全部workspace与production native_link；client泛型receive/publish地址只证明cfg Windows链接，不执行管道IO或Hook。mock测试使用真实CaptureSession协调器及可控stream，但不证明native transport/Job Object/进程监督。阶段Stopped不代表输出清理或child exited；监督验收必须另取得实际Child exit status。
+
+2026-10-09 共享进度实测：[报告](validation/windows-2026-10-09-shared-progress.json)记录固定1.97.1 x64/i686各512 tests、177 Windowsunit、7 shared-progress tests、native_link/Clippy/既有SDK通过。两个139源码hash与最终代码匹配，完整证据在ignored target/validation/windows-20261009-shared-progress-{x64,x86}-1.97.1。Linux549全套及真实原有子进程测试通过，不等于Windows native supervisor已实现；本次没有真实输入操作。

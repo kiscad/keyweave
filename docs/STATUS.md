@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 7 crates、Cargo.lock、固定 1.97.1、541 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 8 crates、Cargo.lock、固定 1.97.1、549 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -151,3 +151,9 @@ D08 metadata/lease恢复提交边界（2026-10-09）：native/hook_thread.rs新�
 
 
 D08 access-loss Windows补验：最终固定Rust1.97.1 x64/i686各504 workspace tests（170 Windowsunit+1生产native_link）、all-targets Clippy -D warnings与双架构SDK /Zs oracle通过，验证父进程exit0；两个136文件manifest SHA256与最终代码一致。首轮旧快照通过后新增同线程重注册回归断言与直接revoke poisoning，确认原单项失败后修正，全Linux541/Clippy与双Windows全部重验。[报告](validation/windows-2026-10-09-access-loss.json)；ignored target/validation/windows-20261009-access-loss-{x64,x86}-1.97.1保存日志/manifest/cmd，target/validation/linux-20261009-access-loss保留最终tests/clippy和reuse-before回归失败证据。不重复已有窗口资源smoke，本次没有真实窗口/Hook/SendInput/VK/driver/键盘操作；真机/Windows CI未执行。fmt/60-source verifier/diff通过。下一任务推进Windows独立进度监督与Hook存活/可执行host；Linuxbootstrap/consumer ready、D05/GUI/driver等全部原目标保留，完整开发未完成。
+
+
+D08 共享进度协议/Windows poll计数（2026-10-09）：新增keyweave-progress实际承接原Linux codec/watchdog/单flight client，原6 tests随实现迁移；Linux RuntimePhase为共享ProgressPhase别名，ProgressClient只适配Runtime epoch/phase及borrowed FD interests，worker/supervisor/父保护与协议v1 bytes不变。Windows cfg adapter只读CaptureSession epoch/phase，constructor/receive/publish/flush在callback中拒绝；counter仅实际poll完成后增加，Standby不publish，Stopped/Unresolved只表示循环停止，耗尽先shutdown/error而不wrap。native_link保留真实generic receive/publish符号，不执行IO；Cargo workspace/lock增加一个path crate，无新registry依赖。新增1固定原v1 wire golden及7 Windows行为tests：挑战后完整poll、callback不增加、passive不回应、partial冻结/后续baseline、terminal/Unresolved保留ledger、WouldBlock不造进度、耗尽、callback IPC禁用。初次迁移冗余字段、test-only重导出visibility与items位置被compiler/Clippy定位并修正，未屏蔽检查；Linux549全workspace和独立main-thread harness通过，fmt后仅同体native helper移位以满足Clippy，最终全workspace/alltargets Clippy通过。Windows双架构结果另记。新crate不依赖OS/实际时钟；generic endpoint不能证明NONBLOCK，Windows transport/Job Object/owned Child/parent death/独立监督及host仍必做，D05/Linuxbootstrap/GUI/driver与真机目标完整保留，ADR-0047。
+
+
+D08 shared-progress Windows补验：固定1.97.1 x64/i686各512 workspace tests（177 Windowsunit、7 shared-progress tests、1生产native_link）、all-targets Clippy -D warnings与既有双SDK /Zs通过，最终父进程exit0。两个139文件SHA256均匹配最终实现；[报告](validation/windows-2026-10-09-shared-progress.json)，ignored target/validation/windows-20261009-shared-progress-{x64,x86}-1.97.1及linux-20261009-shared-progress保存完整日志/manifest/cmd。新crate7 tests包括迁移原6及独立legacy bytes golden；Linux原Runtime/真实Child监督/parent harness未删测试。fmt/60-source verifier/diff通过，helper仅移位后最终Clippy重新编译。没有真实Hook/SendInput/管道监督/设备/Windows CI验收；下一步实现Windows owned native transport与Job Object/进程监督，再host/Hook liveness；原D05/Linuxbootstrap/GUI/driver全部余项继续。

@@ -375,6 +375,7 @@ fn timed_session(
     (
         CaptureSession {
             session: own_session().unwrap(),
+            progress_epoch: 0,
             notifications: SessionNotifications::install().unwrap(),
             actor,
             emergency,
@@ -1600,4 +1601,233 @@ fn access_revoked_during_recovery_blocks_all_subsequent_native_calls() {
         ),
         Err((HookSessionError::Busy, _))
     ));
+}
+struct ProgressWriter {
+    bytes: Rc<RefCell<Vec<u8>>>,
+    chunk: usize,
+}
+impl std::io::Write for ProgressWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.chunk == 0 {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        let count = bytes.len().min(self.chunk);
+        self.bytes.borrow_mut().extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+#[test]
+fn progress_challenge_requires_a_new_complete_session_poll() {
+    use crate::progress::{Challenge, ProgressClient, ProgressPhase, Receipt};
+    let (mut session, _) = install();
+    session.poll().unwrap();
+    assert_eq!(session.progress_epoch(), 1);
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = ProgressClient::new(
+        std::io::Cursor::new(Challenge { run_id: 7, id: 1 }.encode()),
+        ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 40,
+        },
+        7,
+    )
+    .unwrap();
+    assert!(client.receive(&session).unwrap());
+    assert!(!client.publish(&session).unwrap());
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(test_send(0x1e, true), 1);
+    assert!(!client.publish(&session).unwrap());
+    assert!(!client.flush().unwrap());
+    assert!(bytes.borrow().is_empty());
+    session.poll().unwrap();
+    assert!(client.publish(&session).unwrap());
+    let receipt = Receipt::decode(&bytes.borrow()).unwrap();
+    assert_eq!(
+        (receipt.baseline, receipt.epoch, receipt.phase),
+        (1, 2, ProgressPhase::Active)
+    );
+    assert!(!client.publish(&session).unwrap());
+    session.shutdown();
+    assert_eq!(session.progress_epoch(), 2);
+}
+#[test]
+fn passive_poll_does_not_publish_until_real_activation() {
+    use crate::progress::{Challenge, ProgressClient, Receipt};
+    let (mut session, _) = install();
+    test_probe(i16::MIN, true);
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = ProgressClient::new(
+        std::io::Cursor::new(Challenge { run_id: 7, id: 1 }.encode()),
+        ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 40,
+        },
+        7,
+    )
+    .unwrap();
+    assert!(client.receive(&session).unwrap());
+    assert_eq!(session.poll().unwrap(), SessionStep::Waiting);
+    assert_eq!(session.progress_epoch(), 1);
+    assert!(!client.publish(&session).unwrap());
+    assert!(bytes.borrow().is_empty());
+    test_probe(0, true);
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert!(client.publish(&session).unwrap());
+    assert_eq!(Receipt::decode(&bytes.borrow()).unwrap().epoch, 2);
+    session.shutdown();
+}
+#[test]
+fn partial_progress_receipt_retains_original_poll_and_next_challenge_baseline() {
+    use crate::progress::{Challenge, ProgressClient, Receipt};
+    let (mut session, _) = install();
+    session.poll().unwrap();
+    let requests: Vec<_> = [
+        Challenge { run_id: 7, id: 1 },
+        Challenge { run_id: 7, id: 2 },
+    ]
+    .into_iter()
+    .flat_map(Challenge::encode)
+    .collect();
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = ProgressClient::new(
+        std::io::Cursor::new(requests),
+        ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 3,
+        },
+        7,
+    )
+    .unwrap();
+    client.receive(&session).unwrap();
+    session.poll().unwrap();
+    assert!(!client.publish(&session).unwrap());
+    session.poll().unwrap();
+    assert!(!client.receive(&session).unwrap());
+    for _ in 0..13 {
+        client.flush().unwrap();
+    }
+    assert_eq!(Receipt::decode(&bytes.borrow()).unwrap().epoch, 2);
+    client.receive(&session).unwrap();
+    assert!(!client.publish(&session).unwrap());
+    session.poll().unwrap();
+    client.publish(&session).unwrap();
+    for _ in 0..13 {
+        client.flush().unwrap();
+    }
+    let r = Receipt::decode(&bytes.borrow()[40..]).unwrap();
+    assert_eq!((r.baseline, r.epoch, r.challenge.id), (3, 4, 2));
+    session.shutdown();
+}
+#[test]
+fn stopped_progress_does_not_claim_output_recovered_or_process_exited() {
+    use crate::progress::{Challenge, ProgressClient, ProgressPhase, Receipt};
+    let (mut session, _) = install();
+    session.poll().unwrap();
+    test_send(0x1e, false);
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = ProgressClient::new(
+        std::io::Cursor::new(Challenge { run_id: 7, id: 1 }.encode()),
+        ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 40,
+        },
+        7,
+    )
+    .unwrap();
+    client.receive(&session).unwrap();
+    super::super::session_notifications::api::send(7, 1);
+    assert!(session.poll().is_err());
+    assert_eq!(session.phase(), ActorPhase::Unresolved);
+    assert!(client.publish(&session).unwrap());
+    let r = Receipt::decode(&bytes.borrow()).unwrap();
+    assert_eq!(
+        (r.baseline, r.epoch, r.phase),
+        (1, 2, ProgressPhase::Stopped)
+    );
+    assert!(matches!(session.poll(), Err(SessionError::Closed)));
+    assert_eq!(session.progress_epoch(), 2);
+    assert_eq!(
+        session.actor.borrow().output().ledger().submitted().len(),
+        1
+    );
+}
+#[test]
+fn wouldblock_progress_write_does_not_mint_a_reply_or_epoch() {
+    use crate::progress::{Challenge, ProgressClient};
+    let (mut session, _) = install();
+    session.poll().unwrap();
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = ProgressClient::new(
+        std::io::Cursor::new(Challenge { run_id: 7, id: 1 }.encode()),
+        ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 0,
+        },
+        7,
+    )
+    .unwrap();
+    client.receive(&session).unwrap();
+    session.poll().unwrap();
+    for _ in 0..64 {
+        assert!(!client.publish(&session).unwrap());
+        assert!(!client.receive(&session).unwrap());
+    }
+    assert_eq!(session.progress_epoch(), 2);
+    assert!(bytes.borrow().is_empty());
+    session.shutdown();
+}
+#[test]
+fn exhausted_progress_stops_before_native_poll_and_never_wraps_counter() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    test_send(0x1e, false);
+    session.progress_epoch = u64::MAX;
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::ProgressExhausted)
+    ));
+    assert_eq!(session.progress_epoch(), u64::MAX);
+    assert_eq!(session.phase(), ActorPhase::Stopped);
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert!(session.shutdown_report().unwrap().unhook.is_ok());
+}
+#[test]
+fn progress_io_is_rejected_in_callback_before_read_write_or_actor_borrow() {
+    use crate::progress::{Challenge, ClientError, ProgressClient};
+    let (mut session, _) = install();
+    session.poll().unwrap();
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = ProgressClient::new(
+        std::io::Cursor::new(Challenge { run_id: 7, id: 1 }.encode()),
+        ProgressWriter {
+            bytes: bytes.clone(),
+            chunk: 40,
+        },
+        7,
+    )
+    .unwrap();
+    super::super::hook_thread::with_callback_borrow(|| {
+        assert!(matches!(
+            client.receive(&session),
+            Err(ClientError::InCallback)
+        ));
+        assert!(matches!(
+            client.publish(&session),
+            Err(ClientError::InCallback)
+        ));
+        assert!(matches!(client.flush(), Err(ClientError::InCallback)));
+        assert!(matches!(
+            ProgressClient::new(std::io::empty(), std::io::sink(), 7),
+            Err(ClientError::InCallback)
+        ));
+    });
+    assert!(bytes.borrow().is_empty());
+    assert!(client.receive(&session).unwrap());
+    assert!(!client.publish(&session).unwrap());
+    session.poll().unwrap();
+    assert!(client.publish(&session).unwrap());
+    session.shutdown();
 }

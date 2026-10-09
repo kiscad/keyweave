@@ -5,6 +5,8 @@ pub mod hook;
 pub mod keys;
 #[cfg(any(target_os = "windows", test))]
 mod native;
+#[cfg(any(target_os = "windows", test))]
+pub mod progress;
 pub mod pump;
 pub mod reactor;
 pub mod runtime;

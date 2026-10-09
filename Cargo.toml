@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/keyweave-types", "crates/keyweave-engine", "crates/keyweave-config", "crates/keyweavectl", "crates/keyweave-output", "crates/keyweave-linux", "crates/keyweave-windows"]
+members = ["crates/keyweave-types", "crates/keyweave-engine", "crates/keyweave-config", "crates/keyweavectl", "crates/keyweave-output", "crates/keyweave-linux", "crates/keyweave-windows", "crates/keyweave-progress"]
 
 [workspace.package]
 version = "0.1.0"
@@ -18,6 +18,8 @@ keyweave-types = { path = "crates/keyweave-types" }
 keyweave-engine = { path = "crates/keyweave-engine" }
 keyweave-config = { path = "crates/keyweave-config" }
 keyweave-output = { path = "crates/keyweave-output" }
+
+keyweave-progress = { path = "crates/keyweave-progress" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

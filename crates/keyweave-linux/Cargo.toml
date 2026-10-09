@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+keyweave-progress.workspace = true
 thiserror.workspace = true
 keyweave-types.workspace = true
 keyweave-output.workspace = true

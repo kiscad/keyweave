@@ -79,3 +79,5 @@ Windows WTS租约检查（ADR-0044）：本地caller与foreground所属session�
 Windows WTS通知在本session任何变更时停止，包括unlock/connect/desktop-ready，不能由消息授予或恢复lease。另session消息忽略；通知不认证发送者且有交付延迟。通知发生后保留非空/unknown submitted，禁止recovery新提交；通知前已进行的API仍按真实receipt确认，不宣称跨桌面原子性。没有独立监督或真机验收；metadata查询失败且尚无通知时也通过ADR-0046的独立锁存阻止恢复提交；没有跨桌面原子性。见ADR-0045/0046。
 
 Windows metadata或短租约失效，即使WTS消息没有到达也阻止新恢复提交；known empty正常停止，nonempty/unknown submitted保留为Unresolved。later成功诊断不恢复旧lease；secondary probe错误不被首callback故障遮蔽。通知到达/观测返回之前的实际API仍按receipt确认，不能宣称无窗口的原子停止。见[ADR-0046](ADR-0046-windows-revoked-access-recovery.md)。
+
+进度监督v1协议由共享crate统一，Linux阶段enum保持兼容别名及原字节值。Windows passive/Standby的实际poll会增加计数，但不回应进度；publish须看到challenge之后完成的poll，并且phase已进入Active/Recovering/Stopped。Stopped包含Unresolved，只表示事件循环停止，不证明全局按键已释放或进程退出。客户端拒绝callback IPC；generic streams必须由host提供真实非阻塞端点，当前未提供Windows native监督器。见ADR-0047。

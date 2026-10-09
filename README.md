@@ -49,3 +49,5 @@ Windows 本机验证（2026-10-09）：已用 WSL interop 调用宿主固定 Rus
 Windows 另有同线程 WTS 通知窗口，绑定本会话变更停止与输出提交 gate；通知资源诊断例程 `check_notifications` 仅创建/注册/关闭隐藏窗口，不安装键盘 Hook。[设计与限制](docs/ADR-0045-windows-session-notifications.md)。
 
 Windows 的桌面/权限检查或访问租约失效也会阻止恢复提交，独立于WTS通知和首个错误；非空或未知输出账本保留为Unresolved。[恢复边界](docs/ADR-0046-windows-revoked-access-recovery.md)。
+
+共享进度协议现在位于 `keyweave-progress`，Linux 与 Windows 复用固定帧/租约校验；Windows 回应须来自 challenge 之后实际完成的捕获循环 poll。[协议与边界](docs/ADR-0047-shared-runtime-progress.md)。Windows 原生进程监督仍待实现。

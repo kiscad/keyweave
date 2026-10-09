@@ -143,6 +143,7 @@ version = "0.1.0"
 dependencies = [
  "keyweave-engine",
  "keyweave-output",
+ "keyweave-progress",
  "keyweave-types",
  "libc",
  "thiserror",
@@ -153,6 +154,14 @@ name = "keyweave-output"
 version = "0.1.0"
 dependencies = [
  "keyweave-engine",
+ "keyweave-types",
+ "thiserror",
+]
+
+[[package]]
+name = "keyweave-progress"
+version = "0.1.0"
+dependencies = [
  "keyweave-types",
  "thiserror",
 ]
@@ -171,6 +180,7 @@ version = "0.1.0"
 dependencies = [
  "keyweave-engine",
  "keyweave-output",
+ "keyweave-progress",
  "keyweave-types",
  "thiserror",
 ]

@@ -191,6 +191,13 @@ impl SendBackend for SendInputBackend {
     }
 }
 
+#[cfg(all(test, not(target_os = "windows")))]
+pub(super) use session::CaptureSession;
+
+pub(super) fn outside_callback() -> bool {
+    hook_thread::outside_callback()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

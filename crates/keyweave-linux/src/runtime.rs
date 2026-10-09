@@ -17,12 +17,7 @@ use std::{
 pub const MAX_DEVICES: usize = 64;
 pub const MAX_WORK_PER_POLL: usize = 64;
 pub const MAX_RECOVERY_POLLS: usize = 8;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuntimePhase {
-    Active,
-    Recovering,
-    Stopped,
-}
+pub use keyweave_progress::ProgressPhase as RuntimePhase;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
     Pause,

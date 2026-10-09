@@ -46,6 +46,8 @@ pub enum SessionError {
     EmergencyDetector(#[from] EmergencyError),
     #[error(transparent)]
     AccessLease(#[from] AccessError),
+    #[error("runtime progress identity exhausted")]
+    ProgressExhausted,
     #[error("session is closed")]
     Closed,
 }
@@ -213,6 +215,7 @@ fn monitored_wait<B: SendBackend>(
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
     session: SessionIdentity,
+    progress_epoch: u64,
     notifications: SessionNotifications,
     hook: HookSession,
     actor: Rc<RefCell<SessionActor<GuardedBackend<B>>>>,
@@ -270,6 +273,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         };
         Ok(Self {
             session,
+            progress_epoch: 0,
             notifications,
             hook,
             actor,
@@ -280,6 +284,18 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             access,
             shutdown: None,
         })
+    }
+    pub fn progress_epoch(&self) -> u64 {
+        self.progress_epoch
+    }
+    pub fn progress_phase(&self) -> Option<keyweave_progress::ProgressPhase> {
+        use keyweave_progress::ProgressPhase;
+        match self.phase() {
+            ActorPhase::Standby => None,
+            ActorPhase::Active => Some(ProgressPhase::Active),
+            ActorPhase::StopRequired => Some(ProgressPhase::Recovering),
+            ActorPhase::Stopped | ActorPhase::Unresolved => Some(ProgressPhase::Stopped),
+        }
     }
     pub fn phase(&self) -> ActorPhase {
         self.actor.borrow().phase()
@@ -293,6 +309,10 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         if self.shutdown.is_some() {
             return Err(SessionError::Closed);
         }
+        let Some(next_epoch) = self.progress_epoch.checked_add(1) else {
+            self.shutdown();
+            return Err(SessionError::ProgressExhausted);
+        };
         let result = match self.poll_inner() {
             Err(SessionError::Hook(HookSessionError::Callback(HookFault::Emergency))) => {
                 Ok(SessionStep::Emergency)
@@ -317,6 +337,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         if result.is_err() || matches!(result, Ok(SessionStep::Quit | SessionStep::Emergency)) {
             self.shutdown();
         }
+        self.progress_epoch = next_epoch;
         result
     }
     fn check_notifications(&self) -> Result<(), SessionError> {

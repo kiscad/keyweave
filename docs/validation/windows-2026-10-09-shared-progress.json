@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-09",
+  "feature": "Shared v1 progress protocol and Windows actual-poll client (ADR-0047)",
+  "source_base_commit": "8bbb2ca8986629da7ca9ecda25f18648d094cbdd",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 512,
+      "windows_unit_tests_passed": 177,
+      "shared_progress_tests_passed": 7,
+      "production_native_link": "passed, including generic progress receive/publish",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs (existing native ABI unchanged)",
+      "source_files_hash_checked": 139,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-shared-progress-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "6be325492ce4f82f063984e96fa07456bb61ed4debd1b2ae295f31f1304fdb5c",
+        "clippy.log": "3e717af2aedf761eabaa423bf38e00914f5258aa00dcf87c31678d3313dd0544",
+        "source-manifest.json": "2b9a734207fc9797b24d20df08798334255f27fcb8daa58f61b7a68cdd024a86",
+        "validate.cmd": "9706156809b89feb49ff9e18806bb414c594605fa846783cdf425237ca53b935"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 512,
+      "windows_unit_tests_passed": 177,
+      "shared_progress_tests_passed": 7,
+      "production_native_link": "passed, including generic progress receive/publish",
+      "clippy": "passed --all-targets -D warnings",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs (existing native ABI unchanged)",
+      "source_files_hash_checked": 139,
+      "source_mismatches": 0,
+      "artifact_directory": "target/validation/windows-20261009-shared-progress-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "882e3f5ad6b7359b68b9d187a2963ca388892470467c291162701a0429195c41",
+        "clippy.log": "ee27e29cf620db335fd8c1b1bd89dd5caca9dee58bfc1e6ad2f1bd34c548900e",
+        "source-manifest.json": "2b9a734207fc9797b24d20df08798334255f27fcb8daa58f61b7a68cdd024a86",
+        "validate.cmd": "1362fbbdedad9eaa8ffa9e45cdcbbfb4d9a1ea10c0ed85c82eca0de159cd63be"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 549,
+    "worker_main_thread_harness": "passed",
+    "fixture_correction": "full suite passed before identical helper moved above test module; final Clippy recompiled all targets",
+    "fmt": "passed",
+    "clippy": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-shared-progress",
+    "artifacts_sha256": {
+      "tests.log": "2c102dfc7b72d8b073dc204608b368a0e7a0f3ee2c582a4d32ee43cd453b89da",
+      "clippy.log": "04b5fc427105cde2a83d09e99b4cd3ae526282cbf3bad4d071f1a9f92f981cd7"
+    }
+  },
+  "compatibility": {
+    "wire_version": 1,
+    "challenge_bytes": 24,
+    "receipt_bytes": 40,
+    "legacy_protocol_tests_moved": 6,
+    "fixed_legacy_wire_golden": "passed",
+    "linux_runtime_phase_alias": "same shared enum; byte values unchanged"
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false
+  },
+  "limits": [
+    "Windows client uses only actual CaptureSession poll epochs; callback/config/manual shutdown do not increment the epoch",
+    "Standby polls increment epoch but cannot publish; Stopped includes Unresolved and does not prove output recovery or child exit",
+    "Streams are generic and must be nonblocking; no native Windows pipe/overlapped implementation exists yet",
+    "No Windows Job Object, parent-death handling, owned-child supervisor or complete executable host yet",
+    "No real keyboard/session transitions, Windows Actions or hardware/performance acceptance",
+    "Complete D05/Linux bootstrap/GUI/driver and original scope remain incomplete"
+  ]
+}
