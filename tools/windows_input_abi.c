@@ -4,6 +4,8 @@
 #define _WIN32_WINNT 0x0a00
 #include <windows.h>
 #include <wtsapi32.h>
+#include <sddl.h>
+#include <bcrypt.h>
 #include <stddef.h>
 
 #define CHECK(expr) _Static_assert((expr), #expr)
@@ -37,6 +39,22 @@ CHECK(CREATE_NO_WINDOW == 0x08000000);
 CHECK(WAIT_OBJECT_0 == 0);
 CHECK(WAIT_TIMEOUT == 258);
 CHECK(WAIT_FAILED == 0xffffffff);
+CHECK(sizeof(OVERLAPPED) == (WIDE ? 32 : 20));
+CHECK(_Alignof(OVERLAPPED) == sizeof(void *));
+CHECK(offsetof(OVERLAPPED, Offset) == 2 * sizeof(void *));
+CHECK(offsetof(OVERLAPPED, hEvent) == (WIDE ? 24 : 16));
+CHECK(sizeof(SECURITY_ATTRIBUTES) == (WIDE ? 24 : 12));
+CHECK(offsetof(SECURITY_ATTRIBUTES, lpSecurityDescriptor) == (WIDE ? 8 : 4));
+CHECK(offsetof(SECURITY_ATTRIBUTES, bInheritHandle) == (WIDE ? 16 : 8));
+CHECK(FILE_FLAG_OVERLAPPED == 0x40000000);
+CHECK(FILE_FLAG_FIRST_PIPE_INSTANCE == 0x80000);
+CHECK(PIPE_ACCESS_INBOUND == 1 && PIPE_REJECT_REMOTE_CLIENTS == 8);
+CHECK(PIPE_TYPE_BYTE == 0 && PIPE_READMODE_BYTE == 0 && PIPE_WAIT == 0);
+CHECK(SECURITY_SQOS_PRESENT == 0x100000 && SECURITY_ANONYMOUS == 0);
+CHECK(ERROR_IO_PENDING == 997 && ERROR_IO_INCOMPLETE == 996);
+CHECK(ERROR_PIPE_CONNECTED == 535 && ERROR_BROKEN_PIPE == 109);
+CHECK(ERROR_NOT_FOUND == 1168 && BCRYPT_USE_SYSTEM_PREFERRED_RNG == 2);
+CHECK(SDDL_REVISION_1 == 1 && GENERIC_WRITE == 0x40000000 && OPEN_EXISTING == 3);
 CHECK(sizeof(WORD) == 2);
 CHECK(sizeof(DWORD) == 4);
 CHECK(sizeof(LONG) == 4);
@@ -144,6 +162,22 @@ CHECK(WAIT_OBJECT_0 == 0 && WAIT_TIMEOUT == 258 && WAIT_FAILED == 0xffffffff);
 /* SDK prototype checks including WINAPI calling convention (especially x86).
    Compile with /WX: incompatible pointer assignment must fail. No calls. */
 int main(void) {
+    HANDLE (WINAPI *create_pipe)(LPCWSTR, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, LPSECURITY_ATTRIBUTES) = CreateNamedPipeW;
+    HANDLE (WINAPI *open_pipe)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) = CreateFileW;
+    BOOL (WINAPI *connect_pipe)(HANDLE, LPOVERLAPPED) = ConnectNamedPipe;
+    HANDLE (WINAPI *create_event)(LPSECURITY_ATTRIBUTES, BOOL, BOOL, LPCWSTR) = CreateEventW;
+    BOOL (WINAPI *reset_event)(HANDLE) = ResetEvent;
+    BOOL (WINAPI *read_pipe)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) = ReadFile;
+    BOOL (WINAPI *write_pipe)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) = WriteFile;
+    BOOL (WINAPI *pipe_result)(HANDLE, LPOVERLAPPED, LPDWORD, BOOL) = GetOverlappedResult;
+    BOOL (WINAPI *cancel_pipe)(HANDLE, LPOVERLAPPED) = CancelIoEx;
+    BOOL (WINAPI *convert_security)(LPCWSTR, DWORD, PSECURITY_DESCRIPTOR *, PULONG) = ConvertStringSecurityDescriptorToSecurityDescriptorW;
+    HLOCAL (WINAPI *free_local)(HLOCAL) = LocalFree;
+    NTSTATUS (WINAPI *random_bytes)(BCRYPT_ALG_HANDLE, PUCHAR, ULONG, ULONG) = BCryptGenRandom;
+    (void)create_pipe; (void)open_pipe; (void)connect_pipe; (void)create_event;
+    (void)reset_event; (void)read_pipe; (void)write_pipe; (void)pipe_result;
+    (void)cancel_pipe; (void)convert_security; (void)free_local; (void)random_bytes;
+
     HANDLE (WINAPI *create_job)(LPSECURITY_ATTRIBUTES, LPCWSTR) = CreateJobObjectW;
     BOOL (WINAPI *set_job)(HANDLE, JOBOBJECTINFOCLASS, LPVOID, DWORD) = SetInformationJobObject;
     BOOL (WINAPI *create_process)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION) = CreateProcessW;

@@ -87,3 +87,6 @@ Windows新增owned Job进程资源接口（ADR-0048），无设备/输入行为�
 
 
 ADR-0049把Windows owned Job准入放入CreateProcessW扩展启动事务，无创建后Assign回退；创建成功时worker已在private Job内。Windows x64/i686实际无输入fixture已验证父被强制终止后worker退出（通过保留进程句柄观察，不靠Rust Drop/PID消失）。该结果不证明全局注入键清理、Hook存活或完整进度监督；native IPC/启动核验/host仍缺失。
+
+
+Windows新增native overlapped pipe transport（ADR-0050）：私有单向byte pair、64-byte稳定buffer/单flight/不可继承句柄，与共享v1协议相容；pending不等于发送完成，changed pending write拒绝。显式取消只有event completion确认后才能回收；Drop未完成会保留资源并毒化线程，不承诺全部回收。双架构无输入原生例程验证same-process往返/EOF/cancel；fixture epochs不表示真实runtime活性，尚无child端句柄交付/启动鉴别或独立progress supervisor。

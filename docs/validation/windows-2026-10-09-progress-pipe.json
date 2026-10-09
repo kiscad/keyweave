@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-09",
+  "feature": "Owned bounded overlapped progress pipes (ADR-0050)",
+  "source_base_commit": "d5e090d4e24a548f0792c60fe57826fd754e74ee",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 534,
+      "windows_unit_tests_passed": 199,
+      "pipe_unit_tests": 11,
+      "production_native_link": "passed including pipe factory, read/write and close; bcrypt/advapi32/kernel32",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs, OVERLAPPED/SECURITY_ATTRIBUTES layouts and pipe/event/cancel/security/RNG WINAPI prototypes; stdout observed, not separately archived",
+      "source_files_hash_checked": 150,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": "same-process 24/40-byte shared protocol roundtrip, fixture epoch11, real EOF and pending-read cancellation completed; explicit close reports complete",
+      "artifact_directory": "target/validation/windows-20261009-progress-pipe-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "68e19dd0cb22e0e4b539be4073c5ae7d3fc536ac1bf54a64867c873f14a2549b",
+        "clippy.log": "c68836ff3f654178ebb0156f6557a4140b993dff83ae47bc54749f84c04c05a7",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "ab1595d2e90701d8aa987c51b3a2ab9bc7a0f11b512f830f223b454553e2c326",
+        "validate.cmd": "e6ab510ef65e7974f0f56b8c0a9c4ac8b930d059c9f4015b5b3463bd41a3d159",
+        "pipe-build.log": "2aa6f8cc3ca357407955204213ae500dc1c11d1de55748640e420470578605f8",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "pipe-smoke.cmd": "31f6f3c213fc1d02ba1d218c9545061b9ad77a6579647d470a2434ed502815de"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 534,
+      "windows_unit_tests_passed": 199,
+      "pipe_unit_tests": 11,
+      "production_native_link": "passed including pipe factory, read/write and close; bcrypt/advapi32/kernel32",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs, OVERLAPPED/SECURITY_ATTRIBUTES layouts and pipe/event/cancel/security/RNG WINAPI prototypes; stdout observed, not separately archived",
+      "source_files_hash_checked": 150,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": "same-process 24/40-byte shared protocol roundtrip, fixture epoch11, real EOF and pending-read cancellation completed; explicit close reports complete",
+      "artifact_directory": "target/validation/windows-20261009-progress-pipe-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "3e79c4168779fc4faa5031a2dbe1c7fc6bd45a526d23716333547b39e24b81a8",
+        "clippy.log": "30d8fdfba4b6ec221eb87422f13a7060740ceba257aa30d462dfa83f31c8212b",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "ab1595d2e90701d8aa987c51b3a2ab9bc7a0f11b512f830f223b454553e2c326",
+        "validate.cmd": "ef29fdb3cb06993a058153b103060ef60bac3b8c9e023d15adb40892f0393413",
+        "pipe-build.log": "0c3cb06d37343122aa510dfc0729ad846663b5bae7994e9ab66b0be0f14e4e96",
+        "pipe-smoke.log": "b98ee93de6ebd459d4135a52787278c78f9b24b2c8d3ebf85b48165d304a0f6c",
+        "pipe-smoke.cmd": "faeb41a5bad9f19b5633e9d5d98175aa1fd809443f0f9b141c5777ad396cd85e"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 571,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-progress-pipe",
+    "artifacts_sha256": {
+      "tests.log": "4865eb776c8cf7cb3c6f42f03b5a5d0cbf4f1543e768c80071e675ccc69421a4",
+      "clippy.log": "e99af08267fc4f84e44722ab54a56997d64df6e4855111889ad11819e8e790e9",
+      "connect-count-before.log": "c8dbe3edd4635a38f63b10e0ca138ad37516590bc3afc7ac3d984990ab738f71"
+    }
+  },
+  "regression": {
+    "issue": "ConnectNamedPipe completion byte count is undefined; must not enforce read/write length",
+    "before": "strengthened existing test with nonzero connect count failed as InvalidData",
+    "after": "connect completion count ignored; final Linux and both Windows full checks/native smoke repeated",
+    "superseded_native_runs": "prior snapshots passed but excluded from final source evidence"
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "native_private_pipes_created": true
+  },
+  "limits": [
+    "roundtrip epochs are explicit test values, not real CaptureSession poll progress",
+    "no child process handle delivery/startup identity gate/Job watchdog integration yet",
+    "no cross-process progress supervision or full host",
+    "cancellation unresolved in Drop retains OS buffers/handles until process exit and poisons thread; not complete cleanup proof",
+    "constructor failures return primary IO error and use bounded Drop rollback, not complete startup transaction",
+    "all original rule/Linux bootstrap/GUI/packaging/driver/hardware scope remains"
+  ]
+}

@@ -130,3 +130,8 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 ```
 
 目标也可为i686-pc-windows-msvc；脚本所需exe位于该root的target/target-triple/debug/examples，使用同一快照tools脚本。首轮SDK有删除旧接口后的stale void引用，已在编译失败exit2后修正并重跑，不是通过证据。父死亡观测覆盖已resume fixture；创建时Job契约不提供跨桌面输入安全或全局键清理证明。原生IPC、worker自身启动核验、progress supervisor、Hook liveness和完整host仍待接入；见ADR-0049。
+
+
+2026-10-09 overlapped进度管道：[报告](validation/windows-2026-10-09-progress-pipe.json)记录最终固定1.97.1双架构各534 workspace tests、199 Windowsunit、native_link、all-targets Clippy/fmt/SDK通过，150源文件hash一致。新增SDK核验OVERLAPPED 32/20与event offset24/16、SECURITY_ATTRIBUTES 24/12、pipe/event/cancel/security/RNG原型及flags/constants。运行 `cargo run --locked -p keyweave-windows --example check_progress_pipe --target x86_64-pc-windows-msvc`（i686同理）仅创建本进程私有pipes/events，以共享v1固定24/40-byte协议和显式fixture epoch10→11完成往返，另实测EOF与取消empty pending read。两个宿主目标最终实际exit0，close报告全部complete；无Hook/SendInput/driver。例程的1ms sleep仅测试外层deadline循环，生产Read/Write无sleep/wait。
+
+首轮native通过后发现Connect completion byte count按Microsoft文档未定义；强化旧connect test为73复现InvalidData，再修正忽略count，最终全套/两种原生例程重跑并核对同快照。final日志/manifest/cmd在ignored target/validation/windows-20261009-progress-pipe-{x64,x86}-1.97.1，before回归与Linux最终日志在linux-20261009-progress-pipe。fixture count不能冒充真实CaptureSession进度，same-process往返不代表child句柄交付/身份核验/Job超时监督已完成。取消未确认时必须保留pending资源；Drop fallback不是全回收证明，见ADR-0050。
