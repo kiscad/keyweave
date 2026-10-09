@@ -1,0 +1,426 @@
+//! Owned suspended worker, job assignment before resume. No input APIs.
+use std::ffi::OsString;
+use std::{
+    ffi::c_void, marker::PhantomData, mem::size_of, path::Path, ptr::null_mut, rc::Rc,
+    time::Duration,
+};
+type Handle = *mut c_void;
+#[repr(C)]
+#[derive(Default)]
+struct BasicLimits {
+    process_time: i64,
+    job_time: i64,
+    flags: u32,
+    minimum_ws: usize,
+    maximum_ws: usize,
+    active: u32,
+    affinity: usize,
+    priority: u32,
+    scheduling: u32,
+}
+#[repr(C)]
+#[derive(Default)]
+struct ExtendedLimits {
+    basic: BasicLimits,
+    io: [u64; 6],
+    memory: [usize; 4],
+}
+#[repr(C)]
+struct Startup {
+    size: u32,
+    reserved: *mut u16,
+    desktop: *mut u16,
+    title: *mut u16,
+    numbers: [u32; 8],
+    show: u16,
+    reserved_bytes: u16,
+    reserved_ptr: *mut u8,
+    stdin: Handle,
+    stdout: Handle,
+    stderr: Handle,
+}
+#[repr(C)]
+struct ProcessInfo {
+    process: Handle,
+    thread: Handle,
+    process_id: u32,
+    thread_id: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum JobError {
+    #[error("invalid or excessive worker executable/arguments")]
+    Command,
+    #[error("job process operation is not valid in its current state")]
+    State,
+    #[error("job operations are forbidden in a keyboard callback")]
+    InCallback,
+    #[error("{call} failed: {code}")]
+    Api { call: &'static str, code: u32 },
+    #[error("unexpected primary-thread suspension count: {0}")]
+    SuspendCount(u32),
+    #[error("unexpected process wait result: {0}")]
+    Wait(u32),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobProcessState {
+    /// The Job exists; process creation has not succeeded.
+    Prepared,
+    Suspended,
+    /// Resume was attempted; retrying could execute an unverified worker.
+    ResumeAttempted,
+    Running,
+    StopRequested,
+    Exited(u32),
+}
+#[derive(Debug, thiserror::Error)]
+#[error("worker startup failed: {cause}; rollback: {rollback:?}")]
+pub struct JobSpawnError {
+    pub cause: JobError,
+    pub rollback: Option<JobError>,
+    /// Partial resources remain owned. Prepared means no process was created.
+    /// Other states may retain a child pending termination or observed exited.
+    pub owner: Option<OwnedJobProcess>,
+}
+#[cfg(not(test))]
+mod api {
+    use super::*;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub(super) fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> Handle;
+        pub(super) fn SetInformationJobObject(
+            job: Handle,
+            class: i32,
+            information: *const c_void,
+            bytes: u32,
+        ) -> i32;
+        pub(super) fn CreateProcessW(
+            application: *const u16,
+            command: *mut u16,
+            process_attributes: *const c_void,
+            thread_attributes: *const c_void,
+            inherit: i32,
+            flags: u32,
+            environment: *const c_void,
+            directory: *const u16,
+            startup: *const Startup,
+            process: *mut ProcessInfo,
+        ) -> i32;
+        pub(super) fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        pub(super) fn ResumeThread(thread: Handle) -> u32;
+        pub(super) fn TerminateJobObject(job: Handle, code: u32) -> i32;
+        pub(super) fn TerminateProcess(process: Handle, code: u32) -> i32;
+        pub(super) fn WaitForSingleObject(process: Handle, milliseconds: u32) -> u32;
+        pub(super) fn GetExitCodeProcess(process: Handle, code: *mut u32) -> i32;
+        pub(super) fn CloseHandle(handle: Handle) -> i32;
+        pub(super) fn GetLastError() -> u32;
+    }
+}
+use api::*;
+fn error(call: &'static str) -> JobError {
+    // SAFETY: immediate thread-local last error, no pointers or ownership.
+    JobError::Api {
+        call,
+        code: unsafe { GetLastError() },
+    }
+}
+fn context() -> Result<(), JobError> {
+    if super::hook_thread::outside_callback() {
+        Ok(())
+    } else {
+        Err(JobError::InCallback)
+    }
+}
+fn wide(value: &std::ffi::OsStr) -> Vec<u16> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        value.encode_wide().take(32768).collect()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        value.to_string_lossy().encode_utf16().take(32768).collect()
+    }
+}
+fn command(path: &Path, args: &[OsString]) -> Result<(Vec<u16>, Vec<u16>), JobError> {
+    if !path.is_absolute()
+        || !path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case("exe"))
+        || args.len() > 128
+    {
+        return Err(JobError::Command);
+    }
+    let mut application = wide(path.as_os_str());
+    if application.is_empty()
+        || application.len() > 32766
+        || application.contains(&0)
+        || application.contains(&34)
+    {
+        return Err(JobError::Command);
+    }
+    let mut parts = vec![application.clone()];
+    parts.extend(args.iter().map(|s| wide(s)));
+    let line = quote(&parts)?;
+    application.push(0);
+    Ok((application, line))
+}
+fn quote(parts: &[Vec<u16>]) -> Result<Vec<u16>, JobError> {
+    let mut out = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        if part.len() > 32766 || part.contains(&0) {
+            return Err(JobError::Command);
+        }
+        if index != 0 {
+            out.push(32);
+        }
+        out.push(34);
+        let mut slashes = 0;
+        for &unit in part {
+            if unit == 92 {
+                slashes += 1;
+                continue;
+            }
+            let count = if unit == 34 { slashes * 2 + 1 } else { slashes };
+            out.extend(std::iter::repeat_n(92, count));
+            out.push(unit);
+            slashes = 0;
+            if out.len() > 32766 {
+                return Err(JobError::Command);
+            }
+        }
+        out.extend(std::iter::repeat_n(92, slashes * 2));
+        out.push(34);
+        if out.len() > 32766 {
+            return Err(JobError::Command);
+        }
+    }
+    out.push(0);
+    Ok(out)
+}
+pub struct OwnedJobProcess {
+    job: Handle,
+    process: Handle,
+    thread: Handle,
+    assigned: bool,
+    state: JobProcessState,
+    _thread: PhantomData<Rc<()>>,
+}
+impl std::fmt::Debug for OwnedJobProcess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnedJobProcess")
+            .field("state", &self.state)
+            .field("assigned", &self.assigned)
+            .finish_non_exhaustive()
+    }
+}
+impl OwnedJobProcess {
+    pub fn spawn_suspended(path: &Path, args: &[OsString]) -> Result<Self, JobSpawnError> {
+        Self::spawn(path, args).map_err(|(cause, owner)| {
+            let mut owner = owner;
+            let rollback = if let Some(owner) = owner.as_mut() {
+                owner
+                    .request_stop()
+                    .and_then(|()| owner.poll_exit(Duration::from_millis(20)).map(|_| ()))
+                    .err()
+            } else {
+                None
+            };
+            JobSpawnError {
+                cause,
+                rollback,
+                owner,
+            }
+        })
+    }
+    fn spawn(path: &Path, args: &[OsString]) -> Result<Self, (JobError, Option<Self>)> {
+        context().map_err(|e| (e, None))?;
+        let (application, mut line) = command(path, args).map_err(|e| (e, None))?;
+        // SAFETY: null security attributes make the new unnamed Job handle
+        // noninheritable; no existing named object or borrowed handle is opened.
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if job.is_null() {
+            return Err((error("CreateJobObjectW"), None));
+        }
+        let mut owner = Self {
+            job,
+            process: null_mut(),
+            thread: null_mut(),
+            assigned: false,
+            state: JobProcessState::Prepared,
+            _thread: PhantomData,
+        };
+        let mut limits = ExtendedLimits::default();
+        limits.basic.flags = 0x2008;
+        limits.basic.active = 1;
+        // SAFETY: initialized SDK-checked extended limit struct; class=9,
+        // borrowed only for this synchronous call. No callback/user pointers.
+        if unsafe {
+            SetInformationJobObject(
+                job,
+                9,
+                &limits as *const _ as *const c_void,
+                size_of::<ExtendedLimits>() as u32,
+            )
+        } == 0
+        {
+            return Err((error("SetInformationJobObject"), Some(owner)));
+        }
+        // SAFETY: these structs contain only scalar integers/raw pointers; zero
+        // is valid for every field, no reference/enum/owned resource is created.
+        let mut startup: Startup = unsafe { std::mem::zeroed() };
+        startup.size = size_of::<Startup>() as u32;
+        let mut info: ProcessInfo = unsafe { std::mem::zeroed() };
+        // SAFETY: bounded nul-terminated absolute application and mutable command
+        // buffers live through CreateProcessW; exact SDK STARTUPINFO/PROCESS_INFO.
+        // No handle inheritance, no supplied security/env/cwd pointers. Suspended
+        // plus no-window flags; returned handles are uniquely owned on success.
+        if unsafe {
+            CreateProcessW(
+                application.as_ptr(),
+                line.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                0x08000004,
+                std::ptr::null(),
+                std::ptr::null(),
+                &startup,
+                &mut info,
+            )
+        } == 0
+        {
+            return Err((error("CreateProcessW"), Some(owner)));
+        }
+        owner.process = info.process;
+        owner.thread = info.thread;
+        owner.state = JobProcessState::Suspended;
+        // SAFETY: newly created, still suspended process assigned only to this
+        // private job; no external PID lookup or handle import is possible.
+        if unsafe { AssignProcessToJobObject(job, owner.process) } == 0 {
+            return Err((error("AssignProcessToJobObject"), Some(owner)));
+        }
+        owner.assigned = true;
+        Ok(owner)
+    }
+    pub fn state(&self) -> JobProcessState {
+        self.state
+    }
+    pub fn resume(&mut self) -> Result<(), JobError> {
+        context()?;
+        if !self.assigned || self.state != JobProcessState::Suspended || self.thread.is_null() {
+            return Err(JobError::State);
+        }
+        // SAFETY: uniquely retained primary thread, created suspended and already
+        // assigned to the job. No other code can obtain or resume this handle.
+        self.state = JobProcessState::ResumeAttempted;
+        let previous = unsafe { ResumeThread(self.thread) };
+        if previous != 1 {
+            let cause = if previous == u32::MAX {
+                error("ResumeThread")
+            } else {
+                JobError::SuspendCount(previous)
+            };
+            let _ = self.request_stop();
+            return Err(cause);
+        }
+        self.state = JobProcessState::Running;
+        self.close_thread()
+    }
+    pub fn request_stop(&mut self) -> Result<(), JobError> {
+        context()?;
+        if matches!(
+            self.state,
+            JobProcessState::StopRequested | JobProcessState::Exited(_)
+        ) || self.process.is_null()
+        {
+            return Ok(());
+        }
+        // SAFETY: terminate only this owner-created process/job. Before assignment
+        // the process is still suspended; after assignment the private job has
+        // active-process limit=1. No shared/system job or arbitrary PID is used.
+        let result = unsafe {
+            if self.assigned {
+                TerminateJobObject(self.job, 0xe04b5701)
+            } else {
+                TerminateProcess(self.process, 0xe04b5701)
+            }
+        };
+        if result == 0 {
+            return Err(error(if self.assigned {
+                "TerminateJobObject"
+            } else {
+                "TerminateProcess"
+            }));
+        }
+        self.state = JobProcessState::StopRequested;
+        Ok(())
+    }
+    pub fn poll_exit(&mut self, timeout: Duration) -> Result<Option<u32>, JobError> {
+        context()?;
+        if let JobProcessState::Exited(code) = self.state {
+            return Ok(Some(code));
+        }
+        if self.process.is_null() {
+            return Ok(None);
+        }
+        let millis = timeout.as_millis().min(20) as u32;
+        // SAFETY: uniquely owned process handle supports SYNCHRONIZE; finite
+        // 0..20ms wait, handle remains alive throughout the synchronous call.
+        match unsafe { WaitForSingleObject(self.process, millis) } {
+            258 => Ok(None),
+            0 => {
+                let mut code = 0;
+                // SAFETY: signaled owned process, initialized DWORD output; 259
+                // can be a genuine exit value, never used here as liveness proof.
+                if unsafe { GetExitCodeProcess(self.process, &mut code) } == 0 {
+                    return Err(error("GetExitCodeProcess"));
+                }
+                self.state = JobProcessState::Exited(code);
+                Ok(Some(code))
+            }
+            u32::MAX => Err(error("WaitForSingleObject")),
+            value => Err(JobError::Wait(value)),
+        }
+    }
+    fn close_thread(&mut self) -> Result<(), JobError> {
+        if self.thread.is_null() {
+            return Ok(());
+        }
+        // SAFETY: unique owned primary-thread handle, no raw pointer escapes.
+        if unsafe { CloseHandle(self.thread) } == 0 {
+            return Err(error("CloseHandle(thread)"));
+        }
+        self.thread = null_mut();
+        Ok(())
+    }
+}
+impl Drop for OwnedJobProcess {
+    fn drop(&mut self) {
+        let _ = self.request_stop();
+        let _ = self.poll_exit(Duration::from_millis(20));
+        let _ = self.close_thread();
+        // SAFETY: this uniquely owned private job closes before the process
+        // handle, so KILL_ON_JOB_CLOSE remains a fallback when termination failed.
+        // No handle copies exist. Drop is not an exit acknowledgement.
+        if !self.job.is_null() {
+            unsafe {
+                CloseHandle(self.job);
+            };
+            self.job = null_mut();
+        }
+        let _ = self.poll_exit(Duration::from_millis(20));
+        if !self.process.is_null() {
+            // SAFETY: unique process handle is no longer needed after bounded
+            // shutdown attempts. Closing it is not proof of process exit.
+            unsafe {
+                CloseHandle(self.process);
+            };
+            self.process = null_mut();
+        }
+    }
+}
+#[cfg(test)]
+mod api;
+#[cfg(test)]
+mod tests;

@@ -9,7 +9,7 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 8 crates、Cargo.lock、固定 1.97.1、549 个 libtest 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 8 crates、Cargo.lock、固定 1.97.1、558 个 libtest 测试及 worker 主线程独立 harness 通过 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
@@ -157,3 +157,6 @@ D08 共享进度协议/Windows poll计数（2026-10-09）：新增keyweave-progr
 
 
 D08 shared-progress Windows补验：固定1.97.1 x64/i686各512 workspace tests（177 Windowsunit、7 shared-progress tests、1生产native_link）、all-targets Clippy -D warnings与既有双SDK /Zs通过，最终父进程exit0。两个139文件SHA256均匹配最终实现；[报告](validation/windows-2026-10-09-shared-progress.json)，ignored target/validation/windows-20261009-shared-progress-{x64,x86}-1.97.1及linux-20261009-shared-progress保存完整日志/manifest/cmd。新crate7 tests包括迁移原6及独立legacy bytes golden；Linux原Runtime/真实Child监督/parent harness未删测试。fmt/60-source verifier/diff通过，helper仅移位后最终Clippy重新编译。没有真实Hook/SendInput/管道监督/设备/Windows CI验收；下一步实现Windows owned native transport与Job Object/进程监督，再host/Hook liveness；原D05/Linuxbootstrap/GUI/driver全部余项继续。
+
+
+D08 Windows owned Job进程资源（2026-10-09）：新增OwnedJobProcess与Prepared/Suspended/ResumeAttempted/Running/StopRequested/Exited状态；未命名不可继承Job设kill-on-close与active=1，明确absolute .exe与bounded UTF16命令行，无句柄继承，先挂起Create再Assign，成功后才显式Resume。所有权不导出，spawn失败保留owner/primary/rollback；resume尝试先锁存，停止失败也禁止第二次恢复。request_stop与实际signaled退出分开，259不当作仍活；Drop有限fallback不证明exit。新增9个mock/ABI/故障测试，SDK oracle扩展Job/Startup/Process布局、constants和WINAPI prototypes，native_link保留生产入口。Linux558与独立main-thread harness/Clippy/fmt/60-source verifier通过；固定Windows1.97.1 x64/i686各521 tests（186 Windowsunit+1 native_link）、Clippy/fmt与SDK均通过，143文件快照hash一致。两种check_job.exe真实运行exit0，只创建自身fixture，验证挂起/argv空格引号斜杠中文/exit259/ownJob停止并确认退出；无Hook/SendInput/driver/设备操作。[验证报告](validation/windows-2026-10-09-job-process.json)，[ADR-0048](ADR-0048-windows-owned-job-process.md)。Create→Assign父崩溃窗口仍须原子Job启动契约消除，当前不称完整监督；下一步实现原子Job准入、native pipes、进度超时监督与host，再实测父死亡/Hook存活。原D05/Linuxbootstrap/consumer-ready/GUI/packaging/driver/硬件所有余项继续，完整开发未完成。

@@ -13,6 +13,26 @@
 #endif
 CHECK(sizeof(void *) == KEYWEAVE_EXPECT_PTR);
 CHECK(sizeof(void *) == 4 || sizeof(void *) == 8);
+CHECK(sizeof(JOBOBJECT_BASIC_LIMIT_INFORMATION) == (WIDE ? 64 : 48));
+CHECK(_Alignof(JOBOBJECT_BASIC_LIMIT_INFORMATION) == 8);
+CHECK(offsetof(JOBOBJECT_BASIC_LIMIT_INFORMATION, LimitFlags) == 16);
+CHECK(offsetof(JOBOBJECT_BASIC_LIMIT_INFORMATION, ActiveProcessLimit) == (WIDE ? 40 : 28));
+CHECK(sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION) == (WIDE ? 144 : 112));
+CHECK(_Alignof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION) == 8);
+CHECK(offsetof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION, IoInfo) == (WIDE ? 64 : 48));
+CHECK(offsetof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION, ProcessMemoryLimit) == (WIDE ? 112 : 96));
+CHECK(sizeof(STARTUPINFOW) == (WIDE ? 104 : 68));
+CHECK(offsetof(STARTUPINFOW, dwX) == (WIDE ? 32 : 16));
+CHECK(offsetof(STARTUPINFOW, hStdInput) == (WIDE ? 80 : 56));
+CHECK(sizeof(PROCESS_INFORMATION) == (WIDE ? 24 : 16));
+CHECK(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0x2000);
+CHECK(JOB_OBJECT_LIMIT_ACTIVE_PROCESS == 8);
+CHECK(JobObjectExtendedLimitInformation == 9);
+CHECK(CREATE_SUSPENDED == 4);
+CHECK(CREATE_NO_WINDOW == 0x08000000);
+CHECK(WAIT_OBJECT_0 == 0);
+CHECK(WAIT_TIMEOUT == 258);
+CHECK(WAIT_FAILED == 0xffffffff);
 CHECK(sizeof(WORD) == 2);
 CHECK(sizeof(DWORD) == 4);
 CHECK(sizeof(LONG) == 4);
@@ -120,6 +140,19 @@ CHECK(WAIT_OBJECT_0 == 0 && WAIT_TIMEOUT == 258 && WAIT_FAILED == 0xffffffff);
 /* SDK prototype checks including WINAPI calling convention (especially x86).
    Compile with /WX: incompatible pointer assignment must fail. No calls. */
 int main(void) {
+    HANDLE (WINAPI *create_job)(LPSECURITY_ATTRIBUTES, LPCWSTR) = CreateJobObjectW;
+    BOOL (WINAPI *set_job)(HANDLE, JOBOBJECTINFOCLASS, LPVOID, DWORD) = SetInformationJobObject;
+    BOOL (WINAPI *create_process)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION) = CreateProcessW;
+    BOOL (WINAPI *assign_job)(HANDLE, HANDLE) = AssignProcessToJobObject;
+    DWORD (WINAPI *resume_thread)(HANDLE) = ResumeThread;
+    BOOL (WINAPI *terminate_job)(HANDLE, UINT) = TerminateJobObject;
+    BOOL (WINAPI *terminate_process)(HANDLE, UINT) = TerminateProcess;
+    DWORD (WINAPI *wait_process)(HANDLE, DWORD) = WaitForSingleObject;
+    BOOL (WINAPI *exit_process)(HANDLE, LPDWORD) = GetExitCodeProcess;
+    (void)create_job; (void)set_job; (void)create_process; (void)assign_job;
+    (void)resume_thread; (void)terminate_job; (void)terminate_process;
+    (void)wait_process; (void)exit_process;
+
     UINT (WINAPI *send_input)(UINT, LPINPUT, int) = SendInput;
     HHOOK (WINAPI *install)(int, HOOKPROC, HINSTANCE, DWORD) = SetWindowsHookExW;
     BOOL (WINAPI *remove_hook)(HHOOK) = UnhookWindowsHookEx;

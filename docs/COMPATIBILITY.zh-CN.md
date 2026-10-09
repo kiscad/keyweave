@@ -81,3 +81,6 @@ Windows WTS通知在本session任何变更时停止，包括unlock/connect/deskt
 Windows metadata或短租约失效，即使WTS消息没有到达也阻止新恢复提交；known empty正常停止，nonempty/unknown submitted保留为Unresolved。later成功诊断不恢复旧lease；secondary probe错误不被首callback故障遮蔽。通知到达/观测返回之前的实际API仍按receipt确认，不能宣称无窗口的原子停止。见[ADR-0046](ADR-0046-windows-revoked-access-recovery.md)。
 
 进度监督v1协议由共享crate统一，Linux阶段enum保持兼容别名及原字节值。Windows passive/Standby的实际poll会增加计数，但不回应进度；publish须看到challenge之后完成的poll，并且phase已进入Active/Recovering/Stopped。Stopped包含Unresolved，只表示事件循环停止，不证明全局按键已释放或进程退出。客户端拒绝callback IPC；generic streams必须由host提供真实非阻塞端点，当前未提供Windows native监督器。见ADR-0047。
+
+
+Windows新增owned Job进程资源接口（ADR-0048），无设备/输入行为：挂起创建、private Job分配、显式恢复、停止请求和实际退出分别表达；JobSpawnError保留partial owner。双架构无输入原生例程已确认argv传递、259退出和own Job显式终止。它尚未接入进度监督或host；Create→Assign期间的父崩溃窗口、真实父死亡与Hook存活仍待实现/验收，不能据此宣称卡死/崩溃恢复已完成。

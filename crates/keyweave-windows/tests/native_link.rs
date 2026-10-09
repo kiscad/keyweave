@@ -9,6 +9,10 @@ fn production_native_symbols_link_without_installation_or_injection() {
     };
     type Control = fn() -> Result<WaitPlan, HookFault>;
     let addresses = [
+        keyweave_windows::OwnedJobProcess::spawn_suspended as *const () as usize,
+        keyweave_windows::OwnedJobProcess::resume as *const () as usize,
+        keyweave_windows::OwnedJobProcess::request_stop as *const () as usize,
+        keyweave_windows::OwnedJobProcess::poll_exit as *const () as usize,
         HookSession::install as *const () as usize,
         HookSession::close as *const () as usize,
         HookSession::held_keys as *const () as usize,

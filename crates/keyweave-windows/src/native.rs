@@ -5,6 +5,7 @@ use crate::keys::{KeyboardPacket, MAX_BATCH};
 mod hook_thread;
 #[cfg(any(target_os = "windows", test))]
 mod input_probe;
+mod job_process;
 mod session;
 mod session_info;
 mod session_notifications;
@@ -12,6 +13,8 @@ mod session_notifications;
 pub use hook_thread::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
 pub use input_probe::{check_input_access, sample_input_state};
+#[cfg(target_os = "windows")]
+pub use job_process::{JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
 #[cfg(target_os = "windows")]
 pub use session::{CaptureSession, SessionError, SessionStep, ShutdownReport};
 #[cfg(target_os = "windows")]

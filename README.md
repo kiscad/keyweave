@@ -51,3 +51,6 @@ Windows 另有同线程 WTS 通知窗口，绑定本会话变更停止与输出�
 Windows 的桌面/权限检查或访问租约失效也会阻止恢复提交，独立于WTS通知和首个错误；非空或未知输出账本保留为Unresolved。[恢复边界](docs/ADR-0046-windows-revoked-access-recovery.md)。
 
 共享进度协议现在位于 `keyweave-progress`，Linux 与 Windows 复用固定帧/租约校验；Windows 回应须来自 challenge 之后实际完成的捕获循环 poll。[协议与边界](docs/ADR-0047-shared-runtime-progress.md)。Windows 原生进程监督仍待实现。
+
+
+Windows 已增加自有 Job 的挂起进程管理与无输入 `check_job` 例程，双架构原生编译/资源测试通过。[状态与限制](docs/ADR-0048-windows-owned-job-process.md)；正式进度监督、原子启动与完整 host 仍待实现。

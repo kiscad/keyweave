@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-09",
+  "feature": "Owned suspended Job process and no-input native smoke (ADR-0048)",
+  "source_base_commit": "0f46baa15d5c2c0815e845115ad808e20e3809ba",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 521,
+      "windows_unit_tests_passed": 186,
+      "job_unit_tests_added": 9,
+      "production_native_link": "passed including Job process entrypoints",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed on same source snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs, Job/startup/process layouts and WINAPI prototypes; stdout observed, not separately archived",
+      "source_files_hash_checked": 143,
+      "source_mismatches": 0,
+      "native_no_input_smoke": "exit 0; suspended state, argv roundtrip, exit 259 and own Job termination observed",
+      "validation_process": "confirmed terminal exit 0",
+      "artifact_directory": "target/validation/windows-20261009-job-process-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "797620130b47b6a1963efa64e6a9a9469cfa96bb4cb384dcabd30429a999e8c2",
+        "clippy.log": "15c59648125c9b805d12211a846f45c259a7d3f1585ea351ef8a41ea1b185d0b",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "5954e8a3c9ff9cb3751f8039d1f7a3909b22c5f335a3ab7ef503119f0a9732d3",
+        "validate.cmd": "2f4aeec08a6425113412dbc7cc80376b0bdecb8fb16f5734dd6860683c961be7",
+        "job-build.log": "e2f882dcebbefbeb1529fea74e6319be5e5f2fd39d06782bbc32747bedc97946",
+        "job-smoke.log": "7e24d77285c06c4b46dc7836b5bf2d3650fbd4e8136c43d0e9608811fd672aa9",
+        "job-smoke.cmd": "0aae710bc724f329dd2e6ed948528883e26093014524b9b1865a61ceeb57a2ed"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 521,
+      "windows_unit_tests_passed": 186,
+      "job_unit_tests_added": 9,
+      "production_native_link": "passed including Job process entrypoints",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed on same source snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs, Job/startup/process layouts and WINAPI prototypes; stdout observed, not separately archived",
+      "source_files_hash_checked": 143,
+      "source_mismatches": 0,
+      "native_no_input_smoke": "exit 0; suspended state, argv roundtrip, exit 259 and own Job termination observed",
+      "validation_process": "confirmed terminal exit 0",
+      "artifact_directory": "target/validation/windows-20261009-job-process-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "e160c14e742e1e0331b9a9d011951267af4b85f077a8704dc56b88714ff2b039",
+        "clippy.log": "fbdeb4a1c59366181b2aa819408bdc29d01ccc60d1a422f8fc3a72cc47ee5c42",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "5954e8a3c9ff9cb3751f8039d1f7a3909b22c5f335a3ab7ef503119f0a9732d3",
+        "validate.cmd": "022ea764ab33ba272873fcf5dfddcfaa6535bc99d43dfdc74521ea8c44db694b",
+        "job-build.log": "6c757f4581cf69343aeb30e3a6eb4e4a45c7d5352aee5a751cef59a2ed69de44",
+        "job-smoke.log": "7e24d77285c06c4b46dc7836b5bf2d3650fbd4e8136c43d0e9608811fd672aa9",
+        "job-smoke.cmd": "9d11ed0550569d1980e4a3815f990052d1072441b079ed74e5d40f82d6ab1c72"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 558,
+    "worker_main_thread_harness": "passed",
+    "fmt": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-job-process",
+    "artifacts_sha256": {
+      "tests.log": "2ca4e3058c85d9f2badcb9c526468c1f46e521db15b3cb01881359b09b843f02",
+      "clippy.log": "1ed55225841164326b0cc9fffcbf1235dc60683bb2cfd9bb02f078217f631225"
+    }
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "own_fixture_processes_created": true
+  },
+  "remaining": [
+    "native Windows IPC transport and progress supervisor",
+    "atomic job assignment at process creation to remove pre-assignment parent crash window",
+    "actual parent-death test",
+    "Hook liveness and executable host",
+    "full rule, Linux bootstrap, GUI, packaging, driver and hardware scope"
+  ]
+}

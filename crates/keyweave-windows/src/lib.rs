@@ -23,3 +23,6 @@ pub use native::{CaptureSession, SessionError, SessionStep, ShutdownReport};
 
 #[cfg(target_os = "windows")]
 pub use native::{NotificationCleanup, NotificationError, SessionNotifications};
+
+#[cfg(target_os = "windows")]
+pub use native::{JobError, JobProcessState, JobSpawnError, OwnedJobProcess};
