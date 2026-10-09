@@ -1,5 +1,7 @@
 # ADR-0048：Windows owned Job 与挂起启动
 
+后续状态：创建后 Assign 的顺序由 [ADR-0049](ADR-0049-windows-atomic-job-startup.md) 替换为创建时 Job 属性准入；以下保留本切片的历史设计与验证边界。
+
 Windows supervisor 必须先取得独占退出控制再让 worker 执行；std::process::Command 配 CREATE_SUSPENDED 却不保留 primary thread，不能用 undocumented NtResumeProcess 绕过。采用窄 native CreateProcessW / Job Object / ResumeThread 边界。
 
 顺序：创建未命名、不可继承的 Job，设置 KILL_ON_JOB_CLOSE + ACTIVE_PROCESS_LIMIT=1（不允许 worker 自建子进程），用明确绝对 .exe application path、可写 bounded UTF16 command line、无 handle 继承与 CREATE_SUSPENDED|CREATE_NO_WINDOW 创建进程；成功 AssignProcessToJobObject 后才返回可 resume 的 owner。主线程必须恰好从 suspend count=1 恢复，异常或 API 错误要求停止，不能推断程序 ready。

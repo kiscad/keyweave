@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-09",
+  "feature": "Atomic Job assignment at process creation and real parent-death fixture (ADR-0049)",
+  "source_base_commit": "e9ecf4a8dd173ccb2087ee0fba3bbbfaff398cc5",
+  "source_has_uncommitted_changes": true,
+  "windows_build": "10.0.19045",
+  "rust": "1.97.1",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 523,
+      "windows_unit_tests_passed": 188,
+      "job_unit_tests": 11,
+      "production_native_link": "passed including attribute-based Job process creation",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; STARTUPINFOEXW, Job attribute/flag and WINAPI prototypes; stdout observed, not separately archived",
+      "source_files_hash_checked": 145,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": "argv, suspended startup, exit259 and explicit own Job stop observed",
+      "parent_death": "passed: own parent abruptly terminated; previously live worker exit observed via retained handle; no Rust Drop",
+      "artifact_directory": "target/validation/windows-20261009-atomic-job-x64-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "4c10b8e538ade8c2791e51b7bc9656d93ecca87a2d89153c7b3e59b694cd3d8b",
+        "clippy.log": "ce956f4cd4880cfc9a754354f82ba8a2d8f1f2af85ceaca7a7511cd81ddfdc45",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "007a654ef8dfab2fa3751a6f7cd16f01b40d7c793d5aed27f0113a0a755a4947",
+        "validate.cmd": "cffea7d4038dd2654967a2a07d76f7ee215abf37896fb5540c75616ff81dc250",
+        "job-build.log": "4e22c86c412a415094749c0e35f5ce04b9064c0cbe980199ad679906feff6942",
+        "job-smoke.log": "c1d15135ec6bb7e0ab3a0a94b38b269a295b5b9e911eca871a5e293e812a5ad4",
+        "job-smoke.cmd": "0ed33f896b2dcd4052e3731e65767fb3a51db8a5899b0ce6f8e512ba2964df59"
+      }
+    },
+    {
+      "arch": "x86",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 523,
+      "windows_unit_tests_passed": 188,
+      "job_unit_tests": 11,
+      "production_native_link": "passed including attribute-based Job process creation",
+      "clippy": "passed --all-targets -D warnings",
+      "fmt": "passed same snapshot",
+      "sdk_oracle": "passed /W4 /WX /std:c11 /Zs; STARTUPINFOEXW, Job attribute/flag and WINAPI prototypes; stdout observed, not separately archived",
+      "source_files_hash_checked": 145,
+      "source_mismatches": 0,
+      "validation_process": "confirmed terminal exit 0",
+      "native_smoke_process": "confirmed terminal exit 0",
+      "native_no_input_smoke": "argv, suspended startup, exit259 and explicit own Job stop observed",
+      "parent_death": "passed: own parent abruptly terminated; previously live worker exit observed via retained handle; no Rust Drop",
+      "artifact_directory": "target/validation/windows-20261009-atomic-job-x86-1.97.1",
+      "artifacts_sha256": {
+        "tests.log": "5c63e83ebea8cc187ea2ef689218ac1f6028c46b3b78bdf6078c0312eadc1401",
+        "clippy.log": "3d80c5f0563b0185f61df86c9c7c218fc4187f03d4c46ba1132b6c019dd6fad1",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source-manifest.json": "007a654ef8dfab2fa3751a6f7cd16f01b40d7c793d5aed27f0113a0a755a4947",
+        "validate.cmd": "ea86f854161ba52f2b421152e920317d6fa7641021109997e79c9608442ed16f",
+        "job-build.log": "07adfa85387ac15de0f821251fd42e42a9515870447c1eaba5e265ee2bb4d581",
+        "job-smoke.log": "c1d15135ec6bb7e0ab3a0a94b38b269a295b5b9e911eca871a5e293e812a5ad4",
+        "job-smoke.cmd": "ca7dfc5716731036e24eaec750a515e474a6df918ee3022b290d282b1ef84287"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 560,
+    "worker_main_thread_harness": "passed",
+    "clippy": "passed --workspace --all-targets -D warnings",
+    "fmt": "passed",
+    "source_verifier": "60 hashes and fixture copies passed",
+    "artifact_directory": "target/validation/linux-20261009-atomic-job",
+    "artifacts_sha256": {
+      "tests.log": "aec1f55d105b63c3f51805dcdde76c330c6d78204416e13eb3a3f813389f127d",
+      "clippy.log": "f7606f54b08f9b939661c97186e8303156bece22882b40e3ec9daae2e8a4b0b6"
+    }
+  },
+  "superseded_run": {
+    "status": "SDK compile failed, parent process terminal exit 2",
+    "reason": "stale terminate_process void reference after removing that prototype; fixed before both final snapshots; not counted as passing"
+  },
+  "input_operations": {
+    "real_hook_installed": false,
+    "real_sendinput_called": false,
+    "driver_loaded": false,
+    "hardware_validated": false,
+    "own_fixture_processes_created": true,
+    "own_fixture_parent_abruptly_terminated": true
+  },
+  "limits": [
+    "parent death tested after worker resume, not every possible kernel scheduling point",
+    "Job exit does not prove globally injected keys released",
+    "native IPC/progress supervisor/worker startup identity checks/Hook liveness/executable host remain",
+    "full D05/Linux bootstrap/GUI/packaging/driver/hardware scope remains"
+  ]
+}

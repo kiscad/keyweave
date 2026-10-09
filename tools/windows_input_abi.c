@@ -24,6 +24,10 @@ CHECK(offsetof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION, ProcessMemoryLimit) == (WID
 CHECK(sizeof(STARTUPINFOW) == (WIDE ? 104 : 68));
 CHECK(offsetof(STARTUPINFOW, dwX) == (WIDE ? 32 : 16));
 CHECK(offsetof(STARTUPINFOW, hStdInput) == (WIDE ? 80 : 56));
+CHECK(sizeof(STARTUPINFOEXW) == (WIDE ? 112 : 72));
+CHECK(offsetof(STARTUPINFOEXW, lpAttributeList) == (WIDE ? 104 : 68));
+CHECK(EXTENDED_STARTUPINFO_PRESENT == 0x00080000);
+CHECK(PROC_THREAD_ATTRIBUTE_JOB_LIST == 0x2000d);
 CHECK(sizeof(PROCESS_INFORMATION) == (WIDE ? 24 : 16));
 CHECK(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0x2000);
 CHECK(JOB_OBJECT_LIMIT_ACTIVE_PROCESS == 8);
@@ -143,14 +147,16 @@ int main(void) {
     HANDLE (WINAPI *create_job)(LPSECURITY_ATTRIBUTES, LPCWSTR) = CreateJobObjectW;
     BOOL (WINAPI *set_job)(HANDLE, JOBOBJECTINFOCLASS, LPVOID, DWORD) = SetInformationJobObject;
     BOOL (WINAPI *create_process)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION) = CreateProcessW;
-    BOOL (WINAPI *assign_job)(HANDLE, HANDLE) = AssignProcessToJobObject;
+    BOOL (WINAPI *initialize_attributes)(LPPROC_THREAD_ATTRIBUTE_LIST, DWORD, DWORD, PSIZE_T) = InitializeProcThreadAttributeList;
+    BOOL (WINAPI *update_attributes)(LPPROC_THREAD_ATTRIBUTE_LIST, DWORD, DWORD_PTR, PVOID, SIZE_T, PVOID, PSIZE_T) = UpdateProcThreadAttribute;
+    void (WINAPI *delete_attributes)(LPPROC_THREAD_ATTRIBUTE_LIST) = DeleteProcThreadAttributeList;
     DWORD (WINAPI *resume_thread)(HANDLE) = ResumeThread;
     BOOL (WINAPI *terminate_job)(HANDLE, UINT) = TerminateJobObject;
-    BOOL (WINAPI *terminate_process)(HANDLE, UINT) = TerminateProcess;
     DWORD (WINAPI *wait_process)(HANDLE, DWORD) = WaitForSingleObject;
     BOOL (WINAPI *exit_process)(HANDLE, LPDWORD) = GetExitCodeProcess;
-    (void)create_job; (void)set_job; (void)create_process; (void)assign_job;
-    (void)resume_thread; (void)terminate_job; (void)terminate_process;
+    (void)create_job; (void)set_job; (void)create_process;
+    (void)initialize_attributes; (void)update_attributes; (void)delete_attributes;
+    (void)resume_thread; (void)terminate_job;
     (void)wait_process; (void)exit_process;
 
     UINT (WINAPI *send_input)(UINT, LPINPUT, int) = SendInput;

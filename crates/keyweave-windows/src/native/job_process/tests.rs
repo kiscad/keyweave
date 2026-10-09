@@ -24,6 +24,11 @@ fn sdk_job_startup_process_layouts() {
     assert_eq!(size_of::<Startup>(), if wide { 104 } else { 68 });
     assert_eq!(offset_of!(Startup, numbers), if wide { 32 } else { 16 });
     assert_eq!(offset_of!(Startup, stdin), if wide { 80 } else { 56 });
+    assert_eq!(size_of::<StartupEx>(), if wide { 112 } else { 72 });
+    assert_eq!(
+        offset_of!(StartupEx, attributes),
+        if wide { 104 } else { 68 }
+    );
     assert_eq!(size_of::<ProcessInfo>(), if wide { 24 } else { 16 });
 }
 #[test]
@@ -32,7 +37,15 @@ fn assignment_precedes_explicit_resume_and_stop_is_not_exit() {
     assert_eq!(child.state(), JobProcessState::Suspended);
     assert_eq!(
         api::MOCK.with(|m| m.borrow().calls.clone()),
-        ["job", "limits", "create", "assign"]
+        [
+            "job",
+            "limits",
+            "attribute-size",
+            "attribute-init",
+            "attribute-job",
+            "create",
+            "attribute-delete"
+        ]
     );
     assert_eq!(api::MOCK.with(|m| m.borrow().limits), Some((0x2008, 1)));
     child.resume().unwrap();
@@ -56,22 +69,31 @@ fn assignment_precedes_explicit_resume_and_stop_is_not_exit() {
     assert!(api::MOCK.with(|m| m.borrow().waits.iter().all(|&v| v <= 20)));
 }
 #[test]
-fn assignment_failure_preserves_owner_and_uses_only_own_process_for_rollback() {
-    api::MOCK.with(|m| m.borrow_mut().fail = Some("assign"));
-    let mut error = OwnedJobProcess::spawn_suspended(&path(), &[]).unwrap_err();
-    assert!(matches!(
+fn job_attribute_failure_aborts_before_creating_a_child_and_cleans_list() {
+    api::MOCK.with(|m| m.borrow_mut().fail = Some("attribute-job"));
+    let error = OwnedJobProcess::spawn_suspended(&path(), &[]).unwrap_err();
+    assert_eq!(
         error.cause,
         JobError::Api {
-            call: "AssignProcessToJobObject",
+            call: "UpdateProcThreadAttribute(JOB_LIST)",
             code: 5
         }
-    ));
-    let child = error.owner.as_mut().unwrap();
-    assert_eq!(child.state(), JobProcessState::StopRequested);
-    assert_eq!(child.resume(), Err(JobError::State));
-    assert_eq!(child.poll_exit(Duration::ZERO).unwrap(), None);
-    assert!(api::MOCK.with(|m| m.borrow().calls.contains(&"kill-process")));
-    assert!(!api::MOCK.with(|m| m.borrow().calls.contains(&"resume")));
+    );
+    assert_eq!(
+        error.owner.as_ref().unwrap().state(),
+        JobProcessState::Prepared
+    );
+    assert!(!api::MOCK.with(|m| m.borrow().calls.contains(&"create")));
+    assert_eq!(api::MOCK.with(|m| m.borrow().initialized_list), 0);
+    assert_eq!(
+        api::MOCK.with(|m| m
+            .borrow()
+            .calls
+            .iter()
+            .filter(|&&s| s == "attribute-delete")
+            .count()),
+        1
+    );
 }
 #[test]
 fn failed_resume_and_unexpected_suspend_count_stop_without_retrying_resume() {
@@ -92,7 +114,13 @@ fn failed_resume_and_unexpected_suspend_count_stop_without_retrying_resume() {
 }
 #[test]
 fn primary_errors_and_partial_resource_ownership_are_kept() {
-    for fail in ["job", "limits", "create"] {
+    for fail in [
+        "job",
+        "limits",
+        "attribute-size",
+        "attribute-init",
+        "create",
+    ] {
         std::thread::spawn(move || {
             api::MOCK.with(|m| m.borrow_mut().fail = Some(fail));
             let error = OwnedJobProcess::spawn_suspended(&path(), &[]).unwrap_err();
@@ -176,4 +204,46 @@ fn failed_rollback_cannot_allow_a_second_resume() {
     api::MOCK.with(|m| m.borrow_mut().fail = None);
     child.request_stop().unwrap();
     assert_eq!(child.state(), JobProcessState::StopRequested);
+}
+
+#[test]
+fn attribute_size_query_rejects_zero_excess_and_unexpected_success() {
+    for (size, success) in [(0, false), (4097, false), (96, true)] {
+        std::thread::spawn(move || {
+            api::MOCK.with(|m| {
+                let mut m = m.borrow_mut();
+                m.query_bytes = Some(size);
+                m.query_success = success;
+            });
+            let error = OwnedJobProcess::spawn_suspended(&path(), &[]).unwrap_err();
+            assert_eq!(error.cause, JobError::AttributeSize);
+            assert_eq!(
+                error.owner.as_ref().unwrap().state(),
+                JobProcessState::Prepared
+            );
+            assert!(!api::MOCK.with(|m| {
+                m.borrow()
+                    .calls
+                    .iter()
+                    .any(|s| ["attribute-init", "attribute-delete", "create"].contains(s))
+            }));
+        })
+        .join()
+        .unwrap();
+    }
+}
+#[test]
+fn create_failure_deletes_initialized_attributes_without_claiming_child_exit() {
+    api::MOCK.with(|m| m.borrow_mut().fail = Some("create"));
+    let error = OwnedJobProcess::spawn_suspended(&path(), &[]).unwrap_err();
+    assert_eq!(
+        error.owner.as_ref().unwrap().state(),
+        JobProcessState::Prepared
+    );
+    assert_eq!(error.rollback, None);
+    let calls = api::MOCK.with(|m| m.borrow().calls.clone());
+    assert!(calls.ends_with(&["create", "attribute-delete"]));
+    assert!(!calls.contains(&"kill-job"));
+    assert!(!calls.contains(&"resume"));
+    assert_eq!(api::MOCK.with(|m| m.borrow().initialized_list), 0);
 }

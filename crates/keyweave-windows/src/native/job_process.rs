@@ -1,4 +1,6 @@
-//! Owned suspended worker, job assignment before resume. No input APIs.
+//! Owned suspended worker, atomically assigned to its Job at creation. No input APIs.
+mod attributes;
+use attributes::Attributes;
 use std::ffi::OsString;
 use std::{
     ffi::c_void, marker::PhantomData, mem::size_of, path::Path, ptr::null_mut, rc::Rc,
@@ -40,6 +42,11 @@ struct Startup {
     stderr: Handle,
 }
 #[repr(C)]
+struct StartupEx {
+    info: Startup,
+    attributes: *mut c_void,
+}
+#[repr(C)]
 struct ProcessInfo {
     process: Handle,
     thread: Handle,
@@ -50,6 +57,8 @@ struct ProcessInfo {
 pub enum JobError {
     #[error("invalid or excessive worker executable/arguments")]
     Command,
+    #[error("invalid process attribute-list buffer size")]
+    AttributeSize,
     #[error("job process operation is not valid in its current state")]
     State,
     #[error("job operations are forbidden in a keyboard callback")]
@@ -105,10 +114,24 @@ mod api {
             startup: *const Startup,
             process: *mut ProcessInfo,
         ) -> i32;
-        pub(super) fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        pub(super) fn InitializeProcThreadAttributeList(
+            list: *mut c_void,
+            count: u32,
+            flags: u32,
+            size: *mut usize,
+        ) -> i32;
+        pub(super) fn UpdateProcThreadAttribute(
+            list: *mut c_void,
+            flags: u32,
+            attribute: usize,
+            value: *mut c_void,
+            size: usize,
+            previous: *mut c_void,
+            returned: *mut usize,
+        ) -> i32;
+        pub(super) fn DeleteProcThreadAttributeList(list: *mut c_void);
         pub(super) fn ResumeThread(thread: Handle) -> u32;
         pub(super) fn TerminateJobObject(job: Handle, code: u32) -> i32;
-        pub(super) fn TerminateProcess(process: Handle, code: u32) -> i32;
         pub(super) fn WaitForSingleObject(process: Handle, milliseconds: u32) -> u32;
         pub(super) fn GetExitCodeProcess(process: Handle, code: *mut u32) -> i32;
         pub(super) fn CloseHandle(handle: Handle) -> i32;
@@ -202,7 +225,6 @@ pub struct OwnedJobProcess {
     job: Handle,
     process: Handle,
     thread: Handle,
-    assigned: bool,
     state: JobProcessState,
     _thread: PhantomData<Rc<()>>,
 }
@@ -210,7 +232,6 @@ impl std::fmt::Debug for OwnedJobProcess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OwnedJobProcess")
             .field("state", &self.state)
-            .field("assigned", &self.assigned)
             .finish_non_exhaustive()
     }
 }
@@ -246,7 +267,6 @@ impl OwnedJobProcess {
             job,
             process: null_mut(),
             thread: null_mut(),
-            assigned: false,
             state: JobProcessState::Prepared,
             _thread: PhantomData,
         };
@@ -266,13 +286,20 @@ impl OwnedJobProcess {
         {
             return Err((error("SetInformationJobObject"), Some(owner)));
         }
+        let mut attributes = match Attributes::new(job) {
+            Ok(attributes) => attributes,
+            Err(cause) => return Err((cause, Some(owner))),
+        };
         // SAFETY: these structs contain only scalar integers/raw pointers; zero
         // is valid for every field, no reference/enum/owned resource is created.
-        let mut startup: Startup = unsafe { std::mem::zeroed() };
-        startup.size = size_of::<Startup>() as u32;
+        let mut startup: StartupEx = unsafe { std::mem::zeroed() };
+        startup.info.size = size_of::<StartupEx>() as u32;
+        startup.attributes = attributes.pointer();
         let mut info: ProcessInfo = unsafe { std::mem::zeroed() };
         // SAFETY: bounded nul-terminated absolute application and mutable command
-        // buffers live through CreateProcessW; exact SDK STARTUPINFO/PROCESS_INFO.
+        // buffers live through CreateProcessW; exact SDK STARTUPINFOEX/PROCESS_INFO.
+        // Attribute storage and Job array stay pinned/alive through the call;
+        // JOB_LIST assigns this private Job as part of process creation.
         // No handle inheritance, no supplied security/env/cwd pointers. Suspended
         // plus no-window flags; returned handles are uniquely owned on success.
         if unsafe {
@@ -282,10 +309,10 @@ impl OwnedJobProcess {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
-                0x08000004,
+                0x08080004,
                 std::ptr::null(),
                 std::ptr::null(),
-                &startup,
+                &startup.info,
                 &mut info,
             )
         } == 0
@@ -295,12 +322,6 @@ impl OwnedJobProcess {
         owner.process = info.process;
         owner.thread = info.thread;
         owner.state = JobProcessState::Suspended;
-        // SAFETY: newly created, still suspended process assigned only to this
-        // private job; no external PID lookup or handle import is possible.
-        if unsafe { AssignProcessToJobObject(job, owner.process) } == 0 {
-            return Err((error("AssignProcessToJobObject"), Some(owner)));
-        }
-        owner.assigned = true;
         Ok(owner)
     }
     pub fn state(&self) -> JobProcessState {
@@ -308,7 +329,7 @@ impl OwnedJobProcess {
     }
     pub fn resume(&mut self) -> Result<(), JobError> {
         context()?;
-        if !self.assigned || self.state != JobProcessState::Suspended || self.thread.is_null() {
+        if self.state != JobProcessState::Suspended || self.thread.is_null() {
             return Err(JobError::State);
         }
         // SAFETY: uniquely retained primary thread, created suspended and already
@@ -336,22 +357,10 @@ impl OwnedJobProcess {
         {
             return Ok(());
         }
-        // SAFETY: terminate only this owner-created process/job. Before assignment
-        // the process is still suspended; after assignment the private job has
-        // active-process limit=1. No shared/system job or arbitrary PID is used.
-        let result = unsafe {
-            if self.assigned {
-                TerminateJobObject(self.job, 0xe04b5701)
-            } else {
-                TerminateProcess(self.process, 0xe04b5701)
-            }
-        };
-        if result == 0 {
-            return Err(error(if self.assigned {
-                "TerminateJobObject"
-            } else {
-                "TerminateProcess"
-            }));
+        // SAFETY: every successfully created process was atomically assigned
+        // to this uniquely owned Job. No arbitrary PID or shared job is used.
+        if unsafe { TerminateJobObject(self.job, 0xe04b5701) } == 0 {
+            return Err(error("TerminateJobObject"));
         }
         self.state = JobProcessState::StopRequested;
         Ok(())

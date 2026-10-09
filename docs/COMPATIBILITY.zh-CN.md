@@ -84,3 +84,6 @@ Windows metadata或短租约失效，即使WTS消息没有到达也阻止新恢�
 
 
 Windows新增owned Job进程资源接口（ADR-0048），无设备/输入行为：挂起创建、private Job分配、显式恢复、停止请求和实际退出分别表达；JobSpawnError保留partial owner。双架构无输入原生例程已确认argv传递、259退出和own Job显式终止。它尚未接入进度监督或host；Create→Assign期间的父崩溃窗口、真实父死亡与Hook存活仍待实现/验收，不能据此宣称卡死/崩溃恢复已完成。
+
+
+ADR-0049把Windows owned Job准入放入CreateProcessW扩展启动事务，无创建后Assign回退；创建成功时worker已在private Job内。Windows x64/i686实际无输入fixture已验证父被强制终止后worker退出（通过保留进程句柄观察，不靠Rust Drop/PID消失）。该结果不证明全局注入键清理、Hook存活或完整进度监督；native IPC/启动核验/host仍缺失。

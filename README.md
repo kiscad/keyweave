@@ -54,3 +54,6 @@ Windows 的桌面/权限检查或访问租约失效也会阻止恢复提交，�
 
 
 Windows 已增加自有 Job 的挂起进程管理与无输入 `check_job` 例程，双架构原生编译/资源测试通过。[状态与限制](docs/ADR-0048-windows-owned-job-process.md)；正式进度监督、原子启动与完整 host 仍待实现。
+
+
+Windows worker 现于进程创建时准入自有 Job，已通过双架构无输入父死亡例程。[原子启动与验证边界](docs/ADR-0049-windows-atomic-job-startup.md)；原生 IPC、进度监督及完整运行入口继续开发。

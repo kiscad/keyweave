@@ -31,6 +31,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::thread::park();
         }
     }
+    if arguments.len() == 2 && arguments[0] == "--fixture-ready-idle" {
+        use std::io::Write;
+        // Exclusive temporary marker supplied by the owning test. No overwrite.
+        let mut ready = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&arguments[1])?;
+        writeln!(ready, "{}", std::process::id())?;
+        ready.sync_all()?;
+        drop(ready);
+        loop {
+            std::thread::park();
+        }
+    }
+    if arguments.len() == 2 && arguments[0] == "--fixture-parent-death" {
+        let executable = std::env::current_exe()?;
+        let mut child = OwnedJobProcess::spawn_suspended(
+            &executable,
+            &["--fixture-ready-idle".into(), arguments[1].clone()],
+        )?;
+        child.resume()?;
+        // Test observer abruptly terminates this fixture parent. No Drop runs;
+        // the kernel closes its sole Job handle and terminates the worker.
+        loop {
+            std::thread::park();
+        }
+    }
     if !arguments.is_empty() {
         return Err("invalid fixture arguments".into());
     }

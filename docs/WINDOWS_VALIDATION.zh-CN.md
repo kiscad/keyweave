@@ -119,3 +119,14 @@ ADR-0046把metadata/lease失效（无WTS消息）也接入recovery gate；8新�
 
 
 2026-10-09 owned Job补验：[报告](validation/windows-2026-10-09-job-process.json)记录固定1.97.1双架构各521 workspace tests、186 Windowsunit、production native_link、all-targets Clippy/fmt与扩展SDK oracle通过，143个源码文件hash一致。SDK新增Job limit/STARTUPINFOW/PROCESS_INFORMATION布局、flags/class/wait constants与WINAPI prototypes。无输入例程 `cargo run --locked -p keyweave-windows --example check_job --target x86_64-pc-windows-msvc`（i686同理）只启动当前exe的固定fixture：先观察挂起，再resume验证含空格/引号/反斜杠/中文的argv与signaled exit259；另一child只park，由own Job停止并观察固定退出码。两种宿主真实运行exit0，无Hook/SendInput/driver。原始UTF8日志/manifest/cmd见ignored target/validation/windows-20261009-job-process-{x64,x86}-1.97.1。此例程证明显式停止与实际退出；没有模拟父崩溃或验证kill-on-close父死亡，不覆盖Create→Assign崩溃窗口。完整启动事务/IPC/进度监督仍待完成，见ADR-0048。
+
+
+2026-10-09 原子Job启动：[报告](validation/windows-2026-10-09-atomic-job.json)记录固定1.97.1 x64/i686各523 tests、188 Windowsunit、native_link、all-targets Clippy/fmt/SDK通过，145源文件hash一致。创建时STARTUPINFOEXW的Job属性取代创建后Assign，SDK核验EX 112/72、attribute offset104/68与新API/constants。两种check_job.exe例程与父死亡fixture真实运行exit0；父由测试自己启动，只产生own-exe child，观察器先保留live child句柄再终止own parent，等待原child退出，不依赖Rust Drop、不按marker PID kill。结果归档ignored target/validation/windows-20261009-atomic-job-{x64,x86}-1.97.1。复现时先在验证快照中build check_job，再执行：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+    -File tools/check_windows_job.ps1 -ValidationRoot '<Windows-local ValidationRoot>' `
+    -Target x86_64-pc-windows-msvc
+```
+
+目标也可为i686-pc-windows-msvc；脚本所需exe位于该root的target/target-triple/debug/examples，使用同一快照tools脚本。首轮SDK有删除旧接口后的stale void引用，已在编译失败exit2后修正并重跑，不是通过证据。父死亡观测覆盖已resume fixture；创建时Job契约不提供跨桌面输入安全或全局键清理证明。原生IPC、worker自身启动核验、progress supervisor、Hook liveness和完整host仍待接入；见ADR-0049。

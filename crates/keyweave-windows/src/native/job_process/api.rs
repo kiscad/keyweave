@@ -3,6 +3,11 @@ use super::*;
 use std::cell::RefCell;
 #[derive(Default)]
 pub(super) struct Mock {
+    pub last_error: u32,
+    pub query_bytes: Option<usize>,
+    pub query_success: bool,
+    pub initialized_list: usize,
+    pub job_value: usize,
     pub fail: Option<&'static str>,
     pub calls: Vec<&'static str>,
     pub resumed: bool,
@@ -18,11 +23,15 @@ fn call(name: &'static str) -> bool {
     MOCK.with(|m| {
         let mut m = m.borrow_mut();
         m.calls.push(name);
-        m.fail != Some(name)
+        let success = m.fail != Some(name);
+        if !success {
+            m.last_error = 5;
+        }
+        success
     })
 }
 pub(super) unsafe fn GetLastError() -> u32 {
-    5
+    MOCK.with(|m| m.borrow().last_error)
 }
 pub(super) unsafe fn CreateJobObjectW(a: *const c_void, n: *const u16) -> Handle {
     assert!(a.is_null() && n.is_null());
@@ -60,9 +69,19 @@ pub(super) unsafe fn CreateProcessW(
 ) -> i32 {
     assert!(!app.is_null() && !line.is_null());
     assert!(pa.is_null() && ta.is_null() && env.is_null() && dir.is_null());
-    assert_eq!((inherit, flags), (0, 0x08000004));
+    assert_eq!((inherit, flags), (0, 0x08080004));
     // SAFETY: initialized input and output are live for synchronous mock call.
-    assert_eq!(unsafe { (*start).size } as usize, size_of::<Startup>());
+    assert_eq!(unsafe { (*start).size } as usize, size_of::<StartupEx>());
+    // SAFETY: caller passes a complete StartupEx via its repr(C) first field.
+    let ex = unsafe { &*start.cast::<StartupEx>() };
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_ne!(m.initialized_list, 0);
+        assert_eq!(ex.attributes as usize, m.initialized_list);
+        assert_ne!(m.job_value, 0);
+        // SAFETY: live one-HANDLE array owned by Attributes through Create call.
+        assert_eq!(unsafe { *(m.job_value as *const Handle) } as usize, 1);
+    });
     if !call("create") {
         return 0;
     }
@@ -76,10 +95,69 @@ pub(super) unsafe fn CreateProcessW(
     }
     1
 }
-pub(super) unsafe fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32 {
-    assert_eq!((job as usize, process as usize), (1, 2));
-    assert!(!MOCK.with(|m| m.borrow().resumed));
-    i32::from(call("assign"))
+pub(super) unsafe fn InitializeProcThreadAttributeList(
+    list: *mut c_void,
+    count: u32,
+    flags: u32,
+    bytes: *mut usize,
+) -> i32 {
+    assert_eq!((count, flags), (1, 0));
+    if list.is_null() {
+        let ok = call("attribute-size");
+        MOCK.with(|m| {
+            let mut m = m.borrow_mut();
+            // SAFETY: caller provides a live initialized SIZE_T for this query.
+            unsafe {
+                *bytes = m.query_bytes.unwrap_or(96);
+            }
+            if ok {
+                m.last_error = 122;
+            }
+            i32::from(m.query_success)
+        })
+    } else {
+        assert_eq!(list as usize % 16, 0);
+        if !call("attribute-init") {
+            return 0;
+        }
+        MOCK.with(|m| m.borrow_mut().initialized_list = list as usize);
+        1
+    }
+}
+pub(super) unsafe fn UpdateProcThreadAttribute(
+    list: *mut c_void,
+    flags: u32,
+    attribute: usize,
+    value: *mut c_void,
+    bytes: usize,
+    previous: *mut c_void,
+    returned: *mut usize,
+) -> i32 {
+    assert_eq!((flags, attribute, bytes), (0, 0x2000d, size_of::<Handle>()));
+    assert!(previous.is_null() && returned.is_null());
+    assert_eq!(list as usize, MOCK.with(|m| m.borrow().initialized_list));
+    assert!(!value.is_null());
+    // SAFETY: mock caller supplies a live, aligned one-HANDLE array.
+    assert_eq!(unsafe { *value.cast::<Handle>() } as usize, 1);
+    if !call("attribute-job") {
+        return 0;
+    }
+    MOCK.with(|m| m.borrow_mut().job_value = value as usize);
+    1
+}
+pub(super) unsafe fn DeleteProcThreadAttributeList(list: *mut c_void) {
+    call("attribute-delete");
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        assert_eq!(list as usize, m.initialized_list);
+        assert_ne!(m.initialized_list, 0);
+        if m.job_value != 0 {
+            // SAFETY: owned array must remain alive through list deletion.
+            assert_eq!(unsafe { *(m.job_value as *const Handle) } as usize, 1);
+        }
+        m.initialized_list = 0;
+        m.job_value = 0;
+    });
 }
 pub(super) unsafe fn ResumeThread(thread: Handle) -> u32 {
     assert_eq!(thread as usize, 3);
@@ -95,10 +173,6 @@ pub(super) unsafe fn ResumeThread(thread: Handle) -> u32 {
 pub(super) unsafe fn TerminateJobObject(job: Handle, _: u32) -> i32 {
     assert_eq!(job as usize, 1);
     i32::from(call("kill-job"))
-}
-pub(super) unsafe fn TerminateProcess(process: Handle, _: u32) -> i32 {
-    assert_eq!(process as usize, 2);
-    i32::from(call("kill-process"))
 }
 pub(super) unsafe fn WaitForSingleObject(process: Handle, timeout: u32) -> u32 {
     assert_eq!(process as usize, 2);
