@@ -20,6 +20,31 @@ fn main() {
         time::{Duration, Instant},
     };
     const MODE: &str = "KEYWEAVE_HOST_SESSION_FIXTURE";
+    const COLD_CONFIG: &[u8] = br#"// private source
+{"profiles":[{"name":"private profile","selected":true,"simple_modifications":[]}]}"#;
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new(
+            keyweave_worker::linux_arguments::LINUX_WORKER_ARGUMENT,
+        ))
+    {
+        let args =
+            keyweave_worker::linux_arguments::LinuxArguments::parse(std::env::args_os().skip(1))
+                .unwrap();
+        assert_eq!(
+            args.session_provider,
+            keyweave_worker::linux_arguments::SessionProvider::None
+        );
+        let mut startup = ReportingStartup::from_supervisor_environment().unwrap();
+        startup.guard().verify_isolated_group().unwrap();
+        assert_eq!(startup.guard().parent_pid(), args.parent);
+        assert_eq!(startup.run_id(), args.run_id);
+        assert_eq!(
+            startup.claim_config().unwrap().read_bytes().unwrap(),
+            COLD_CONFIG
+        );
+        // Synthetic cold None child; no Runtime, no frame, no device access.
+        std::process::exit(78);
+    }
     if let Ok(mode) = std::env::var(MODE) {
         let mut startup = ReportingStartup::from_supervisor_environment().unwrap();
         startup.guard().verify_isolated_group().unwrap();
@@ -146,6 +171,46 @@ fn main() {
         assert_eq!(report.successful(), mode == "complete");
         assert!(report.signal_close_failure.is_none());
         assert_eq!(native.run(), DriveStatus::Exited(report));
+    }
+    {
+        use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};
+        use std::os::unix::fs::DirBuilderExt;
+        let root = std::env::temp_dir().join(format!(
+            "keyweave-native-preparation-{}",
+            std::process::id()
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&root)
+            .unwrap();
+        let config = root.join("private config.jsonc");
+        std::fs::write(&config, COLD_CONFIG).unwrap();
+        let host = std::env::current_exe().unwrap();
+        let prepared = PreparedLaunch::prepare(
+            &host,
+            LaunchOptions {
+                config: config.clone(),
+                worker: Some(host.clone()),
+                uinput: "/keyweave-absent-output".into(),
+                inputs: vec!["/keyweave-absent-input".into()],
+                session_provider: keyweave_worker::linux_arguments::SessionProvider::None,
+            },
+        )
+        .unwrap();
+        // The started child must receive the exact sealed image, not reopen path.
+        std::fs::remove_file(config).unwrap();
+        let StartOutcome::Running(mut native) = prepared.start().unwrap() else {
+            panic!("unexpected external stop");
+        };
+        let DriveStatus::Exited(report) = native.run() else {
+            panic!("cold child exit not observed");
+        };
+        assert_eq!(report.worker.status.code(), Some(78));
+        assert_eq!(report.worker.terminal.status, ReadStatus::Missing);
+        assert!(!report.successful());
+        assert!(!report.worker.recovery_confirmed());
+        assert!(report.signal_close_failure.is_none());
+        std::fs::remove_dir(root).unwrap();
     }
     println!(
         "linux_session: actual owned exit, first Stop and independent synthetic KWLT classifications passed (no input access)"

@@ -10,6 +10,22 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Run an experimental Linux session. Ctrl+C, SIGTERM or SIGHUP requests stop.
+    RunLinux {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        worker: Option<PathBuf>,
+        #[arg(long, default_value = "/dev/uinput")]
+        uinput: PathBuf,
+        #[arg(long, required = true)]
+        input: Vec<PathBuf>,
+        #[arg(long, value_enum)]
+        session_provider: LinuxProvider,
+        /// Explicit text VT, required with console; omitted with none.
+        #[arg(long)]
+        vt: Option<PathBuf>,
+    },
     /// Check Linux configuration against the full supported output table; no input access.
     CheckLinux {
         #[arg(long)]
@@ -35,6 +51,11 @@ enum Command {
     },
 }
 #[derive(Clone, Copy, ValueEnum)]
+enum LinuxProvider {
+    None,
+    Console,
+}
+#[derive(Clone, Copy, ValueEnum)]
 enum Identity {
     Strict,
     CanonicalScan,
@@ -49,6 +70,14 @@ impl From<Identity> for IdentityPolicy {
 }
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::RunLinux {
+            config,
+            worker,
+            uinput,
+            input,
+            session_provider,
+            vt,
+        } => run_linux(config, worker, uinput, input, session_provider, vt),
         Command::CheckLinux { config } => match check_linux(config) {
             Ok(config) => {
                 println!(
@@ -202,4 +231,100 @@ fn check_linux(
         keyweave_worker::linux_preparation::default_output_spec().map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn run_linux(
+    _: PathBuf,
+    _: Option<PathBuf>,
+    _: PathBuf,
+    _: Vec<PathBuf>,
+    _: LinuxProvider,
+    _: Option<PathBuf>,
+) -> ExitCode {
+    eprintln!("run-linux requires Linux");
+    ExitCode::from(78)
+}
+#[cfg(target_os = "linux")]
+fn run_linux(
+    config: PathBuf,
+    worker: Option<PathBuf>,
+    uinput: PathBuf,
+    input: Vec<PathBuf>,
+    provider: LinuxProvider,
+    vt: Option<PathBuf>,
+) -> ExitCode {
+    use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};
+    use keyweave_worker::linux_arguments::SessionProvider;
+    let provider = match (provider, vt) {
+        (LinuxProvider::None, None) => SessionProvider::None,
+        (LinuxProvider::Console, Some(vt)) => SessionProvider::Console { vt },
+        _ => {
+            eprintln!("console requires --vt; none requires --vt to be omitted");
+            return ExitCode::from(1);
+        }
+    };
+    let host = match std::env::current_exe() {
+        Ok(host) => host,
+        Err(_) => {
+            eprintln!("host executable location failed");
+            return ExitCode::from(1);
+        }
+    };
+    let prepared = match PreparedLaunch::prepare(
+        &host,
+        LaunchOptions {
+            config,
+            worker,
+            uinput,
+            inputs: input,
+            session_provider: provider,
+        },
+    ) {
+        Ok(prepared) => prepared,
+        Err(e) => {
+            eprintln!("{e}; use check-linux for offline configuration diagnostics");
+            return ExitCode::from(1);
+        }
+    };
+    let outcome = match prepared.start() {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    match outcome {
+        StartOutcome::Cancelled(cancelled) => {
+            println!(
+                "startup_cancelled=true, worker_exit=not_started, stop_signal={:?}, signal_close_failure={:?}",
+                cancelled.signal, cancelled.signal_close_failure
+            );
+            ExitCode::from(if cancelled.signal_close_failure.is_none() {
+                0
+            } else {
+                1
+            })
+        }
+        StartOutcome::Running(mut native) => match native.run() {
+            DriveStatus::Exited(report) => {
+                println!("{report}");
+                ExitCode::from(if report.successful() { 0 } else { 1 })
+            }
+            DriveStatus::ObservationExpired => {
+                eprintln!(
+                    "worker_exit=unobserved, recovery_confirmed=false, supervisor={:?}, host_fault={:?}",
+                    native.status(),
+                    native.fault()
+                );
+                // Emergency owner Drop runs before mask restoration. Its finite
+                // kill/reap fallback is not counted as an observed actual exit.
+                ExitCode::from(1)
+            }
+            DriveStatus::Pending(_) => {
+                eprintln!("worker_exit=unobserved, recovery_confirmed=false");
+                ExitCode::from(1)
+            }
+        },
+    }
 }

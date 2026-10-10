@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0087 Linux cold PreparedLaunch and run-linux CLI",
+  "source_base_commit": "dd4457432634066bbfb2f95fc2e5a163513ce2c5",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/linux.rs": "365d89cd8af630afae45b6a31a228d3b3a63aa93b45e3e09ca6a6231823326ce",
+    "crates/keyweave-host/src/linux/drive.rs": "c6cee1b2b5e9eca471413e1913cab0d9b6300310b1f57fd6e9126eceae01508b",
+    "crates/keyweave-host/src/main.rs": "fd5f702371a40a74b41ff7672524d6c5e657520f178be7d3832f2d06d69b6f15",
+    "crates/keyweave-host/tests/cli.rs": "c065c968199ea1c69e57367628a70f64a5ce88ac598822bdc272d387a4530f93",
+    "crates/keyweave-host/tests/linux_session.rs": "989983f6f0268db937baabae4f992914e5da945b66e954a26341387c170379d9",
+    "crates/keyweave-host/src/linux/startup.rs": "3b0d53b1cae32e17a9c77f1dfea8d30012abde2fee2f742ef25b865cbe8df013"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 864,
+    "workspace_tests_exit": 0,
+    "native_build_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_unit_tests": 4,
+    "new_cli_tests": 2,
+    "custom_main": "full cold PreparedLaunch/start consumes sealed exact config after unlink; own no-input child returns78/missing KWLT",
+    "real_none": {
+      "mode": "none (permanent no-device invariant)",
+      "host_exit": 1,
+      "worker_actual_exit": 78,
+      "terminal": "missing",
+      "recovery_confirmed": false,
+      "stdout": "worker_exit=Some(78), worker_signal=None, reason=None, stop_signal=None, progress_epoch=0, terminal=missing, terminal_failure=None, recovery_confirmed=false, recovery_facts=None, host_fault=None, signal_close_failure=None\n",
+      "stderr": "",
+      "binary_sha256": {
+        "target/debug/keyweave-host": "b0acd13e314cb17ff209613ef21d8ce6d1b90f4fa2291ae240566c3435db5445",
+        "target/debug/keyweave-worker": "992e56652b3c33fe99744604dba2e74c202289a0bd09b60d36a653472b88a5fa"
+      }
+    },
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261010-run-command/clippy.log",
+        "sha256": "8abacfda448897e0b8f18351e4d3328688f34a656c8130f940cd6fc4cc410f1f"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-run-command/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "native-build": {
+        "path": "target/validation/linux-20261010-run-command/native-build.log",
+        "sha256": "02db5a66fa0c60ca8618bd08aac556eac4f3ec863e8630a0d353dba6a0f6e126"
+      },
+      "real-none": {
+        "path": "target/validation/linux-20261010-run-command/real-none.json",
+        "sha256": "fa37c82c7678ca1e262e97b4204c2412e1c43ac6b11a3186baeac2e80948dca4"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-run-command/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-run-command/workspace-tests.log",
+        "sha256": "8dc9ea3f5d1794a0d737712311b5075778f41f4db0a54ae78aef50a45ab28064"
+      }
+    }
+  },
+  "abi": "No new unsafe/FFI/ABI or dependencies; ADR-0084 oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "portable CLI RunLinux/enum and cfg non-Linux stub need native check alongside earlier pending changes; automatic approval quota failure unresolved; no invocation in this turn"
+  },
+  "limitations": [
+    "Actual console success/VT metadata/evdev/uinput were not executed. Real executable verification is permanently provider=None.",
+    "Cold preparation validates bounded lexical paths before lookup, exact config bytes and full supported output table; no device readiness is proved.",
+    "Only initially single actual main thread may start; three stop signals are managed, no arbitrary embedding/signal handler support.",
+    "Worker locator checks regular/canonical/xbit, not ELF/signature/effective ACL/atomic image attestation; developer image is trusted caller input.",
+    "Regular config is checked after open; cold filesystem IO has no hard time bound or atomic pathname provenance guarantee. No config reopen after seal.",
+    "Startup cancellation before spawn has no child/Runtime and does not certify global keyboard state; pre-Runtime worker Stop missing KWLT remains non-success.",
+    "CLI observation expiry reports unobserved and non-success; emergency Drop is not actual exit/recovery proof. Library caller can retain same NativeSession for reobservation.",
+    "No config content, key events or generated run ID is printed in user-facing startup/terminal diagnostics; public report facts remain accessible to callers.",
+    "Full goal including graphical consumers, hardware tests, advanced rules, hotplug/add, LED, hot configuration, GUI/packaging/driver remains unfinished."
+  ]
+}

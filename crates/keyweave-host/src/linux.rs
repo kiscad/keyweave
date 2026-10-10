@@ -1,5 +1,6 @@
 //! One owned Linux worker; injected control events never act as progress.
 mod drive;
+mod startup;
 pub use drive::{DriveStatus, NativeReport, NativeSession};
 use keyweave_linux::{
     host_signals::StopSignal,
@@ -11,6 +12,9 @@ use keyweave_linux::{
     },
 };
 use keyweave_types::MonoTime;
+pub use startup::{
+    Cancelled, LaunchOptions, PreparedLaunch, StartOutcome, StartupError, StartupStage,
+};
 use std::{io, process::ExitStatus};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FaultSource {

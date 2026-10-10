@@ -23,6 +23,37 @@ impl NativeReport {
         self.signal_close_failure.is_none() && self.worker.successful()
     }
 }
+impl std::fmt::Display for NativeReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use keyweave_linux::termination::ReadStatus;
+        use std::os::unix::process::ExitStatusExt;
+        let (terminal, facts) = match self.worker.terminal.status {
+            ReadStatus::Complete(frame) => ("complete", Some(frame.report)),
+            ReadStatus::Unsupported => ("unsupported", None),
+            ReadStatus::NotExited => ("not_exited", None),
+            ReadStatus::Pending => ("pending", None),
+            ReadStatus::Missing => ("missing", None),
+            ReadStatus::Invalid(_) => ("invalid", None),
+            ReadStatus::Io(_) => ("io_error", None),
+        };
+        // Never format TerminalFrame itself: it contains the private run ID.
+        write!(
+            f,
+            "worker_exit={:?}, worker_signal={:?}, reason={:?}, stop_signal={:?}, progress_epoch={}, terminal={}, terminal_failure={:?}, recovery_confirmed={}, recovery_facts={:?}, host_fault={:?}, signal_close_failure={:?}",
+            self.worker.status.code(),
+            self.worker.status.signal(),
+            self.worker.reason,
+            self.worker.signal,
+            self.worker.progress_epoch,
+            terminal,
+            self.worker.terminal.failure,
+            self.worker.recovery_confirmed(),
+            facts,
+            self.worker.fault,
+            self.signal_close_failure
+        )
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DriveStatus {
     Pending(SupervisorStatus),
@@ -415,5 +446,42 @@ mod tests {
         assert!(!report.successful());
         assert_eq!(p.tick(), DriveStatus::Exited(report));
         assert_eq!(p.schedule.closes, 1);
+    }
+    #[test]
+    fn display_reports_recovery_facts_without_private_run_identity() {
+        use keyweave_linux::{
+            runtime::{StopReason, TerminationReport},
+            termination::TerminalFrame,
+        };
+        let mut p = pump();
+        p.controller.owner.status = SupervisorStatus::Exited {
+            status: std::process::ExitStatus::from_raw(78 << 8),
+            reason: None,
+        };
+        let DriveStatus::Exited(mut report) = p.tick() else {
+            panic!("missing exit");
+        };
+        report.worker.terminal.status = ReadStatus::Complete(TerminalFrame {
+            run_id: u64::MAX,
+            report: TerminationReport {
+                reason: StopReason::ControlFault,
+                input_owners_released: true,
+                engine_reset_confirmed: true,
+                recovery_failed: false,
+                recovery_budget_exhausted: false,
+                submitted_remaining: false,
+                report_pending: false,
+                acceptance_unknown: false,
+                output_recovery_confirmed: true,
+                output_owner_dropped: true,
+                backend_transition_confirmed: true,
+            },
+        });
+        let text = report.to_string();
+        assert!(text.contains("worker_exit=Some(78)"));
+        assert!(text.contains("terminal=complete"));
+        assert!(text.contains("ControlFault"));
+        assert!(!text.contains(&u64::MAX.to_string()));
+        assert!(!text.contains("run_id"));
     }
 }

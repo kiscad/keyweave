@@ -133,3 +133,63 @@ fn linux_check_rejects_invalid_utf8_and_loss_without_activation() {
     }
     fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_run_rejects_invalid_scope_and_arguments_before_spawn() {
+    for extra in [
+        vec!["--session-provider", "console"],
+        vec!["--session-provider", "none", "--vt", "/dev/tty1"],
+        vec!["--session-provider", "console", "--vt", "/dev/tty01"],
+        vec!["--session-provider", "none", "--input", "relative"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+            .args([
+                "run-linux",
+                "--config",
+                "/keyweave-absent-config",
+                "--worker",
+                "/keyweave-absent-worker",
+                "--input",
+                "/keyweave-absent-input",
+            ])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert!(!text.contains("worker_exit="));
+        assert!(text.contains("--vt") || text.contains("Arguments"));
+    }
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_run_bad_config_stops_before_launching_selected_executable() {
+    let root = dir("linux-run-invalid");
+    let config = root.join("private config.json");
+    fs::write(&config, b"private-secret\xff").unwrap();
+    // Host image is executable but must never be launched: config rejection
+    // precedes signal install/spawn. None is permanent no-device scope.
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args([
+            "run-linux",
+            "--session-provider",
+            "none",
+            "--input",
+            "/keyweave-absent-input",
+            "--worker",
+        ])
+        .arg(env!("CARGO_BIN_EXE_keyweave-host"))
+        .arg("--config")
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("Configuration"));
+    assert!(!text.contains("private-secret"));
+    assert!(!text.contains("private config"));
+    fs::remove_dir_all(root).unwrap();
+}
