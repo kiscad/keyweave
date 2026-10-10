@@ -14,6 +14,8 @@ use std::{
     path::Path,
     time::Duration,
 };
+mod config_startup;
+pub use config_startup::{SupervisorCleanup, SupervisorConfigCleanup, SupervisorConfigResources};
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChannelDirection {
@@ -66,6 +68,11 @@ pub enum SupervisorSpawnError {
     Io(#[from] io::Error),
     #[error("Job startup failed: {0}")]
     Job(Box<JobSpawnError>),
+    #[error("configuration worker startup failed: {cause}; preparation resources retained")]
+    Config {
+        cause: Box<SupervisorSpawnError>,
+        resources: Box<SupervisorConfigResources>,
+    },
     #[error(
         "worker resume failed: {cause}; stop failure: {stop:?}; owner retained for exit observation"
     )]
@@ -399,6 +406,48 @@ fn context() -> Result<(), SupervisorError> {
         })
     }
 }
+fn prepare_command(
+    path: &Path,
+    args: &[OsString],
+    run_id: u64,
+    policy: Policy,
+    now: MonoTime,
+    with_config: bool,
+) -> Result<(ProgressWatchdog, [u8; CHALLENGE_BYTES], Vec<OsString>), SupervisorSpawnError> {
+    if !super::outside_callback() {
+        return Err(SupervisorSpawnError::Io(io::Error::other(
+            "supervisor startup forbidden in keyboard callback",
+        )));
+    }
+    let watchdog = ProgressWatchdog::new(run_id, policy, now)?;
+    let request = watchdog
+        .challenge()
+        .ok_or(ProgressError::Identity)?
+        .encode();
+    // Validate bounded original arguments before cloning any OsString.
+    // The fixed three startup arguments share the existing 128-argument cap.
+    if args.len() > if with_config { 123 } else { 125 } {
+        return Err(SupervisorSpawnError::Command(JobError::Command));
+    }
+    super::job_process::command(path, args).map_err(SupervisorSpawnError::Command)?;
+    let mut command = vec![
+        WORKER_ARGUMENT.into(),
+        std::process::id().to_string().into(),
+        run_id.to_string().into(),
+    ];
+    command.extend_from_slice(args);
+    if with_config {
+        let mut reserved = command.clone();
+        reserved.extend([
+            "--keyweave-config-handle".into(),
+            usize::MAX.to_string().into(),
+        ]);
+        super::job_process::command(path, &reserved).map_err(SupervisorSpawnError::Command)?;
+    } else {
+        super::job_process::command(path, &command).map_err(SupervisorSpawnError::Command)?;
+    }
+    Ok((watchdog, request, command))
+}
 impl Supervisor {
     /// Trusted executable must implement WORKER_ARGUMENT parent/run admission on
     /// its real main, before input/threads/stdio. No shell or arbitrary PID owner.
@@ -410,29 +459,7 @@ impl Supervisor {
         policy: Policy,
         now: MonoTime,
     ) -> Result<Self, SupervisorSpawnError> {
-        if !super::outside_callback() {
-            return Err(SupervisorSpawnError::Io(io::Error::other(
-                "supervisor startup forbidden in keyboard callback",
-            )));
-        }
-        let watchdog = ProgressWatchdog::new(run_id, policy, now)?;
-        let request = watchdog
-            .challenge()
-            .ok_or(ProgressError::Identity)?
-            .encode();
-        // Validate bounded original arguments before cloning any OsString.
-        // The fixed three startup arguments share the existing 128-argument cap.
-        if args.len() > 125 {
-            return Err(SupervisorSpawnError::Command(JobError::Command));
-        }
-        super::job_process::command(path, args).map_err(SupervisorSpawnError::Command)?;
-        let mut command = vec![
-            WORKER_ARGUMENT.into(),
-            std::process::id().to_string().into(),
-            run_id.to_string().into(),
-        ];
-        command.extend_from_slice(args);
-        super::job_process::command(path, &command).map_err(SupervisorSpawnError::Command)?;
+        let (watchdog, request, command) = prepare_command(path, args, run_id, policy, now, false)?;
         let (worker_reader, writer) = PipeReader::pair()?;
         let (reader, worker_writer) = PipeReader::pair()?;
         let process = OwnedJobProcess::spawn_suspended_with_progress(

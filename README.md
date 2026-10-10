@@ -79,3 +79,6 @@ Windows 已增加独占配置文件资源层与唯一只读 reader，双架构�
 
 
 Windows 现有显式四句柄启动：Job 持有 sealed 配置 writer，worker 接收唯一只读文件对象并在真实 main 核验后直接加载。双架构原生例程验证跨进程实际 bytes、拒绝路径与退出后文件删除；各633项测试通过。[设计](docs/ADR-0058-owned-config-handoff.md)、[证据](docs/validation/windows-2026-10-09-config-handoff.json)。完整 Supervisor 配置 factory/用户 parent host 与正常键盘验收仍在开发。
+
+
+Windows Supervisor 已接入四句柄配置启动，并保留失败时的独立资源 owner；只有确认 worker 实际退出后才清理父侧管道与配置 writer。Linux674、Windows x64/x86各642项测试及双架构无输入配置/协作停止例程通过。[设计](docs/ADR-0059-supervised-config-startup.md)、[证据](docs/validation/windows-2026-10-10-supervised-config.json)。完整用户 host、预编译/原生输出准入与正常键盘验收继续开发。

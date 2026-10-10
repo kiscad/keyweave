@@ -9,7 +9,8 @@ struct Pending {
     write: bool,
 }
 #[derive(Default)]
-pub(super) struct Mock {
+pub(crate) struct Mock {
+    pub fail_rng_pair: Option<usize>,
     pub fail: Option<&'static str>,
     pub calls: Vec<&'static str>,
     pub closes: Vec<usize>,
@@ -31,7 +32,7 @@ pub(super) struct Mock {
     next_pair: usize,
     synchronous: bool,
 }
-thread_local! { pub(super) static MOCK:RefCell<Mock>=RefCell::new(Mock {error_signaled:true,..Mock::default()}); }
+thread_local! { pub(crate) static MOCK:RefCell<Mock>=RefCell::new(Mock {error_signaled:true,..Mock::default()}); }
 fn call(name: &'static str) -> bool {
     MOCK.with(|m| {
         let mut m = m.borrow_mut();
@@ -53,6 +54,17 @@ pub(super) unsafe fn BCryptGenRandom(a: Handle, b: *mut u8, n: u32, f: u32) -> i
         return -1;
     }
     // SAFETY: tested caller supplies initialized writable 16-byte RNG output.
+    if MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.fail_rng_pair == Some(m.next_pair + 1) {
+            m.next_pair += 1;
+            true
+        } else {
+            false
+        }
+    }) {
+        return -1;
+    }
     let value = MOCK.with(|m| {
         let mut m = m.borrow_mut();
         m.next_pair += 1;

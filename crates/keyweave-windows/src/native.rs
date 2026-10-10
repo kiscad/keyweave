@@ -15,8 +15,9 @@ pub use config_artifact::{
 mod supervisor;
 #[cfg(target_os = "windows")]
 pub use supervisor::{
-    ChannelDirection, ChannelFailure, Supervisor, SupervisorChannelCleanup, SupervisorError,
-    SupervisorSpawnError, SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
+    ChannelDirection, ChannelFailure, Supervisor, SupervisorChannelCleanup, SupervisorCleanup,
+    SupervisorConfigCleanup, SupervisorConfigResources, SupervisorError, SupervisorSpawnError,
+    SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
 };
 mod progress_pipe;
 mod session;

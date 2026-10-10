@@ -2,6 +2,9 @@
 #![allow(clippy::unwrap_used)]
 use keyweave_worker::{WORKER_ARGUMENT, WorkerExit};
 use std::{ffi::OsString, process::Command};
+// The explicit native HANDLE_LIST transaction must not overlap ambient
+// inheriting process creation on another test thread in this same parent.
+static ENTRY_PROCESS_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn extra(config: OsString) -> Vec<OsString> {
     vec![
         "--config".into(),
@@ -14,6 +17,7 @@ fn extra(config: OsString) -> Vec<OsString> {
 }
 #[test]
 fn malformed_entry_exits_without_protocol_or_diagnostic_output() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
     for args in [
         vec![],
         vec![OsString::from("--help")],
@@ -30,6 +34,7 @@ fn malformed_entry_exits_without_protocol_or_diagnostic_output() {
 }
 #[test]
 fn direct_valid_worker_invocation_cannot_bypass_native_admission() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
     let path = std::env::temp_dir().join("keyweave-direct-no-config.json");
     let result = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"))
         .args([WORKER_ARGUMENT, "1", "1"])
@@ -48,6 +53,7 @@ fn direct_valid_worker_invocation_cannot_bypass_native_admission() {
 #[cfg(windows)]
 #[test]
 fn missing_config_after_owned_admission_exits_before_input_installation() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
     use keyweave_types::MonoTime;
     use keyweave_windows::{Supervisor, SupervisorStatus};
     use std::{
@@ -110,6 +116,7 @@ fn missing_config_after_owned_admission_exits_before_input_installation() {
 #[cfg(windows)]
 #[test]
 fn inherited_invalid_config_exits_after_file_admission_before_input() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
     use keyweave_windows::{ConfigArtifact, OwnedJobProcess, PipeReader};
     use std::time::{Duration, Instant};
     for bytes in [&b"\xff"[..], &b"{synthetic invalid JSON"[..]] {
@@ -166,6 +173,83 @@ fn inherited_invalid_config_exits_after_file_admission_before_input() {
                     );
                     std::thread::sleep(Duration::from_millis(1));
                 }
+            }
+        }
+    }
+}
+#[cfg(windows)]
+#[test]
+fn supervised_file_object_config_failure_keeps_writer_until_actual_exit() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    use keyweave_types::MonoTime;
+    use keyweave_windows::{ConfigArtifact, Supervisor, SupervisorStatus};
+    use std::time::{Duration, Instant};
+    let config = ConfigArtifact::create(&std::env::temp_dir(), b"\xff").unwrap();
+    let owned_path = config.path().unwrap().to_path_buf();
+    let absent = std::env::temp_dir().join(format!(
+        "keyweave-supervised-absent-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    assert!(!absent.exists());
+    let start = Instant::now();
+    let mut owner = Supervisor::spawn_with_config(
+        std::path::Path::new(env!("CARGO_BIN_EXE_keyweave-worker")),
+        &extra(absent.join("config.jsonc").into()),
+        91,
+        keyweave_progress::Policy::default(),
+        MonoTime(0),
+        config,
+    )
+    .unwrap();
+    // A fast worker may already have exited, but until Supervisor actually
+    // observes its owned process handle, parent-side release is still forbidden.
+    assert!(matches!(
+        owner.close_resources(),
+        Err(keyweave_windows::JobError::State)
+    ));
+    let status = loop {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "supervised config exit timeout"
+        );
+        let status = owner
+            .poll(MonoTime(u64::try_from(start.elapsed().as_nanos()).unwrap()))
+            .unwrap();
+        if matches!(status, SupervisorStatus::Exited { .. }) {
+            break status;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    let SupervisorStatus::Exited { code, reason } = status else {
+        unreachable!()
+    };
+    assert_eq!(code, WorkerExit::Config as u32);
+    if let Some(reason) = reason {
+        let keyweave_windows::TerminationReason::Channel(failure) = reason else {
+            panic!("unexpected reason {reason:?}")
+        };
+        assert!(matches!(
+            failure.kind,
+            std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::BrokenPipe
+        ));
+    }
+    assert_eq!(owner.progress_epoch(), 0);
+    let report = owner.close_resources().unwrap();
+    assert!(report.complete());
+    assert!(report.channels.complete());
+    assert!(report.config.unwrap().unwrap().complete());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match std::fs::metadata(&owned_path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => panic!("deletion query failed: {error}"),
+            Ok(_) => {
+                assert!(Instant::now() < deadline, "delete-on-last-close timeout");
+                std::thread::sleep(Duration::from_millis(1));
             }
         }
     }

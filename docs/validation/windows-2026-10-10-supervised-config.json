@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-10",
+  "feature": "Supervisor four-handle sealed config startup, retained preparation errors and independent exited cleanup (ADR-0059)",
+  "source_base_commit": "a50f6c4695a3fa625b0d5e30a59222e2552d34ab",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 freshly read from Environment.OSVersion",
+  "msvc": "19.44.35229.0",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "00ff8551dcd34c11b8fa9e8d20a60170",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 642,
+      "windows_unit_tests_passed": 287,
+      "new_native_mock_behavior_tests": 8,
+      "new_actual_worker_entry_test": "Supervisor four-handle admission/load to actual Config66/epoch0/exit-gated resource cleanup/NotFound; invalid UTF8 only",
+      "source_files_hash_checked": 178,
+      "source_mismatches": 0,
+      "validation_session": 28071,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 51730,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "fmt": "exact final Windows snapshot passed",
+      "sdk": "existing compile-only /W4 /WX /std:c11 /Zs passed; no new FFI/ABI changes; stdout observed not separately archived",
+      "config_cooperative_cases": [
+        {
+          "mode": "initial",
+          "config_transfer": true,
+          "observed_exit": 0,
+          "fixture_epoch": 0,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "active",
+          "config_transfer": true,
+          "observed_exit": 0,
+          "fixture_epoch": 11,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "standby",
+          "config_transfer": true,
+          "observed_exit": 0,
+          "fixture_epoch": 0,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "stop_stall",
+          "config_transfer": true,
+          "observed_exit": 3763033857,
+          "fixture_epoch": 11,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "startup_stall",
+          "config_transfer": true,
+          "observed_exit": 3763033857,
+          "fixture_epoch": 0,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": false
+        }
+      ],
+      "legacy_regressions": "five cooperative and six Supervisor owned-process scenarios passed",
+      "capture": "none; fixture epochs are synthetic, not CaptureSession progress",
+      "artifact_directory": "target/validation/windows-20261010-supervised-config-x64-1.97.1",
+      "artifacts_sha256": {
+        "clippy.log": "566b2a2f2d3b22a51783ab46fcdf9f1ebbb346813d731b2520a3d53df2876a9b",
+        "config-cooperative-smoke.log": "3e7827b65f3d6cc7d42a506d86b9830363915ad027642645a265307331d62d69",
+        "cooperative-smoke.log": "3d86497c55568111564dd437f9980ba7ce21813101f92a65a7cfd15273e6e877",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "1d37ff6039d55c325ca609088615f4173ec2244b6358c3b045880ade9062e700",
+        "native-smoke.cmd": "a888d35a99d90c3486d58d2b530cfd413bcd5d0e3bbb0ba6ab2c7a66185d53a9",
+        "source-manifest.json": "2cb399313c58cf311616ac08e8eb753c26987f0ce039baaa739eb2bfe7404138",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c",
+        "tests.log": "3d2ed928294aae55311d046cf4e63ae314349088c0e14155041ec0c8b57e8141",
+        "validate.cmd": "001ea63707505974b732c0298a3e37d583678104c4cc12ea793aa30a72eacebb"
+      }
+    },
+    {
+      "arch": "x86",
+      "snapshot": "03636ec38c9e4ac392821890c58936da",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 642,
+      "windows_unit_tests_passed": 287,
+      "new_native_mock_behavior_tests": 8,
+      "new_actual_worker_entry_test": "Supervisor four-handle admission/load to actual Config66/epoch0/exit-gated resource cleanup/NotFound; invalid UTF8 only",
+      "source_files_hash_checked": 178,
+      "source_mismatches": 0,
+      "validation_session": 28071,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 51730,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "fmt": "exact final Windows snapshot passed",
+      "sdk": "existing compile-only /W4 /WX /std:c11 /Zs passed; no new FFI/ABI changes; stdout observed not separately archived",
+      "config_cooperative_cases": [
+        {
+          "mode": "initial",
+          "config_transfer": true,
+          "observed_exit": 0,
+          "fixture_epoch": 0,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "active",
+          "config_transfer": true,
+          "observed_exit": 0,
+          "fixture_epoch": 11,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "standby",
+          "config_transfer": true,
+          "observed_exit": 0,
+          "fixture_epoch": 0,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "stop_stall",
+          "config_transfer": true,
+          "observed_exit": 3763033857,
+          "fixture_epoch": 11,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": true
+        },
+        {
+          "mode": "startup_stall",
+          "config_transfer": true,
+          "observed_exit": 3763033857,
+          "fixture_epoch": 0,
+          "actual_cleanup_and_notfound": "fixture returns success only after independent resources complete and actual NotFound",
+          "exact_synthetic_file_read_proved": false
+        }
+      ],
+      "legacy_regressions": "five cooperative and six Supervisor owned-process scenarios passed",
+      "capture": "none; fixture epochs are synthetic, not CaptureSession progress",
+      "artifact_directory": "target/validation/windows-20261010-supervised-config-x86-1.97.1",
+      "artifacts_sha256": {
+        "clippy.log": "c6dadc10c4b66a9537eca6803af6e6cb1d466e3acf982279899cc09279e32e1c",
+        "config-cooperative-smoke.log": "3e7827b65f3d6cc7d42a506d86b9830363915ad027642645a265307331d62d69",
+        "cooperative-smoke.log": "3d86497c55568111564dd437f9980ba7ce21813101f92a65a7cfd15273e6e877",
+        "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-build.log": "3fb95b914c1590b3df63ba3a0d9023156f6f8d5365fd3880bc471b1670434480",
+        "native-smoke.cmd": "e4bd31557ec5b015fcd79404459216bb79715945bb7735b94ab98289fe04c91c",
+        "source-manifest.json": "2cb399313c58cf311616ac08e8eb753c26987f0ce039baaa739eb2bfe7404138",
+        "supervisor-smoke.log": "37547c672cb70539e4ec6dfb89135d5a739d49ebe1bfe49ab3ef288fface804c",
+        "tests.log": "80ba9df6c4b542e534dd647803772b20ebebbecdcee78f33f3393802a2c64fee",
+        "validate.cmd": "32589f9fdfbbd6be9236dfabbf5d83c9491f1b487f41061d3dbf2108e171e550"
+      }
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 674,
+    "main_thread_no_device_harness": "passed",
+    "workspace_session": 55177,
+    "workspace_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed after final entry serialization",
+    "fmt": "passed",
+    "source_verifier": "60 source hashes/fixture copies verified",
+    "artifact_directory": "target/validation/linux-20261010-supervised-config",
+    "artifacts_sha256": {
+      "clippy.log": "bb16f86417757277bdc16392e280eb89ba6bd06580b36e45960632b8688aa22f",
+      "focused-tests.log": "520e2d5b7f379d79b7dd3d246395da993a738ca41285e9c41c5b82f729ca3cf7",
+      "tests.log": "e388385290c9aeefaff976fe529f1fe142629fdfb49b8c04f6a569e02cc64f1a"
+    }
+  },
+  "preliminary_runs": [
+    {
+      "arch": "x64",
+      "snapshot": "38174845efd34129918e0ff216d964b2",
+      "session": 57161,
+      "terminal_exit": 0,
+      "workspace_tests_passed": 642,
+      "reason": "Added shared test-process creation mutex to all entry tests to honor no overlap with ambient inheriting spawns; preliminary run not final source evidence",
+      "changed_source": "crates/keyweave-worker/tests/entry.rs",
+      "artifact_directory": "target/validation/windows-20261010-supervised-config-before-entry-serialization-x64",
+      "artifacts_sha256": {
+        "clippy.log": "4d5df2d52fc03f3bec0ef52c1c81119f0d041ffb2b8811c0f39fc3b87009dbdf",
+        "original-entry.rs": "e1656ba269340a516c8c442d37d96fd3e64111856145554ed6b314e68b33acca",
+        "source-manifest.json": "682d379ecc8851b637edad28066fbe698e759b53b1bf6f0d297e3d5d0db2d877",
+        "tests.log": "fdabc3d25e07907db06ff7b1b29900ef994f1da28dfaf3a63b9c5d73f54dec57",
+        "validate.cmd": "b73410911155d0cc02672fcb3c09f2f47e00e9c672676f387c07156d445ebbb2"
+      }
+    },
+    {
+      "arch": "x86",
+      "snapshot": "b7b4eede7766436fa55a3f57f86f2fb7",
+      "session": 57161,
+      "terminal_exit": 0,
+      "workspace_tests_passed": 642,
+      "reason": "Added shared test-process creation mutex to all entry tests to honor no overlap with ambient inheriting spawns; preliminary run not final source evidence",
+      "changed_source": "crates/keyweave-worker/tests/entry.rs",
+      "artifact_directory": "target/validation/windows-20261010-supervised-config-before-entry-serialization-x86",
+      "artifacts_sha256": {
+        "clippy.log": "e27669a3d70776037b2c1c2315f229a1c20e6827a2da990e3694ada946bcd5a8",
+        "original-entry.rs": "e1656ba269340a516c8c442d37d96fd3e64111856145554ed6b314e68b33acca",
+        "source-manifest.json": "682d379ecc8851b637edad28066fbe698e759b53b1bf6f0d297e3d5d0db2d877",
+        "tests.log": "0d7c0cdfc5884f2b9a831b6fb287beb3f8a98001a670ded743dee4c1b587d1c7",
+        "validate.cmd": "14ee7d859c8dd288409dd4ed5fdbab607afeb91cd4a0c4a8b1106dfa4e1990dc"
+      }
+    }
+  ],
+  "initial_issues": [
+    "Initial focused compile referenced test module before its file existed (E0583); test module subsequently implemented, public cleanup exports exercised by typed behavioral tests, no lint suppression",
+    "Preparation invariant extraction preserves every partial owner before process creation; removed an unnecessary post-Job invariant branch that could leave resumable suspended owner",
+    "No Windows failed run in this component; both final full-validation and native sessions confirmed terminal0"
+  ],
+  "input_operations": {
+    "owned_synthetic_files_and_guarded_processes": true,
+    "actual_worker_invalid_config_only": true,
+    "real_hook_installed": false,
+    "sendinput_called": false,
+    "driver_loaded": false,
+    "user_config_read": false,
+    "physical_keyboard_validated": false
+  },
+  "limits": [
+    "API consumes already prepared artifact; complete host still needs lossless compile/native preflight/run-marker allocation/user control/diagnostics/hot update",
+    "Config envelope cleanup only covers its returned owners; independent Job error owner still needs actual exit and explicit writer cleanup",
+    "Underlying failed pipe factory internals use existing Drop/poison; envelope cannot retry resources never returned by factory",
+    "Cached actual Exited required; EOF/stop request/receipt is not exit proof, aggregate complete does not prove deletion/global key recovery",
+    "startup_stall forced exit/epoch0 does not prove child had completed config claim/read; initial/active/standby successful exits and stop_stall returned epoch do prove fixture read path",
+    "Native fixture epochs are synthetic; no actual CaptureSession/Windows11/physical input/performance acceptance",
+    "Old ADR-0053 x86 anomalies remain unresolved; current green runs do not claim fixes",
+    "Original Linux bootstrap/consumer-ready/advanced rules/GUI/packaging/Rust driver/companion audit and full goal remain unfinished"
+  ]
+}

@@ -196,3 +196,18 @@ Windows 配置文件资源层（2026-10-09）：固定 Rust1.97.1/MSVC19.44/SDK1
 Windows 配置对象交付（2026-10-09）：固定1.97.1 x64/i686最终各633 workspace tests（279 Windowsunit），SDK/alltargetsClippy/fmt通过，176源file SHA均匹配；fullvalidation terminal0后运行nativefixtures并确认terminal0。新check_config_handoff各arch3例验证真实guard/继承READ文件对象exact synthetic bytes/重复claim拒绝、bad0拒绝、read后stall被ownedJob终止并实际退出，最后close后实际NotFound；bad0例无数据读取。旧三句柄check_worker_startup全例继续通过。真实keyweave-worker还执行UTF8/JSON两无效image、均实际Config66先于安装；不会打开有效配置，无Hook/SendInput/driver。Linux666与独立无设备harness/Clippy/fmt/source60通过。
 
 [报告与原始证据hash](validation/windows-2026-10-09-config-handoff.json)、[ADR-0058](ADR-0058-owned-config-handoff.md)。保留第一次x64立即删除断言失败、第二x64新增preflight误禁止rollback clear及Linux同断言失败日志；最终改为有界实际NotFound/允许必要清理，并全量复验双arch。native epochs仅fixture read进度，不证明CaptureSession；完整Supervisor config factory/parenthost尚未接入，old9项path模式仅legacy。旧x86异常仍未知，不称已修复；正常输入/Windows11/硬件与所有原范围继续。
+
+
+Windows 受监督配置启动（2026-10-10）：fixed1.97.1双arch最终各642 workspace tests（287 Windowsunit）、alltargetsClippy/fmt/既有SDK通过，178源hash全匹配；fullvalidation父进程terminal0后才nativebuild，native父进程terminal0。新Supervisor真实worker入口在Config66/epoch0退出前禁止清理，退出后独立pipe/writer报告+实际NotFound。entry各进程创建同parent串行；mutex之前两绿快照保留为preliminary，不当final证据。Linux674/harness/Clippy/fmt/source60通过；OS实际只读核验10.0.19045.0。
+
+check_cooperative现可用--config-transfer：各arch五场景四句柄真实guard/原文件对象/Stop/期限/ownedJob/actual exit/cleanup/NotFound通过；legacy五场景与check_supervisor六场景继续通过。read proof按正常Exit0或已回fixture epoch限定，startup_stall强制退出不证明配置读取完成，epochs都非CaptureSession。没有Hook/SendInput/driver/用户配置；Windows11/硬件/正常输入、完整host/nativepreflight仍未验收。旧x86异常未解释，不因本次通过称修复。[报告](validation/windows-2026-10-10-supervised-config.json)、[ADR-0059](ADR-0059-supervised-config-startup.md)。
+
+在对应已核验的Windows-local snapshot、fixed工具链/target环境运行新增无输入模式：
+
+```text
+cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_cooperative --target x86_64-pc-windows-msvc
+# PowerShell: CARGO_TARGET_DIR 必须指向该 snapshot 的 Windows-local target 目录。
+& (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc\debug\examples\check_cooperative.exe') --config-transfer
+```
+
+x86对应i686-pc-windows-msvc，并使用x86 vcvars环境；不要与正在运行的MSVC fullvalidation并行native构建。例程只操作自有process/pipe/synthetic临时文件，不安装Hook；不等价于完整用户host。

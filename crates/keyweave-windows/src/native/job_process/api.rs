@@ -2,7 +2,7 @@
 use super::*;
 use std::cell::RefCell;
 #[derive(Default)]
-pub(super) struct Mock {
+pub(crate) struct Mock {
     pub last_error: u32,
     pub query_bytes: Option<usize>,
     pub query_success: bool,
@@ -25,7 +25,7 @@ pub(super) struct Mock {
     pub waits: Vec<u32>,
     pub closes: Vec<usize>,
 }
-thread_local! {pub(super) static MOCK: RefCell<Mock> = RefCell::new(Mock {wait:258, ..Mock::default()});}
+thread_local! {pub(crate) static MOCK: RefCell<Mock> = RefCell::new(Mock {wait:258, ..Mock::default()});}
 fn call(name: &'static str) -> bool {
     MOCK.with(|m| {
         let mut m = m.borrow_mut();

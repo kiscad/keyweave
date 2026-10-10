@@ -28,7 +28,7 @@ pub(super) struct SecurityAttributes {
 #[cfg(not(test))]
 mod api;
 #[cfg(test)]
-mod api_mock;
+pub(super) mod api_mock;
 use api::*;
 #[cfg(test)]
 use api_mock as api;

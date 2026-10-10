@@ -654,6 +654,6 @@ impl Drop for OwnedJobProcess {
     }
 }
 #[cfg(test)]
-mod api;
+pub(super) mod api;
 #[cfg(test)]
 mod tests;
