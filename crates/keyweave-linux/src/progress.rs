@@ -2,7 +2,7 @@
 use crate::{capture::CaptureSource, pump::FrameBackend, runtime::Runtime};
 pub use keyweave_progress::{
     CHALLENGE_BYTES, Challenge, ClientError, Policy, ProgressError, ProgressWatchdog,
-    RECEIPT_BYTES, Receipt,
+    RECEIPT_BYTES, Receipt, RequestEvent, StopRequest,
 };
 use std::io::{Read, Write};
 pub struct ProgressClient<R: Read, W: Write> {
@@ -20,6 +20,13 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
     ) -> Result<bool, ClientError> {
         self.inner.receive(runtime.progress_epoch())
     }
+    /// Explicit opt-in: Stop has priority over a pending challenge/reply.
+    pub fn receive_command<S: CaptureSource, B: FrameBackend>(
+        &mut self,
+        runtime: &Runtime<S, B>,
+    ) -> Result<RequestEvent, ClientError> {
+        self.inner.receive_command(runtime.progress_epoch())
+    }
     pub fn publish<S: CaptureSource, B: FrameBackend>(
         &mut self,
         runtime: &Runtime<S, B>,
@@ -36,11 +43,22 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
         R: std::os::fd::AsFd,
         W: std::os::fd::AsFd,
     {
+        self.wait_requests_with_control(false)
+    }
+    #[cfg(target_os = "linux")]
+    pub(crate) fn wait_requests_with_control(
+        &self,
+        control: bool,
+    ) -> [crate::reactor::WaitRequest<'_>; 2]
+    where
+        R: std::os::fd::AsFd,
+        W: std::os::fd::AsFd,
+    {
         use crate::reactor::{Interest, WaitRequest};
         [
             WaitRequest {
                 fd: self.inner.reader().as_fd(),
-                interest: if self.inner.can_receive() {
+                interest: if control || self.inner.can_receive() {
                     Interest::Read
                 } else {
                     Interest::Errors

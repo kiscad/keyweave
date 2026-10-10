@@ -690,10 +690,22 @@ impl Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice> {
         R: std::io::Read + std::os::fd::AsFd,
         W: std::io::Write + std::os::fd::AsFd,
     {
+        self.wait_native_with_control(client, clock, false)
+    }
+    pub(crate) fn wait_native_with_control<R, W>(
+        &self,
+        client: &crate::progress::ProgressClient<R, W>,
+        clock: &mut crate::reactor::MonotonicClock,
+        control: bool,
+    ) -> std::io::Result<crate::worker::WorkerWake>
+    where
+        R: std::io::Read + std::os::fd::AsFd,
+        W: std::io::Write + std::os::fd::AsFd,
+    {
         use crate::reactor::{self, Interest, WaitRequest};
         let mut requests = Vec::with_capacity(reactor::MAX_WAIT_FDS);
         // Control slots stay at 0/1; all subsequent slots belong to devices.
-        requests.extend(client.wait_requests());
+        requests.extend(client.wait_requests_with_control(control));
         for input in &self.inputs {
             if let Some(fd) = input.capture.wait_fd() {
                 requests.push(WaitRequest {
@@ -2150,6 +2162,226 @@ mod tests {
             assert!(submits(&trace).is_empty());
             assert_eq!(runtime.context_refresh_at, MonoTime(0));
         }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn controlled_worker_stop_cancels_due_held_before_any_new_input_and_closes_before_up() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            worker::run_with_wait_control,
+        };
+        let mut cfg = (*config(1, "b")).clone();
+        let mut mapping = cfg.simple.pop().unwrap();
+        mapping.extras.if_held_down = vec!["c".parse::<KeyId>().unwrap().into()];
+        mapping.extras.held_threshold_ns = 5;
+        cfg.complex.push(mapping);
+        let (mut runtime, trace) = make_runtime(
+            vec![vec![
+                frame(30, 1),
+                Err(io::Error::other("must not read after stop")),
+            ]],
+            Arc::new(cfg),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        let epoch = runtime.progress_epoch();
+        let client = ProgressClient::new(
+            io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        let reason = run_with_wait_control(runtime, client, true, |_, _, _| {
+            panic!("stop must not wait")
+        })
+        .unwrap();
+        assert_eq!(reason, StopReason::Pause);
+        let calls = trace.borrow();
+        let close = calls
+            .iter()
+            .position(|c| *c == Call::InputClose(1))
+            .unwrap();
+        let recovery = calls
+            .iter()
+            .position(|c| matches!(c, Call::Submit(_, true)))
+            .unwrap();
+        assert!(close < recovery);
+        assert_eq!(calls.last(), Some(&Call::OutputClose));
+        assert_eq!(epoch, 1);
+        assert_eq!(
+            submits(&trace),
+            vec![
+                (vec![NativeKey { code: 48, value: 1 }], false),
+                (vec![NativeKey { code: 48, value: 0 }], true)
+            ]
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn controlled_stop_preempts_pending_reply_without_flushing_it() {
+        use crate::{
+            progress::{Challenge, ProgressClient, StopRequest},
+            worker::run_with_wait_control,
+        };
+        use std::cell::Cell;
+        struct Blocked(std::rc::Rc<Cell<usize>>);
+        impl io::Write for Blocked {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                self.0.set(self.0.get() + 1);
+                Err(io::ErrorKind::WouldBlock.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                panic!("no stdio flush")
+            }
+        }
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        let mut bytes = Challenge { run_id: 7, id: 1 }.encode().to_vec();
+        bytes.extend(StopRequest { run_id: 7, id: 2 }.encode());
+        let writes = std::rc::Rc::new(Cell::new(0));
+        let mut client =
+            ProgressClient::new(io::Cursor::new(bytes), Blocked(writes.clone()), 7).unwrap();
+        assert!(client.receive(&runtime).unwrap());
+        runtime.poll(MonoTime(0)).unwrap();
+        assert!(!client.publish(&runtime).unwrap());
+        assert_eq!(writes.get(), 1);
+        assert_eq!(
+            run_with_wait_control(runtime, client, true, |_, _, _| panic!(
+                "no wait after Stop"
+            ))
+            .unwrap(),
+            StopReason::Pause
+        );
+        assert_eq!(writes.get(), 1);
+        assert_eq!(trace.borrow().last(), Some(&Call::OutputClose));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn default_worker_rejects_stop_and_controlled_worker_rejects_wrong_run_before_poll() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            worker::{WorkerError, run_with_wait_control},
+        };
+        for (control, run) in [(false, 7), (true, 8)] {
+            let (runtime, trace) = make_runtime(
+                vec![vec![Err(io::Error::other("must not read"))]],
+                config(1, "b"),
+            );
+            let client = ProgressClient::new(
+                io::Cursor::new(StopRequest { run_id: run, id: 1 }.encode()),
+                io::sink(),
+                7,
+            )
+            .unwrap();
+            assert!(matches!(
+                run_with_wait_control(runtime, client, control, |_, _, _| panic!(
+                    "invalid request cannot wait"
+                )),
+                Err(WorkerError::Progress(_))
+            ));
+            assert_eq!(trace.borrow()[0], Call::InputClose(1));
+            assert!(submits(&trace).is_empty());
+        }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn controlled_worker_completes_short_recovery_only_after_report_flush() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            worker::run_with_wait_control,
+        };
+        let (inputs, mut backend, trace) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Ok(FrameWrite::Incomplete {
+                accepted: 1,
+                report_pending: true,
+            }),
+        ]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        let client = ProgressClient::new(
+            io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        assert_eq!(
+            run_with_wait_control(runtime, client, true, |_, _, _| panic!("no wait")).unwrap(),
+            StopReason::Pause
+        );
+        let calls = trace.borrow();
+        let close = calls
+            .iter()
+            .position(|c| *c == Call::InputClose(1))
+            .unwrap();
+        let recovery = calls
+            .iter()
+            .position(|c| matches!(c, Call::Submit(_, true)))
+            .unwrap();
+        assert!(close < recovery);
+        assert!(calls.contains(&Call::Flush));
+        assert_eq!(calls.last(), Some(&Call::OutputClose));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn controlled_worker_preserves_unknown_acceptance_recovery_error() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            worker::{WorkerError, run_with_wait_control},
+        };
+        let (inputs, mut backend, trace) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Err(WriteError::UnknownAcceptance(io::Error::other(
+                "synthetic recovery fault",
+            ))),
+        ]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        let client = ProgressClient::new(
+            io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        assert!(matches!(
+            run_with_wait_control(runtime, client, true, |_, _, _| panic!("no wait")),
+            Err(WorkerError::Runtime(RuntimeError::Output(_)))
+        ));
+        let calls = trace.borrow();
+        let close = calls
+            .iter()
+            .position(|c| *c == Call::InputClose(1))
+            .unwrap();
+        let recovery = calls
+            .iter()
+            .position(|c| matches!(c, Call::Submit(_, true)))
+            .unwrap();
+        assert!(close < recovery);
+        assert_eq!(calls.last(), Some(&Call::OutputClose));
+        assert!(!calls.contains(&Call::Flush));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn controlled_wait_reads_stop_while_legacy_wait_has_a_pending_ticket() {
+        use crate::progress::{Challenge, ProgressClient};
+        use crate::reactor::Interest;
+        use std::os::fd::AsFd;
+        let (reader, mut writer) = io::pipe().unwrap();
+        crate::ioctl::nonblocking(reader.as_fd()).unwrap();
+        let (parent_reader, child_writer) = io::pipe().unwrap();
+        let (runtime, _) = make_runtime(vec![vec![]], config(1, "b"));
+        use io::Write;
+        writer
+            .write_all(&Challenge { run_id: 7, id: 1 }.encode())
+            .unwrap();
+        let mut client = ProgressClient::new(reader, child_writer, 7).unwrap();
+        assert!(client.receive(&runtime).unwrap());
+        assert_eq!(client.wait_requests()[0].interest, Interest::Errors);
+        assert_eq!(
+            client.wait_requests_with_control(true)[0].interest,
+            Interest::Read
+        );
+        drop(parent_reader);
     }
     fn instance(id: u64) -> DeviceInstanceId {
         DeviceInstanceId { id, generation: 1 }

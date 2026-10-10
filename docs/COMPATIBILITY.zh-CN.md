@@ -96,3 +96,5 @@ Linux Runtime已连接captured Probe vendor/product与device条件：current-dev
 Linux runtime新增单实例remove_device控制：完整device/generation匹配，关闭该捕获后仅清其owner/timer/未交付buffer，其他设备同键仍持有输出；last-device/emergency loss进入原整体有限恢复。tombstone保持slot身份，不重排队列。自动检测、可信hotplug绑定和device add尚未实现，普通IO/ENODEV/HUP仍全局故障恢复；不能将控制事务等同自动热插拔。[ADR-0067](ADR-0067-linux-device-removal.md)。
 
 Linux配置可通过host check-linux离线校验完整可执行性：Linux capability编译拒绝有损规则，所有动作/modifier须在指定output spec内，Engine gate保留，External repeat拒绝。默认全键表通过不证明真实输入覆盖、consumer readiness或可执行会话；PrintScreen使用Linux原生code而非Windows特殊scan gate。[ADR-0068](ADR-0068-linux-cold-preparation.md)。
+
+Linux默认challenge协议与run_worker行为保留；新增receive_command/run_worker_controlled仅显式启用KWPS停止。父request_shutdown必须知道worker支持，否则到期限强制停止，不推断兼容。停止先关闭捕获、有限恢复；短写必须补REPORT，unknown acceptance保留错误。父不读取旧receipt续租，Stop写完不等于退出，Cooperative/StopReason不证明键盘恢复。真实Linux入口仍待接通。[ADR-0069](ADR-0069-linux-cooperative-stop.md)。

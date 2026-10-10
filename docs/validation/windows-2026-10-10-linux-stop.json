@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0069 Linux opt-in controlled worker stop and bounded owned supervisor cooperative shutdown",
+  "source_base_commit": "3915e55d53651171f2cc369ee62aae164181a7ea",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "292c26ef8e7546a0a50d57676972f163",
+      "workspace_tests_passed": 710,
+      "source_files_hash_checked": 196,
+      "source_mismatches": 0,
+      "validation_session": 84039,
+      "validation_terminal_exit": 0,
+      "fmt_session": 53503,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-stop-x64-1.97.1",
+      "manifest_sha256": "5be1c2690a062dcd93b28d7f0457b14e7a529206741b59f9a227e5f811cfb5a3"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "0207e320f9874da08f9c1c45c85eadd1",
+      "workspace_tests_passed": 710,
+      "source_files_hash_checked": 196,
+      "source_mismatches": 0,
+      "validation_session": 84039,
+      "validation_terminal_exit": 0,
+      "fmt_session": 53503,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-stop-x86-1.97.1",
+      "manifest_sha256": "5be1c2690a062dcd93b28d7f0457b14e7a529206741b59f9a227e5f811cfb5a3"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 748,
+    "test_session": 86138,
+    "test_terminal_exit": 0,
+    "clippy_session": 85641,
+    "clippy_terminal_exit": 0,
+    "worker_parent_harness": "passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "unchanged; not rerun this component",
+    "raw_evidence": "target/validation/linux-20261010-linux-stop"
+  },
+  "new_tests": "6 mock worker/runtime/wait tests and 6 owned no-input supervisor child tests, Linux-only",
+  "preliminary": [
+    {
+      "session": 95695,
+      "terminal_exit": 0,
+      "scope": "baseline before new tests; not final evidence"
+    },
+    {
+      "session": 83204,
+      "terminal_exit": 101,
+      "reason": "one new test incorrectly expected a valid short recovery requiring REPORT to fail",
+      "fix": "preserve existing OutputPump finite recovery contract: short recovery succeeds only after REPORT flush; add independent UnknownAcceptance case retaining real error. Production short-output behavior unchanged."
+    }
+  ],
+  "limitations": [
+    "New Linux worker mode is explicit opt-in; default run_worker/receive remain challenge-only.",
+    "StopReason only reports loop termination; Cooperative reason only reports request intent. Neither is full output recovery/clean exit proof.",
+    "Actual child exit is observed via try_wait; request_sent only means Stop bytes were written.",
+    "Controlled Runtime tests use mock input/output; owned subprocess fixtures only validate framing/finite deadline/process lifecycle and never open devices.",
+    "Native Linux executable startup and user host do not yet select controlled mode; consumer readiness, hotplug identity binding and add/rearm remain incomplete.",
+    "Windows builds validate portable progress adapter and existing workspace regression; Linux-specific worker/supervisor tests are cfg excluded there.",
+    "No evdev grab/uinput, Hook/SendInput, or driver installation/loading was run.",
+    "No new FFI/native ABI changed or unrelated native host fixture rerun.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Advanced duration/simultaneous, context providers, Windows hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}
