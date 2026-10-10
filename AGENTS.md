@@ -2,6 +2,8 @@
 
 ## 当前项目与任务入口
 
+ADR-0086：NativeSession持有原Session/HostSignals/同MonotonicClock，每tick now→单signal→controller poll，5ms wait；clock error/backwards保留last accepted时间+owned stop，fault后5ms sleep避免坏FD忙等。Active无任意寿命限；stopping/fault以独立Instant elapsed观察5s，ObservationExpired保留同owner/不造exit、不读KWLT、不关signal、不reset预算；随后同owner可再观察actualExit。actualExit才terminal/close guard，独立close failure/cached NativeReport；emergency Drop child先signal但不证明exit。Linux858tests/Clippy/fmt/source60通过，6mock+actual-main own PID SIGINT完整/缺帧二模式，nativeclock/Stop/真实exit，无前台组/VT/input。无新FFI/deps，Windows前序待补未执行；cold组合/run-linux和完整目标继续。
+
 ADR-0085：host Linux Session持有原Supervisor，首signal锁存并只request_shutdown一次，不因重复signal延deadline；错误首fault+独立stop failure，owned request_stop后仍驱动同owner。只actual Exited后collect KWLT/缓存report，信号与progress/exit/recovery分离。Report.recovery_confirmed要求完整10facts+observation无fault；successful另要求code0、None|Cooperative、Pause|Emergency且无hostfault；不是global/hardware恢复证明。Linux852tests/Clippy/fmt/source60通过；4unit+actual-main无输入三report模式/Stop id1/actualexit/cache/epoch0，纯注入control，无OS signal/device操作。仅新增已有local Linux target dependency/lock1行，无FFI。native signal/clock/wait pump、cold组合/run-linux仍待接；Windows前序补验未执行，完整目标继续。
 
 ADR-0084：Linux HostSignals主线程独占signalfd收INT/TERM/HUP，安装前sole task/default disposition/原unblocked检查、singleton、!Send/Sync；原mask保留，FD NONBLOCK/CLOEXEC，每poll单128bytes，wait≤20ms，不造progress。prepare_child pre_exec只sigprocmask恢复原mask，child不继承signalFD；console guard同时要求managed signals unblocked。close仅实际child exit/cleanup后，恢复mask可交付并发pending默认signal；Drop非保证。Linux848tests/Clippy/fmt/source60/扩展C ABI通过，actual-main仅向own测试PID发INT/TERM/HUP，正常child组+mask验通过、故意漏restore拒绝，旧保护保留。无前台组/真实Ctrl+C/VT/input，host Stop/监督/run-linux仍待连接；Windows前序补验仍未执行，完整目标继续。

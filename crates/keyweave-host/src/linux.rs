@@ -1,4 +1,6 @@
 //! One owned Linux worker; injected control events never act as progress.
+mod drive;
+pub use drive::{DriveStatus, NativeReport, NativeSession};
 use keyweave_linux::{
     host_signals::StopSignal,
     runtime::StopReason,

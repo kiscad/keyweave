@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0086 native Linux signal/Supervisor pump",
+  "source_base_commit": "e5bf49e25f948606ccce64a195c7fa312254242a",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/linux.rs": "078d60baea6d640b8c08eaf7ff22d866359f47ca127a91ecf3858a7a9a536a9b",
+    "crates/keyweave-host/tests/linux_session.rs": "e2ae69aceabb837950529f80797a9713523f89519c119c4512b0a879490fe462",
+    "crates/keyweave-host/src/linux/drive.rs": "2ce1fc6b11cac00d76ac96298772efcc4e90238f417028797576fca8ef0aeff3"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 858,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_unit_tests": 6,
+    "native_custom_main": "two own-PID SIGINT modes; complete/missing synthetic terminal evidence, native monotonic time, sealed config/isolated child/Stop/actual exit",
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261010-host-pump/clippy.log",
+        "sha256": "892b06fd02c44b7f0054a18144dfb4f1c1b209acc4856fd913b861e38c6671fc"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-host-pump/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-host-pump/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-host-pump/workspace-tests.log",
+        "sha256": "92e4f1e79ef41a589581b30bd959bffd0cde0333e8d08102a32ff398fa3846fb"
+      }
+    }
+  },
+  "abi": "No new FFI/ABI; ADR-0084 oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only pump; prior native/portable checks still pending after automatic approval quota failure"
+  },
+  "limitations": [
+    "No terminal foreground-group signals, native Ctrl+C, real VT, evdev/uinput, Hook/SendInput or driver operations.",
+    "Active drive lifetime is intentionally unbounded; stopping/fault observation is bounded five seconds, with owner retained on expiry and no deadline reset.",
+    "Actual exit is checked before observation expiry; only actual exit leads to terminal collection and signal guard closure.",
+    "Control errors use last accepted MonoTime and owned forced stop; separate std Instant elapsed bounds observation, not a worker lease or suspend proof.",
+    "Recovery waits use 5ms sleep to avoid repeatedly waiting on a failed signal endpoint. OS scheduling/syscall stalls are not proven bounded.",
+    "Emergency Drop orders child cleanup before mask restoration, but bounded Supervisor Drop does not prove exit or global recovery.",
+    "Synthetic terminal report facts validate transport/classification only, not actual Runtime/hardware recovery.",
+    "Cold host composition and run-linux CLI remain unimplemented; full cross-platform objective remains incomplete."
+  ]
+}

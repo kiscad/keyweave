@@ -112,6 +112,41 @@ fn main() {
             State::Exited(report)
         );
     }
+    // Real signals target only this owned no-input harness PID. The child
+    // receives a private Stop frame, not a terminal foreground-group signal.
+    for mode in ["complete", "missing"] {
+        use keyweave_host::linux::{DriveStatus, NativeSession};
+        use keyweave_linux::{host_signals::HostSignals, reactor::MonotonicClock};
+        let signals = HostSignals::install().unwrap();
+        let mut clock = MonotonicClock::new();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.env(MODE, mode);
+        signals.prepare_child(&mut command).unwrap();
+        let now = clock.now().unwrap();
+        let supervisor = Supervisor::spawn_reporting_config_isolated(
+            command,
+            58,
+            Policy::default(),
+            now,
+            ConfigArtifact::create(b"no input fixture").unwrap(),
+        )
+        .unwrap();
+        let mut own_signal = Command::new("/bin/kill");
+        own_signal.args(["-s", "INT", &std::process::id().to_string()]);
+        signals.prepare_child(&mut own_signal).unwrap();
+        assert!(own_signal.status().unwrap().success());
+        let mut native = NativeSession::new(Session::new(supervisor), signals, clock);
+        let DriveStatus::Exited(report) = native.run() else {
+            panic!("native child exit was not observed");
+        };
+        assert_eq!(report.worker.status.code(), Some(0));
+        assert_eq!(report.worker.signal, Some(StopSignal::Interrupt));
+        assert_eq!(report.worker.reason, Some(TerminationReason::Cooperative));
+        assert_eq!(report.worker.progress_epoch, 0);
+        assert_eq!(report.successful(), mode == "complete");
+        assert!(report.signal_close_failure.is_none());
+        assert_eq!(native.run(), DriveStatus::Exited(report));
+    }
     println!(
         "linux_session: actual owned exit, first Stop and independent synthetic KWLT classifications passed (no input access)"
     );
