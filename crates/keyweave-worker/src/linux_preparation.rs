@@ -1,0 +1,163 @@
+//! Cold Linux configuration validation. No device or process resources.
+use crate::{LoadError, compile_config_bytes_for, read_config_bytes};
+use keyweave_engine::{ConfigSnapshot, Engine, EngineError};
+use keyweave_linux::{
+    keys,
+    output::{DeviceSpec, RepeatPolicy},
+    runtime::{RuntimeError, validate_config},
+};
+use keyweave_types::BackendCapabilities;
+use std::{io::Read, sync::Arc};
+
+#[derive(Debug, thiserror::Error)]
+pub enum PreparationError {
+    #[error(transparent)]
+    Load(#[from] LoadError),
+    #[error(transparent)]
+    Runtime(#[from] RuntimeError),
+    #[error(transparent)]
+    Engine(#[from] EngineError),
+}
+/// Maximum supported native output table, not consumer readiness or input coverage.
+pub fn default_output_spec() -> std::io::Result<DeviceSpec> {
+    DeviceSpec::new(
+        "KeyWeave",
+        &keys::native_codes().collect::<Vec<_>>(),
+        RepeatPolicy::Kernel,
+        false,
+    )
+}
+pub struct PreparedConfig {
+    bytes: Box<[u8]>,
+    snapshot: Arc<ConfigSnapshot>,
+    output: DeviceSpec,
+}
+impl std::fmt::Debug for PreparedConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LinuxPreparedConfig")
+            .field("byte_length", &self.bytes.len())
+            .field("generation", &self.snapshot.generation)
+            .finish_non_exhaustive()
+    }
+}
+impl PreparedConfig {
+    pub fn read(reader: impl Read, output: DeviceSpec) -> Result<Self, PreparationError> {
+        Self::from_bytes(read_config_bytes(reader)?, output)
+    }
+    pub fn from_bytes(bytes: Vec<u8>, output: DeviceSpec) -> Result<Self, PreparationError> {
+        let snapshot = compile_config_bytes_for(&bytes, &BackendCapabilities::linux())?;
+        if output.repeat() != RepeatPolicy::Kernel {
+            return Err(RuntimeError::RepeatPolicy.into());
+        }
+        validate_config(&snapshot, &output)?;
+        let _ = Engine::new(snapshot.clone())?;
+        Ok(Self {
+            bytes: bytes.into_boxed_slice(),
+            snapshot,
+            output,
+        })
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
+        &self.snapshot
+    }
+    pub fn output_spec(&self) -> &DeviceSpec {
+        &self.output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use keyweave_types::ConfigGeneration;
+    const JSONC: &[u8] = br#"// private bytes
+{"profiles":[{"name":"private name","selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b","modifiers":["left_control"]}]}]}]}"#;
+    fn prepare(bytes: &[u8]) -> Result<PreparedConfig, PreparationError> {
+        PreparedConfig::read(bytes, default_output_spec().unwrap())
+    }
+    #[test]
+    fn exact_bytes_snapshot_and_spec_remain_bound() {
+        let prepared = prepare(JSONC).unwrap();
+        assert_eq!(prepared.bytes(), JSONC);
+        assert_eq!(prepared.snapshot().generation, ConfigGeneration(1));
+        assert_eq!(prepared.snapshot().simple.len(), 1);
+        assert_eq!(prepared.output_spec().repeat(), RepeatPolicy::Kernel);
+        assert!(!prepared.output_spec().leds());
+        assert!(!format!("{prepared:?}").contains("private"));
+    }
+    #[test]
+    fn byte_constructor_enforces_inclusive_size_limit() {
+        let mut bytes = JSONC.to_vec();
+        bytes.resize(keyweave_config::MAX_CONFIG_BYTES, b' ');
+        let prepared = PreparedConfig::from_bytes(bytes, default_output_spec().unwrap()).unwrap();
+        assert_eq!(prepared.bytes().len(), keyweave_config::MAX_CONFIG_BYTES);
+        let mut bytes = prepared.bytes().to_vec();
+        bytes.push(b' ');
+        assert!(matches!(
+            PreparedConfig::from_bytes(bytes, default_output_spec().unwrap()),
+            Err(PreparationError::Load(LoadError::TooLarge))
+        ));
+    }
+    #[test]
+    fn output_key_and_modifier_must_both_be_advertised() {
+        for codes in [&[30, 29][..], &[30, 48][..]] {
+            let spec = DeviceSpec::new("test", codes, RepeatPolicy::Kernel, false).unwrap();
+            assert!(matches!(
+                PreparedConfig::read(JSONC, spec),
+                Err(PreparationError::Runtime(RuntimeError::ConfigurationKey(_)))
+            ));
+        }
+        let spec = DeviceSpec::new("test", &[30, 48, 29], RepeatPolicy::Kernel, false).unwrap();
+        assert!(PreparedConfig::read(JSONC, spec).is_ok());
+    }
+    #[test]
+    fn external_repeat_cannot_be_prepared_for_current_runtime() {
+        let spec = DeviceSpec::new("test", &[30, 48, 29], RepeatPolicy::External, false).unwrap();
+        assert!(matches!(
+            PreparedConfig::read(JSONC, spec),
+            Err(PreparationError::Runtime(RuntimeError::RepeatPolicy))
+        ));
+    }
+    #[test]
+    fn disabled_actions_cannot_silently_activate() {
+        let bytes=br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"shell_command":"never execute"}]}]}]}}]}"#;
+        assert!(matches!(
+            prepare(bytes),
+            Err(PreparationError::Load(LoadError::Loss { .. }))
+        ));
+    }
+    #[test]
+    fn oversized_reads_are_bounded_and_utf8_and_io_failures_preserved() {
+        struct Endless(usize);
+        impl Read for Endless {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.0 += buf.len();
+                buf.fill(b' ');
+                Ok(buf.len())
+            }
+        }
+        let mut reader = Endless(0);
+        assert!(matches!(
+            PreparedConfig::read(&mut reader, default_output_spec().unwrap()),
+            Err(PreparationError::Load(LoadError::TooLarge))
+        ));
+        assert_eq!(reader.0, keyweave_config::MAX_CONFIG_BYTES + 1);
+        assert!(matches!(
+            prepare(&[0xff]),
+            Err(PreparationError::Load(LoadError::Utf8(_)))
+        ));
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::PermissionDenied.into())
+            }
+        }
+        assert!(matches!(
+            PreparedConfig::read(Broken, default_output_spec().unwrap()),
+            Err(PreparationError::Load(LoadError::Io(_)))
+        ));
+    }
+}

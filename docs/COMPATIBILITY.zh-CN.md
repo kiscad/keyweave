@@ -94,3 +94,5 @@ Windows新增native overlapped pipe transport（ADR-0050）：私有单向byte p
 Linux Runtime已连接captured Probe vendor/product与device条件：current-device匹配使用完整DeviceInstanceId/generation，其他属性无证明保持Unknown。ContextSnapshot的device_inventory_scope=partial表示仅部分设备；已知存在可True，未匹配不足以证明不存在，exists_unless不变True。Complete继续旧完整inventory语义，缺字段只沿用旧provider契约；Linux runtime始终发Partial。1h有效期与半小时bounded刷新保持绝对时钟和原持键release，仍未证明全局inventory/热插拔/consumer-ready/真实设备验收。[ADR-0066](ADR-0066-linux-device-context.md)。
 
 Linux runtime新增单实例remove_device控制：完整device/generation匹配，关闭该捕获后仅清其owner/timer/未交付buffer，其他设备同键仍持有输出；last-device/emergency loss进入原整体有限恢复。tombstone保持slot身份，不重排队列。自动检测、可信hotplug绑定和device add尚未实现，普通IO/ENODEV/HUP仍全局故障恢复；不能将控制事务等同自动热插拔。[ADR-0067](ADR-0067-linux-device-removal.md)。
+
+Linux配置可通过host check-linux离线校验完整可执行性：Linux capability编译拒绝有损规则，所有动作/modifier须在指定output spec内，Engine gate保留，External repeat拒绝。默认全键表通过不证明真实输入覆盖、consumer readiness或可执行会话；PrintScreen使用Linux原生code而非Windows特殊scan gate。[ADR-0068](ADR-0068-linux-cold-preparation.md)。

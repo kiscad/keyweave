@@ -10,6 +10,7 @@ keyweave-config.workspace = true
 keyweave-engine.workspace = true
 keyweave-types.workspace = true
 keyweave-windows = { path = "../keyweave-windows" }
+keyweave-linux = { path = "../keyweave-linux" }
 thiserror.workspace = true
 
 [dev-dependencies]

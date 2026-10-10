@@ -96,3 +96,40 @@ fn packaged_sibling_cannot_resolve_outside_host_directory() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn linux_check_uses_linux_output_encoding_and_reports_offline_scope() {
+    let root = dir("linux-check");
+    let path = root.join("Linux config with spaces.jsonc");
+    fs::write(&path, br#"// private comment
+{"profiles":[{"name":"private profile","selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"print_screen"}]}]}]}"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args(["check-linux", "--config"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("offline")
+            && text.contains("generation=1")
+            && text.contains("readiness unverified")
+    );
+    assert!(!text.contains("private"));
+    fs::remove_dir_all(root).unwrap();
+}
+#[test]
+fn linux_check_rejects_invalid_utf8_and_loss_without_activation() {
+    let root = dir("linux-reject");
+    let path = root.join("config.json");
+    for bytes in [b"private-secret\xff".as_slice(),br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"shell_command":"never execute"}]}]}]}}]}"#.as_slice()] {
+        fs::write(&path, bytes).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+            .args(["check-linux", "--config"]).arg(&path).output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8(output.stderr).unwrap().contains("private-secret"));
+    }
+    fs::remove_dir_all(root).unwrap();
+}

@@ -10,6 +10,11 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Check Linux configuration against the full supported output table; no input access.
+    CheckLinux {
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Check a Windows configuration without opening input or starting a worker.
     CheckWindows {
         #[arg(long)]
@@ -44,6 +49,20 @@ impl From<Identity> for IdentityPolicy {
 }
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::CheckLinux { config } => match check_linux(config) {
+            Ok(config) => {
+                println!(
+                    "Linux configuration accepted (offline): bytes={}, generation={}; device readiness unverified",
+                    config.bytes().len(),
+                    config.snapshot().generation.0
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("configuration rejected: {error}");
+                ExitCode::from(1)
+            }
+        },
         Command::CheckWindows { config } => match std::fs::File::open(config)
             .map_err(|e| e.to_string())
             .and_then(|f| PreparedConfig::read(f).map_err(|e| e.to_string()))
@@ -173,4 +192,14 @@ fn run(
             ExitCode::from(1)
         }
     }
+}
+
+fn check_linux(
+    path: PathBuf,
+) -> Result<keyweave_worker::linux_preparation::PreparedConfig, String> {
+    keyweave_worker::linux_preparation::PreparedConfig::read(
+        std::fs::File::open(path).map_err(|e| e.to_string())?,
+        keyweave_worker::linux_preparation::default_output_spec().map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
 }

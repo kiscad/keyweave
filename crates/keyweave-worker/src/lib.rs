@@ -5,6 +5,7 @@ use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use keyweave_windows::keys::{IdentityPolicy, InjectionTag};
 use std::{ffi::OsString, io::Read, path::PathBuf, sync::Arc};
 
+pub mod linux_preparation;
 pub mod preparation;
 
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
@@ -130,16 +131,18 @@ fn read_config_bytes(reader: impl Read) -> Result<Vec<u8>, LoadError> {
     Ok(bytes)
 }
 fn compile_config_bytes(bytes: &[u8]) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    compile_config_bytes_for(bytes, &BackendCapabilities::windows_hook())
+}
+fn compile_config_bytes_for(
+    bytes: &[u8],
+    capabilities: &BackendCapabilities,
+) -> Result<Arc<ConfigSnapshot>, LoadError> {
     keyweave_windows::startup::ensure_preparation_context()?;
     if bytes.len() > MAX_CONFIG_BYTES {
         return Err(LoadError::TooLarge);
     }
     let text = std::str::from_utf8(bytes)?;
-    let compiled = keyweave_config::compile(
-        text,
-        &BackendCapabilities::windows_hook(),
-        ConfigGeneration(1),
-    )?;
+    let compiled = keyweave_config::compile(text, capabilities, ConfigGeneration(1))?;
     if !compiled.executable_without_loss() {
         return Err(LoadError::Loss {
             disabled: compiled.disabled_rules,

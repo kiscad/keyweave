@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0068 Linux cold configuration preparation and offline check-linux host CLI",
+  "source_base_commit": "d0193848e3c6cd535c594912df12ffdb6000e5ea",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "eac4d213ce1f45d3938536d328ffd950",
+      "workspace_tests_passed": 710,
+      "source_files_hash_checked": 196,
+      "source_mismatches": 0,
+      "validation_session": 18001,
+      "validation_terminal_exit": 0,
+      "fmt_session": 25486,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-preparation-x64-1.97.1",
+      "manifest_sha256": "b43a22fba313d694284e6d8920ea82f7656ea74f9a54e387b0e8ce1752eaab9e"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "dd7463920b38483facbbbd49c5c59d7e",
+      "workspace_tests_passed": 710,
+      "source_files_hash_checked": 196,
+      "source_mismatches": 0,
+      "validation_session": 18001,
+      "validation_terminal_exit": 0,
+      "fmt_session": 25486,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-preparation-x86-1.97.1",
+      "manifest_sha256": "b43a22fba313d694284e6d8920ea82f7656ea74f9a54e387b0e8ce1752eaab9e"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 736,
+    "test_session": 91867,
+    "test_terminal_exit": 0,
+    "clippy": "all-targets -D warnings passed; direct command terminal exit 0",
+    "worker_parent_harness": "passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "unchanged; not rerun this component",
+    "raw_evidence": "target/validation/linux-20261010-linux-preparation"
+  },
+  "preliminary": [
+    {
+      "session": 78931,
+      "terminal_exit": 0,
+      "scope": "before final byte-boundary and 2 CLI tests; not final evidence"
+    }
+  ],
+  "new_tests": "6 Linux preparation tests + 2 cross-platform offline host CLI tests",
+  "failures": [],
+  "limitations": [
+    "Cold preparation only; no output device/process/capture is created.",
+    "Default check-linux spec covers maximum known output codes, not actual physical input passthrough coverage or consumer readiness.",
+    "Prepared output spec retained; later native startup must use consistent capabilities and independently admit actual output/input resources.",
+    "Kernel repeat only; LED synchronization is not established.",
+    "Actual Linux executable bootstrap, consumer readiness, native hotplug identity binding and add/rearm remain incomplete.",
+    "No evdev grab/uinput, Hook/SendInput, or driver installation/loading was run.",
+    "Windows checks validate portable Linux preparation/CLI and existing Windows compiler regression, not physical Linux/Windows input.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Advanced duration/simultaneous, context providers, Windows hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

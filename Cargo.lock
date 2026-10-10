@@ -202,6 +202,7 @@ version = "0.1.0"
 dependencies = [
  "keyweave-config",
  "keyweave-engine",
+ "keyweave-linux",
  "keyweave-progress",
  "keyweave-types",
  "keyweave-windows",
