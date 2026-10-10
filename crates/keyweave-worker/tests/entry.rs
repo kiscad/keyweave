@@ -79,6 +79,29 @@ fn linux_private_entry_cannot_bypass_guard_or_parse_unavailable_provider_as_read
 }
 #[cfg(target_os = "linux")]
 #[test]
+fn explicit_console_entry_rejects_missing_guard_before_any_device_operation() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"))
+        .args([
+            keyweave_worker::linux_arguments::LINUX_WORKER_ARGUMENT,
+            "1",
+            "57",
+            "--uinput",
+            "/keyweave-absent-output",
+            "--session-provider",
+            "console",
+            "--vt",
+            "/dev/tty63",
+            "--input",
+            "/keyweave-absent-input",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(WorkerExit::Admission as i32));
+    assert!(result.stdout.is_empty() && result.stderr.is_empty());
+}
+#[cfg(target_os = "linux")]
+#[test]
 fn linux_real_main_consumes_sealed_config_and_preserves_cold_failures() {
     use keyweave_linux::{
         config_artifact::ConfigArtifact,

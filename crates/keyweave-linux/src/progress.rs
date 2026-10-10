@@ -9,6 +9,11 @@ pub struct ProgressClient<R: Read, W: Write> {
     inner: keyweave_progress::ProgressClient<R, W>,
 }
 impl<R: Read, W: Write> ProgressClient<R, W> {
+    /// Cold startup only: retain a pending challenge at epoch zero, never
+    /// publish a metadata/standby heartbeat. Same client is handed to Runtime.
+    pub(crate) fn receive_startup_command(&mut self) -> Result<RequestEvent, ClientError> {
+        self.inner.receive_command(0)
+    }
     pub fn new(reader: R, writer: W, run_id: u64) -> Result<Self, ClientError> {
         Ok(Self {
             inner: keyweave_progress::ProgressClient::new(reader, writer, run_id)?,

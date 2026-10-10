@@ -497,3 +497,141 @@ fn post_observation_clock_and_late_ready_fault_close_without_dispatch() {
     assert!(matches!(boot.step(), Err(BootstrapError::ConsumerLost)));
     inputs_closed_before_output(&trace);
 }
+struct StartupReader {
+    bytes: Vec<u8>,
+    delay: usize,
+}
+impl io::Read for StartupReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.delay != 0 {
+            self.delay -= 1;
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        if self.bytes.is_empty() {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        let count = buffer.len().min(self.bytes.len());
+        buffer[..count].copy_from_slice(&self.bytes[..count]);
+        self.bytes.drain(..count);
+        Ok(count)
+    }
+}
+struct SharedWriter(Rc<RefCell<Vec<u8>>>);
+impl io::Write for SharedWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+#[test]
+fn startup_stop_precedes_creation_or_cancels_captured_owners_without_dispatch() {
+    for delay in [0, 6] {
+        let mock = Mock::new();
+        let trace = mock.trace.clone();
+        let mut client = crate::progress::ProgressClient::new(
+            StartupReader {
+                bytes: crate::progress::StopRequest { run_id: 7, id: 1 }
+                    .encode()
+                    .to_vec(),
+                delay,
+            },
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        assert!(
+            drive_controlled(bootstrap(mock), &mut client, |_, _| Ok(()))
+                .unwrap()
+                .is_none()
+        );
+        if delay == 0 {
+            assert_eq!(*trace.borrow(), vec!["provider-close"]);
+        } else {
+            assert!(trace.borrow().iter().any(|v| v == "grab2:true"));
+            inputs_closed_before_output(&trace);
+        }
+    }
+}
+#[test]
+fn startup_challenge_survives_handoff_without_metadata_heartbeat() {
+    let mock = Mock::new();
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let mut client = crate::progress::ProgressClient::new(
+        StartupReader {
+            bytes: crate::progress::Challenge { run_id: 7, id: 1 }
+                .encode()
+                .to_vec(),
+            delay: 0,
+        },
+        SharedWriter(bytes.clone()),
+        7,
+    )
+    .unwrap();
+    let Handoff {
+        mut runtime,
+        platform,
+        ..
+    } = drive_controlled(bootstrap(mock), &mut client, |_, _| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert!(bytes.borrow().is_empty());
+    assert_eq!(runtime.progress_epoch(), 0);
+    runtime.poll(MonoTime(1)).unwrap();
+    assert!(client.publish(&runtime).unwrap());
+    let receipt = crate::progress::Receipt::decode(&bytes.borrow()).unwrap();
+    assert_eq!(receipt.challenge.run_id, 7);
+    assert_eq!(receipt.challenge.id, 1);
+    assert_eq!(receipt.epoch, 1);
+    drop(runtime);
+    drop(platform);
+}
+#[test]
+fn startup_protocol_and_wait_faults_close_without_retries() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut client = crate::progress::ProgressClient::new(
+        StartupReader {
+            bytes: vec![0; 24],
+            delay: 0,
+        },
+        io::sink(),
+        7,
+    )
+    .unwrap();
+    assert!(matches!(
+        drive_controlled(bootstrap(mock), &mut client, |_, _| panic!(
+            "malformed request cannot wait"
+        )),
+        Err(BootstrapError::Progress(_))
+    ));
+    assert_eq!(*trace.borrow(), vec!["provider-close"]);
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut waits = 0;
+    let mut client = crate::progress::ProgressClient::new(
+        StartupReader {
+            bytes: vec![],
+            delay: 0,
+        },
+        io::sink(),
+        7,
+    )
+    .unwrap();
+    assert!(matches!(
+        drive_controlled(bootstrap(mock), &mut client, |_, _| {
+            waits += 1;
+            if waits == 6 {
+                Err(BootstrapError::Endpoint)
+            } else {
+                Ok(())
+            }
+        }),
+        Err(BootstrapError::Endpoint)
+    ));
+    assert_eq!(waits, 6);
+    assert!(trace.borrow().iter().any(|v| v == "grab2:true"));
+    inputs_closed_before_output(&trace);
+}

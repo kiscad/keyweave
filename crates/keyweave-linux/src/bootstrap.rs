@@ -27,6 +27,10 @@ pub const BOOTSTRAP_TIMEOUT_NS: u64 = 10_000_000_000;
 pub const MAX_BOOTSTRAP_STEPS: usize = 512;
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
+    #[error(transparent)]
+    Progress(#[from] crate::progress::ClientError),
+    #[error("bootstrap progress endpoint failed")]
+    Endpoint,
     #[error("invalid bootstrap input identity or paths")]
     Inputs,
     #[error("bootstrap deadline expired or overflowed")]
@@ -321,6 +325,30 @@ impl<P: Platform> Drop for Bootstrap<P> {
         self.close();
     }
 }
+fn drive_controlled<P, R, W, F>(
+    mut boot: Bootstrap<P>,
+    client: &mut crate::progress::ProgressClient<R, W>,
+    mut wait: F,
+) -> Result<Option<Handoff<P>>, BootstrapError>
+where
+    P: Platform,
+    R: io::Read,
+    W: io::Write,
+    F: FnMut(
+        &mut Bootstrap<P>,
+        &crate::progress::ProgressClient<R, W>,
+    ) -> Result<(), BootstrapError>,
+{
+    loop {
+        if client.receive_startup_command()? == crate::progress::RequestEvent::Stop {
+            return Ok(None);
+        }
+        if boot.step()? == BootstrapStep::Ready {
+            return boot.finish().map(Some);
+        }
+        wait(&mut boot, client)?;
+    }
+}
 
 struct Native<'a> {
     guard: &'a WorkerParentGuard,
@@ -390,6 +418,49 @@ impl<'a> ConsoleBootstrap<'a> {
     pub fn step(&mut self) -> Result<BootstrapStep, BootstrapError> {
         self.inner.step()
     }
+    /// Stop before every step, no standby publications. None means startup
+    /// cancelled and all boot owners dropped, not a Runtime recovery report.
+    pub fn run<R, W>(
+        self,
+        client: &mut crate::progress::ProgressClient<R, W>,
+    ) -> Result<Option<ConsolePrepared>, BootstrapError>
+    where
+        R: io::Read + std::os::fd::AsFd,
+        W: io::Write + std::os::fd::AsFd,
+    {
+        for request in client.wait_requests_with_control(true) {
+            crate::ioctl::nonblocking(request.fd)?;
+        }
+        let handoff = drive_controlled(self.inner, client, |boot, client| {
+            boot.time()?;
+            let deadline = boot.deadline;
+            let requests = client.wait_requests_with_control(true);
+            let native = boot.platform.as_mut().ok_or(BootstrapError::Phase)?;
+            let wake = crate::reactor::wait(
+                &mut native.clock,
+                &requests,
+                deadline,
+                crate::reactor::HOUSEKEEPING_NS,
+            )?;
+            if wake.any_fault() {
+                return Err(BootstrapError::Endpoint);
+            }
+            boot.time()?;
+            Ok(())
+        })?;
+        Ok(handoff.map(
+            |Handoff {
+                 runtime,
+                 platform: native,
+                 ready,
+             }| ConsolePrepared {
+                runtime,
+                provider: native.provider,
+                clock: native.clock,
+                ready,
+            },
+        ))
+    }
     /// Consumes the only capture/output owners. Check/renew the returned ready
     /// observation before any Runtime dispatch and throughout active execution.
     /// The same clock must drive Runtime, provider and worker protocol.
@@ -411,6 +482,14 @@ impl<'a> ConsoleBootstrap<'a> {
         } = self.inner.finish()?;
         Ok((runtime, native.provider, native.clock, ready))
     }
+}
+/// No automatic active dispatch; caller transfers the same owners/client to the
+/// console worker loop. Field order keeps Runtime before the read-only provider.
+pub struct ConsolePrepared {
+    pub runtime: Runtime<EvdevSource, UinputDevice>,
+    pub provider: ConsoleProvider,
+    pub clock: MonotonicClock,
+    pub ready: ConsoleReady,
 }
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

@@ -609,6 +609,59 @@ pub fn run_reporting_console_worker(
         run_console_worker_controlled_report(runtime, client, &guard, provider, clock, ready)?;
     Ok(finalize_worker_report(worker, &mut terminal))
 }
+pub enum ConsoleSessionResult {
+    /// No Runtime was dispatched. Terminal report intentionally absent.
+    StartupStopped,
+    Worker(ReportedWorker),
+}
+#[derive(Debug, thiserror::Error)]
+pub enum ConsoleSessionError {
+    #[error(transparent)]
+    Bootstrap(#[from] crate::bootstrap::BootstrapError),
+    #[error(transparent)]
+    Worker(#[from] WorkerError),
+}
+/// Full guarded console transaction, with cold configuration already compiled.
+/// No endpoint logging and no fabricated Runtime report during startup.
+pub fn run_reporting_console_session(
+    startup: ReportingStartup,
+    vt: &std::path::Path,
+    uinput: &std::path::Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, std::path::PathBuf)>,
+    config: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
+    spec: crate::output::DeviceSpec,
+) -> Result<ConsoleSessionResult, ConsoleSessionError> {
+    let (guard, mut client, mut terminal) = startup.into_parts();
+    WorkerParentGuard::verify(guard.parent_pid()).map_err(WorkerError::from)?;
+    for request in client.wait_requests_with_control(true) {
+        crate::ioctl::nonblocking(request.fd).map_err(WorkerError::from)?;
+    }
+    // Before even read-only VT/provider construction. Later stop arrivals are
+    // cooperative checkpoints, not an atomic prohibition on the next syscall.
+    if client
+        .receive_startup_command()
+        .map_err(WorkerError::from)?
+        == keyweave_progress::RequestEvent::Stop
+    {
+        return Ok(ConsoleSessionResult::StartupStopped);
+    }
+    let boot = crate::bootstrap::ConsoleBootstrap::new(&guard, vt, uinput, inputs, config, spec)?;
+    let Some(crate::bootstrap::ConsolePrepared {
+        runtime,
+        provider,
+        clock,
+        ready,
+    }) = boot.run(&mut client)?
+    else {
+        return Ok(ConsoleSessionResult::StartupStopped);
+    };
+    let worker =
+        run_console_worker_controlled_report(runtime, client, &guard, provider, clock, ready)?;
+    Ok(ConsoleSessionResult::Worker(finalize_worker_report(
+        worker,
+        &mut terminal,
+    )))
+}
 #[cfg(test)]
 mod tests {
     use super::config_descriptor;

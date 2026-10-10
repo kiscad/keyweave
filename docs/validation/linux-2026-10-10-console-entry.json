@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0081 controlled cold startup and actual guarded Linux console worker main",
+  "source_base_commit": "0658f88b1b834bc7a6476db2e3bc74f2d64d9088",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "5af105f0fe169a3a25f9558ab1bb202f9a99ff7b5f7a1db79b30adc032b057f0",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "9f0257ea6e6e7984c8607d825819f2c3fa23d277a7647f86132df514223e1406",
+    "crates/keyweave-linux/src/progress.rs": "33ba7c86fcd3bb39858aff7097ffaaf50b656118a4febc9fee805c182861007a",
+    "crates/keyweave-linux/src/worker.rs": "a9658bfaaac46eb3f484865d34b765a779f889965680fced2109d3d5c88b3f95",
+    "crates/keyweave-worker/src/linux_arguments.rs": "ea5cfc156673c1cb9d61da12a4fd755f1d781482e765278d6d40ec59d2f72687",
+    "crates/keyweave-worker/src/main.rs": "a97e3415745f583410924a9e911a4f85ee71cf1cd0fe2d52375720e2a05e8552",
+    "crates/keyweave-worker/tests/entry.rs": "bf9602ec6bfb1a4b9d493e1dbcdd1a7ed4fe01ead7ebe9ee6299a53033514cbe"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 833,
+    "test_session": 38383,
+    "test_terminal_exit": 0,
+    "clippy_session": 70302,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "no new FFI/unsafe/UAPI; C oracle unchanged and not rerun",
+    "logs": {
+      "clippy-final": {
+        "path": "target/validation/linux-20261010-console-entry/clippy-final.log",
+        "sha256": "59534b86a2c1020a139b40679b80de2a9348652898664934f1005d8e9017298b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-console-entry/clippy.log",
+        "sha256": "eddfa882627908f93198a8e8ed40d159e32d946e34f10115a24e8fbccdc7cc3b"
+      },
+      "fmt-final": {
+        "path": "target/validation/linux-20261010-console-entry/fmt-final.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-console-entry/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-console-entry/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests-final": {
+        "path": "target/validation/linux-20261010-console-entry/workspace-tests-final.log",
+        "sha256": "5d28e1d82b6d8955a3f3439ee551ad2fd0680e94c8a75405704b9cc8b4ac83f2"
+      },
+      "workspace-tests-preliminary": {
+        "path": "target/validation/linux-20261010-console-entry/workspace-tests-preliminary.log",
+        "sha256": "0b2b29a0b56835ef8e5b9cfc7af634335df247ed04dcd0db5dd77269aee26f59"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-console-entry/workspace-tests.log",
+        "sha256": "8d1cad5dd177611ff13946a7a1758067556dc39b7b9f062efee20e9682eb5d3f"
+      }
+    }
+  },
+  "preliminary": {
+    "cargo_check_session": 67378,
+    "cargo_check_terminal_exit": 0,
+    "first_test_session": 95565,
+    "first_test_terminal_exit": 101,
+    "first_test_errors": "test helper shadowed new drive function and used incorrect Receipt field names; fixed helper name and actual challenge/epoch fields, no production gate weakened",
+    "patch_retry": "an expected main source block did not match; apply_patch rejected without changing main, exact block was read and corrected",
+    "intermediate_tests_session": 81456,
+    "intermediate_tests_exit": 0,
+    "intermediate_clippy_session": 79567,
+    "intermediate_clippy_exit": 0,
+    "final_scope": "after ConsoleBootstrap.run repeats nonblocking FD admission before its first receive"
+  },
+  "new_tests": {
+    "mock_driver_protocol": 3,
+    "portable_arguments": 2,
+    "pure_main_exit_classification": 2,
+    "real_exe_missing_guard_console": 1
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "two new portable argument tests need native Windows check; preceding context/application and portable arguments checks remain pending after unresolved automatic approval review quota failure; no new invocation attempted"
+  },
+  "limitations": [
+    "Actual console main/native bootstrap/active-loop/KWLT wiring is implemented but successful capture and VT metadata paths were not executed. New console real-exe test lacks guard and returns 65 before device work; valid-config real-exe fixtures remain permanently none/no-device.",
+    "Startup challenge baseline is zero and retained on same client; startup never publishes metadata heartbeat, first actual Runtime poll supplies epoch1. No parent startup lease extension.",
+    "StartupStopped returns scalar0 without Runtime/KWLT report; absence is intentional no-dispatch scope, not global recovery/ungrab evidence.",
+    "Full run requires independent complete termination/delivery and consistent Pause/Emergency outcome for scalar0; cleanup uncertainty takes69, loop contradictions/errors68. No Windows mask truncation.",
+    "Pending wait uses protocol endpoints/old deadline and fixed housekeeping, not input reads or infinite sleeps; native syscalls still may block and parent-death supervision is required.",
+    "Input IDs/gen1 are per-run temporary assignments, not persistent hardware identity.",
+    "Linux host, signal/child process-group/control-TTY behavior, sleep/session revoke and actual hardware validation remain incomplete.",
+    "Console scope excludes graphical desktops, PTYS and WSL Terminal; sample/TTL do not prove atomicity, end-to-end delivery, suspend correctness or global recovery.",
+    "Full objective including advanced rules, hotplug/add, LED, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}

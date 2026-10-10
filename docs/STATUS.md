@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。
 
+最新实际main：Linux显式console+canonical VT参数已接冷sealed配置→预构造Stop→有限bootstrap等待→同client/clock Runtime consumer-loop→KWLT收尾/完整scalar分类；startup challenge epoch0保留，首次实际poll才回答。None仍永久无设备/78，legacy格式保持Unsupported。Linux833tests/Clippy/fmt/source60通过，无真实捕获/VT查询；console exe只验缺guard65、none仍验66/65/78，成功路径是mock。下一步Linux host/信号进程组/监督与专用硬件验收；完整目标继续未完成。见 [ADR-0081](ADR-0081-linux-controlled-console-entry.md)、[验证记录](validation/linux-2026-10-10-console-entry.json)。两新portable参数测试及前序Windows原生补验仍未执行。
+
 最新活动组件：ConsoleLease 的100ms查询前锚定刷新/250ms严格TTL、首次dispatch强制新查询与失效撤销已接 opt-in console controlled/reporting worker；共享bootstrap clock、wait clamp、Stop优先、Recovering跳过provider、capture先于恢复/provider最后关闭，独立WorkerError::Consumer与KWLT termination保留。Linux825tests/Clippy/fmt/source60通过，无真实设备操作。实际main仍none，Pending bootstrap Stop/progress等待及Linux host待连接，原完整目标未完成。见 [ADR-0080](ADR-0080-linux-active-console-lease.md)、[验证记录](validation/linux-2026-10-10-console-active.json)。Windows原生待补检查仍未执行。
 
 最新启动组件：Linux ConsoleBootstrap 已连接原生 owned output→节点发现→逐个输入 open→整组 consumer/neutral arm→post-arm再观察→Runtime handoff；首step+10s/512预算、同一clock、故障/Drop inputs先于output/provider关闭。Linux817tests/Clippy/fmt/source60通过，无真实设备操作。main仍仅none无设备，Pending stop/progress等待与活动provider续期、实际Linux host待连接；完整目标未完成。见 [ADR-0079](ADR-0079-linux-console-bootstrap.md)、[验证记录](validation/linux-2026-10-10-console-bootstrap.json)。Windows此前待补原生检查未执行。

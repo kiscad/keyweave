@@ -53,22 +53,155 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
         Ok(spec) => spec,
         Err(_) => return WorkerExit::Config.into(),
     };
-    let _prepared = match PreparedConfig::from_bytes(bytes, spec) {
+    let prepared = match PreparedConfig::from_bytes(bytes, spec) {
         Ok(prepared) => prepared,
         Err(_) => return WorkerExit::Config.into(),
     };
-    // None must NEVER open devices. Consumer-ready providers/native bootstrap
-    // remain incomplete; successful cold preparation is not capture readiness.
+    // None must NEVER open devices, even though an explicit console mode exists.
     match args.session_provider {
         keyweave_worker::linux_arguments::SessionProvider::None => {
             WorkerExit::UnsupportedPlatform.into()
         }
+        keyweave_worker::linux_arguments::SessionProvider::Console { vt } => {
+            let inputs = args
+                .inputs
+                .into_iter()
+                .enumerate()
+                .map(|(index, path)| {
+                    (
+                        keyweave_types::DeviceInstanceId {
+                            id: index as u64 + 1,
+                            generation: 1,
+                        },
+                        path,
+                    )
+                })
+                .collect();
+            match keyweave_linux::worker::run_reporting_console_session(
+                startup,
+                &vt,
+                &args.uinput,
+                inputs,
+                prepared.snapshot().clone(),
+                prepared.output_spec().clone(),
+            ) {
+                Ok(keyweave_linux::worker::ConsoleSessionResult::StartupStopped) => {
+                    WorkerExit::Clean.into()
+                }
+                Ok(keyweave_linux::worker::ConsoleSessionResult::Worker(report)) => {
+                    linux_report_exit(report).into()
+                }
+                Err(keyweave_linux::worker::ConsoleSessionError::Bootstrap(error)) => match error {
+                    keyweave_linux::bootstrap::BootstrapError::Progress(_)
+                    | keyweave_linux::bootstrap::BootstrapError::Endpoint => {
+                        WorkerExit::Loop.into()
+                    }
+                    _ => WorkerExit::Install.into(),
+                },
+                Err(keyweave_linux::worker::ConsoleSessionError::Worker(_)) => {
+                    WorkerExit::Loop.into()
+                }
+            }
+        }
+    }
+}
+#[cfg(target_os = "linux")]
+fn linux_report_exit(report: keyweave_linux::worker::ReportedWorker) -> WorkerExit {
+    let Some(terminal) = report.worker.termination else {
+        return WorkerExit::Cleanup;
+    };
+    if !terminal.input_owners_released
+        || !terminal.engine_reset_confirmed
+        || terminal.recovery_failed
+        || terminal.recovery_budget_exhausted
+        || terminal.submitted_remaining
+        || terminal.report_pending
+        || terminal.acceptance_unknown
+        || !terminal.output_recovery_confirmed
+        || !terminal.output_owner_dropped
+        || !terminal.backend_transition_confirmed
+        || !report.delivery.frame_sent
+        || report.delivery.failure.is_some()
+    {
+        return WorkerExit::Cleanup;
+    }
+    if !matches!(report.worker.outcome,Ok(reason) if reason==terminal.reason && matches!(reason,
+        keyweave_linux::runtime::StopReason::Pause|keyweave_linux::runtime::StopReason::Emergency))
+    {
+        return WorkerExit::Loop;
+    }
+    WorkerExit::Clean
+}
+#[cfg(all(test, target_os = "linux"))]
+mod linux_exit_tests {
+    use super::*;
+    use keyweave_linux::{
+        runtime::{StopReason, TerminationReport},
+        termination::bounded::{DeliveryFailure, DeliveryReport},
+        worker::{ReportedWorker, WorkerError, WorkerReport},
+    };
+    fn report() -> ReportedWorker {
+        ReportedWorker {
+            worker: WorkerReport {
+                outcome: Ok(StopReason::Pause),
+                termination: Some(TerminationReport {
+                    reason: StopReason::Pause,
+                    input_owners_released: true,
+                    engine_reset_confirmed: true,
+                    recovery_failed: false,
+                    recovery_budget_exhausted: false,
+                    submitted_remaining: false,
+                    report_pending: false,
+                    acceptance_unknown: false,
+                    output_recovery_confirmed: true,
+                    output_owner_dropped: true,
+                    backend_transition_confirmed: true,
+                }),
+            },
+            delivery: DeliveryReport {
+                frame_sent: true,
+                attempts: 1,
+                failure: None,
+            },
+        }
+    }
+    #[test]
+    fn delivery_and_recovery_uncertainty_override_success_or_loop_error() {
+        let mut r = report();
+        r.delivery.failure = Some(DeliveryFailure::MissingReport);
+        assert_eq!(linux_report_exit(r), WorkerExit::Cleanup);
+        let mut r = report();
+        r.worker.outcome = Err(WorkerError::Endpoint(StopReason::ControlFault));
+        if let Some(t) = r.worker.termination.as_mut() {
+            t.output_recovery_confirmed = false;
+            t.submitted_remaining = true;
+        }
+        assert_eq!(linux_report_exit(r), WorkerExit::Cleanup);
+        let mut r = report();
+        r.worker.termination = None;
+        assert_eq!(linux_report_exit(r), WorkerExit::Cleanup);
+    }
+    #[test]
+    fn loop_error_and_contradictory_reason_cannot_become_clean() {
+        assert_eq!(linux_report_exit(report()), WorkerExit::Clean);
+        let mut r = report();
+        r.worker.outcome = Err(WorkerError::Endpoint(StopReason::ControlFault));
+        assert_eq!(linux_report_exit(r), WorkerExit::Loop);
+        let mut r = report();
+        r.worker.outcome = Ok(StopReason::Emergency);
+        assert_eq!(linux_report_exit(r), WorkerExit::Loop);
+        let mut r = report();
+        r.worker.outcome = Ok(StopReason::Emergency);
+        if let Some(t) = r.worker.termination.as_mut() {
+            t.reason = StopReason::Emergency;
+        }
+        assert_eq!(linux_report_exit(r), WorkerExit::Clean);
     }
 }
 
 #[cfg(not(windows))]
 fn execute(_args: Arguments) -> NativeWorkerExit {
-    // Linux bootstrap remains a separate task; never silently run without it.
+    // Legacy Windows arguments do not select the guarded Linux console entry.
     WorkerExit::UnsupportedPlatform.into()
 }
 
