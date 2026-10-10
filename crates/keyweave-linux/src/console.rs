@@ -228,7 +228,7 @@ pub struct ConsoleProvider {
 impl ConsoleProvider {
     /// Verified worker main only. No controlling terminal acquisition or read.
     pub fn open(path: &Path, guard: &WorkerParentGuard) -> io::Result<Self> {
-        let _verified = WorkerParentGuard::verify(guard.parent_pid())?;
+        guard.verify_isolated_group()?;
         let vt = vt_number(path)?;
         let file = OpenOptions::new()
             .read(true)
@@ -255,7 +255,7 @@ impl ConsoleProvider {
         output: &UinputDevice,
         clock: &mut MonotonicClock,
     ) -> io::Result<Option<ConsoleReady>> {
-        let _verified = WorkerParentGuard::verify(self.parent)?;
+        WorkerParentGuard::verify(self.parent)?.verify_isolated_group()?;
         if output.state() != OutputState::Ready {
             return Ok(None);
         }

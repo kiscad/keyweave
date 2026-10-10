@@ -262,6 +262,50 @@ pub(crate) fn verify_parent_death(expected: u32) -> io::Result<()> {
     }
     parent_matches(expected)
 }
+fn group_matches(
+    pid: libc::pid_t,
+    own_group: libc::pid_t,
+    parent_group: libc::pid_t,
+    own_session: libc::pid_t,
+    parent_session: libc::pid_t,
+) -> bool {
+    pid > 0
+        && own_group == pid
+        && parent_group > 0
+        && parent_group != pid
+        && own_session > 0
+        && own_session == parent_session
+}
+fn positive_pid(value: libc::pid_t) -> io::Result<libc::pid_t> {
+    if value < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if value == 0 {
+        return Err(io::Error::from_raw_os_error(libc::EPERM));
+    }
+    Ok(value)
+}
+pub(crate) fn verify_isolated_group(expected: u32) -> io::Result<()> {
+    let expected =
+        libc::pid_t::try_from(expected).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+    if expected <= 0 {
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
+    // SAFETY: synchronous read-only scalar process identity; no pointers or mutation.
+    let pid = positive_pid(unsafe { libc::getpid() })?;
+    // SAFETY: synchronous read-only current process group query.
+    let own_group = positive_pid(unsafe { libc::getpgrp() })?;
+    // SAFETY: read-only query for the previously verified positive parent PID.
+    let parent_group = positive_pid(unsafe { libc::getpgid(expected) })?;
+    // SAFETY: zero selects the current process's session, no mutation.
+    let own_session = positive_pid(unsafe { libc::getsid(0) })?;
+    // SAFETY: read-only session query for verified parent, no retained resource.
+    let parent_session = positive_pid(unsafe { libc::getsid(expected) })?;
+    if !group_matches(pid, own_group, parent_group, own_session, parent_session) {
+        return Err(io::Error::from_raw_os_error(libc::EPERM));
+    }
+    parent_matches(expected)
+}
 pub(crate) fn monotonic_now() -> io::Result<u64> {
     let mut time = libc::timespec {
         tv_sec: 0,
@@ -410,6 +454,20 @@ pub(crate) fn uinput_sysname(fd: BorrowedFd<'_>) -> io::Result<String> {
 mod tests {
     use super::*;
     use std::{fs::File, os::fd::AsFd};
+    #[test]
+    fn isolated_group_requires_child_leader_distinct_parent_and_same_session() {
+        assert!(group_matches(12, 12, 10, 9, 9));
+        for args in [
+            (12, 10, 10, 9, 9),
+            (12, 12, 12, 9, 9),
+            (12, 12, 10, 12, 9),
+            (0, 0, 10, 9, 9),
+            (12, 12, 0, 9, 9),
+            (12, 12, 10, 0, 0),
+        ] {
+            assert!(!group_matches(args.0, args.1, args.2, args.3, args.4));
+        }
+    }
     #[test]
     fn uapi_command_encoding_matches_audited_64_bit_linux() {
         assert_eq!(request(2, 1, 4), 0x80044501);

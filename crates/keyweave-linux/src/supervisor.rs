@@ -63,7 +63,7 @@ impl Supervisor {
     /// SIGKILL is installed before exec. Worker main must verify its inherited
     /// guard before opening devices; credential-changing exec is unsupported.
     pub fn spawn(command: Command, run_id: u64, policy: Policy, now: MonoTime) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, false, None)
+        Self::spawn_mode(command, run_id, policy, now, false, None, false)
     }
     /// Explicit third private terminal pipe. Only a reporting worker may use it.
     pub fn spawn_reporting(
@@ -72,7 +72,7 @@ impl Supervisor {
         policy: Policy,
         now: MonoTime,
     ) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, true, None)
+        Self::spawn_mode(command, run_id, policy, now, true, None, false)
     }
     /// Exact sealed image through one selected extra FD. The trusted Command
     /// must not close/rebind it in caller pre_exec hooks or inherit device FDs.
@@ -83,7 +83,19 @@ impl Supervisor {
         now: MonoTime,
         config: crate::config_artifact::ConfigArtifact,
     ) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, true, Some(config))
+        Self::spawn_mode(command, run_id, policy, now, true, Some(config), false)
+    }
+    /// Console host mode: child gets PGID=its own PID, retains the parent's
+    /// session/control terminal. Caller hooks must not change group/session.
+    /// Does not alter the parent group or install host signal handlers.
+    pub fn spawn_reporting_config_isolated(
+        command: Command,
+        run_id: u64,
+        policy: Policy,
+        now: MonoTime,
+        config: crate::config_artifact::ConfigArtifact,
+    ) -> io::Result<Self> {
+        Self::spawn_mode(command, run_id, policy, now, true, Some(config), true)
     }
     fn spawn_mode(
         mut command: Command,
@@ -92,6 +104,7 @@ impl Supervisor {
         now: MonoTime,
         reporting: bool,
         config: Option<crate::config_artifact::ConfigArtifact>,
+        isolated: bool,
     ) -> io::Result<Self> {
         let watchdog = ProgressWatchdog::new(run_id, policy, now)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -136,6 +149,12 @@ impl Supervisor {
             command.env(crate::worker::CONFIG_ENV, fd.to_string());
         } else {
             command.env_remove(crate::worker::CONFIG_ENV);
+        }
+        if isolated {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0).env(crate::worker::GROUP_ENV, "1");
+        } else {
+            command.env_remove(crate::worker::GROUP_ENV);
         }
         let child = command.spawn()?;
         // Drop Command here so the parent retains no worker endpoint or duplicate stdio.
@@ -646,9 +665,26 @@ mod tests {
     }
     #[test]
     fn creator_thread_exit_kills_worker_even_while_parent_process_lives() {
-        let mut supervisor = std::thread::spawn(|| {
-            let mut supervisor =
-                Supervisor::spawn(command("stall"), 12, Policy::default(), MonoTime(0)).unwrap();
+        creator_thread_guard(false);
+    }
+    #[test]
+    fn isolated_creator_thread_exit_retains_kernel_parent_death_guard() {
+        creator_thread_guard(true);
+    }
+    fn creator_thread_guard(isolated: bool) {
+        let mut supervisor = std::thread::spawn(move || {
+            let mut supervisor = if isolated {
+                Supervisor::spawn_reporting_config_isolated(
+                    command("stall"),
+                    12,
+                    Policy::default(),
+                    MonoTime(0),
+                    crate::config_artifact::ConfigArtifact::create(b"no input fixture").unwrap(),
+                )
+                .unwrap()
+            } else {
+                Supervisor::spawn(command("stall"), 12, Policy::default(), MonoTime(0)).unwrap()
+            };
             wait_until(&mut supervisor, MonoTime(0), |value| {
                 value.progress_epoch() == 1
             });

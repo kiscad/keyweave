@@ -40,6 +40,13 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
     if startup.guard().parent_pid() != args.parent || startup.run_id() != args.run_id {
         return WorkerExit::Admission.into();
     }
+    if matches!(
+        args.session_provider,
+        keyweave_worker::linux_arguments::SessionProvider::Console { .. }
+    ) && startup.guard().verify_isolated_group().is_err()
+    {
+        return WorkerExit::Admission.into();
+    }
     let config = match startup.claim_config() {
         Ok(config) => config,
         Err(_) => return WorkerExit::Admission.into(),

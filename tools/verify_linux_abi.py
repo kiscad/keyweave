@@ -39,6 +39,9 @@ int main(void) {
     pid_t (*tty_foreground)(int) = tcgetpgrp;
     pid_t (*process_session)(pid_t) = getsid;
     pid_t (*process_group)(pid_t) = getpgid;
+    pid_t (*own_group)(void) = getpgrp;
+    pid_t (*own_pid)(void) = getpid;
+    (void)own_group; (void)own_pid;
     int (*query)(int, unsigned long, ...) = ioctl;
     ssize_t (*entropy)(void *, size_t, unsigned int) = getrandom;
     (void)entropy;

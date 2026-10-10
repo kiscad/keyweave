@@ -1,5 +1,7 @@
 # 项目状态
 
+最新进程组组件：ADR-0083：Supervisor新增spawn_reporting_config_isolated，Command.process_group(0)只设child PGID=PID，保留parent SID/控制终端；旧API不改caller分组、清除隔离env。main console在claim配置前必须guard+mode+kernel组验证65；provider/boot每step/active观察重复验证，None永久零设备。Linux846tests/Clippy/fmt/source60/C ABI通过；无输入actual-main fixture验组+sameSID/三pipe/sealed/实际exit，creator-thread退出保留内核SIGKILL保护，console非隔离exe只验early65。未发送前台组信号/查询真实VT/input，marker非auth/快照非atomic。host信号处理、Ctrl+C真实交付及run-linux事务仍待接；Windows前序补验未执行。完整目标继续。 见 [ADR-0083](ADR-0083-linux-isolated-worker-group.md)、[验证记录](validation/linux-2026-10-10-isolated-group.json)。
+
 更新日期：2026-10-10。
 
 最新 host 冷组件：Linux getrandom/NONBLOCK 8byte→非零u64 RunIdentity（最多4次zero重抽，无fallback/Debug值）、Linux argv builder、Linux sibling/显式absolute定位已实现。Linux843tests/Clippy/fmt/source60/getrandom扩展C ABI通过；仅内核RNG与自建文件，未执行image或操作输入。完整Linux host/Supervisor/信号进程组事务及run-linux尚未连接；原完整目标继续未完成。见 [ADR-0082](ADR-0082-linux-host-cold-primitives.md)、[验证记录](validation/linux-2026-10-10-host-preparation.json)。两新portable builder测试和前序Windows native仍待补验。

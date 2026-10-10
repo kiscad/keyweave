@@ -14,6 +14,7 @@ pub(crate) const PARENT_ENV: &str = "KEYWEAVE_SUPERVISOR_PID";
 pub(crate) const REPORT_ENV: &str = "KEYWEAVE_TERMINAL_REPORT";
 pub(crate) const RUN_ENV: &str = "KEYWEAVE_PROGRESS_RUN_ID";
 pub(crate) const CONFIG_ENV: &str = "KEYWEAVE_CONFIG_FD";
+pub(crate) const GROUP_ENV: &str = "KEYWEAVE_WORKER_ISOLATED_GROUP";
 static CHANNELS_CLAIMED: AtomicBool = AtomicBool::new(false);
 
 fn positive_environment_u64(name: &str) -> io::Result<u64> {
@@ -211,6 +212,18 @@ impl WorkerParentGuard {
     }
     pub fn parent_pid(&self) -> u32 {
         self.parent
+    }
+    /// Console-only opt-in verification; never creates/repairs a group. The
+    /// environment flag selects the contract, kernel metadata proves it.
+    pub fn verify_isolated_group(&self) -> io::Result<()> {
+        crate::ioctl::verify_parent_death(self.parent)?;
+        if std::env::var(GROUP_ENV).ok().as_deref() != Some("1") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "isolated worker group required",
+            ));
+        }
+        crate::ioctl::verify_isolated_group(self.parent)
     }
 }
 
@@ -581,7 +594,7 @@ where
     R: io::Read + std::os::fd::AsFd,
     W: io::Write + std::os::fd::AsFd,
 {
-    WorkerParentGuard::verify(guard.parent_pid())?;
+    guard.verify_isolated_group()?;
     for request in client.wait_requests_with_control(true) {
         crate::ioctl::nonblocking(request.fd)?;
     }
@@ -632,7 +645,7 @@ pub fn run_reporting_console_session(
     spec: crate::output::DeviceSpec,
 ) -> Result<ConsoleSessionResult, ConsoleSessionError> {
     let (guard, mut client, mut terminal) = startup.into_parts();
-    WorkerParentGuard::verify(guard.parent_pid()).map_err(WorkerError::from)?;
+    guard.verify_isolated_group().map_err(WorkerError::from)?;
     for request in client.wait_requests_with_control(true) {
         crate::ioctl::nonblocking(request.fd).map_err(WorkerError::from)?;
     }

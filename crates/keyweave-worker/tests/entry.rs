@@ -157,6 +157,57 @@ fn linux_real_main_consumes_sealed_config_and_preserves_cold_failures() {
         assert!(terminal.failure.is_none()); // No fake Runtime termination report.
     }
 }
+#[cfg(target_os = "linux")]
+#[test]
+fn console_entry_rejects_inherited_group_before_config_or_device_operations() {
+    use keyweave_linux::{
+        config_artifact::ConfigArtifact,
+        progress::Policy,
+        supervisor::{Supervisor, SupervisorStatus},
+        termination::ReadStatus,
+    };
+    use keyweave_types::MonoTime;
+    use keyweave_worker::linux_arguments::LINUX_WORKER_ARGUMENT;
+    use std::time::{Duration, Instant};
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"));
+    command.args([
+        LINUX_WORKER_ARGUMENT,
+        &std::process::id().to_string(),
+        "57",
+        "--uinput",
+        "/keyweave-absent-output",
+        "--session-provider",
+        "console",
+        "--vt",
+        "/dev/tty1",
+        "--input",
+        "/keyweave-absent-input",
+    ]);
+    // Legacy spawn removes the isolated-mode marker. Rejection precedes even
+    // configuration consumption: invalid bytes distinguish admission from config.
+    // Never change this fixture to the isolated spawn API or query a native VT.
+    command.env("KEYWEAVE_WORKER_ISOLATED_GROUP", "1");
+    let start = Instant::now();
+    let mut supervisor = Supervisor::spawn_reporting_config(
+        command,
+        57,
+        Policy::default(),
+        MonoTime(0),
+        ConfigArtifact::create(b"invalid json").unwrap(),
+    )
+    .unwrap();
+    loop {
+        let now = MonoTime(u64::try_from(start.elapsed().as_nanos()).unwrap());
+        if let SupervisorStatus::Exited { status, .. } = supervisor.poll(now).unwrap() {
+            assert_eq!(status.code(), Some(WorkerExit::Admission as i32));
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(3));
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(supervisor.collect_terminal().status, ReadStatus::Missing);
+}
 #[cfg(windows)]
 #[test]
 fn missing_config_after_owned_admission_exits_before_input_installation() {

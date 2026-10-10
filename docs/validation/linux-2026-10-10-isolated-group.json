@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0083 Linux isolated worker process group",
+  "source_base_commit": "870ee0d026b0e6c20bb8a17c0a194674fd058351",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "879240b96267bd40b1e705bfa5cea63ab11b3dece68943136e3bd601576352c5",
+    "crates/keyweave-linux/src/console.rs": "5bd120c54dc4b53391486b2b854478b38b175aefbfa8738eafc38ef9eb998089",
+    "crates/keyweave-linux/src/ioctl.rs": "78e7587b51288c38cfa8ba569275b9be8e9562a12c90d402383d2822e5418e28",
+    "crates/keyweave-linux/src/supervisor.rs": "30e87045ac7abaabf5f9364875699a9bc3fb737c09ba689ce794e75f4ffbd463",
+    "crates/keyweave-linux/src/worker.rs": "2f1be8fa4bbe74f3ff7fd0951f5501c464be9d4d896eef831cf0e46d56821dfa",
+    "crates/keyweave-linux/tests/worker_parent.rs": "6780c670c9014733b593803205a34503451019569a744f8c72aeb59618dc2464",
+    "crates/keyweave-worker/src/main.rs": "497a89bb0dae18a9f2384ff427a2b6e01d0eebe215474023013ac97487bfbf68",
+    "crates/keyweave-worker/tests/entry.rs": "828612df88740558e4b5d4b10ca27143b8c8985c3e52eccc932d8f288dddff3a",
+    "tools/verify_linux_abi.py": "a62038036331e7b30f4c1faac3049ad1bb3ebe8a97376bf88328a3569baafc9e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 846,
+    "workspace_test_terminal_exit": 0,
+    "custom_main_parent_harness": "passed; isolated sealed-config mode added without device access",
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "GNU C oracle extends getpgrp/getpid prototypes; no device or signal calls",
+    "logs": {
+      "abi": {
+        "path": "target/validation/linux-20261010-isolated-group/abi.log",
+        "sha256": "6c5f3626efec7d8318730daa1c9af978862eeaa7c3bf9854f7190a8c4cfff8ea"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-isolated-group/clippy.log",
+        "sha256": "6bb85670f863fa5d9d42761817d459905e3b2341289934147ddba7c40756102e"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-isolated-group/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-isolated-group/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-isolated-group/workspace-tests.log",
+        "sha256": "ee0186a36dca8c19e12b29104331796806e9a2aeea6d7710eab9b6a172407611"
+      }
+    }
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "new logic Linux-cfg only; earlier native and portable checks still pending after automatic approval quota failure; no new invocation"
+  },
+  "limitations": [
+    "No real VT, evdev/uinput, Hook/SendInput, driver, foreground signal or actual terminal Ctrl+C operation.",
+    "Group marker selects the contract; it is not authentication. Metadata snapshots are not atomic or an ABA guarantee.",
+    "Child retains parent session and controlling terminal; only child PGID changes. Host signal handling and full run-linux remain unimplemented.",
+    "Legacy spawn APIs retain caller process-group setting and remove marker; console requires explicit isolated mode.",
+    "Creator thread must remain alive until child exits; trusted pre_exec hooks must not rebind group/session or selected FDs.",
+    "Direct PID/group signals, external group mutations and foreground signal delivery are not proven safe by these tests.",
+    "Complete cross-platform goal, advanced engine, desktop providers, packaging and driver work remain unfinished."
+  ]
+}

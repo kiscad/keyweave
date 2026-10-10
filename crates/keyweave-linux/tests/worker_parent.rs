@@ -19,13 +19,17 @@ fn main() {
     const MODE: &str = "KEYWEAVE_PARENT_TEST_MODE";
     const PARENT: &str = "KEYWEAVE_SUPERVISOR_PID";
     if let Ok(mode) = std::env::var(MODE) {
-        if mode == "reporting" || mode == "reporting_uncertain" || mode == "sealed_config" {
+        if mode == "reporting"
+            || mode == "reporting_uncertain"
+            || mode == "sealed_config"
+            || mode == "isolated_config"
+        {
             use keyweave_linux::{
                 runtime::{StopReason, TerminationReport},
                 worker::ReportingStartup,
             };
             let mut startup = ReportingStartup::from_supervisor_environment().unwrap();
-            if mode == "sealed_config" {
+            if mode == "sealed_config" || mode == "isolated_config" {
                 let config = startup.claim_config().unwrap();
                 assert_eq!(config.read_bytes().unwrap(), b"exact\0sealed config");
                 assert_eq!(
@@ -45,6 +49,16 @@ fn main() {
                 );
             }
             let (guard, client, mut terminal) = startup.into_parts();
+            if mode == "isolated_config" {
+                guard.verify_isolated_group().unwrap();
+                assert_eq!(
+                    std::env::var("KEYWEAVE_WORKER_ISOLATED_GROUP").unwrap(),
+                    "1"
+                );
+            } else {
+                assert!(guard.verify_isolated_group().is_err());
+                assert!(std::env::var("KEYWEAVE_WORKER_ISOLATED_GROUP").is_err());
+            }
             assert_eq!(
                 guard.parent_pid().to_string(),
                 std::env::var(PARENT).unwrap()
@@ -221,11 +235,27 @@ fn main() {
         command.env(MODE, mode).stdout(Stdio::null());
         command
     };
-    for mode in ["reporting", "reporting_uncertain", "sealed_config"] {
+    for mode in [
+        "reporting",
+        "reporting_uncertain",
+        "sealed_config",
+        "isolated_config",
+    ] {
         use keyweave_linux::termination::ReadStatus;
         let mut command = fixture(mode);
+        command.env("KEYWEAVE_WORKER_ISOLATED_GROUP", "stale");
         command.env("KEYWEAVE_CONFIG_FD", "1"); // overwritten or removed
-        let mut supervisor = if mode == "sealed_config" {
+        let mut supervisor = if mode == "isolated_config" {
+            Supervisor::spawn_reporting_config_isolated(
+                command,
+                57,
+                Policy::default(),
+                MonoTime(0),
+                keyweave_linux::config_artifact::ConfigArtifact::create(b"exact\0sealed config")
+                    .unwrap(),
+            )
+            .unwrap()
+        } else if mode == "sealed_config" {
             Supervisor::spawn_reporting_config(
                 command,
                 57,

@@ -360,7 +360,7 @@ impl Platform for Native<'_> {
     type Source = EvdevSource;
     type Output = UinputDevice;
     fn verify(&mut self) -> io::Result<()> {
-        WorkerParentGuard::verify(self.guard.parent_pid()).map(|_| ())
+        self.guard.verify_isolated_group()
     }
     fn now(&mut self) -> io::Result<MonoTime> {
         self.clock.now()
@@ -399,7 +399,7 @@ impl<'a> ConsoleBootstrap<'a> {
         if !uinput.is_absolute() {
             return Err(BootstrapError::Inputs);
         }
-        WorkerParentGuard::verify(guard.parent_pid())?;
+        guard.verify_isolated_group()?;
         let provider = ConsoleProvider::open(vt, guard)?;
         Ok(Self {
             inner: Bootstrap::new(
