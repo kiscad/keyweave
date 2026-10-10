@@ -832,6 +832,8 @@ mod tests {
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum Call {
         InputClose(u64),
+        #[cfg(target_os = "linux")]
+        TerminalWrite,
         Submit(Vec<NativeKey>, bool),
         Flush,
         OutputClose,
@@ -2659,6 +2661,139 @@ mod tests {
                 && terminal.output_owner_dropped
                 && !terminal.output_recovery_confirmed
         );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_finalization_follows_capture_and_output_close_and_keeps_original_error() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            termination::{
+                TerminalFrame, TerminalWriter,
+                bounded::{DeliveryFailure, SendSchedule},
+            },
+            worker::{WorkerError, finalize_worker, run_with_wait_report},
+        };
+        struct Writer {
+            bytes: Rc<RefCell<Vec<u8>>>,
+            trace: Trace,
+            fail: bool,
+        }
+        impl io::Write for Writer {
+            fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+                self.trace.borrow_mut().push(Call::TerminalWrite);
+                if self.fail {
+                    return Err(io::ErrorKind::BrokenPipe.into());
+                }
+                self.bytes.borrow_mut().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                panic!("no stdio flush")
+            }
+        }
+        struct Schedule;
+        impl SendSchedule<Writer> for Schedule {
+            fn now(&mut self) -> io::Result<MonoTime> {
+                Ok(MonoTime(0))
+            }
+            fn wait(
+                &mut self,
+                _: &TerminalWriter<Writer>,
+                _: MonoTime,
+            ) -> io::Result<(MonoTime, bool)> {
+                panic!("single complete/failed write cannot wait")
+            }
+        }
+        for fail in [false, true] {
+            let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+            runtime.poll(MonoTime(0)).unwrap();
+            let client = ProgressClient::new(
+                io::Cursor::new(StopRequest { run_id: 8, id: 1 }.encode()),
+                io::sink(),
+                7,
+            )
+            .unwrap();
+            let worker = run_with_wait_report(runtime, client, true, |_, _, _| {
+                panic!("invalid run cannot wait")
+            });
+            let terminal = worker.termination.unwrap();
+            let bytes = Rc::new(RefCell::new(Vec::new()));
+            let mut writer = TerminalWriter::new(
+                Writer {
+                    bytes: bytes.clone(),
+                    trace: trace.clone(),
+                    fail,
+                },
+                7,
+            )
+            .unwrap();
+            let reported = finalize_worker(worker, &mut writer, &mut Schedule);
+            assert!(matches!(
+                reported.worker.outcome,
+                Err(WorkerError::Progress(_))
+            ));
+            assert_eq!(reported.worker.termination, Some(terminal));
+            if fail {
+                assert!(!reported.delivery.frame_sent);
+                assert!(matches!(
+                    reported.delivery.failure,
+                    Some(DeliveryFailure::Write(_))
+                ));
+            } else {
+                assert!(reported.delivery.frame_sent && reported.delivery.failure.is_none());
+                assert_eq!(
+                    TerminalFrame::decode(&bytes.borrow(), 7).unwrap().report,
+                    terminal
+                );
+            }
+            let calls = trace.borrow();
+            let closed = calls.iter().position(|c| *c == Call::OutputClose).unwrap();
+            let sent = calls
+                .iter()
+                .position(|c| *c == Call::TerminalWrite)
+                .unwrap();
+            assert!(closed < sent);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_worker_termination_skips_send_and_schedule_without_replacing_outcome() {
+        use crate::{
+            termination::{
+                TerminalWriter,
+                bounded::{DeliveryFailure, SendSchedule},
+            },
+            worker::{WorkerError, WorkerReport, finalize_worker},
+        };
+        struct Schedule;
+        impl SendSchedule<Vec<u8>> for Schedule {
+            fn now(&mut self) -> io::Result<MonoTime> {
+                panic!("missing report must not read clock")
+            }
+            fn wait(
+                &mut self,
+                _: &TerminalWriter<Vec<u8>>,
+                _: MonoTime,
+            ) -> io::Result<(MonoTime, bool)> {
+                panic!("missing report must not wait")
+            }
+        }
+        let worker = WorkerReport {
+            outcome: Err(WorkerError::System(io::ErrorKind::PermissionDenied.into())),
+            termination: None,
+        };
+        let mut writer = TerminalWriter::new(Vec::new(), 7).unwrap();
+        let reported = finalize_worker(worker, &mut writer, &mut Schedule);
+        assert!(matches!(
+            reported.worker.outcome,
+            Err(WorkerError::System(_))
+        ));
+        assert!(matches!(
+            reported.delivery.failure,
+            Some(DeliveryFailure::MissingReport)
+        ));
+        assert_eq!(reported.delivery.attempts, 0);
+        assert!(!reported.delivery.frame_sent);
     }
     fn instance(id: u64) -> DeviceInstanceId {
         DeviceInstanceId { id, generation: 1 }

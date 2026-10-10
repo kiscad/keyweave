@@ -54,6 +54,7 @@ pub struct Supervisor {
     stop_frame: bool,
     shutdown: Option<CooperativeShutdown>,
     terminal: Option<crate::termination::TerminalReader<PipeReader>>,
+    terminal_observation: Option<crate::termination::bounded::ObservationReport>,
 }
 impl Supervisor {
     /// Command must be a fixed trusted worker, with no inherited device FDs.
@@ -140,6 +141,7 @@ impl Supervisor {
             stop_frame: false,
             shutdown: None,
             terminal,
+            terminal_observation: None,
         })
     }
     /// Never reads terminal bytes while the owned child may still be alive.
@@ -152,6 +154,36 @@ impl Supervisor {
             return crate::termination::ReadStatus::NotExited;
         }
         reader.poll()
+    }
+    /// One finite observation after actual exit; cached thereafter, no deadline
+    /// reset. Manual poll_terminal remains available without clearing this result.
+    pub fn collect_terminal(&mut self) -> crate::termination::bounded::ObservationReport {
+        use crate::termination::{
+            ReadStatus,
+            bounded::{ObservationReport, observe_bounded},
+        };
+        if let Some(report) = self.terminal_observation {
+            return report;
+        }
+        let Some(reader) = self.terminal.as_mut() else {
+            return ObservationReport {
+                status: ReadStatus::Unsupported,
+                attempts: 0,
+                failure: None,
+            };
+        };
+        if self.exit.is_none() {
+            return ObservationReport {
+                status: ReadStatus::NotExited,
+                attempts: 0,
+                failure: None,
+            };
+        }
+        let mut schedule =
+            crate::worker::NativeTerminalSchedule(crate::reactor::MonotonicClock::new());
+        let report = observe_bounded(reader, &mut schedule);
+        self.terminal_observation = Some(report);
+        report
     }
     pub fn progress_epoch(&self) -> u64 {
         self.watchdog.epoch()

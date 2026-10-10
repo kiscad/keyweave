@@ -102,3 +102,5 @@ Linux默认challenge协议与run_worker行为保留；新增receive_command/run_
 Linux新增TerminationReport与受控WorkerReport：原StopReason/outcome保持，明确destroy前pending REPORT、未知接受量、未释放submitted、恢复预算与错误，Engine reset和owner释放独立。报告不含按键或设备身份；进程内资源/接受量事实不能证明compositor或全局状态，当前无跨进程报告通道/真实Linux入口。[ADR-0070](ADR-0070-linux-termination-evidence.md)。
 
 Linux终止报告使用显式第三管道与KWLT/v1严格32byte codec，完整reason与10事实mask，正run/reserved/一致性校验；原KWPC/KWPR与默认两管道模式保持。父仅actual exit后读取，完整frame+EOF才确认交付；Missing/Invalid/Pending不等于clean。真实主线程例程只证明protocol/ownership/EOF，不证明实际键盘恢复，真实Linux入口/host仍待接入。[ADR-0071](ADR-0071-linux-terminal-channel.md)。
+
+Linux报告发送/读取调度现在有限：各100ms/64 attempts，IO前后验证时间，完整帧与迟到失败并存。受控worker不隐藏原错误；父退出后收取结果缓存，不重设deadline/续进度lease。旧手动poll API保持，真实main无输入例程使用新native发送/collect路径；真实capture/bootstrap/consumer-ready/full host仍未验收。[ADR-0072](ADR-0072-linux-bounded-terminal-finalization.md)。

@@ -47,26 +47,29 @@ fn main() {
             // Synthetic no-input facts only: transport validation is not a
             // real Runtime recovery or native keyboard acceptance test.
             let uncertain = mode == "reporting_uncertain";
-            terminal
-                .prepare(TerminationReport {
-                    reason: StopReason::Pause,
-                    input_owners_released: true,
-                    engine_reset_confirmed: true,
-                    recovery_failed: false,
-                    recovery_budget_exhausted: uncertain,
-                    submitted_remaining: false,
-                    report_pending: uncertain,
-                    acceptance_unknown: false,
-                    output_recovery_confirmed: !uncertain,
-                    output_owner_dropped: true,
-                    backend_transition_confirmed: true,
-                })
-                .unwrap();
+            let facts = TerminationReport {
+                reason: StopReason::Pause,
+                input_owners_released: true,
+                engine_reset_confirmed: true,
+                recovery_failed: false,
+                recovery_budget_exhausted: uncertain,
+                submitted_remaining: false,
+                report_pending: uncertain,
+                acceptance_unknown: false,
+                output_recovery_confirmed: !uncertain,
+                output_owner_dropped: true,
+                backend_transition_confirmed: true,
+            };
+            let sent = keyweave_linux::worker::finalize_worker_report(
+                keyweave_linux::worker::WorkerReport {
+                    outcome: Ok(StopReason::Pause),
+                    termination: Some(facts),
+                },
+                &mut terminal,
+            );
+            assert!(sent.delivery.frame_sent && sent.delivery.failure.is_none());
+            assert!(matches!(sent.worker.outcome, Ok(StopReason::Pause)));
             let end = Instant::now() + Duration::from_secs(3);
-            while !terminal.flush().unwrap() {
-                assert!(Instant::now() < end);
-                std::thread::sleep(Duration::from_millis(1));
-            }
             drop((terminal, client)); // original stdio remains until real exit
             let mut bytes = [0; CHALLENGE_BYTES];
             let mut read = 0;
@@ -204,6 +207,7 @@ fn main() {
         let mut supervisor =
             Supervisor::spawn_reporting(fixture(mode), 57, Policy::default(), MonoTime(0)).unwrap();
         assert_eq!(supervisor.poll_terminal(), ReadStatus::NotExited);
+        assert_eq!(supervisor.collect_terminal().status, ReadStatus::NotExited);
         let end = Instant::now() + Duration::from_secs(3);
         loop {
             if let SupervisorStatus::Exited { status, reason } =
@@ -218,13 +222,11 @@ fn main() {
         }
         let epoch = supervisor.progress_epoch();
         let deadline = supervisor.deadline();
-        let frame = loop {
-            match supervisor.poll_terminal() {
-                ReadStatus::Pending => (),
-                ReadStatus::Complete(frame) => break frame,
-                status => panic!("unexpected terminal status {status:?}"),
-            };
-            assert!(Instant::now() < end);
+        let observed = supervisor.collect_terminal();
+        assert!(observed.failure.is_none());
+        assert_eq!(supervisor.collect_terminal(), observed);
+        let ReadStatus::Complete(frame) = observed.status else {
+            panic!("unexpected observation {observed:?}");
         };
         assert_eq!(frame.run_id, 57);
         assert_eq!(frame.report.output_recovery_confirmed, mode == "reporting");

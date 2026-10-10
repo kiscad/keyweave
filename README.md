@@ -110,3 +110,5 @@ Linux 新增显式协作停止组件：受控 worker 先关闭捕获再有限恢
 Linux 已保留销毁输出前的独立终止事实，区分已接受的恢复、REPORT 未完成、未知接受量与预算耗尽；受控 worker 报告同时保留原错误。[设计](docs/ADR-0070-linux-termination-evidence.md)。真实启动与跨进程报告交付继续开发。
 
 Linux 已增加显式第三条终止报告管道，固定帧独立于进度租约；父进程实际确认退出后，以完整帧及 EOF 校验交付。[设计](docs/ADR-0071-linux-terminal-channel.md)。真实主线程无输入例程已接入，完整捕获入口与用户 host 继续。
+
+Linux 受控 worker 已接入有界终止发送，父侧增加退出后的有界报告收取与结果缓存，避免收尾无限等待；保留原循环错误、恢复事实和发送失败。[设计](docs/ADR-0072-linux-bounded-terminal-finalization.md)。真实捕获入口与完整 host 继续开发。

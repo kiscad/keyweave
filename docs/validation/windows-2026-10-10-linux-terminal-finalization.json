@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0072 Linux bounded worker terminal delivery and cached post-exit observation",
+  "source_base_commit": "5c08d0b1ebf719aaffa780116ed593bc5734b9b5",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "1abeaae770f6497aaa6ab1b3b4a589bd",
+      "workspace_tests_passed": 732,
+      "source_files_hash_checked": 200,
+      "source_mismatches": 0,
+      "validation_session": 85099,
+      "validation_terminal_exit": 0,
+      "fmt_session": 21825,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-terminal-finalization-x64-1.97.1",
+      "manifest_sha256": "355271a0273557594872fd6b28822d48578a6ba162368f7d8aedcc5900dde65a"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "0ba33294b83f449589f838a3f4b1410c",
+      "workspace_tests_passed": 732,
+      "source_files_hash_checked": 200,
+      "source_mismatches": 0,
+      "validation_session": 85099,
+      "validation_terminal_exit": 0,
+      "fmt_session": 21825,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-terminal-finalization-x86-1.97.1",
+      "manifest_sha256": "355271a0273557594872fd6b28822d48578a6ba162368f7d8aedcc5900dde65a"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 775,
+    "test_session": 61209,
+    "test_terminal_exit": 0,
+    "clippy_session": 3973,
+    "clippy_terminal_exit": 0,
+    "worker_parent_harness": "actual main reporting startup, native bounded finalizer, actual exit and bounded collect/cache, original guard/channel tests passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "unchanged; no new unsafe/native ABI, not rerun this component",
+    "raw_evidence": "target/validation/linux-20261010-linux-terminal-finalization"
+  },
+  "new_tests": "8 portable explicit-clock scheduling tests + 2 Linux mock Runtime/worker composition tests + 1 native own non-pipe file admission test; extended existing real-main synthetic harness",
+  "preliminary": [
+    {
+      "session": 43188,
+      "terminal_exit": 0,
+      "scope": "before new worker/file tests and native harness integration; not final evidence"
+    },
+    {
+      "session": 1606,
+      "terminal_exit": 0,
+      "scope": "before final Clippy condition collapse and stricter exact schedule-failure assertions; not final evidence"
+    },
+    {
+      "session": 81032,
+      "terminal_exit": 101,
+      "scope": "initial Clippy",
+      "reason": "collapsible_if in native endpoint revalidation",
+      "fix": "use short-circuit if-let chain, preserving no endpoint IO for missing report; no lint suppression"
+    }
+  ],
+  "limits": {
+    "finalize_ns": 100000000,
+    "max_attempts": 64,
+    "clock_checks": "before and after IO, after waits; strict >= deadline rejection"
+  },
+  "limitations": [
+    "Reporting worker function consumes startup and already admitted Runtime; actual Linux executable/host bootstrap and consumer readiness remain incomplete.",
+    "Native main harness sends synthetic no-input facts; not actual capture/output recovery.",
+    "Full frame acknowledgement/completion is retained independently from later deadline/clock failure, not treated as clean exit.",
+    "Native endpoint revalidation is structural, not cross-user authentication or atomic protection from trusted-thread flag mutation.",
+    "Original binary stdout remains open until true process exit; terminal delivery does not itself exit worker.",
+    "Finalization does not poll Runtime or read progress/renew the parent lease; finite timing is not a success guarantee.",
+    "Cached collect result prevents deadline reset; legacy manual poll_terminal remains separately caller-controlled.",
+    "No compositor/native ungrab/global key recovery proof is established.",
+    "No evdev grab/uinput, Hook/SendInput or driver installation/loading was run.",
+    "Windows runs cover 8 portable scheduler tests; Linux native/mock-composition cases are cfg excluded.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Hotplug/add, advanced duration/simultaneous, context providers, Windows hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

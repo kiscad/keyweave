@@ -190,6 +190,103 @@ pub struct WorkerReport {
     pub outcome: Result<StopReason, WorkerError>,
     pub termination: Option<crate::runtime::TerminationReport>,
 }
+#[derive(Debug)]
+pub struct ReportedWorker {
+    pub worker: WorkerReport,
+    pub delivery: crate::termination::bounded::DeliveryReport,
+}
+/// Consume startup claimed before device admission. Runtime must independently
+/// satisfy output/consumer/neutral/capture gates. Does not exit the process.
+pub fn run_reporting_worker(
+    runtime: Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+    startup: ReportingStartup,
+) -> Result<ReportedWorker, WorkerError> {
+    let (guard, client, mut terminal) = startup.into_parts();
+    let worker = run_worker_controlled_report(runtime, client, &guard)?;
+    Ok(finalize_worker_report(worker, &mut terminal))
+}
+/// Finalization only: caller has completed controlled capture shutdown. Reject
+/// changed/blocking endpoint flags before IO; original stdout remains reserved.
+pub fn finalize_worker_report(
+    worker: WorkerReport,
+    writer: &mut crate::termination::TerminalWriter<std::fs::File>,
+) -> ReportedWorker {
+    if worker.termination.is_some()
+        && let Err(error) = crate::ioctl::pipe_identity(writer.wait_fd(), true)
+    {
+        return ReportedWorker {
+            worker,
+            delivery: crate::termination::bounded::DeliveryReport {
+                frame_sent: false,
+                attempts: 0,
+                failure: Some(crate::termination::bounded::DeliveryFailure::Admission(
+                    error.into(),
+                )),
+            },
+        };
+    }
+
+    let mut schedule = NativeTerminalSchedule(crate::reactor::MonotonicClock::new());
+    finalize_worker(worker, writer, &mut schedule)
+}
+pub(crate) fn finalize_worker<W: io::Write, S: crate::termination::bounded::SendSchedule<W>>(
+    worker: WorkerReport,
+    writer: &mut crate::termination::TerminalWriter<W>,
+    schedule: &mut S,
+) -> ReportedWorker {
+    let delivery = crate::termination::bounded::send_bounded(writer, worker.termination, schedule);
+    ReportedWorker { worker, delivery }
+}
+pub(crate) struct NativeTerminalSchedule(pub(crate) crate::reactor::MonotonicClock);
+impl crate::termination::bounded::SendSchedule<std::fs::File> for NativeTerminalSchedule {
+    fn now(&mut self) -> io::Result<MonoTime> {
+        self.0.now()
+    }
+    fn wait(
+        &mut self,
+        writer: &crate::termination::TerminalWriter<std::fs::File>,
+        deadline: MonoTime,
+    ) -> io::Result<(MonoTime, bool)> {
+        let request = crate::reactor::WaitRequest {
+            fd: writer.wait_fd(),
+            interest: crate::reactor::Interest::Write,
+        };
+        let wake = crate::reactor::wait(
+            &mut self.0,
+            &[request],
+            Some(deadline),
+            crate::reactor::HOUSEKEEPING_NS,
+        )?;
+        Ok((wake.at_ns, wake.readiness(0).is_some_and(|r| r.fault())))
+    }
+}
+impl crate::termination::bounded::ReadSchedule<io::PipeReader> for NativeTerminalSchedule {
+    fn now(&mut self) -> io::Result<MonoTime> {
+        self.0.now()
+    }
+    fn wait(
+        &mut self,
+        reader: &crate::termination::TerminalReader<io::PipeReader>,
+        deadline: MonoTime,
+    ) -> io::Result<(MonoTime, bool)> {
+        let request = crate::reactor::WaitRequest {
+            fd: reader.wait_fd(),
+            interest: crate::reactor::Interest::Read,
+        };
+        let wake = crate::reactor::wait(
+            &mut self.0,
+            &[request],
+            Some(deadline),
+            crate::reactor::HOUSEKEEPING_NS,
+        )?;
+        // A writer's closure produces HUP even with readable queued bytes. Read
+        // those bytes and EOF on the next bounded poll; HUP alone isn't failure.
+        Ok((
+            wake.at_ns,
+            wake.readiness(0).is_some_and(|r| r.error || r.invalid),
+        ))
+    }
+}
 pub(crate) struct WorkerWake {
     pub at_ns: MonoTime,
     pub failure: Option<StopReason>,
@@ -356,5 +453,53 @@ mod tests {
         assert_eq!(positive_u64(Some("1")), Some(1));
         assert_eq!(positive_u64(Some("0001")), Some(1));
         assert_eq!(positive_u64(Some("18446744073709551615")), Some(u64::MAX));
+    }
+    #[test]
+    fn native_finalization_rejects_non_pipe_owner_without_writing() {
+        use super::{WorkerReport, finalize_worker_report};
+        use crate::{
+            runtime::{StopReason, TerminationReport},
+            termination::{TerminalWriter, bounded::DeliveryFailure},
+        };
+        let path =
+            std::env::temp_dir().join(format!("keyweave-finalization-{}.bin", std::process::id()));
+        let file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let mut writer = TerminalWriter::new(file, 7).unwrap_or_else(|e| panic!("{e}"));
+        let worker = WorkerReport {
+            outcome: Ok(StopReason::Pause),
+            termination: Some(TerminationReport {
+                reason: StopReason::Pause,
+                input_owners_released: true,
+                engine_reset_confirmed: true,
+                recovery_failed: false,
+                recovery_budget_exhausted: false,
+                submitted_remaining: false,
+                report_pending: false,
+                acceptance_unknown: false,
+                output_recovery_confirmed: true,
+                output_owner_dropped: true,
+                backend_transition_confirmed: true,
+            }),
+        };
+        let reported = finalize_worker_report(worker, &mut writer);
+        assert!(matches!(
+            reported.delivery.failure,
+            Some(DeliveryFailure::Admission(_))
+        ));
+        assert_eq!(reported.delivery.attempts, 0);
+        assert!(!reported.delivery.frame_sent);
+        assert!(matches!(reported.worker.outcome, Ok(StopReason::Pause)));
+        assert_eq!(
+            std::fs::metadata(&path)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .len(),
+            0
+        );
+        drop(writer);
+        std::fs::remove_file(path).unwrap_or_else(|e| panic!("{e}"));
     }
 }

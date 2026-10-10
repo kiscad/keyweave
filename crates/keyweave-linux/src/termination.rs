@@ -272,3 +272,18 @@ impl<R: Read> TerminalReader<R> {
 }
 #[cfg(test)]
 mod tests;
+
+pub mod bounded;
+
+#[cfg(target_os = "linux")]
+impl<W: Write + std::os::fd::AsFd> TerminalWriter<W> {
+    pub(crate) fn wait_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.writer.as_fd()
+    }
+}
+#[cfg(target_os = "linux")]
+impl<R: Read + std::os::fd::AsFd> TerminalReader<R> {
+    pub(crate) fn wait_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.reader.as_fd()
+    }
+}
