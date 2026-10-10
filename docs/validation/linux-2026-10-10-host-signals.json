@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0084 Linux main-thread signalfd and child mask restoration",
+  "source_base_commit": "33aed163bae1d977d24a18269ebfcb400e328049",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "a3d67cf2bd02f8bbf377c276430c3e0fc4030e9bb4e9c08568510b9c5444965e",
+    "crates/keyweave-linux/src/worker.rs": "0f39cef2eaf8a262fa11a30ddd9fe7fdedd6ece2541e7fa3a5b85f07a5c31de5",
+    "crates/keyweave-linux/tests/worker_parent.rs": "9ca8451d95eac0d89af05e72c651c0f38977383fe16e321845b9984bd868c1a1",
+    "tools/verify_linux_abi.py": "efd03155e407d1c7577f49ddf097fa30428f221f9bbf06540f9c8da7386229fb",
+    "crates/keyweave-linux/src/host_signals.rs": "80a41756bcf45ce1b226060172902c5923d23829c5867da3780331f343e5c6d8"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 848,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "abi": "signalfd_siginfo size128/signo offset0/flags/native prototypes checked; no signal or device calls in oracle",
+    "logs": {
+      "abi": {
+        "path": "target/validation/linux-20261010-host-signals/abi.log",
+        "sha256": "35d69882a7b07b42179d7598efd2f1584d4f5768aae31d3b0d02a7493a17af99"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-host-signals/clippy.log",
+        "sha256": "9efe10ca09ef46532f317ba05622a4226ee99e19ca4d75825a9242ff2f404399"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-host-signals/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "preliminary": {
+        "path": "target/validation/linux-20261010-host-signals/preliminary.log",
+        "sha256": "74f4b833b9426e1802c99f6ac503e55f059983648fb627a91cbf06b2f7ec0bb2"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-host-signals/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-host-signals/workspace-tests.log",
+        "sha256": "b73d57a44f0cfd7c8319b727c311922fa13659600a58056f7c974f3769d47ca8"
+      }
+    }
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only change; earlier native/portable pending checks remain after automatic approval quota failure"
+  },
+  "limitations": [
+    "Native own-process signals only; no foreground-group signal, native terminal Ctrl+C, VT, evdev/uinput, Hook/SendInput or driver operations.",
+    "Installer requires sole actual main thread, default dispositions and initially unblocked managed signals. /proc task check is a snapshot; caller must prevent concurrent thread creation.",
+    "Later threads inherit blocked signals and must never unblock them; owner is !Send/Sync. No generic multithreaded embedding support.",
+    "Child Command must be prepared while owner lives and trusted hooks must not alter restored mask/group/session.",
+    "Close restores previous mask and may deliver a concurrently arriving pending signal with its default disposition; explicit close only after actual child exit/cleanup. Drop is best effort.",
+    "Host Supervisor lifecycle/run-linux CLI remain unconnected; signal receipt is not Stop delivery, actual exit, progress or input recovery.",
+    "Full cross-platform objective remains incomplete."
+  ]
+}

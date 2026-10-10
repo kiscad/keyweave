@@ -1,5 +1,7 @@
 # 项目状态
 
+最新 host 信号组件：ADR-0084：Linux HostSignals主线程独占signalfd收INT/TERM/HUP，安装前sole task/default disposition/原unblocked检查、singleton、!Send/Sync；原mask保留，FD NONBLOCK/CLOEXEC，每poll单128bytes，wait≤20ms，不造progress。prepare_child pre_exec只sigprocmask恢复原mask，child不继承signalFD；console guard同时要求managed signals unblocked。close仅实际child exit/cleanup后，恢复mask可交付并发pending默认signal；Drop非保证。Linux848tests/Clippy/fmt/source60/扩展C ABI通过，actual-main仅向own测试PID发INT/TERM/HUP，正常child组+mask验通过、故意漏restore拒绝，旧保护保留。无前台组/真实Ctrl+C/VT/input，host Stop/监督/run-linux仍待连接；Windows前序补验仍未执行，完整目标继续。 见 [ADR-0084](ADR-0084-linux-host-signals.md)、[验证记录](validation/linux-2026-10-10-host-signals.json)。
+
 最新进程组组件：ADR-0083：Supervisor新增spawn_reporting_config_isolated，Command.process_group(0)只设child PGID=PID，保留parent SID/控制终端；旧API不改caller分组、清除隔离env。main console在claim配置前必须guard+mode+kernel组验证65；provider/boot每step/active观察重复验证，None永久零设备。Linux846tests/Clippy/fmt/source60/C ABI通过；无输入actual-main fixture验组+sameSID/三pipe/sealed/实际exit，creator-thread退出保留内核SIGKILL保护，console非隔离exe只验early65。未发送前台组信号/查询真实VT/input，marker非auth/快照非atomic。host信号处理、Ctrl+C真实交付及run-linux事务仍待接；Windows前序补验未执行。完整目标继续。 见 [ADR-0083](ADR-0083-linux-isolated-worker-group.md)、[验证记录](validation/linux-2026-10-10-isolated-group.json)。
 
 更新日期：2026-10-10。

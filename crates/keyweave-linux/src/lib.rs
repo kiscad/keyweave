@@ -14,6 +14,8 @@ pub mod discovery;
 pub mod emergency;
 pub mod events;
 #[cfg(target_os = "linux")]
+pub mod host_signals;
+#[cfg(target_os = "linux")]
 mod ioctl;
 pub mod keys;
 pub mod output;

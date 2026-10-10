@@ -17,6 +17,11 @@ source = r'''
 #include <unistd.h>
 #include <termios.h>
 #include <sys/random.h>
+#include <sys/signalfd.h>
+#include <signal.h>
+#include <pthread.h>
+_Static_assert(sizeof(struct signalfd_siginfo) == 128 && offsetof(struct signalfd_siginfo, ssi_signo) == 0, "signal record");
+_Static_assert(SFD_CLOEXEC == O_CLOEXEC && SFD_NONBLOCK == O_NONBLOCK, "signal descriptor flags");
 _Static_assert(GRND_NONBLOCK == 1, "nonblocking entropy flag");
 #include <sys/ioctl.h>
 #include <linux/kd.h>
@@ -32,6 +37,12 @@ _Static_assert(F_SEAL_SEAL == 1 && F_SEAL_SHRINK == 2 && F_SEAL_GROW == 4 && F_S
 _Static_assert(O_RDONLY == 0 && O_RDWR == 2 && O_ACCMODE == 3 && FD_CLOEXEC == 1, "descriptor flags");
 _Static_assert(F_DUPFD_CLOEXEC == 1030 && F_GETFD == 1 && F_SETFD == 2, "descriptor handoff");
 int main(void) {
+    int (*signals_fd)(int,const sigset_t *,int) = signalfd;
+    int (*thread_mask)(int,const sigset_t *,sigset_t *) = pthread_sigmask;
+    int (*process_mask)(int,const sigset_t *,sigset_t *) = sigprocmask;
+    int (*action_query)(int,const struct sigaction *,struct sigaction *) = sigaction;
+    pid_t (*thread_id)(void) = gettid;
+    (void)signals_fd; (void)thread_mask; (void)process_mask; (void)action_query; (void)thread_id;
     int (*create_memory)(const char *, unsigned int) = memfd_create;
     int (*control_fd)(int, int, ...) = fcntl;
     (void)create_memory; (void)control_fd;
@@ -82,4 +93,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control and getrandom ABI; no device access')
+print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control getrandom and signalfd ABI; no device access')

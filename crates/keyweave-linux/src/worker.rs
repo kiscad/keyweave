@@ -223,7 +223,8 @@ impl WorkerParentGuard {
                 "isolated worker group required",
             ));
         }
-        crate::ioctl::verify_isolated_group(self.parent)
+        crate::ioctl::verify_isolated_group(self.parent)?;
+        crate::host_signals::verify_worker_mask()
     }
 }
 

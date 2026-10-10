@@ -23,13 +23,17 @@ fn main() {
             || mode == "reporting_uncertain"
             || mode == "sealed_config"
             || mode == "isolated_config"
+            || mode == "masked_isolated_config"
         {
             use keyweave_linux::{
                 runtime::{StopReason, TerminationReport},
                 worker::ReportingStartup,
             };
             let mut startup = ReportingStartup::from_supervisor_environment().unwrap();
-            if mode == "sealed_config" || mode == "isolated_config" {
+            if mode == "sealed_config"
+                || mode == "isolated_config"
+                || mode == "masked_isolated_config"
+            {
                 let config = startup.claim_config().unwrap();
                 assert_eq!(config.read_bytes().unwrap(), b"exact\0sealed config");
                 assert_eq!(
@@ -49,8 +53,22 @@ fn main() {
                 );
             }
             let (guard, client, mut terminal) = startup.into_parts();
-            if mode == "isolated_config" {
-                guard.verify_isolated_group().unwrap();
+            if mode == "isolated_config" || mode == "masked_isolated_config" {
+                if mode == "isolated_config" {
+                    guard.verify_isolated_group().unwrap();
+                } else {
+                    // Deliberately omitted prepare_child: child inherits blocked
+                    // signals. The guard must refuse this console contract.
+                    assert_eq!(
+                        guard.verify_isolated_group().unwrap_err().raw_os_error(),
+                        Some(1)
+                    );
+                }
+                for entry in std::fs::read_dir("/proc/self/fd").unwrap() {
+                    if let Ok(target) = std::fs::read_link(entry.unwrap().path()) {
+                        assert_ne!(target.to_string_lossy(), "anon_inode:[signalfd]");
+                    }
+                }
                 assert_eq!(
                     std::env::var("KEYWEAVE_WORKER_ISOLATED_GROUP").unwrap(),
                     "1"
@@ -240,12 +258,24 @@ fn main() {
         "reporting_uncertain",
         "sealed_config",
         "isolated_config",
+        "masked_isolated_config",
     ] {
         use keyweave_linux::termination::ReadStatus;
         let mut command = fixture(mode);
         command.env("KEYWEAVE_WORKER_ISOLATED_GROUP", "stale");
         command.env("KEYWEAVE_CONFIG_FD", "1"); // overwritten or removed
-        let mut supervisor = if mode == "isolated_config" {
+        let mut signals = if mode == "isolated_config" || mode == "masked_isolated_config" {
+            use keyweave_linux::host_signals::HostSignals;
+            let guard = HostSignals::install().unwrap();
+            assert!(HostSignals::install().is_err());
+            if mode == "isolated_config" {
+                guard.prepare_child(&mut command).unwrap();
+            }
+            Some(guard)
+        } else {
+            None
+        };
+        let mut supervisor = if mode == "isolated_config" || mode == "masked_isolated_config" {
             Supervisor::spawn_reporting_config_isolated(
                 command,
                 57,
@@ -281,6 +311,28 @@ fn main() {
             }
             assert!(Instant::now() < end);
             std::thread::sleep(Duration::from_millis(1));
+        }
+        if let Some(signals) = signals.as_mut() {
+            use keyweave_linux::host_signals::StopSignal;
+            assert_eq!(signals.poll().unwrap(), None);
+            for (name, expected) in [
+                ("INT", StopSignal::Interrupt),
+                ("TERM", StopSignal::Terminate),
+                ("HUP", StopSignal::Hangup),
+            ] {
+                // Sends only to this owned, separate no-input harness PID, never
+                // the terminal foreground group or an arbitrary external PID.
+                let mut own_signal = Command::new("/bin/kill");
+                own_signal.args(["-s", name, &std::process::id().to_string()]);
+                signals.prepare_child(&mut own_signal).unwrap();
+                assert!(own_signal.status().unwrap().success());
+                signals.wait(Duration::from_millis(20)).unwrap();
+                assert_eq!(signals.poll().unwrap(), Some(expected));
+                assert_eq!(signals.poll().unwrap(), None);
+            }
+        }
+        if let Some(signals) = signals {
+            signals.close().unwrap();
         }
         let epoch = supervisor.progress_epoch();
         let deadline = supervisor.deadline();
