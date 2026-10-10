@@ -135,6 +135,13 @@ pub enum WorkerError {
     #[error("worker wait endpoint failed: {0:?}")]
     Endpoint(StopReason),
 }
+/// Independent loop outcome and explicit Runtime termination evidence. Neither
+/// a stopped loop nor owner Drop alone confirms accepted output recovery.
+#[derive(Debug)]
+pub struct WorkerReport {
+    pub outcome: Result<StopReason, WorkerError>,
+    pub termination: Option<crate::runtime::TerminationReport>,
+}
 pub(crate) struct WorkerWake {
     pub at_ns: MonoTime,
     pub failure: Option<StopReason>,
@@ -171,13 +178,28 @@ where
     R: io::Read + std::os::fd::AsFd,
     W: io::Write + std::os::fd::AsFd,
 {
+    run_worker_controlled_report(runtime, client, guard)?.outcome
+}
+/// Admission failures return before a report; caller must not infer cleanup.
+pub fn run_worker_controlled_report<R, W>(
+    runtime: Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+    client: ProgressClient<R, W>,
+    guard: &WorkerParentGuard,
+) -> Result<WorkerReport, WorkerError>
+where
+    R: io::Read + std::os::fd::AsFd,
+    W: io::Write + std::os::fd::AsFd,
+{
     let _verified = WorkerParentGuard::verify(guard.parent_pid())?;
     for request in client.wait_requests_with_control(true) {
         crate::ioctl::nonblocking(request.fd)?;
     }
-    run_with_wait_control(runtime, client, true, |runtime, client, clock| {
-        runtime.wait_native_with_control(client, clock, true)
-    })
+    Ok(run_with_wait_report(
+        runtime,
+        client,
+        true,
+        |runtime, client, clock| runtime.wait_native_with_control(client, clock, true),
+    ))
 }
 
 pub(crate) fn run_with_wait<S, B, R, W, F>(
@@ -195,11 +217,26 @@ where
     run_with_wait_control(runtime, client, false, wait)
 }
 pub(crate) fn run_with_wait_control<S, B, R, W, F>(
+    runtime: Runtime<S, B>,
+    client: ProgressClient<R, W>,
+    control: bool,
+    wait: F,
+) -> Result<StopReason, WorkerError>
+where
+    S: CaptureSource,
+    B: FrameBackend,
+    R: io::Read,
+    W: io::Write,
+    F: FnMut(&Runtime<S, B>, &ProgressClient<R, W>, &mut MonotonicClock) -> io::Result<WorkerWake>,
+{
+    run_with_wait_report(runtime, client, control, wait).outcome
+}
+pub(crate) fn run_with_wait_report<S, B, R, W, F>(
     mut runtime: Runtime<S, B>,
     mut client: ProgressClient<R, W>,
     control: bool,
     mut wait: F,
-) -> Result<StopReason, WorkerError>
+) -> WorkerReport
 where
     S: CaptureSource,
     B: FrameBackend,
@@ -244,7 +281,10 @@ where
         runtime.external_fault(StopReason::ControlFault);
         runtime.finish_recovery();
     }
-    result
+    WorkerReport {
+        outcome: result,
+        termination: runtime.termination_report(),
+    }
 }
 #[cfg(test)]
 mod tests {

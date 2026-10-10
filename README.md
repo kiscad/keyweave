@@ -106,3 +106,5 @@ Linux runtime已支持可信控制器按完整device generation移除单个捕�
 新增 `keyweave-host check-linux --config PATH`：离线检查 Linux 配置、原生输出与 Engine 可执行性，保留有损配置拒绝；不访问输入设备。真实 Linux 会话启动仍待接通。[设计](docs/ADR-0068-linux-cold-preparation.md)。
 
 Linux 新增显式协作停止组件：受控 worker 先关闭捕获再有限恢复，父 supervisor 在不延长旧租约的期限内等待实际退出；默认旧 worker 协议保持。[设计](docs/ADR-0069-linux-cooperative-stop.md)。完整 Linux 可执行启动与真实输入验收继续。
+
+Linux 已保留销毁输出前的独立终止事实，区分已接受的恢复、REPORT 未完成、未知接受量与预算耗尽；受控 worker 报告同时保留原错误。[设计](docs/ADR-0070-linux-termination-evidence.md)。真实启动与跨进程报告交付继续开发。

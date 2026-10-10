@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0070 Linux pre-destruction termination evidence and controlled worker independent outcome report",
+  "source_base_commit": "3e741e442151673bc48c73ccd41ecb8e195ed58c",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "cc435064fd264256b5733ebdb07460c0",
+      "workspace_tests_passed": 716,
+      "source_files_hash_checked": 196,
+      "source_mismatches": 0,
+      "validation_session": 88691,
+      "validation_terminal_exit": 0,
+      "fmt_session": 2430,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-termination-x64-1.97.1",
+      "manifest_sha256": "d95bcac4c711e81048f4ee7ce8186e2651958de63868e72a143605b0a4db0ba5"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "44112853b3274c0a9748fb40c0e7a272",
+      "workspace_tests_passed": 716,
+      "source_files_hash_checked": 196,
+      "source_mismatches": 0,
+      "validation_session": 88691,
+      "validation_terminal_exit": 0,
+      "fmt_session": 2430,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-termination-x86-1.97.1",
+      "manifest_sha256": "d95bcac4c711e81048f4ee7ce8186e2651958de63868e72a143605b0a4db0ba5"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 756,
+    "test_session": 91023,
+    "test_terminal_exit": 0,
+    "clippy_session": 6649,
+    "clippy_terminal_exit": 0,
+    "worker_parent_harness": "passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "unchanged; not rerun this component",
+    "raw_evidence": "target/validation/linux-20261010-linux-termination"
+  },
+  "new_tests": "6 portable Runtime termination tests and 2 Linux-only mock controlled worker report tests",
+  "preliminary": [
+    {
+      "session": 58024,
+      "terminal_exit": 0,
+      "scope": "baseline before new tests; not final evidence"
+    }
+  ],
+  "failures": [],
+  "limitations": [
+    "TerminationReport contains in-process ownership/acceptance facts, not global key state or compositor processing proof.",
+    "input_owners_released only means unique capture owners were closed; it does not report native EVIOCGRAB release API confirmation.",
+    "Output owner destruction/cleared ledger does not confirm recovery; pending report/unknown acceptance/remaining submitted are captured before destruction.",
+    "WorkerReport preserves original outcome independently; admission failures return before a report, and Drop cannot create proof.",
+    "No new cross-process terminal channel or Linux exit-code serialization is connected.",
+    "Actual Linux worker executable/host, consumer readiness, hotplug identity binding and add/rearm remain incomplete.",
+    "All new tests use mocks; no evdev grab/uinput, Hook/SendInput, or driver installation/loading was run.",
+    "Windows runs cover 6 portable termination tests; 2 worker report tests are Linux-only cfg excluded.",
+    "No new FFI/ABI changed or unrelated native host fixture rerun.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Advanced duration/simultaneous, context providers, Windows hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

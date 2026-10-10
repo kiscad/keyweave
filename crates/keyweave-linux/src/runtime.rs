@@ -90,6 +90,22 @@ pub struct RemovalReport {
     pub remaining_devices: usize,
     pub phase: RuntimePhase,
 }
+/// Snapshot taken before ledger destruction. Ownership release is not proof
+/// of compositor processing, native ungrab success or global key recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminationReport {
+    pub reason: StopReason,
+    pub input_owners_released: bool,
+    pub engine_reset_confirmed: bool,
+    pub recovery_failed: bool,
+    pub recovery_budget_exhausted: bool,
+    pub submitted_remaining: bool,
+    pub report_pending: bool,
+    pub acceptance_unknown: bool,
+    pub output_recovery_confirmed: bool,
+    pub output_owner_dropped: bool,
+    pub backend_transition_confirmed: bool,
+}
 struct Input<S: CaptureSource> {
     id: DeviceInstanceId,
     capture: CaptureDevice<S>,
@@ -110,6 +126,9 @@ pub struct Runtime<S: CaptureSource, B: FrameBackend> {
     phase: RuntimePhase,
     reason: Option<StopReason>,
     recovery_polls: usize,
+    shutdown_engine_reset_ok: bool,
+    shutdown_recovery_failed: bool,
+    termination: Option<TerminationReport>,
     captured_devices: Vec<DeviceContext>,
     context_revision: u64,
     context_refresh_at: MonoTime,
@@ -245,6 +264,9 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             phase: RuntimePhase::Active,
             reason: None,
             recovery_polls: 0,
+            shutdown_engine_reset_ok: false,
+            shutdown_recovery_failed: false,
+            termination: None,
             captured_devices,
             context_revision: 0,
             context_refresh_at: MonoTime(0),
@@ -255,6 +277,11 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
     }
     pub fn stop_reason(&self) -> Option<StopReason> {
         self.reason
+    }
+    /// None until explicit termination has released the output owner. Repeated
+    /// reads retain pre-destruction facts, independent of cleared submitted state.
+    pub fn termination_report(&self) -> Option<TerminationReport> {
+        self.termination
     }
     pub fn progress_epoch(&self) -> u64 {
         self.progress_epoch
@@ -503,25 +530,55 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         }
         self.raw.clear();
         self.logical = None;
-        let _ = self.engine.reset(self.now); // reset intents were never an acceptance ledger
+        self.shutdown_engine_reset_ok = self.engine.reset(self.now).is_ok(); // not an acceptance ledger
         self.reason = Some(reason);
         self.phase = RuntimePhase::Recovering;
-        if (self.output.phase() == Phase::Normal && self.output.begin_recovery(self.now).is_err())
-            || matches!(self.output.phase(), Phase::Quarantined | Phase::Detached)
-        {
-            let _ = self.output.destroy_backend();
+        let begin_failed =
+            self.output.phase() == Phase::Normal && self.output.begin_recovery(self.now).is_err();
+        self.shutdown_recovery_failed |= begin_failed;
+        if begin_failed || matches!(self.output.phase(), Phase::Quarantined | Phase::Detached) {
+            let _ = self.destroy_for_stop();
             self.phase = RuntimePhase::Stopped;
         }
+    }
+    fn destroy_for_stop(&mut self) -> Result<(), PumpError> {
+        let phase = self.output.phase();
+        let submitted_remaining = !self.output.ledger().submitted().is_empty();
+        let report_pending = phase == Phase::ReportPending;
+        let acceptance_unknown = phase == Phase::Quarantined;
+        let output_recovery_confirmed =
+            phase == Phase::Recovery && !submitted_remaining && !self.shutdown_recovery_failed;
+        let result = self.output.destroy_backend();
+        // Preserve uncertainty even though destroy_backend clears the ledger.
+        self.termination = Some(TerminationReport {
+            reason: self.reason.unwrap_or(StopReason::ControlFault),
+            input_owners_released: self
+                .inputs
+                .iter()
+                .all(|input| input.capture.phase() == CapturePhase::Closed),
+            engine_reset_confirmed: self.shutdown_engine_reset_ok,
+            recovery_failed: self.shutdown_recovery_failed,
+            recovery_budget_exhausted: self.recovery_polls >= MAX_RECOVERY_POLLS
+                && !output_recovery_confirmed,
+            submitted_remaining,
+            report_pending,
+            acceptance_unknown,
+            output_recovery_confirmed,
+            output_owner_dropped: self.output.spec().is_none(),
+            backend_transition_confirmed: result.is_ok(),
+        });
+        result
     }
     fn recover_poll(&mut self) -> Result<usize, RuntimeError> {
         self.recovery_polls += 1;
         let result = self.output.poll(self.now);
+        self.shutdown_recovery_failed |= result.is_err();
         if result.is_err()
             || (self.output.phase() != Phase::ReportPending
                 && self.output.ledger().submitted().is_empty())
             || self.recovery_polls >= MAX_RECOVERY_POLLS
         {
-            self.output.destroy_backend()?;
+            self.destroy_for_stop()?;
             self.phase = RuntimePhase::Stopped;
         }
         result?;
@@ -2382,6 +2439,226 @@ mod tests {
             Interest::Read
         );
         drop(parent_reader);
+    }
+    #[test]
+    fn termination_samples_accepted_recovery_before_ledger_destruction() {
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        assert!(runtime.termination_report().is_none());
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.pause(MonoTime(1)).unwrap();
+        assert!(runtime.termination_report().is_none());
+        runtime.poll(MonoTime(1)).unwrap();
+        let report = runtime.termination_report().unwrap();
+        assert_eq!(report.reason, StopReason::Pause);
+        assert!(
+            report.input_owners_released
+                && report.engine_reset_confirmed
+                && report.output_recovery_confirmed
+        );
+        assert!(report.output_owner_dropped && report.backend_transition_confirmed);
+        assert!(
+            !report.recovery_failed
+                && !report.recovery_budget_exhausted
+                && !report.report_pending
+                && !report.acceptance_unknown
+                && !report.submitted_remaining
+        );
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.termination_report(), Some(report));
+        assert!(matches!(
+            runtime.poll(MonoTime(2)),
+            Err(RuntimeError::Stopped)
+        ));
+        assert_eq!(runtime.termination_report(), Some(report));
+        let calls = trace.borrow();
+        assert!(
+            calls
+                .iter()
+                .position(|c| *c == Call::InputClose(1))
+                .unwrap()
+                < calls
+                    .iter()
+                    .position(|c| matches!(c, Call::Submit(_, true)))
+                    .unwrap()
+        );
+    }
+    #[test]
+    fn unknown_acceptance_with_empty_known_prefix_never_becomes_recovered() {
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend
+            .receipts
+            .push_back(Err(WriteError::UnknownAcceptance(io::Error::other(
+                "synthetic",
+            ))));
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        assert!(runtime.poll(MonoTime(0)).is_err());
+        let report = runtime.termination_report().unwrap();
+        assert_eq!(report.reason, StopReason::OutputFault);
+        assert!(
+            report.acceptance_unknown
+                && report.output_owner_dropped
+                && report.backend_transition_confirmed
+        );
+        assert!(!report.submitted_remaining && !report.output_recovery_confirmed);
+        assert!(runtime.submitted().is_empty());
+    }
+    #[test]
+    fn report_budget_exhaustion_preserves_held_key_before_destroy() {
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.push_back(Ok(FrameWrite::Incomplete {
+            accepted: 1,
+            report_pending: true,
+        }));
+        backend.flush = false;
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        assert!(runtime.poll(MonoTime(0)).is_err());
+        for t in 1..=MAX_RECOVERY_POLLS {
+            runtime.poll(MonoTime(t as u64)).unwrap();
+        }
+        let report = runtime.termination_report().unwrap();
+        assert!(
+            report.recovery_budget_exhausted && report.submitted_remaining && report.report_pending
+        );
+        assert!(
+            !report.output_recovery_confirmed
+                && !report.acceptance_unknown
+                && !report.recovery_failed
+        );
+        assert!(runtime.submitted().is_empty());
+    }
+    #[test]
+    fn empty_submitted_with_pending_recovery_report_is_unconfirmed_at_budget() {
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Ok(FrameWrite::Incomplete {
+                accepted: 1,
+                report_pending: true,
+            }),
+        ]);
+        backend.flush = false;
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.pause(MonoTime(1)).unwrap();
+        for _ in 0..MAX_RECOVERY_POLLS {
+            runtime.poll(MonoTime(1)).unwrap();
+        }
+        let report = runtime.termination_report().unwrap();
+        assert!(report.report_pending && report.recovery_budget_exhausted);
+        assert!(
+            !report.submitted_remaining
+                && !report.output_recovery_confirmed
+                && !report.recovery_failed
+        );
+    }
+    #[test]
+    fn flushed_short_recovery_has_confirmed_evidence_only_after_report() {
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Ok(FrameWrite::Incomplete {
+                accepted: 1,
+                report_pending: true,
+            }),
+        ]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.pause(MonoTime(1)).unwrap();
+        runtime.poll(MonoTime(1)).unwrap();
+        assert!(runtime.submitted().is_empty());
+        assert!(runtime.termination_report().is_none());
+        runtime.poll(MonoTime(1)).unwrap();
+        let report = runtime.termination_report().unwrap();
+        assert!(
+            report.output_recovery_confirmed
+                && !report.report_pending
+                && !report.recovery_budget_exhausted
+        );
+    }
+    #[test]
+    fn recovery_failure_is_retained_independently_from_owner_drop() {
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Err(WriteError::UnknownAcceptance(io::Error::other("synthetic"))),
+        ]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.pause(MonoTime(1)).unwrap();
+        assert!(runtime.poll(MonoTime(1)).is_err());
+        let report = runtime.termination_report().unwrap();
+        assert_eq!(report.reason, StopReason::Pause);
+        assert!(report.recovery_failed && report.acceptance_unknown && report.submitted_remaining);
+        assert!(report.output_owner_dropped && report.backend_transition_confirmed);
+        assert!(!report.output_recovery_confirmed);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_successful_stop_result_does_not_hide_unfinished_report() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            worker::run_with_wait_report,
+        };
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Ok(FrameWrite::Incomplete {
+                accepted: 1,
+                report_pending: true,
+            }),
+        ]);
+        backend.flush = false;
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        let client = ProgressClient::new(
+            io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        let report =
+            run_with_wait_report(runtime, client, true, |_, _, _| panic!("stop cannot wait"));
+        assert!(matches!(report.outcome, Ok(StopReason::Pause)));
+        let terminal = report.termination.unwrap();
+        assert!(
+            terminal.recovery_budget_exhausted
+                && terminal.report_pending
+                && !terminal.output_recovery_confirmed
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_preserves_primary_and_independent_termination_uncertainty() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            worker::{WorkerError, run_with_wait_report},
+        };
+        let (inputs, mut backend, _) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Err(WriteError::UnknownAcceptance(io::Error::other("synthetic"))),
+        ]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        let client = ProgressClient::new(
+            io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        let report =
+            run_with_wait_report(runtime, client, true, |_, _, _| panic!("stop cannot wait"));
+        assert!(matches!(
+            report.outcome,
+            Err(WorkerError::Runtime(RuntimeError::Output(_)))
+        ));
+        let terminal = report.termination.unwrap();
+        assert!(
+            terminal.recovery_failed
+                && terminal.acceptance_unknown
+                && terminal.output_owner_dropped
+                && !terminal.output_recovery_confirmed
+        );
     }
     fn instance(id: u64) -> DeviceInstanceId {
         DeviceInstanceId { id, generation: 1 }

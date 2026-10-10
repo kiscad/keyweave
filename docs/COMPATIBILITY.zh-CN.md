@@ -98,3 +98,5 @@ Linux runtime新增单实例remove_device控制：完整device/generation匹配�
 Linux配置可通过host check-linux离线校验完整可执行性：Linux capability编译拒绝有损规则，所有动作/modifier须在指定output spec内，Engine gate保留，External repeat拒绝。默认全键表通过不证明真实输入覆盖、consumer readiness或可执行会话；PrintScreen使用Linux原生code而非Windows特殊scan gate。[ADR-0068](ADR-0068-linux-cold-preparation.md)。
 
 Linux默认challenge协议与run_worker行为保留；新增receive_command/run_worker_controlled仅显式启用KWPS停止。父request_shutdown必须知道worker支持，否则到期限强制停止，不推断兼容。停止先关闭捕获、有限恢复；短写必须补REPORT，unknown acceptance保留错误。父不读取旧receipt续租，Stop写完不等于退出，Cooperative/StopReason不证明键盘恢复。真实Linux入口仍待接通。[ADR-0069](ADR-0069-linux-cooperative-stop.md)。
+
+Linux新增TerminationReport与受控WorkerReport：原StopReason/outcome保持，明确destroy前pending REPORT、未知接受量、未释放submitted、恢复预算与错误，Engine reset和owner释放独立。报告不含按键或设备身份；进程内资源/接受量事实不能证明compositor或全局状态，当前无跨进程报告通道/真实Linux入口。[ADR-0070](ADR-0070-linux-termination-evidence.md)。
