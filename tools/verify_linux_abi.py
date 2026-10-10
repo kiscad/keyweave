@@ -18,6 +18,7 @@ _Static_assert(MFD_CLOEXEC == 1 && MFD_ALLOW_SEALING == 2, "memfd flags");
 _Static_assert(F_ADD_SEALS == 1033 && F_GET_SEALS == 1034, "sealing commands");
 _Static_assert(F_SEAL_SEAL == 1 && F_SEAL_SHRINK == 2 && F_SEAL_GROW == 4 && F_SEAL_WRITE == 8, "seals");
 _Static_assert(O_RDONLY == 0 && O_RDWR == 2 && O_ACCMODE == 3 && FD_CLOEXEC == 1, "descriptor flags");
+_Static_assert(F_DUPFD_CLOEXEC == 1030 && F_GETFD == 1 && F_SETFD == 2, "descriptor handoff");
 int main(void) {
     int (*create_memory)(const char *, unsigned int) = memfd_create;
     int (*control_fd)(int, int, ...) = fcntl;

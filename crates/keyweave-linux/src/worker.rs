@@ -13,6 +13,7 @@ use std::{io, marker::PhantomData, rc::Rc};
 pub(crate) const PARENT_ENV: &str = "KEYWEAVE_SUPERVISOR_PID";
 pub(crate) const REPORT_ENV: &str = "KEYWEAVE_TERMINAL_REPORT";
 pub(crate) const RUN_ENV: &str = "KEYWEAVE_PROGRESS_RUN_ID";
+pub(crate) const CONFIG_ENV: &str = "KEYWEAVE_CONFIG_FD";
 static CHANNELS_CLAIMED: AtomicBool = AtomicBool::new(false);
 
 fn positive_environment_u64(name: &str) -> io::Result<u64> {
@@ -33,10 +34,17 @@ fn positive_u64(value: Option<&str>) -> Option<u64> {
         .and_then(|value| value.parse().ok())
         .filter(|value| *value != 0)
 }
+fn config_descriptor(value: &str) -> Option<i32> {
+    positive_u64(Some(value))
+        .filter(|_| !value.starts_with('0'))
+        .and_then(|v| i32::try_from(v).ok())
+        .filter(|v| *v >= 3)
+}
 
 /// One-shot startup handoff. Construct on main before any device is opened.
 /// stdin/stderr remain reserved for the progress protocol until process exit.
 pub struct WorkerStartup {
+    config_claimed: bool,
     guard: WorkerParentGuard,
     run_id: u64,
     client: ProgressClient<std::fs::File, std::fs::File>,
@@ -71,6 +79,7 @@ impl WorkerStartup {
         let client = ProgressClient::new(reader, writer, run_id)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         Ok(Self {
+            config_claimed: false,
             guard,
             run_id,
             client,
@@ -78,6 +87,30 @@ impl WorkerStartup {
     }
     pub fn guard(&self) -> &WorkerParentGuard {
         &self.guard
+    }
+    /// One attempt on verified main, before files/devices/threads. The original
+    /// inherited config FD is reserved until process exit; returned copy is CLOEXEC.
+    pub fn claim_config(&mut self) -> io::Result<crate::config_artifact::ConfigArtifact> {
+        if std::mem::replace(&mut self.config_claimed, true) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "configuration already claimed",
+            ));
+        }
+        crate::ioctl::verify_parent_death(self.guard.parent)?;
+        let value = std::env::var(CONFIG_ENV).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "missing configuration descriptor",
+            )
+        })?;
+        let raw = config_descriptor(&value).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid configuration descriptor",
+            )
+        })?;
+        crate::config_artifact::ConfigArtifact::from_inherited(raw)
     }
     pub fn run_id(&self) -> u64 {
         self.run_id
@@ -99,6 +132,9 @@ pub struct ReportingStartup {
     terminal: crate::termination::TerminalWriter<std::fs::File>,
 }
 impl ReportingStartup {
+    pub fn claim_config(&mut self) -> io::Result<crate::config_artifact::ConfigArtifact> {
+        self.startup.claim_config()
+    }
     pub fn from_supervisor_environment() -> io::Result<Self> {
         use std::os::fd::AsFd;
         let _guard = WorkerParentGuard::from_supervisor_environment()?;
@@ -433,6 +469,7 @@ where
 }
 #[cfg(test)]
 mod tests {
+    use super::config_descriptor;
     use super::positive_u64;
     #[test]
     fn startup_identity_is_positive_bounded_ascii_without_signs_or_whitespace() {
@@ -453,6 +490,27 @@ mod tests {
         assert_eq!(positive_u64(Some("1")), Some(1));
         assert_eq!(positive_u64(Some("0001")), Some(1));
         assert_eq!(positive_u64(Some("18446744073709551615")), Some(u64::MAX));
+    }
+    #[test]
+    fn config_descriptor_is_canonical_bounded_and_disjoint_from_stdio() {
+        for value in [
+            "",
+            "0",
+            "1",
+            "2",
+            "03",
+            "+3",
+            "-3",
+            " 3",
+            "3\n",
+            "３",
+            "2147483648",
+            "999999999999999999999",
+        ] {
+            assert_eq!(config_descriptor(value), None);
+        }
+        assert_eq!(config_descriptor("3"), Some(3));
+        assert_eq!(config_descriptor("2147483647"), Some(i32::MAX));
     }
     #[test]
     fn native_finalization_rejects_non_pipe_owner_without_writing() {

@@ -2,6 +2,8 @@
 
 日期：2026-10-10。状态：封存、准入和冷准备接入已实现；Supervisor FD 交付与 worker 入口待连接。
 
+后续：Supervisor 与 startup token 的 FD 交付由 [ADR-0076](ADR-0076-linux-config-fd-handoff.md) 接入；真实捕获 exe/main 仍待实现。
+
 ## 问题与实现
 
 Linux worker 不能在父进程冷验证后重新打开用户配置路径，否则 rename/替换/修改可能使执行内容不同于父进程已验证的内容。新增 `keyweave-linux::config_artifact::ConfigArtifact`，使用 memfd 保存精确字节，再设置 WRITE、GROW、SHRINK、SEAL 四种 seal。

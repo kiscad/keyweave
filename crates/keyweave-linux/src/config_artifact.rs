@@ -35,6 +35,54 @@ impl std::fmt::Debug for ConfigArtifact {
     }
 }
 impl ConfigArtifact {
+    pub(crate) fn command_inherit(&self, command: &mut std::process::Command) -> io::Result<i32> {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: live owned file; duplicate above stdio with CLOEXEC, avoiding
+        // collisions when Command remaps the three protocol descriptors.
+        let raw = unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: fresh successful duplicate, uniquely owned by this closure.
+        let file = unsafe { File::from_raw_fd(raw) };
+        // SAFETY: parent registers a hook holding only its own File. Child
+        // accesses its scalar descriptor and direct fcntl calls; no allocation,
+        // environment access, locks, writes, credential changes or Drop.
+        unsafe {
+            command.pre_exec(move || {
+                let fd = file.as_raw_fd();
+                let seal = libc::fcntl(fd, libc::F_GET_SEALS);
+                if seal < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if seal & REQUIRED_SEALS != REQUIRED_SEALS {
+                    return Err(io::Error::from_raw_os_error(libc::EPERM));
+                }
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        Ok(raw)
+    }
+    pub(crate) fn from_inherited(raw: i32) -> io::Result<Self> {
+        if raw < 3 {
+            return Err(invalid("configuration descriptor overlaps stdio"));
+        }
+        // SAFETY: scalar descriptor lookup/duplication. Failure doesn't borrow
+        // or close the supplied FD; success establishes a fresh unique owner.
+        let copy = unsafe { libc::fcntl(raw, libc::F_DUPFD_CLOEXEC, 3) };
+        if copy < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful fresh CLOEXEC duplicate, not the original inherited FD.
+        Self::admit(unsafe { File::from_raw_fd(copy) })
+    }
     /// Copies exact bytes then seals against writes, resize and further seals.
     /// CLOEXEC is retained; inherited delivery must be selected by a supervisor.
     pub fn create(bytes: &[u8]) -> io::Result<Self> {
@@ -198,5 +246,15 @@ mod tests {
         let admitted = ConfigArtifact::admit(read_only).unwrap();
         drop(artifact);
         assert_eq!(admitted.read_bytes().unwrap(), b"sealed");
+    }
+    #[test]
+    fn inherited_admission_rejects_stdio_and_invalid_descriptor_without_taking_it() {
+        for fd in [-1, 0, 1, 2, i32::MAX] {
+            assert!(ConfigArtifact::from_inherited(fd).is_err());
+        }
+        let artifact = ConfigArtifact::create(b"inherited").unwrap();
+        let copy = ConfigArtifact::from_inherited(artifact.file.as_raw_fd()).unwrap();
+        drop(copy);
+        assert_eq!(artifact.read_bytes().unwrap(), b"inherited");
     }
 }

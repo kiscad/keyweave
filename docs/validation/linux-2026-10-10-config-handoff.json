@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0076 Linux sealed-config selected inheritance and one-shot startup claim",
+  "source_base_commit": "e54910279d3cb907fefadb8d45d6374a830de48b",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/config_artifact.rs": "a26a31d98139ea91cfb6339271d0bf92bd59a7e3f5c37b47e0bf534c19bd86ca",
+    "crates/keyweave-linux/src/supervisor.rs": "b597c74739e37af7bfa42ca2d8dd045cc03bec871fedef72cb306a37b3a96535",
+    "crates/keyweave-linux/src/worker.rs": "31ac80234b1a050f3b9e4aade337bc2eafc0572bff71f8c64a6d385fb1aae29b",
+    "crates/keyweave-linux/tests/worker_parent.rs": "faede8102464c621376085df5a65af379d4f5166caa1451f8f79f37ef12d8414",
+    "tools/verify_linux_abi.py": "43a765cb244cef8c0251081fd65ef33b1e2e6aa05defd5b1d305ca7cb4e31f93"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 794,
+    "test_session": 46028,
+    "test_terminal_exit": 0,
+    "clippy_session": 77627,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "Extended C UAPI probe including F_DUPFD_CLOEXEC/F_GETFD/F_SETFD passed",
+    "worker_parent_harness": "actual main sealed_config fork/exec, parent guard and three pipes, exact NUL bytes, duplicate claim rejection; legacy mode config env removal/missing rejection and existing reporting/guard cases passed",
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261010-config-handoff/tests.log",
+        "sha256": "625ed662ff44b51796943caa3ed4ff37a4987ebff44bca92cc575bd3f0b5f64c"
+      },
+      "tests-final": {
+        "path": "target/validation/linux-20261010-config-handoff/tests-final.log",
+        "sha256": "13b88aa119696fcd7a44c853425ba290f6d90d16d17f8d1f57932edb9f157be1"
+      },
+      "tests-verified": {
+        "path": "target/validation/linux-20261010-config-handoff/tests-verified.log",
+        "sha256": "2381fcd9379bcb6ae2de5783ade931727ecb043e366d041b62cc59c038a328bb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-config-handoff/clippy.log",
+        "sha256": "5f9e3384f2d6cdad633acae859400f3f6c24e08037c1846d2bf899093638a6a9"
+      }
+    }
+  },
+  "preliminary": [
+    {
+      "session": 51950,
+      "terminal_exit": 0,
+      "scope": "before extra descriptor boundary/native admission tests"
+    },
+    {
+      "terminal_exit": 101,
+      "scope": "first final-test attempt",
+      "reason": "private config_descriptor not imported into test module",
+      "fix": "add explicit import; no production gate relaxed"
+    }
+  ],
+  "new_tests": {
+    "unit_and_native_tests": 2,
+    "harness": "new sealed_config case plus legacy claim rejection assertions"
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "changed runtime functions cfg Linux; preceding Windows provider native verification still pending due unresolved approval-review usage failure"
+  },
+  "limitations": [
+    "Trusted Command must not rebind/close the selected FD in caller pre_exec hooks; arbitrary inherited FD allowlist is not enforced.",
+    "Seals are not sender authentication or proof of config compilation.",
+    "Returned config copy is CLOEXEC; original inherited FD remains until true process exit.",
+    "No true capture worker entry/bootstrap/consumer-ready/host integration yet.",
+    "Native fixture handles synthetic bytes and termination facts only; no real capture or recovery evidence.",
+    "No evdev grab/uinput, Hook/SendInput or driver operation performed.",
+    "Full project objective including native verification, advanced rules, hotplug/add, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}

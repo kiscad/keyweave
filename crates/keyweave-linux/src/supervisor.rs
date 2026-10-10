@@ -63,7 +63,7 @@ impl Supervisor {
     /// SIGKILL is installed before exec. Worker main must verify its inherited
     /// guard before opening devices; credential-changing exec is unsupported.
     pub fn spawn(command: Command, run_id: u64, policy: Policy, now: MonoTime) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, false)
+        Self::spawn_mode(command, run_id, policy, now, false, None)
     }
     /// Explicit third private terminal pipe. Only a reporting worker may use it.
     pub fn spawn_reporting(
@@ -72,7 +72,18 @@ impl Supervisor {
         policy: Policy,
         now: MonoTime,
     ) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, true)
+        Self::spawn_mode(command, run_id, policy, now, true, None)
+    }
+    /// Exact sealed image through one selected extra FD. The trusted Command
+    /// must not close/rebind it in caller pre_exec hooks or inherit device FDs.
+    pub fn spawn_reporting_config(
+        command: Command,
+        run_id: u64,
+        policy: Policy,
+        now: MonoTime,
+        config: crate::config_artifact::ConfigArtifact,
+    ) -> io::Result<Self> {
+        Self::spawn_mode(command, run_id, policy, now, true, Some(config))
     }
     fn spawn_mode(
         mut command: Command,
@@ -80,6 +91,7 @@ impl Supervisor {
         policy: Policy,
         now: MonoTime,
         reporting: bool,
+        config: Option<crate::config_artifact::ConfigArtifact>,
     ) -> io::Result<Self> {
         let watchdog = ProgressWatchdog::new(run_id, policy, now)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -119,6 +131,12 @@ impl Supervisor {
         let parent = std::process::id();
         command.env(crate::worker::PARENT_ENV, parent.to_string());
         crate::ioctl::command_parent_death(&mut command, parent)?;
+        if let Some(config) = config {
+            let fd = config.command_inherit(&mut command)?;
+            command.env(crate::worker::CONFIG_ENV, fd.to_string());
+        } else {
+            command.env_remove(crate::worker::CONFIG_ENV);
+        }
         let child = command.spawn()?;
         // Drop Command here so the parent retains no worker endpoint or duplicate stdio.
         drop(command);

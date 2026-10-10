@@ -19,12 +19,31 @@ fn main() {
     const MODE: &str = "KEYWEAVE_PARENT_TEST_MODE";
     const PARENT: &str = "KEYWEAVE_SUPERVISOR_PID";
     if let Ok(mode) = std::env::var(MODE) {
-        if mode == "reporting" || mode == "reporting_uncertain" {
+        if mode == "reporting" || mode == "reporting_uncertain" || mode == "sealed_config" {
             use keyweave_linux::{
                 runtime::{StopReason, TerminationReport},
                 worker::ReportingStartup,
             };
-            let startup = ReportingStartup::from_supervisor_environment().unwrap();
+            let mut startup = ReportingStartup::from_supervisor_environment().unwrap();
+            if mode == "sealed_config" {
+                let config = startup.claim_config().unwrap();
+                assert_eq!(config.read_bytes().unwrap(), b"exact\0sealed config");
+                assert_eq!(
+                    startup.claim_config().unwrap_err().kind(),
+                    io::ErrorKind::AlreadyExists
+                );
+                drop(config);
+            } else {
+                assert!(std::env::var("KEYWEAVE_CONFIG_FD").is_err());
+                assert_eq!(
+                    startup.claim_config().unwrap_err().kind(),
+                    io::ErrorKind::InvalidInput
+                );
+                assert_eq!(
+                    startup.claim_config().unwrap_err().kind(),
+                    io::ErrorKind::AlreadyExists
+                );
+            }
             let (guard, client, mut terminal) = startup.into_parts();
             assert_eq!(
                 guard.parent_pid().to_string(),
@@ -202,10 +221,23 @@ fn main() {
         command.env(MODE, mode).stdout(Stdio::null());
         command
     };
-    for mode in ["reporting", "reporting_uncertain"] {
+    for mode in ["reporting", "reporting_uncertain", "sealed_config"] {
         use keyweave_linux::termination::ReadStatus;
-        let mut supervisor =
-            Supervisor::spawn_reporting(fixture(mode), 57, Policy::default(), MonoTime(0)).unwrap();
+        let mut command = fixture(mode);
+        command.env("KEYWEAVE_CONFIG_FD", "1"); // overwritten or removed
+        let mut supervisor = if mode == "sealed_config" {
+            Supervisor::spawn_reporting_config(
+                command,
+                57,
+                Policy::default(),
+                MonoTime(0),
+                keyweave_linux::config_artifact::ConfigArtifact::create(b"exact\0sealed config")
+                    .unwrap(),
+            )
+            .unwrap()
+        } else {
+            Supervisor::spawn_reporting(command, 57, Policy::default(), MonoTime(0)).unwrap()
+        };
         assert_eq!(supervisor.poll_terminal(), ReadStatus::NotExited);
         assert_eq!(supervisor.collect_terminal().status, ReadStatus::NotExited);
         let end = Instant::now() + Duration::from_secs(3);
@@ -229,7 +261,10 @@ fn main() {
             panic!("unexpected observation {observed:?}");
         };
         assert_eq!(frame.run_id, 57);
-        assert_eq!(frame.report.output_recovery_confirmed, mode == "reporting");
+        assert_eq!(
+            frame.report.output_recovery_confirmed,
+            mode != "reporting_uncertain"
+        );
         assert_eq!(frame.report.report_pending, mode == "reporting_uncertain");
         assert_eq!(
             frame.report.recovery_budget_exhausted,
