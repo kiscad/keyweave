@@ -18,6 +18,10 @@ pub use native::{
     ArtifactCleanup, ArtifactCreateError, ArtifactError, ArtifactReaderError, ConfigArtifact,
     ConfigReader, MAX_ARTIFACT_BYTES,
 };
+#[cfg(windows)]
+pub use native::{ConsoleControl, ConsoleError};
+#[cfg(all(windows, not(test)))]
+pub use native::{ConsoleProbe, with_private_console_event};
 #[cfg(target_os = "windows")]
 pub use native::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]

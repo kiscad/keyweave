@@ -538,3 +538,8 @@ keyweave-host.exe check-windows --config C:\path\config.jsonc
 四句柄启动链已接通：冷读/无损compile/原生输出与Engine准入→fresh随机run/marker→sealed config→Supervisor→worker真实main准入→文件对象加载→CaptureSession。控制main与捕获worker独立，同epoch Instant 驱动poll，无active stdio/同步配置准备。Enter请求保持旧lease，不以EOF当实际Exited；真正退出后检查独立pipe/config清理。启动前已知stop取消创建，seal后亦检查并明确关闭artifact；取消与观察不到退出分别报告。错误不自动重启、不重新resume失败child。
 
 无输入验收使用 `tools/check_host.ps1 -ValidationRoot WINDOWS_LOCAL_VALIDATION_ROOT -Arch x64`，必须在对应 fullvalidation 进程实际退出之后运行。该脚本在同一已核验Rust snapshot构建host与独立 `check_host_worker` example，并显式把host的 `--worker` 指向fixture；仅协议/自有config/Job，不运行真实capture worker。五场景覆盖active/standby协作stop、两种stall强制actualExit与invalidPE startup rollback，检查last close后实际NotFound。fixture epochs不是CaptureSession poll。x86使用i686目标与x86 MSVC环境。版本/源码hash/报告记录见STATUS与validation文档；Linux bootstrap、高级规则、GUI、打包、Rust driver及companion审计范围仍保留。
+
+
+ADR-0063实现进展（2026-10-10）：Windows用户host增加Ctrl+C / Ctrl+Break协作停止，与stdin stop合并后由原主循环执行协议及实际退出观察；handler只锁存static atomic，不做资源清理或恢复。冷配置完成后注册，报告前明确注销；其他console事件不承诺协作恢复。开发入口仍为显式run-windows，真实输入运行需另行授权及验收。设计边界见[ADR-0063](ADR-0063-console-cooperative-stop.md)。
+
+无输入复验：固定Windows Rust1.97.1的完整验证进程实际terminal后，使用同一Windows-local snapshot运行 `tools/check_host.ps1 -ValidationRoot <snapshot> -Arch x64 -Toolchain 1.97.1 -ConsoleEvents`（x86另跑）；参数名称以脚本param为准，使用对应已准备Cargo缓存。工具只创建自有私有console和固定check_host_worker协议fixture，覆盖0/1×active/standby及旧5个host场景，不安装Hook/SendInput。DETACHED_PROCESS自启动解决CreateNoWindow仍附console的实测准入失败，禁止释放用户console绕过检查。最终Linux702、Windows各673tests及各9个原生host场景通过，[证据](validation/windows-2026-10-10-console.json)。真实键盘/Terminal/RDP/Windows11、热更新、诊断、可信打包、Linux消费就绪及D05/GUI/driver/companion继续待实现或验收。

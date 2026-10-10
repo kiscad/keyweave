@@ -91,3 +91,6 @@ Windows host 已增加每次启动的系统随机 run ID 和注入标记生成�
 
 
 已增加 `keyweave-host` 用户入口：`check-windows --config PATH` 离线检查；`run-windows --config PATH --identity strict` 显式启动 Windows 会话，按 Enter 停止。需要同目录已构建的 `keyweave-worker.exe`；开发时可显式指定可信的绝对 `--worker` 路径。配置准备、随机启动身份、原文件对象交付、独立进度监督与退出清理已接通。[设计与运行限制](docs/ADR-0062-windows-user-host.md)。目前仍属开发版，正常键盘、控制台信号、热更新及完整发布验收继续。
+
+
+Windows host 现已接入控制台 Ctrl+C / Ctrl+Break 协作停止，Enter/EOF 控制继续可用；关闭窗口、注销和关机的恢复边界另见[设计](docs/ADR-0063-console-cooperative-stop.md)。两架构原生验证使用自有私有控制台和无输入协议fixture，真实键盘及发布验收仍继续。

@@ -15,7 +15,7 @@ enum Command {
         #[arg(long)]
         config: PathBuf,
     },
-    /// Run an experimental Windows remapping session. Press Enter to stop.
+    /// Run an experimental Windows remapping session. Enter or Ctrl+C stops it.
     RunWindows {
         #[arg(long)]
         config: PathBuf,
@@ -113,6 +113,13 @@ fn run(
             return ExitCode::from(1);
         }
     };
+    let mut console = match keyweave_windows::ConsoleControl::install() {
+        Ok(control) => control,
+        Err(error) => {
+            eprintln!("console control startup failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
     let stop = Arc::new(AtomicBool::new(false));
     let input_stop = stop.clone();
     // This bounded read is on an independent thread, never the control loop.
@@ -125,17 +132,44 @@ fn run(
             input_stop.store(true, Ordering::Release);
         })
     {
+        let cleanup = console.close();
         eprintln!("control input startup failed: {error}");
+        if let Err(error) = cleanup {
+            eprintln!("console control cleanup failed: {error}");
+        }
         return ExitCode::from(1);
     }
-    eprintln!("Starting Windows session; press Enter to stop.");
-    match keyweave_host::windows::run(&executable, &path, &directory, prepared, identity, &stop) {
+    if console.available() {
+        eprintln!("Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.");
+    } else {
+        eprintln!("Starting Windows session; input or EOF requests stop.");
+    }
+    let result = keyweave_host::windows::run_with_console(
+        &executable,
+        &path,
+        &directory,
+        prepared,
+        identity,
+        &stop,
+        &console,
+    );
+    // Restore default processing before final stdio; no active worker remains
+    // on a successful result. Cleanup failure is independent and fails the host.
+    let cleanup = console.close();
+    match result {
         Ok(report) => {
             println!("{report}");
+            if let Err(error) = cleanup {
+                eprintln!("console control cleanup failed: {error}");
+                return ExitCode::from(1);
+            }
             ExitCode::from(if report.successful() { 0 } else { 1 })
         }
         Err(error) => {
             eprintln!("{error}");
+            if let Err(error) = cleanup {
+                eprintln!("console control cleanup failed: {error}");
+            }
             ExitCode::from(1)
         }
     }

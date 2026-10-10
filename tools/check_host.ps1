@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$ValidationRoot,
     [ValidateSet('x64','x86')][string]$Arch='x64',
-    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$Toolchain='1.97.1'
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$Toolchain='1.97.1',
+    [switch]$ConsoleEvents
 )
 $ErrorActionPreference='Stop'
 if ($ValidationRoot -match '[%!^"\r\n]' -or $ValidationRoot.StartsWith('\\')) { throw 'Windows-local validation path required' }
@@ -20,7 +21,7 @@ $lines=@('@echo off','setlocal DisableDelayedExpansion',
  ('cd /d "'+$project+'"'),('set "CARGO_HOME='+ (Join-Path $ValidationRoot 'cargo-home')+'"'),
  ('set "CARGO_TARGET_DIR='+ (Join-Path $ValidationRoot 'target')+'"'),
  ('"'+$cargo+'" +'+$Toolchain+' fmt --all --check > "'+(Join-Path $ValidationRoot 'fmt.log')+'" 2>&1'),'if errorlevel 1 exit /b %errorlevel%',
- ('"'+$cargo+'" +'+$Toolchain+' build --locked --offline -p keyweave-host --bin keyweave-host --example check_host_worker --target '+$target+' > "'+(Join-Path $ValidationRoot 'host-build.log')+'" 2>&1'),
+ ('"'+$cargo+'" +'+$Toolchain+' build --locked --offline -p keyweave-host --bin keyweave-host --example check_host_worker --example check_console_host --target '+$target+' > "'+(Join-Path $ValidationRoot 'host-build.log')+'" 2>&1'),
  'if errorlevel 1 exit /b %errorlevel%','exit /b 0')
 $cmd=Join-Path $ValidationRoot 'host-build.cmd'
 [IO.File]::WriteAllText($cmd,($lines -join "`r`n"),(New-Object Text.UTF8Encoding $false))
@@ -84,4 +85,43 @@ foreach ($mode in @('active','standby','stop_stall','startup_stall','invalid_pe'
     } finally { $p.Dispose() }
 }
 $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $ValidationRoot 'host-results.json') -Encoding UTF8
+if ($ConsoleEvents) {
+    $probeExe=Join-Path $ValidationRoot ('target\'+$target+'\debug\examples\check_console_host.exe')
+    $consoleResults=@()
+    foreach ($event in @('0','1')) {
+        foreach ($mode in @('active','standby')) {
+            $dir=Join-Path $casesRoot ('console-'+$event+'-'+$mode)
+            New-Item -ItemType Directory -Path $dir | Out-Null
+            $report=Join-Path $dir 'report.log'
+            $info=New-Object Diagnostics.ProcessStartInfo
+            $info.FileName=$probeExe
+            $info.Arguments=$event+' "'+$fixture+'" "'+$config+'" "'+$dir+'" "'+$report+'"'
+            # This helper starts with no console and may create only its own.
+            $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+            $info.RedirectStandardInput=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+            $info.EnvironmentVariables['KEYWEAVE_HOST_FIXTURE_MODE']=$mode
+            $p=New-Object Diagnostics.Process;$p.StartInfo=$info
+            try {
+                if (-not $p.Start()) {throw 'private console helper start failed'}
+                $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync();$p.StandardInput.Close()
+                if (-not $p.WaitForExit(15000)) {$p.Kill();$null=$p.WaitForExit(5000);throw 'private console helper timed out'}
+                $stdout=$out.GetAwaiter().GetResult();$stderr=$err.GetAwaiter().GetResult()
+                [IO.File]::WriteAllText((Join-Path $dir 'stdout.log'),$stdout);[IO.File]::WriteAllText((Join-Path $dir 'stderr.log'),$stderr)
+                $text=if (Test-Path -LiteralPath $report) {[IO.File]::ReadAllText($report)} else {'missing report'}
+                if ($p.ExitCode -ne 0) {throw ('private console failed: '+$event+' '+$mode+' '+$text)}
+                if ($text -notmatch 'delivery=Ok\(\(\)\); unregister=Ok\(\(\)\); release=Ok\(\(\)\)' -or $text -notmatch 'worker_exit: Some\(0\)' -or $text -notmatch 'resources_complete: true' -or $text -notmatch 'Cooperative') {throw 'console actual exit/cleanup not confirmed'}
+                if ($mode -eq 'active' -and ($text -notmatch 'progress_epoch: ([0-9]+)' -or [UInt64]$Matches[1] -eq 0)) {throw 'active console fixture progress absent'}
+                if ($mode -eq 'standby' -and $text -notmatch 'progress_epoch: 0,') {throw 'standby console fixture minted progress'}
+                $deadline=[DateTime]::UtcNow.AddSeconds(2)
+                while (@(Get-ChildItem -LiteralPath $dir -Filter 'keyweave-config-*.jsonc').Count -ne 0) {
+                    if ([DateTime]::UtcNow -ge $deadline) {throw 'console config deletion not observed'}
+                    Start-Sleep -Milliseconds 10
+                }
+                $consoleResults+=[pscustomobject]@{event=[int]$event;mode=$mode;helper_exit=$p.ExitCode;report=$text;owned_image_notfound=$true}
+                Write-Output ('console fixture passed: '+$Arch+' '+$event+' '+$mode)
+            } finally {$p.Dispose()}
+        }
+    }
+    $consoleResults | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $ValidationRoot 'console-results.json') -Encoding UTF8
+}
 Write-Output ('HostCasesRoot='+$casesRoot)

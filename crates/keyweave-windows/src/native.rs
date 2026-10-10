@@ -2,6 +2,11 @@
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
 mod config_artifact;
+mod console_control;
+#[cfg(windows)]
+pub use console_control::{ConsoleControl, ConsoleError};
+#[cfg(all(windows, not(test)))]
+pub use console_control::{ConsoleProbe, with_private_console_event};
 mod host_identity;
 #[cfg(target_os = "windows")]
 pub use host_identity::{IdentityError, RunIdentity};

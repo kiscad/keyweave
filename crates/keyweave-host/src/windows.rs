@@ -121,7 +121,7 @@ fn cleanup_spawn(error: &mut SupervisorSpawnError, errors: &mut Vec<String>) -> 
             .as_mut()
             .is_none_or(|owner| cleanup_job(owner, errors)),
         SupervisorSpawnError::Resume { owner, .. } => {
-            let report = drive(owner, &AtomicBool::new(true), Instant::now());
+            let report = drive(owner, &AtomicBool::new(true), Instant::now(), None);
             let complete = report.worker_exit.is_some() && report.resources_complete;
             for e in report.diagnostics {
                 record(errors, e)
@@ -131,7 +131,15 @@ fn cleanup_spawn(error: &mut SupervisorSpawnError, errors: &mut Vec<String>) -> 
         _ => true,
     }
 }
-fn drive(owner: &mut Supervisor, stop: &AtomicBool, start: Instant) -> Report {
+fn should_stop(stop: &AtomicBool, console: Option<&keyweave_windows::ConsoleControl>) -> bool {
+    stop.load(Ordering::Acquire) || console.is_some_and(keyweave_windows::ConsoleControl::requested)
+}
+fn drive(
+    owner: &mut Supervisor,
+    stop: &AtomicBool,
+    start: Instant,
+    console: Option<&keyweave_windows::ConsoleControl>,
+) -> Report {
     let mut diagnostics = Vec::new();
     let mut requested = false;
     let mut stopping = None;
@@ -148,7 +156,7 @@ fn drive(owner: &mut Supervisor, stop: &AtomicBool, start: Instant) -> Report {
             }
         };
         last = now;
-        if stop.load(Ordering::Acquire) && !requested {
+        if should_stop(stop, console) && !requested {
             requested = true;
             if let Err(e) = owner.request_shutdown(now) {
                 record(&mut diagnostics, e)
@@ -234,8 +242,47 @@ pub fn run(
     identity: IdentityPolicy,
     stop: &AtomicBool,
 ) -> Result<Report, String> {
+    run_impl(
+        executable,
+        diagnostic_path,
+        directory,
+        prepared,
+        identity,
+        stop,
+        None,
+    )
+}
+/// Combine user input with an existing process-lifetime console control owner.
+pub fn run_with_console(
+    executable: &Path,
+    diagnostic_path: &Path,
+    directory: &Path,
+    prepared: PreparedConfig,
+    identity: IdentityPolicy,
+    stop: &AtomicBool,
+    console: &keyweave_windows::ConsoleControl,
+) -> Result<Report, String> {
+    run_impl(
+        executable,
+        diagnostic_path,
+        directory,
+        prepared,
+        identity,
+        stop,
+        Some(console),
+    )
+}
+fn run_impl(
+    executable: &Path,
+    diagnostic_path: &Path,
+    directory: &Path,
+    prepared: PreparedConfig,
+    identity: IdentityPolicy,
+    stop: &AtomicBool,
+    console: Option<&keyweave_windows::ConsoleControl>,
+) -> Result<Report, String> {
     keyweave_windows::startup::ensure_preparation_context().map_err(|e| e.to_string())?;
-    if stop.load(Ordering::Acquire) {
+    if should_stop(stop, console) {
         return Ok(cancelled(None));
     }
     let fresh = RunIdentity::generate().map_err(|e| e.to_string())?;
@@ -246,7 +293,7 @@ pub fn run(
         if let Some(owner)=e.owner.as_mut(){match owner.close(){Ok(r) if r.complete()=>(),other=>{complete=false;record(&mut errors,format!("artifact cleanup: {other:?}"));}}}
         format!("artifact preparation failed: {e}; resources_complete={complete}; diagnostics={errors:?}")
     })?;
-    if stop.load(Ordering::Acquire) {
+    if should_stop(stop, console) {
         return Ok(cancelled(Some(&mut artifact)));
     }
     // Start the clock after cold IO. The same Instant epoch drives every poll.
@@ -264,7 +311,7 @@ pub fn run(
         let complete = cleanup_spawn(&mut e, &mut errors);
         format!("worker startup failed: {e}; resources_complete={complete}; diagnostics={errors:?}")
     })?;
-    Ok(drive(&mut owner, stop, start))
+    Ok(drive(&mut owner, stop, start, console))
 }
 
 #[cfg(test)]

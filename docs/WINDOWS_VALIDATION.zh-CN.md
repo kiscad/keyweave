@@ -232,3 +232,8 @@ D08 Windows可运行用户host（2026-10-10）：ADR-0062新增workspace包keywe
 各arch真实host→ownedJob→check_host_worker无输入fixture五场景通过：active/standby按stdin停止自然child0/host0（standby epoch0），stop_stall/startup_stall旧lease内强制真实child3763033857/host1，invalidPE真实CreateProcess失败与Prepared回滚host1。所有case明确资源报告并实际观察自有image NotFound；fixture只严格main准入/原reader加载/合成进度，不调用Hook/SendInput；有用配置从未传给真实capture worker。工具tools/check_host.ps1可复验同Windows-local snapshot；epoch不是CaptureSession，resources_complete只指返回pipe/config报告、不独立证明Job handle Drop或全局按键恢复。
 
 [设计](ADR-0062-windows-user-host.md)、[最终证据](validation/windows-2026-10-10-user-host.json)。ignored target/validation/linux-20261010-user-host与windows-20261010-user-host-{x64,x86}-1.97.1留存日志/manifest/cmd/最终case stdout+stderr，before-local-cwd与before-startup-cancel保留preliminary证据。下一步原生console Ctrl+C协作控制、详细child诊断/热更新、可信打包与正常CaptureSession/Windows11/硬件；Linuxbootstrap/consumer-ready、D05/GUI/Rustdriver/companion与所有原目标继续未完成，旧x86异常原因仍未知。
+
+
+2026-10-10 ADR-0063最终验证：固定Rust1.97.1，Windows x64/i686各673tests、all-targets Clippy -D warnings、fmt和更新console SDK oracle通过；两份193源hash匹配最终源代码。fullvalidation22452及随后native/fmt38147均实际terminal0。每arch私有console event0/1×active/standby四场景自然worker0/Cooperative/资源报告完整，delivery/unregister/release各Ok，自有配置文件实际NotFound；旧5个stdin/停滞/启动失败场景通过。Linux702tests及独立无设备main-thread harness通过。
+
+初次原生18187实际exit1：CreateNoWindow仍附隐藏console，被准入拒绝，未进入body、未跑x86原生；保留日志。修正为DETACHED_PROCESS自启动自有helper，保持拒绝既有console，最终重新双arch全量通过。早期fullvalidation通过快照仅preliminary，不代替最终快照。ConsoleProbe factory失败在body前仅有限Drop回退，不能声称独立完整清理报告。详细快照/manifest/session/case及限制见[JSON报告](validation/windows-2026-10-10-console.json)与[ADR](ADR-0063-console-cooperative-stop.md)。软件生成控制台事件未安装Hook/SendInput，不能证明物理键盘/Terminal/RDP/Windows11或完整移植。旧x86异常仍未知，不用本轮通过称已修复。

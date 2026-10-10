@@ -1,0 +1,225 @@
+{
+  "date": "2026-10-10",
+  "feature": "ConsoleControl static atomic Ctrl+C/Break latch integrated with host cancellation/cooperative stop, private real console fixture (ADR-0063)",
+  "source_base_commit": "04a3bedfbae63a0ef4064301bec8751f15f23754",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read in this run",
+  "msvc": "19.44.35229.0 / VCTools 14.44.35207",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "00cee23937214e06a3b687f235835965",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 673,
+      "windows_unit_tests_passed": 302,
+      "new_console_mock_tests": 6,
+      "source_files_hash_checked": 193,
+      "source_mismatches": 0,
+      "validation_session": 22452,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 38147,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "updated console ABI/CTRL event values/DETACHED_PROCESS/SW_HIDE /W4 /WX /std:c11 /Zs passed",
+      "console_cases": [
+        {
+          "event": 0,
+          "mode": "active",
+          "helper_exit": 0,
+          "report": "event=0; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 45, diagnostics: [] })",
+          "owned_image_notfound": true
+        },
+        {
+          "event": 0,
+          "mode": "standby",
+          "helper_exit": 0,
+          "report": "event=0; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 0, diagnostics: [] })",
+          "owned_image_notfound": true
+        },
+        {
+          "event": 1,
+          "mode": "active",
+          "helper_exit": 0,
+          "report": "event=1; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 45, diagnostics: [] })",
+          "owned_image_notfound": true
+        },
+        {
+          "event": 1,
+          "mode": "standby",
+          "helper_exit": 0,
+          "report": "event=1; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 0, diagnostics: [] })",
+          "owned_image_notfound": true
+        }
+      ],
+      "host_regression_cases": [
+        {
+          "mode": "active",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=18, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "standby",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "stop_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=44, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "startup_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "invalid_pe",
+          "host_exit": 1,
+          "stdout": "",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.\nworker startup failed: configuration worker startup failed: Job startup failed: worker startup failed: CreateProcessW failed: 216; rollback: None; preparation resources retained; resources_complete=true; diagnostics=[]",
+          "owned_image_notfound": true
+        }
+      ],
+      "raw_evidence": "target/validation/windows-20261010-console-x64-1.97.1",
+      "manifest_sha256": "1446295cf94ae57dab7e52469eecf745ec9dc8756888d1cd5b5845c07e729642"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "5ec54ab727214215be83f6bb131f1bfd",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 673,
+      "windows_unit_tests_passed": 302,
+      "new_console_mock_tests": 6,
+      "source_files_hash_checked": 193,
+      "source_mismatches": 0,
+      "validation_session": 22452,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 38147,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "updated console ABI/CTRL event values/DETACHED_PROCESS/SW_HIDE /W4 /WX /std:c11 /Zs passed",
+      "console_cases": [
+        {
+          "event": 0,
+          "mode": "active",
+          "helper_exit": 0,
+          "report": "event=0; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 45, diagnostics: [] })",
+          "owned_image_notfound": true
+        },
+        {
+          "event": 0,
+          "mode": "standby",
+          "helper_exit": 0,
+          "report": "event=0; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 0, diagnostics: [] })",
+          "owned_image_notfound": true
+        },
+        {
+          "event": 1,
+          "mode": "active",
+          "helper_exit": 0,
+          "report": "event=1; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 46, diagnostics: [] })",
+          "owned_image_notfound": true
+        },
+        {
+          "event": 1,
+          "mode": "standby",
+          "helper_exit": 0,
+          "report": "event=1; delivery=Ok(()); unregister=Ok(()); release=Ok(()); body=Ok(Report { startup_cancelled: false, worker_exit: Some(0), reason: Some(Cooperative), resources_complete: true, progress_epoch: 0, diagnostics: [] })",
+          "owned_image_notfound": true
+        }
+      ],
+      "host_regression_cases": [
+        {
+          "mode": "active",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=21, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "standby",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "stop_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=44, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "startup_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "invalid_pe",
+          "host_exit": 1,
+          "stdout": "",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.\nworker startup failed: configuration worker startup failed: Job startup failed: worker startup failed: CreateProcessW failed: 216; rollback: None; preparation resources retained; resources_complete=true; diagnostics=[]",
+          "owned_image_notfound": true
+        }
+      ],
+      "raw_evidence": "target/validation/windows-20261010-console-x86-1.97.1",
+      "manifest_sha256": "1446295cf94ae57dab7e52469eecf745ec9dc8756888d1cd5b5845c07e729642"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 702,
+    "main_thread_no_device_harness": "worker_parent passed within workspace command",
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes_verified": 60,
+    "raw_evidence": "target/validation/linux-20261010-console",
+    "note": "Last Rust change was only cfg(windows) detached diagnostic launcher; Linux compiled inputs remained unchanged, fmt/Clippy verified afterward."
+  },
+  "preliminary_validations": [
+    {
+      "session": 56936,
+      "terminal_exit": 0,
+      "note": "Initial callback declaration/test variant and no enable-failure case; initial snapshots f37e342002f24fbcaa067208c1982843 / 9edb13bc4b404b2e94d365ef9569ac06 not final evidence."
+    },
+    {
+      "session": 78796,
+      "terminal_exit": 0,
+      "snapshots": [
+        "a49693b58d18449d9579b065120143e7",
+        "a91d6c5dfd7b47b8b78a675c6a021ef4"
+      ],
+      "note": "All 673 tests passed each; native private console subsequently refused hidden-console launcher before any console allocation/host body."
+    }
+  ],
+  "native_initial_failure": {
+    "session": 18187,
+    "terminal_exit": 1,
+    "arch": "x64",
+    "reason": "CreateNoWindow helper still had an existing hidden console; attached guard correctly rejected it. Five old host cases had passed; x86 native console not started.",
+    "fix": "Diagnostic self-spawns with DETACHED_PROCESS into a fresh own child; never detaches/borrows existing console. Own child process handle retained and timeout stop/exit observed; no arbitrary PID kill.",
+    "evidence": "target/validation/windows-20261010-console-before-detached-launch"
+  },
+  "limits": [
+    "Only software CTRL_C_EVENT/CTRL_BREAK_EVENT to newly created own private console; no user console broadcast, keyboard injection, Hook installation, capture worker or real user config.",
+    "Console diagnostic stdin stop flag is always false; actual console handler drives run_with_console to Cooperative/child0; fixture epochs are synthetic, not CaptureSession poll or global recovery proof.",
+    "ConsoleControl claims once; NULL/FALSE explicitly enables caller Ctrl+C, close removes its own handler and does not restore an unknown previous ignore attribute. No Attach/Alloc/Free/table mutation while production owner lives.",
+    "Close/logoff/shutdown return FALSE and have no cooperative recovery guarantee; real physical keys/Terminal/RDP/window-close/normal capture and trusted release remain unverified.",
+    "Private diagnostic failures before body use bounded Drop cleanup; they are not a claim of independent complete cleanup reporting for all failed factories. Successful probes separately report generation/unregister/release plus body resource reports and actual NotFound.",
+    "If detached diagnostic timeout stop cannot observe own child exit within its bounded fallback, helper reports failure, not cleanup success.",
+    "Prior x86 native process and MSVC-overlap anomalies remain unknown; these checks do not prove fixes.",
+    "Detailed child diagnostics/hot config/GUI/trusted packaging, Linux bootstrap/consumer readiness, D05, Rust driver/companion audit and original scope continue."
+  ]
+}

@@ -178,3 +178,10 @@ ADR-0062 新增keyweave-host实际用户入口：check-windows离线、run-windo
 
 
 host startup_cancelled与未观察到exit必须区分：callback guard后/preRNG和seal后/preJob检查已知stop，取消只在实际未创建child时成立；已封存artifact显式关闭。取消报告exit=None/epoch0/无reason，只有完整资源报告与无diagnostics可成功；普通超时exit=None仍失败。检查后新到stop不是原子禁止create承诺，走原协作Stop。invalid-PE fixture保持stdin开放直到失败退出，避免EOF将CreateProcess错误测试变成启动取消。
+
+
+ADR-0063已有ConsoleControl：process-lifetime单次claim、同线程!Send/!Sync owner，callback外GetConsoleProcessList标量准入，明确error6无console返回不可用token保留stdin。attached时对本process调用NULL/FALSE启用Ctrl+C，再注册静态handler；移除只注销本handler，不声称复原未知继承ignore属性。handler对0/1只static AtomicBool Release store+TRUE，其他FALSE；不借token、不做IO/probe/恢复/等待。原子与code静态到process退出，晚到callback安全，claim/请求不重置，安装失败不可重claim，close失败保留registered可retry，Drop有限不是成功证明。生命周期内不得Attach/Alloc/Free重置控制表。host冷配置完成后/preartifact安装，每poll/preRNG/preJob合并console与stdin stop，stdout报告前明确close；close错独立保存并host非零。worker已有DETACHED_PROCESS不继承控制台，本轮不改flags。close/logoff/shutdown不承诺协作恢复。
+
+with_private_console_event只用于无输入诊断：拒绝已有console，自建并隐藏自己的console，再注册；producer生成0/1到该私有console，body不得改attachment/table，释放前join producer，独立delivery/unregister/release。check_console_host只接受固定check_host_worker.exe，stdin不驱动停止（AtomicBool恒false），真实run_with_console→ownJob→fixture自然退出才通过；不可换真实capture worker。tools/check_host.ps1 -ConsoleEvents覆盖两事件active/standby并回归旧stdin/超时/PE。fixture epochs不是CaptureSession，真实物理Ctrl+C/Terminal/RDP/关窗/键盘、热更新/详细诊断/可信打包及所有原范围继续。
+
+console诊断 helper 外层必须先以 DETACHED_PROCESS 自启动自有子进程，内层仍拒绝任何既有console；CreateNoWindow不证明无console，禁止为绕过准入Free/复用用户console。外层只操作所持Child handle，10秒请求终止/12秒观察上限，未知exit不得称清理成功。ConsoleProbe进入body前的factory错误只有限Drop回退，不是独立完整清理报告。最终软件验证：docs/validation/windows-2026-10-10-console.json；物理输入及完整原目标仍未完成。

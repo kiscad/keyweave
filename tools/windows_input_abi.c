@@ -17,6 +17,10 @@
 #endif
 CHECK(sizeof(void *) == KEYWEAVE_EXPECT_PTR);
 CHECK(sizeof(void *) == 4 || sizeof(void *) == 8);
+CHECK(CTRL_C_EVENT == 0 && CTRL_BREAK_EVENT == 1 && CTRL_CLOSE_EVENT == 2);
+CHECK(CTRL_LOGOFF_EVENT == 5 && CTRL_SHUTDOWN_EVENT == 6);
+CHECK(DETACHED_PROCESS == 8 && SW_HIDE == 0);
+CHECK(sizeof(PHANDLER_ROUTINE) == sizeof(void *));
 CHECK(sizeof(PROCESSENTRY32W) == (WIDE ? 568 : 556));
 CHECK(offsetof(PROCESSENTRY32W, th32ParentProcessID) == (WIDE ? 32 : 24));
 CHECK(sizeof(JOBOBJECT_BASIC_PROCESS_ID_LIST) == (WIDE ? 16 : 12));
@@ -298,5 +302,14 @@ int main(void) {
     (void)process_handle; (void)close_handle; (void)process_token; (void)thread_token;
     (void)token_info;
     (void)process_session; (void)session_info; (void)free_session;
+    BOOL (WINAPI *console_handler)(PHANDLER_ROUTINE, BOOL) = SetConsoleCtrlHandler;
+    DWORD (WINAPI *console_members)(LPDWORD, DWORD) = GetConsoleProcessList;
+    BOOL (WINAPI *console_allocate)(void) = AllocConsole;
+    BOOL (WINAPI *console_release)(void) = FreeConsole;
+    HWND (WINAPI *console_window)(void) = GetConsoleWindow;
+    BOOL (WINAPI *console_event)(DWORD, DWORD) = GenerateConsoleCtrlEvent;
+    BOOL (WINAPI *console_hide)(HWND, int) = ShowWindow;
+    (void)console_handler; (void)console_members; (void)console_allocate;
+    (void)console_release; (void)console_window; (void)console_event; (void)console_hide;
     return 0;
 }
