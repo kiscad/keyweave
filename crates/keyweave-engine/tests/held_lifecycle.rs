@@ -237,6 +237,7 @@ fn fired_action_conditions_use_current_original_device_context_not_timer_carrier
             5,
             InputEvent::ContextChanged {
                 context: ContextSnapshot {
+                    device_inventory_scope: DeviceInventoryScope::Complete,
                     revision: 1,
                     provider: "test".into(),
                     observed_at_ns: MonoTime(5),

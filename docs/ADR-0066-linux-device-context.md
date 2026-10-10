@@ -1,0 +1,13 @@
+# ADR-0066：Linux 捕获设备元数据与部分 inventory 条件
+
+Runtime已有owned capture Probe和真实vendor/product，但Engine默认context只有Unknown，device_if/unless不能正常使用。构造时复制已验证capture的DeviceInstanceId/generation与vendor/product；其他地址/location/设备类型/built-in等无可靠来源保持None，不猜名称或bus。active poll先在一项工作预算内交付ContextChanged，再读/交付新物理键；不再次ioctl/neutral查询，不抓新设备。metadata来自owned client，刷新不证明全系统inventory。
+
+新增DeviceInventoryScope Complete/Partial。旧显式context输入缺字段仍按原Complete契约；序列化Complete省略字段，Partial必须明确输出。devices=None始终Unknown。Partial存在查询以Unknown开始OR：已知匹配可证明exists_if，未匹配不能证明不存在，exists_unless不会变True；普通device_if/unless仍按当前准确identity匹配。Complete保持原全inventory语义。这是coverage声明，不是鉴权；provider只观察部分设备必须标Partial。
+
+Runtime只提供Partial captured inventory，初次poll使用调用者绝对MonoTime，不以构造0当真实时钟。有效期1小时，半小时通过next_wakeup刷新；revision与统一seq严格增加，64设备上限内静态属性有界复制，每次刷新占一个MAX_WORK_PER_POLL名额。时钟加法/revision/seq耗尽失败进入close-capture-first停止，不wrap或伪造新鲜。设备条件只使用这些已验证元数据，hot config保留旧binding release；停止后不再续context或IO。当前无外部app/input-source provider，未来合并上下文需要单独事务，不能用device刷新覆盖其他provider。
+
+验收：partial positive/negative/Unknown与Complete对照、JSON默认/明确partial/未知scope拒绝；两个设备vendor不同的真实Runtime mock frame→Engine→native output；per-device和exists条件、未知字段unless不成真、绝对时间/续期/持键热更新/错误收尾与64操作预算。全离线，无系统设备抓取。真实设备/ioctl成功、consumer ready、bootstrap、全局inventory/热插拔及原完整目标继续待做。
+
+存在观测边界：此provider维护当前runtime已准入的capture生命周期，刷新静态metadata不做连接重验；拔除到后续read/HUP故障处理之间可能有观测延迟，不承诺原子系统设备存在快照。故障仍停止整个runtime，完整系统inventory/热插拔provider必须另行实现与验收。
+
+最终Linux717、Windows各691tests及Clippy/fmt/既有ABI检查通过，195源hash匹配；初回归断言失败与最终证据保留于[验证报告](validation/windows-2026-10-10-device-context.json)。测试全为无设备访问/mock，不能替代真实capture/consumer-ready验收。

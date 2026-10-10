@@ -6,6 +6,7 @@ fn pattern(value: &str) -> Pattern {
 }
 fn context() -> ContextSnapshot {
     ContextSnapshot {
+        device_inventory_scope: DeviceInventoryScope::Complete,
         revision: 1,
         provider: "synthetic".into(),
         observed_at_ns: MonoTime(0),

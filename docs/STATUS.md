@@ -1,6 +1,6 @@
 # 项目状态
 
-更新日期：2026-10-09。
+更新日期：2026-10-10。
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
@@ -9,11 +9,11 @@
 | 新目录、开发指导、任务清单、AGENTS | 已创建 | 本目录 |
 | 文档完整性检查 | 通过 | 59 个本地链接、48 个源码 SHA-256、JSON 语法、Markdown 围栏；上游工作区未变 |
 | D00 来源固定与 ADR | 基础完成；companion 审计仍缺失 | tools/verify_sources.py、fixtures 原始复制、ADR-0001/0002 |
-| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 8 crates、Cargo.lock、固定 1.97.1、583 个 workspace 测试及 worker 主线程独立 harness 通过 |
+| D01 Rust workspace 与离线切片 | 已实现；Windows 固定1.97.1 x64/i686 本机通过 | 10 crates、Cargo.lock、固定 1.97.1；最新 workspace/native 验证见文末 ADR-0066 与独立报告 |
 | D02 HID 键名 | 部分实现 | 309 个标准键名/别名及 round-trip；native 转换/持久设备选择待做 |
 | D03 配置编译与 CLI | 部分实现 | JSONC（含重复成员拒绝）、元数据往返、各执行层字段检查、整条禁用、validate/import/replay；高级 schema 待做；COMPATIBILITY 描述当前范围 |
 | D04/C1、D05/C2 完整规则 | 部分实现，未完成 | 多动作跨阶段 down/up 生命周期、持键热更新、多来源 ownership 与展开限额；optional:any、alone/after-up、修饰快照恢复与旧快照宏预算已实现；标准 mandatory/optional/any 与左右/抽象组、lazy 消费恢复已实现；repeat:false 已实现；to modifiers 与设备 neutral 刷新已实现；设备/应用/输入源条件与有效期上下文已实现，变量也已实现，held/delayed deadlines、显式 lazy/halt 已实现，其他 conditions、simultaneous 等字段仍拒绝；ADR-0013/0012/0011/0010/0009/0008/0007；ADR-0003/0004/0006 |
-| Linux / Windows 用户态后端 | Linux native 后端部分实现；Windows scan codec/输出账本/Hook、会话 actor 与定时等待部分实现，实际后端均未完成 | keyweave-windows keys/table/normalizer/packet/pump/hook 与 cfg Windows SendInput/HookSession/CaptureSession passive 启动、映射前紧急组合、活动访问检查/短租约与关闭事务，runtime SessionActor 已连接共享 Engine/OutputQueue（无完整可执行运行时，Windows 固定1.97.1 x64/i686 编译/link/mock tests已通过，真机未验）；keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD、故障分类和单设备/多设备组 grab 准入事务；有显式时钟的 IO coordinator、challenge 监督与 pre_exec 父线程死亡保护；已有 CLOCK_MONOTONIC/ppoll 与 run_worker 函数，尚无完整 bootstrap/可执行 worker，未做成功硬件创建/抓取 |
+| Linux / Windows 用户态后端 | Linux native 后端部分实现；Windows scan codec/输出账本/Hook、会话 actor 与定时等待部分实现，实际后端均未完成 | keyweave-windows keys/table/normalizer/packet/pump/hook 与 cfg Windows SendInput/HookSession/CaptureSession passive 启动、映射前紧急组合、活动访问检查/短租约与关闭事务，runtime SessionActor 已连接共享 Engine/OutputQueue（已有真实worker/host入口与独立监督；Windows固定1.97.1 x64/i686编译/无输入原生测试通过，正常键盘仍未验）；keyweave-linux events/keys/probe/read/device/output/uinput；有 owned evdev/uinput FD、故障分类和单设备/多设备组 grab 准入事务；有显式时钟的 IO coordinator、challenge 监督与 pre_exec 父线程死亡保护；已有 CLOCK_MONOTONIC/ppoll 与 run_worker 函数，尚无完整 bootstrap/可执行 worker，未做成功硬件创建/抓取 |
 | Windows Rust driver 可行性原型 | 未验证 | D10 研究门槛 |
 | macOS 上游测试执行 | 未执行 | 当前 Linux 环境，Apple framework 依赖 |
 | 目标平台硬件、权限、故障恢复、性能 | 未执行 | 后续专用测试系统验证 |
@@ -276,3 +276,8 @@ D08 worker实际退出诊断（2026-10-10）：ADR-0064将WorkerExit移到共享
 D08独立终止事实（2026-10-10）：ADR-0065新增TerminalEvidence固定0x4b57高16bit+低10bit非零mask，严格reserved/tag/零mask拒绝。TerminalFacts.native_exit保留fault/progress/缺shutdown/Stopped未确认/unhook/recovery/notification未确认/access/session/untracked全部独立事实，cleanup类别优先但不删fault。真实worker完整report/shutdown路径生成mask，显式drop worker、execute返回后才完成Windows完整native exit；早期scalar与clean0保留，无report/shutdown不造细节。host实际Exited后列全部issue，原reason/resources/diagnostics及success判定不变。不增加pipe/IPC或进度租约。notification是原聚合结果，mask不是API具体错误/ledger/全局恢复证明；Linux不可截低byte复用。
 
 fixed1.97.1最终：Linux708tests+main-thread无设备harness、Clippy/fmt/source60通过；Windows各682tests、alltargetsClippy/fmt/SDK通过，两个195源hash全匹配。fullvalidation72317与随后native/fmt94578实际terminal0，每arch7个无输入host场景通过；native完整1263992835/1263993855已从owned Job观察，分别显示2/10个issue并保留Cooperative/resource结果，自有image实际NotFound。初次const Option编译失败改显式match；初Windows x64tests通过但Clippy drop_non_drop失败，metadata guard无Drop，去掉无效drop后重验；原失败证据保留，不改lint/工具链，初wrapper未启动x86。最后fixture修正只在cfg Windows，Linuxcompiled代码未变。[设计](ADR-0065-independent-terminal-evidence.md)、[报告](validation/windows-2026-10-10-terminal-evidence.json)。ignored target/validation/*terminal-evidence*及terminal-before-guard-fix-x64保留原始日志/manifest/cases。无真实Hook/SendInput，旧x86异常未解释，完整诊断/热更新/可信打包、真实键盘及Linux/D05/GUI/Rustdriver/companion全部原目标继续未完成。
+
+
+D06设备上下文（2026-10-10）：ADR-0066补齐Linux Runtime owned Probe vendor/product→Engine条件，保存完整DeviceInstanceId/generation，其余未证明属性Unknown。新DeviceInventoryScope明确Complete/Partial，旧context缺字段保留旧Complete契约且输出省略，Partial必须输出；Partial存在查询匹配可True、未匹配/空列表不证明不存在，exists_unless不成True。Runtime只提供captured Partial inventory，初poll传入绝对MonoTime、1h有效期/半小时next_wakeup有界刷新，占1个64操作预算，统一seq/revision增加，不另造progress epoch/IO/neutral。准备与刷新失败仍close capture先于output恢复；hot config旧binding up保留。metadata续期不重验物理连接，read/HUP拔除有观测延迟，全系统inventory/hotplug/应用与输入源context合并仍缺失。
+
+最终fixed1.97.1：Linux717tests+main-thread无设备harness、alltargetsClippy/fmt/source60/既有Linux C ABI通过；Windows x64/i686各691tests、alltargetsClippy/fmt/既有SDK通过，两个195源hash匹配。fullvalidation8124与随后fmt16259实际terminal0。新增6runtime（双设备vendor/product、partial存在/不存在、未知属性unless、绝对时间续期与预算、持键热更新、revision/seq耗尽收尾）+2Engine partial+1CLI JSONscope测试。初Linux4个旧assertion因新增context deadline/seq与溢出优先级失败，保留原日志并分别断言无emergency deadline、保留metadata唤醒及实际close顺序，未删语义检查；输出/宏/取消/紧急退出回归通过。无真实系统设备访问/新native输入例程，不重跑无关host fixture作此功能证明。[设计](ADR-0066-linux-device-context.md)、[报告](validation/windows-2026-10-10-device-context.json)，ignored target/validation/*device-context*留存日志/manifest。旧x86异常原因未知，全部完整目标继续未完成。

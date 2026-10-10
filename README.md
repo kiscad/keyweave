@@ -98,3 +98,5 @@ Windows host 现已接入控制台 Ctrl+C / Ctrl+Break 协作停止，Enter/EOF 
 Windows host终止报告现显示稳定worker退出码的分类与处理建议，保留独立监督原因和资源结果；未知码不推测恢复状态。[设计](docs/ADR-0064-worker-exit-diagnostics.md)。
 
 Windows终止报告现保留 worker 同时出现的独立故障事实（例如恢复未确认、访问丢失、会话变化），同时保留父侧监督与资源结果。[设计](docs/ADR-0065-independent-terminal-evidence.md)。
+
+Linux runtime已将捕获设备的vendor/product接入设备条件，并区分部分与完整设备列表，避免把未捕获设备误判为不存在。[设计](docs/ADR-0066-linux-device-context.md)。真实设备和完整Linux启动验收继续。

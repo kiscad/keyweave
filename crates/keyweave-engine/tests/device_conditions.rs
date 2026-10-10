@@ -40,6 +40,7 @@ fn engine(conditions: Vec<Condition>, to: Vec<Action>, after: Vec<Action>) -> En
 }
 fn context(revision: u64, vendor: Option<u32>, generation: u64) -> ContextSnapshot {
     ContextSnapshot {
+        device_inventory_scope: DeviceInventoryScope::Complete,
         revision,
         application: None,
         input_source: None,
@@ -412,5 +413,64 @@ fn reload_and_context_change_release_old_binding_and_evaluate_old_up_actions() {
     assert_eq!(
         stroke(&mut engine, 5, 4, 1, "a", KeyEdge::Down),
         [(key("a"), KeyEdge::Down)]
+    );
+}
+
+#[test]
+fn partial_inventory_proves_presence_but_never_absence() {
+    let mut partial = context(1, Some(42), 1);
+    partial.device_inventory_scope = DeviceInventoryScope::Partial;
+    assert_eq!(
+        condition(false, true).evaluate(&partial, device(1), MonoTime(0)),
+        Truth::True
+    );
+    assert_eq!(
+        condition(true, true).evaluate(&partial, device(1), MonoTime(0)),
+        Truth::False
+    );
+    partial.devices.as_mut().unwrap()[0].properties.vendor_id = Some(7);
+    for unless in [false, true] {
+        assert_eq!(
+            condition(unless, true).evaluate(&partial, device(1), MonoTime(0)),
+            Truth::Unknown
+        );
+    }
+    // Current device has exact evidence even if the global inventory is partial.
+    assert_eq!(
+        condition(true, false).evaluate(&partial, device(1), MonoTime(0)),
+        Truth::True
+    );
+    partial.devices = Some(vec![]);
+    for unless in [false, true] {
+        assert_eq!(
+            condition(unless, true).evaluate(&partial, device(1), MonoTime(0)),
+            Truth::Unknown
+        );
+    }
+    partial.device_inventory_scope = DeviceInventoryScope::Complete;
+    assert_eq!(
+        condition(false, true).evaluate(&partial, device(1), MonoTime(0)),
+        Truth::False
+    );
+    assert_eq!(
+        condition(true, true).evaluate(&partial, device(1), MonoTime(0)),
+        Truth::True
+    );
+}
+#[test]
+fn partial_exists_unless_cannot_activate_a_mapping_from_missing_capture() {
+    let mut runtime = engine(vec![condition(true, true)], vec![key("b").into()], vec![]);
+    let mut partial = context(1, Some(7), 1);
+    partial.device_inventory_scope = DeviceInventoryScope::Partial;
+    update(&mut runtime, 1, 0, partial);
+    assert_eq!(
+        stroke(&mut runtime, 2, 1, 1, "a", KeyEdge::Down),
+        [(key("a"), KeyEdge::Down)]
+    );
+    stroke(&mut runtime, 3, 2, 1, "a", KeyEdge::Up);
+    update(&mut runtime, 4, 3, context(2, Some(7), 1));
+    assert_eq!(
+        stroke(&mut runtime, 5, 4, 1, "a", KeyEdge::Down),
+        [(key("b"), KeyEdge::Down)]
     );
 }

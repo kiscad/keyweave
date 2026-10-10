@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0066 Linux owned capture vendor/product context and partial inventory truth semantics",
+  "source_base_commit": "d3a75d8d0481947a3e09b9a7e3abfae6ee3791b0",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "41c8641aa85b4ec0b55814621dd699a5",
+      "workspace_tests_passed": 691,
+      "source_files_hash_checked": 195,
+      "source_mismatches": 0,
+      "validation_session": 8124,
+      "validation_terminal_exit": 0,
+      "fmt_session": 16259,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing oracle passed; no new FFI/ABI",
+      "new_tests": "6 portable Linux runtime + 2 engine partial inventory + 1 CLI JSON scope tests",
+      "raw_evidence": "target/validation/windows-20261010-device-context-x64-1.97.1",
+      "manifest_sha256": "db121fad87341d709ceddf3c16eb53071ce765015f6b249bf2c8e96bc294dea8"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "36aa6e7483ab4f4cb71eb9db29af9a4d",
+      "workspace_tests_passed": 691,
+      "source_files_hash_checked": 195,
+      "source_mismatches": 0,
+      "validation_session": 8124,
+      "validation_terminal_exit": 0,
+      "fmt_session": 16259,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing oracle passed; no new FFI/ABI",
+      "new_tests": "6 portable Linux runtime + 2 engine partial inventory + 1 CLI JSON scope tests",
+      "raw_evidence": "target/validation/windows-20261010-device-context-x86-1.97.1",
+      "manifest_sha256": "db121fad87341d709ceddf3c16eb53071ce765015f6b249bf2c8e96bc294dea8"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 717,
+    "test_session": 9121,
+    "test_terminal_exit": 0,
+    "clippy_session": 36351,
+    "clippy_terminal_exit": 0,
+    "worker_parent_harness": "passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "existing local C UAPI/encodings passed without device access",
+    "raw_evidence": "target/validation/linux-20261010-device-context"
+  },
+  "preliminary": [
+    {
+      "session": 21577,
+      "terminal_exit": 101,
+      "reason": "4 existing Linux runtime assertions depended on no context-refresh wakeup or old physical-only sequence; context overflow now precedes emergency read",
+      "fix": "assert absence of emergency deadline separately, retain context refresh deadline, account for one initial context seq, and verify context overflow closes capture first; output/cancellation/chord behavior preserved",
+      "raw_log": "target/validation/linux-20261010-device-context/keyweave-device-context-initial.log"
+    },
+    {
+      "session": 49846,
+      "terminal_exit": 0,
+      "scope": "before 6 runtime integration tests; not final evidence",
+      "raw_log": "target/validation/linux-20261010-device-context/keyweave-device-context-second.log"
+    }
+  ],
+  "limitations": [
+    "Captured inventory is explicitly Partial; no-match cannot establish absent uncaptured devices.",
+    "Only vendor/product and exact device generation are observed; address/location/type/built-in remain Unknown.",
+    "Context refresh uses copied owned-capture metadata, not physical reconnection revalidation; read/HUP removal may be observed later.",
+    "No atomic system presence snapshot or global inventory/hotplug provider is established.",
+    "No external application/input-source provider is integrated; future merged contexts need an independent transaction.",
+    "Runtime tests use mock frames/capture/output; successful real evdev/uinput ioctl/grab/consumer readiness are not proven.",
+    "No new real Hook/SendInput/driver/global capture was run; Windows checks cover shared schema/engine and portable runtime mocks.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Full Linux bootstrap, hotplug/LED/context providers, advanced timing/simultaneous, hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

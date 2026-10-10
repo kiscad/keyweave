@@ -465,6 +465,7 @@ fn delayed_conditions_use_live_original_device_context_and_unknown_unless_stays_
             4,
             InputEvent::ContextChanged {
                 context: ContextSnapshot {
+                    device_inventory_scope: DeviceInventoryScope::Complete,
                     revision: 1,
                     provider: "synthetic".into(),
                     observed_at_ns: MonoTime(4),

@@ -17,6 +17,8 @@ use std::{
 pub const MAX_DEVICES: usize = 64;
 pub const MAX_WORK_PER_POLL: usize = 64;
 pub const MAX_RECOVERY_POLLS: usize = 8;
+const DEVICE_CONTEXT_LIFETIME_NS: u64 = 3_600_000_000_000;
+const DEVICE_CONTEXT_REFRESH_NS: u64 = DEVICE_CONTEXT_LIFETIME_NS / 2;
 pub use keyweave_progress::ProgressPhase as RuntimePhase;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
@@ -65,6 +67,8 @@ pub enum RuntimeError {
     Stopped,
     #[error("sequence or progress identity exhausted")]
     IdentityExhausted,
+    #[error("device context validity would overflow monotonic time")]
+    ContextTimeOverflow,
     #[error("physical key was unexpectedly bypassed by engine")]
     UnexpectedPass,
 }
@@ -95,6 +99,9 @@ pub struct Runtime<S: CaptureSource, B: FrameBackend> {
     phase: RuntimePhase,
     reason: Option<StopReason>,
     recovery_polls: usize,
+    captured_devices: Vec<DeviceContext>,
+    context_revision: u64,
+    context_refresh_at: MonoTime,
 }
 /// Check all output branches before bootstrap grabs input and before hot activation.
 pub fn validate_config(config: &ConfigSnapshot, spec: &DeviceSpec) -> Result<(), RuntimeError> {
@@ -169,10 +176,26 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 return Err(RuntimeError::RepeatPolicy);
             }
             validate_config(&config, backend.spec())?;
-            Engine::new(config).map_err(RuntimeError::Engine)
+            let engine = Engine::new(config).map_err(RuntimeError::Engine)?;
+            // Copy only verified metadata; names/bus/path do not prove other fields.
+            let captured_devices = inputs
+                .iter()
+                .map(|(device, input)| {
+                    let probe = input.probe().ok_or(RuntimeError::InvalidStartup)?;
+                    Ok(DeviceContext {
+                        device: *device,
+                        properties: DeviceProperties {
+                            vendor_id: Some(u32::from(probe.id.vendor)),
+                            product_id: Some(u32::from(probe.id.product)),
+                            ..Default::default()
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, RuntimeError>>()?;
+            Ok((engine, captured_devices))
         })();
-        let engine = match prepared {
-            Ok(engine) => engine,
+        let (engine, captured_devices) = match prepared {
+            Ok(prepared) => prepared,
             Err(error) => {
                 for (_, input) in &mut inputs {
                     input.close();
@@ -211,6 +234,9 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             phase: RuntimePhase::Active,
             reason: None,
             recovery_polls: 0,
+            captured_devices,
+            context_revision: 0,
+            context_refresh_at: MonoTime(0),
         })
     }
     pub fn phase(&self) -> RuntimePhase {
@@ -242,6 +268,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 .map(|(at, _)| at)
                 .into_iter()
                 .chain(self.output.ledger().next_deadline())
+                .chain(Some(self.context_refresh_at))
                 .chain(
                     self.inputs
                         .iter()
@@ -269,6 +296,37 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         }
         self.output.enqueue(&step.outputs)?;
         Ok(())
+    }
+    fn refresh_device_context(&mut self) -> Result<bool, RuntimeError> {
+        if self.now < self.context_refresh_at {
+            return Ok(false);
+        }
+        let revision = self
+            .context_revision
+            .checked_add(1)
+            .ok_or(RuntimeError::IdentityExhausted)?;
+        let valid_until_ns = self
+            .now
+            .checked_add(DEVICE_CONTEXT_LIFETIME_NS)
+            .ok_or(RuntimeError::ContextTimeOverflow)?;
+        let refresh_at = self
+            .now
+            .checked_add(DEVICE_CONTEXT_REFRESH_NS)
+            .ok_or(RuntimeError::ContextTimeOverflow)?;
+        let context = ContextSnapshot {
+            revision,
+            provider: "linux-owned-capture".into(),
+            observed_at_ns: self.now,
+            valid_until_ns,
+            devices: Some(self.captured_devices.clone()),
+            device_inventory_scope: DeviceInventoryScope::Partial,
+            application: None,
+            input_source: None,
+        };
+        self.dispatch(0, InputEvent::ContextChanged { context })?;
+        self.context_revision = revision;
+        self.context_refresh_at = refresh_at;
+        Ok(true)
     }
     fn validate_frame(&self, index: usize, frame: &[Event]) -> Result<(), RuntimeError> {
         let caps = &self.inputs[index]
@@ -358,7 +416,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 return Ok(0);
             }
         }
-        let mut work = 0;
+        let mut work = usize::from(self.refresh_device_context()?);
         if self.pending_keys() == 0
             && !self
                 .output
@@ -483,7 +541,9 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             Err(error) => {
                 let reason = match &error {
                     RuntimeError::InputLost => StopReason::InputLost,
-                    RuntimeError::Emergency(_) => StopReason::ControlFault,
+                    RuntimeError::Emergency(_)
+                    | RuntimeError::IdentityExhausted
+                    | RuntimeError::ContextTimeOverflow => StopReason::ControlFault,
                     RuntimeError::Capture(_)
                     | RuntimeError::Protocol(_)
                     | RuntimeError::Key(_)
@@ -741,6 +801,8 @@ mod tests {
             .map(|(index, reads)| {
                 let id = (index + 1) as u64;
                 let mut physical = probe(&format!("/sys/devices/mock/input/input{id}"));
+                physical.id.vendor = u16::try_from(index + 1).unwrap();
+                physical.id.product = u16::try_from(index + 100).unwrap();
                 physical.capabilities.events.set(4).unwrap();
                 physical.capabilities.misc = bits(8, &[4, 5]);
                 let mut capture = CaptureDevice::new(Source {
@@ -1186,7 +1248,7 @@ mod tests {
         runtime.poll(MonoTime(2)).unwrap();
         assert_eq!(runtime.phase(), RuntimePhase::Active);
         assert_eq!(runtime.engine_state().pending_bindings, 0);
-        assert_eq!(runtime.seq, 4); // down, up, CancelDelayed, then retried e down
+        assert_eq!(runtime.seq, 5); // includes the initial bounded device-context event // down, up, CancelDelayed, then retried e down
         let edges: Vec<_> = submits(&trace)
             .into_iter()
             .flat_map(|(edges, _)| edges)
@@ -1279,7 +1341,13 @@ mod tests {
         );
         runtime.poll(MonoTime(0)).unwrap();
         runtime.poll(MonoTime(hold - 1)).unwrap();
-        assert!(runtime.next_wakeup().is_none());
+        assert!(
+            runtime
+                .inputs
+                .iter()
+                .all(|input| input.emergency.next_deadline().is_none())
+        );
+        assert_eq!(runtime.next_wakeup(), Some(runtime.context_refresh_at));
         runtime.poll(MonoTime(hold)).unwrap();
         assert_eq!(runtime.next_wakeup(), Some(MonoTime(2 * hold)));
         runtime.poll(MonoTime(2 * hold - 1)).unwrap();
@@ -1295,7 +1363,13 @@ mod tests {
         );
         runtime.poll(MonoTime(0)).unwrap();
         runtime.poll(MonoTime(1)).unwrap();
-        assert!(runtime.next_wakeup().is_none());
+        assert!(
+            runtime
+                .inputs
+                .iter()
+                .all(|input| input.emergency.next_deadline().is_none())
+        );
+        assert_eq!(runtime.next_wakeup(), Some(runtime.context_refresh_at));
         runtime
             .poll(MonoTime(2 * crate::emergency::HOLD_NS))
             .unwrap();
@@ -1350,7 +1424,13 @@ mod tests {
             Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
         );
         runtime.poll(MonoTime(0)).unwrap();
-        assert!(runtime.next_wakeup().is_none());
+        assert!(
+            runtime
+                .inputs
+                .iter()
+                .all(|input| input.emergency.next_deadline().is_none())
+        );
+        assert_eq!(runtime.next_wakeup(), Some(runtime.context_refresh_at));
         runtime.poll(MonoTime(hold)).unwrap();
         assert_eq!(runtime.phase(), RuntimePhase::Active);
         let (mut runtime, trace) = make_runtime(
@@ -1359,7 +1439,7 @@ mod tests {
         );
         assert!(matches!(
             runtime.poll(MonoTime(u64::MAX)),
-            Err(RuntimeError::Emergency(EmergencyError::TimeOverflow))
+            Err(RuntimeError::ContextTimeOverflow)
         ));
         assert_eq!(runtime.stop_reason(), Some(StopReason::ControlFault));
         assert_eq!(trace.borrow()[0], Call::InputClose(1));
@@ -1775,6 +1855,214 @@ mod tests {
                 Err(ClientError::Protocol(ProgressError::Identity))
             ));
             assert!(bytes.borrow().is_empty());
+        }
+    }
+    fn device_config(
+        generation: u64,
+        to: &str,
+        properties: DeviceProperties,
+        unless: bool,
+        exists: bool,
+    ) -> Arc<ConfigSnapshot> {
+        let mut cfg = (*config(generation, to)).clone();
+        cfg.simple[0]
+            .extras
+            .conditions
+            .push(keyweave_engine::Condition::Device {
+                identifiers: vec![properties],
+                unless,
+                exists,
+            });
+        Arc::new(cfg)
+    }
+    #[test]
+    fn owned_probe_vendor_product_map_only_the_matching_device() {
+        let cfg = device_config(
+            1,
+            "b",
+            DeviceProperties {
+                vendor_id: Some(1),
+                product_id: Some(100),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        let (mut runtime, trace) = make_runtime(
+            vec![
+                vec![frame(30, 1), frame(30, 0)],
+                vec![frame(30, 1), frame(30, 0)],
+            ],
+            cfg,
+        );
+        for time in 0..4 {
+            runtime.poll(MonoTime(time)).unwrap();
+        }
+        let edges: Vec<_> = submits(&trace)
+            .into_iter()
+            .flat_map(|(edges, _)| edges)
+            .collect();
+        assert_eq!(
+            edges,
+            vec![
+                NativeKey { code: 48, value: 1 },
+                NativeKey { code: 30, value: 1 },
+                NativeKey { code: 48, value: 0 },
+                NativeKey { code: 30, value: 0 }
+            ]
+        );
+        assert_eq!(
+            runtime.captured_devices[0].device,
+            DeviceInstanceId {
+                id: 1,
+                generation: 1
+            }
+        );
+        assert_eq!(runtime.captured_devices[1].properties.vendor_id, Some(2));
+        assert_eq!(runtime.engine.context_revision(), 1);
+    }
+    #[test]
+    fn captured_inventory_proves_known_presence_but_not_uncaptured_absence() {
+        for (vendor, unless, expected) in [
+            (2, false, 48),
+            (99, false, 30),
+            (99, true, 30),
+            (2, true, 30),
+        ] {
+            let cfg = device_config(
+                1,
+                "b",
+                DeviceProperties {
+                    vendor_id: Some(vendor),
+                    ..Default::default()
+                },
+                unless,
+                true,
+            );
+            let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)], vec![]], cfg);
+            runtime.poll(MonoTime(0)).unwrap();
+            assert_eq!(
+                submits(&trace)[0].0,
+                vec![NativeKey {
+                    code: expected,
+                    value: 1
+                }]
+            );
+        }
+    }
+    #[test]
+    fn unproven_properties_do_not_enable_unless_and_are_not_guessed() {
+        let cfg = device_config(
+            1,
+            "b",
+            DeviceProperties {
+                is_built_in_keyboard: Some(true),
+                ..Default::default()
+            },
+            true,
+            false,
+        );
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], cfg);
+        runtime.poll(MonoTime(0)).unwrap();
+        assert_eq!(submits(&trace)[0].0, vec![NativeKey { code: 30, value: 1 }]);
+        let p = &runtime.captured_devices[0].properties;
+        assert_eq!(
+            p,
+            &DeviceProperties {
+                vendor_id: Some(1),
+                product_id: Some(100),
+                ..Default::default()
+            }
+        );
+    }
+    #[test]
+    fn context_uses_absolute_clock_and_renews_before_expiry_in_poll_budget() {
+        let (mut runtime, trace) = make_runtime(vec![vec![]], config(1, "b"));
+        let start = 10 * DEVICE_CONTEXT_LIFETIME_NS;
+        let report = runtime.poll(MonoTime(start)).unwrap();
+        assert_eq!(report.work, 2); // bounded context update plus one input read
+        assert_eq!(runtime.engine.context_revision(), 1);
+        assert_eq!(
+            runtime.next_wakeup(),
+            Some(MonoTime(start + DEVICE_CONTEXT_REFRESH_NS))
+        );
+        runtime
+            .poll(MonoTime(start + DEVICE_CONTEXT_REFRESH_NS - 1))
+            .unwrap();
+        assert_eq!(runtime.engine.context_revision(), 1);
+        runtime
+            .poll(MonoTime(start + DEVICE_CONTEXT_REFRESH_NS))
+            .unwrap();
+        assert_eq!(runtime.engine.context_revision(), 2);
+        assert_eq!(
+            runtime.next_wakeup(),
+            Some(MonoTime(start + 2 * DEVICE_CONTEXT_REFRESH_NS))
+        );
+        assert!(trace.borrow().is_empty());
+        assert_eq!(runtime.progress_epoch(), 3); // only completed polls, not context updates
+    }
+    #[test]
+    fn refresh_and_hot_config_keep_original_conditional_key_up_binding() {
+        let old = device_config(
+            1,
+            "b",
+            DeviceProperties {
+                vendor_id: Some(1),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        let (mut runtime, trace) =
+            make_runtime(vec![vec![frame(30, 1), frame(30, 0), frame(30, 1)]], old);
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime
+            .activate(device_config(
+                2,
+                "c",
+                DeviceProperties {
+                    vendor_id: Some(1),
+                    ..Default::default()
+                },
+                false,
+                false,
+            ))
+            .unwrap();
+        runtime.poll(MonoTime(DEVICE_CONTEXT_REFRESH_NS)).unwrap();
+        runtime
+            .poll(MonoTime(DEVICE_CONTEXT_REFRESH_NS + 1))
+            .unwrap();
+        let edges: Vec<_> = submits(&trace)
+            .into_iter()
+            .flat_map(|(edges, _)| edges)
+            .collect();
+        assert_eq!(
+            edges,
+            vec![
+                NativeKey { code: 48, value: 1 },
+                NativeKey { code: 48, value: 0 },
+                NativeKey { code: 46, value: 1 }
+            ]
+        );
+        assert_eq!(runtime.context_revision, 2);
+    }
+    #[test]
+    fn context_revision_and_sequence_exhaustion_close_capture_before_output() {
+        for revision in [false, true] {
+            let (mut runtime, trace) = make_runtime(vec![vec![]], config(1, "b"));
+            if revision {
+                runtime.context_revision = u64::MAX;
+            } else {
+                runtime.seq = u64::MAX;
+            }
+            assert!(matches!(
+                runtime.poll(MonoTime(0)),
+                Err(RuntimeError::IdentityExhausted)
+            ));
+            assert_eq!(runtime.stop_reason(), Some(StopReason::ControlFault));
+            assert_eq!(trace.borrow()[0], Call::InputClose(1));
+            assert!(submits(&trace).is_empty());
+            assert_eq!(runtime.context_refresh_at, MonoTime(0));
         }
     }
 }

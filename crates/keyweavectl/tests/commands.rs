@@ -185,3 +185,29 @@ fn lazy_and_halt_replay_preserves_current_batch_and_pending_modifiers() {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+fn device_inventory_scope_legacy_and_partial_json_roundtrip_is_explicit() {
+    let original = serde_json::json!({"revision":1,"provider":"synthetic","observed_at_ns":0,"valid_until_ns":100,"devices":[],"application":null,"input_source":null});
+    let mut snapshot: keyweave_types::ContextSnapshot = serde_json::from_value(original.clone())
+        .unwrap_or_else(|error| panic!("context JSON: {error}"));
+    assert_eq!(
+        snapshot.device_inventory_scope,
+        keyweave_types::DeviceInventoryScope::Complete
+    );
+    assert_eq!(
+        serde_json::to_value(&snapshot).unwrap_or_else(|error| panic!("context JSON: {error}")),
+        original
+    );
+    snapshot.device_inventory_scope = keyweave_types::DeviceInventoryScope::Partial;
+    let mut partial =
+        serde_json::to_value(&snapshot).unwrap_or_else(|error| panic!("context JSON: {error}"));
+    assert_eq!(partial["device_inventory_scope"], "partial");
+    assert_eq!(
+        serde_json::from_value::<keyweave_types::ContextSnapshot>(partial.clone())
+            .unwrap_or_else(|error| panic!("context JSON: {error}")),
+        snapshot
+    );
+    partial["device_inventory_scope"] = serde_json::json!("assumed_complete");
+    assert!(serde_json::from_value::<keyweave_types::ContextSnapshot>(partial).is_err());
+}

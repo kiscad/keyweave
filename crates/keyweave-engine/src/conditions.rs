@@ -213,7 +213,12 @@ impl Condition {
                     return Truth::Unknown;
                 };
                 let value = if *exists {
-                    devices.iter().fold(Truth::False, |value, device| {
+                    let initial = if context.device_inventory_scope.is_complete() {
+                        Truth::False
+                    } else {
+                        Truth::Unknown
+                    };
+                    devices.iter().fold(initial, |value, device| {
                         value.or(matches_any(identifiers, &device.properties))
                     })
                 } else if let Some(device) = devices.iter().find(|entry| entry.device == device) {
