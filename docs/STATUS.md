@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。
 
+最新活动组件：ConsoleLease 的100ms查询前锚定刷新/250ms严格TTL、首次dispatch强制新查询与失效撤销已接 opt-in console controlled/reporting worker；共享bootstrap clock、wait clamp、Stop优先、Recovering跳过provider、capture先于恢复/provider最后关闭，独立WorkerError::Consumer与KWLT termination保留。Linux825tests/Clippy/fmt/source60通过，无真实设备操作。实际main仍none，Pending bootstrap Stop/progress等待及Linux host待连接，原完整目标未完成。见 [ADR-0080](ADR-0080-linux-active-console-lease.md)、[验证记录](validation/linux-2026-10-10-console-active.json)。Windows原生待补检查仍未执行。
+
 最新启动组件：Linux ConsoleBootstrap 已连接原生 owned output→节点发现→逐个输入 open→整组 consumer/neutral arm→post-arm再观察→Runtime handoff；首step+10s/512预算、同一clock、故障/Drop inputs先于output/provider关闭。Linux817tests/Clippy/fmt/source60通过，无真实设备操作。main仍仅none无设备，Pending stop/progress等待与活动provider续期、实际Linux host待连接；完整目标未完成。见 [ADR-0079](ADR-0079-linux-console-bootstrap.md)、[验证记录](validation/linux-2026-10-10-console-bootstrap.json)。Windows此前待补原生检查未执行。
 
 最新 Linux 就绪组件：文本 ConsoleProvider 与 CaptureGroup 初始 gate 已实现；严格 VT/会话/前台组、owned input 的 kbd handler/inhibited、查询前起算250ms输出 scope 证据。Linux 808 tests、Clippy/fmt/source60/扩展 VT C ABI 通过，未访问真实 VT/evdev/uinput；不是图形桌面或端到端交付证明。worker 的 bootstrap、arm 后与活动续期循环、Linux host 仍未连接，none 模式永久无设备 invariant 保持。见 [ADR-0078](ADR-0078-linux-text-console-readiness.md)、[验证记录](validation/linux-2026-10-10-console-ready.json)。完整目标继续未完成，Windows 待补原生验证未执行。

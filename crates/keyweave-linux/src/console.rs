@@ -18,6 +18,9 @@ use std::{
     rc::Rc,
 };
 pub const CONSOLE_LIFETIME_NS: u64 = 250_000_000;
+mod lease;
+pub use lease::ConsoleLeaseError;
+pub(crate) use lease::Lease;
 const MAX_INVENTORY: usize = 1024 * 1024;
 #[repr(C)]
 #[derive(Default)]

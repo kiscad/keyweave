@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0080 active console evidence lease and controlled/reporting worker integration",
+  "source_base_commit": "9bffd3ebd370449d2f0e03356f3bf97a1bdc6839",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/console.rs": "304c790e4606176367cdff50804153bcd24ae737b447e5a342cceddfb31eece6",
+    "crates/keyweave-linux/src/console/lease.rs": "e8a63d28b6377c75ebfd22e573c51e92982413a44537fa652f83ed34e1183ade",
+    "crates/keyweave-linux/src/pump.rs": "53ec77b0af2df41c930bd63af51b3133e7d88952d68bc04a6ffc27b3b13325c1",
+    "crates/keyweave-linux/src/runtime.rs": "3566819925391295e811a62d1a885eec2a81bbf8d9e1ff13876edbe4c344add9",
+    "crates/keyweave-linux/src/worker.rs": "25f96346a1d27ada5f393844c3a1531b737ce71b0906471a38b699f45aab31fd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 825,
+    "test_session": 10740,
+    "test_terminal_exit": 0,
+    "clippy_session": 26849,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "no new FFI/unsafe/UAPI; C oracle unchanged and not rerun",
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261010-console-active/clippy.log",
+        "sha256": "18d5ad2dcd4a3b6a8476dd7f2bbff407582b014e9b5cd019122115c34e4824ed"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-console-active/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-console-active/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-console-active/workspace-tests.log",
+        "sha256": "ea41455c82ab0f37da64b75862d963395d1f7536bf7558e3222a4eba972c2b3a"
+      }
+    }
+  },
+  "preliminary": {
+    "cargo_check_terminal_exit": 0,
+    "lease_test_session": 94627,
+    "lease_test_terminal_exit": 0,
+    "lease_tests": 5
+  },
+  "new_tests": {
+    "pure_lease": 5,
+    "runtime_mock_gate_loop": 3
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "new components/accessors/errors are Linux cfg; prior ADR-0073/0074/0077 native Windows checks remain pending after unresolved automatic approval review quota failure; no new Windows invocation attempted"
+  },
+  "limitations": [
+    "Native console loop is connected to real provider/Runtime/progress/KWLT components, but successful/fault execution tests use pure lease and mock gates, not real VT/input devices.",
+    "Actual main remains none-provider/no-device. Pending bootstrap stop/progress/wait, capture-enabled arguments/main, and Linux host remain incomplete.",
+    "Lease checks run before each Active poll, not atomically across every native syscall/event; samples do not prove end-to-end delivery, ABA absence or global recovery.",
+    "Refresh is observed+100ms; original TTL is 250ms. Old expiry cannot be bridged during a query, late new refresh fails, no automatic rearm or metadata-generated progress epoch.",
+    "Stop wins before provider IO, Recovering skips provider, faults close capture before finite recovery and retain independent outcome/termination facts; ControlFault wire reason unchanged.",
+    "Native clock supplied by bootstrap is reused for provider/Runtime/protocol wait; CLOCK_MONOTONIC excludes suspend, no suspend/resume guarantee added.",
+    "No real VT ioctl, evdev/uinput, Hook/SendInput or driver operation performed; none-provider executable tests stay permanently no-device.",
+    "Full objective including advanced rules, graphical providers, hotplug/add, LED, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}

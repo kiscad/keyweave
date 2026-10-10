@@ -70,6 +70,10 @@ impl OutputPump<crate::uinput::UinputDevice> {
     }
 }
 impl<B: FrameBackend> OutputPump<B> {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn backend(&self) -> Option<&B> {
+        self.backend.as_ref()
+    }
     pub fn new(backend: B) -> Self {
         Self {
             backend: Some(backend),

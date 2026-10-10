@@ -275,6 +275,10 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
     pub fn phase(&self) -> RuntimePhase {
         self.phase
     }
+    #[cfg(target_os = "linux")]
+    pub(crate) fn backend(&self) -> Option<&B> {
+        self.output.backend()
+    }
     pub fn stop_reason(&self) -> Option<StopReason> {
         self.reason
     }
@@ -759,6 +763,19 @@ impl Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice> {
         R: std::io::Read + std::os::fd::AsFd,
         W: std::io::Write + std::os::fd::AsFd,
     {
+        self.wait_native_until(client, clock, control, None)
+    }
+    pub(crate) fn wait_native_until<R, W>(
+        &self,
+        client: &crate::progress::ProgressClient<R, W>,
+        clock: &mut crate::reactor::MonotonicClock,
+        control: bool,
+        extra_deadline: Option<MonoTime>,
+    ) -> std::io::Result<crate::worker::WorkerWake>
+    where
+        R: std::io::Read + std::os::fd::AsFd,
+        W: std::io::Write + std::os::fd::AsFd,
+    {
         use crate::reactor::{self, Interest, WaitRequest};
         let mut requests = Vec::with_capacity(reactor::MAX_WAIT_FDS);
         // Control slots stay at 0/1; all subsequent slots belong to devices.
@@ -783,7 +800,7 @@ impl Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice> {
         let wake = reactor::wait(
             clock,
             &requests,
-            self.next_wakeup(),
+            self.next_wakeup().into_iter().chain(extra_deadline).min(),
             reactor::HOUSEKEEPING_NS,
         )?;
         let failure = (0..requests.len())
@@ -831,6 +848,10 @@ mod tests {
     };
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum Call {
+        #[cfg(target_os = "linux")]
+        ConsumerCheck,
+        #[cfg(target_os = "linux")]
+        ConsumerClose,
         InputClose(u64),
         #[cfg(target_os = "linux")]
         TerminalWrite,
@@ -839,6 +860,44 @@ mod tests {
         OutputClose,
     }
     type Trace = Rc<RefCell<Vec<Call>>>;
+    #[cfg(target_os = "linux")]
+    struct ConsumerGate {
+        remaining: usize,
+        trace: Trace,
+    }
+    #[cfg(target_os = "linux")]
+    impl crate::worker::PollControl<Source, Backend> for ConsumerGate {
+        fn before_poll(
+            &mut self,
+            _: &Runtime<Source, Backend>,
+            _: &mut crate::reactor::MonotonicClock,
+            now: MonoTime,
+        ) -> Result<MonoTime, crate::worker::WorkerError> {
+            self.trace.borrow_mut().push(Call::ConsumerCheck);
+            if self.remaining == 0 {
+                return Err(crate::console::ConsoleLeaseError::NotReady.into());
+            }
+            self.remaining -= 1;
+            Ok(now)
+        }
+        fn next_wakeup(&self) -> Option<MonoTime> {
+            Some(MonoTime(42))
+        }
+    }
+    #[cfg(target_os = "linux")]
+    impl Drop for ConsumerGate {
+        fn drop(&mut self) {
+            self.trace.borrow_mut().push(Call::ConsumerClose);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    struct BlockedReader;
+    #[cfg(target_os = "linux")]
+    impl io::Read for BlockedReader {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::WouldBlock.into())
+        }
+    }
     struct Source {
         id: u64,
         probe: Probe,
@@ -1818,6 +1877,143 @@ mod tests {
                 Call::OutputClose
             ]
         );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn consumer_gate_failure_precedes_first_input_and_provider_closes_last() {
+        use crate::{
+            progress::ProgressClient,
+            reactor::MonotonicClock,
+            worker::{WorkerError, run_with_poll_control},
+        };
+        let (runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        let gate = ConsumerGate {
+            remaining: 0,
+            trace: trace.clone(),
+        };
+        let report = run_with_poll_control(
+            runtime,
+            ProgressClient::new(BlockedReader, io::sink(), 7).unwrap(),
+            true,
+            MonotonicClock::new(),
+            gate,
+            |_, _, _, _| panic!("consumer failure cannot wait"),
+        );
+        assert!(matches!(
+            report.outcome,
+            Err(WorkerError::Consumer(
+                crate::console::ConsoleLeaseError::NotReady
+            ))
+        ));
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::ConsumerCheck,
+                Call::InputClose(1),
+                Call::OutputClose,
+                Call::ConsumerClose
+            ]
+        );
+        let terminal = report.termination.unwrap();
+        assert_eq!(terminal.reason, StopReason::ControlFault);
+        assert!(
+            terminal.input_owners_released
+                && terminal.output_owner_dropped
+                && terminal.output_recovery_confirmed
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn active_consumer_loss_preserves_error_and_closes_input_before_saved_up() {
+        use crate::{
+            progress::ProgressClient,
+            reactor::MonotonicClock,
+            worker::{WorkerError, WorkerWake, run_with_poll_control},
+        };
+        let (runtime, trace) = make_runtime(
+            vec![vec![
+                frame(30, 1),
+                Err(io::Error::other("must not read after consumer loss")),
+            ]],
+            config(1, "b"),
+        );
+        let gate = ConsumerGate {
+            remaining: 1,
+            trace: trace.clone(),
+        };
+        let report = run_with_poll_control(
+            runtime,
+            ProgressClient::new(BlockedReader, io::sink(), 7).unwrap(),
+            true,
+            MonotonicClock::new(),
+            gate,
+            |runtime, _, clock, deadline| {
+                assert_eq!(runtime.progress_epoch(), 1);
+                assert_eq!(deadline, Some(MonoTime(42)));
+                Ok(WorkerWake {
+                    at_ns: clock.now()?,
+                    failure: None,
+                })
+            },
+        );
+        assert!(matches!(
+            report.outcome,
+            Err(WorkerError::Consumer(
+                crate::console::ConsoleLeaseError::NotReady
+            ))
+        ));
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::ConsumerCheck,
+                Call::Submit(vec![NativeKey { code: 48, value: 1 }], false),
+                Call::ConsumerCheck,
+                Call::InputClose(1),
+                Call::Submit(vec![NativeKey { code: 48, value: 0 }], true),
+                Call::OutputClose,
+                Call::ConsumerClose
+            ]
+        );
+        let terminal = report.termination.unwrap();
+        assert!(terminal.output_recovery_confirmed && !terminal.recovery_failed);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stop_wins_before_consumer_query_and_recovers_saved_output() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            reactor::MonotonicClock,
+            worker::run_with_poll_control,
+        };
+        let (mut runtime, trace) = make_runtime(
+            vec![vec![
+                frame(30, 1),
+                Err(io::Error::other("must not read after stop")),
+            ]],
+            config(1, "b"),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        let gate = ConsumerGate {
+            remaining: 0,
+            trace: trace.clone(),
+        };
+        let report = run_with_poll_control(
+            runtime,
+            ProgressClient::new(
+                io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+                io::sink(),
+                7,
+            )
+            .unwrap(),
+            true,
+            MonotonicClock::new(),
+            gate,
+            |_, _, _, _| panic!("stop cannot wait"),
+        );
+        assert!(matches!(report.outcome, Ok(StopReason::Pause)));
+        assert!(!trace.borrow().contains(&Call::ConsumerCheck));
+        assert_eq!(trace.borrow().last(), Some(&Call::ConsumerClose));
+        assert!(report.termination.unwrap().output_recovery_confirmed);
     }
     #[cfg(target_os = "linux")]
     #[test]

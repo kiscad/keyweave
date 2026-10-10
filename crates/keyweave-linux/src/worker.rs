@@ -216,6 +216,8 @@ impl WorkerParentGuard {
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
+    #[error(transparent)]
+    Consumer(#[from] crate::console::ConsoleLeaseError),
     #[error("worker OS boundary failed: {0}")]
     System(#[from] io::Error),
     #[error(transparent)]
@@ -419,8 +421,8 @@ where
     run_with_wait_report(runtime, client, control, wait).outcome
 }
 pub(crate) fn run_with_wait_report<S, B, R, W, F>(
-    mut runtime: Runtime<S, B>,
-    mut client: ProgressClient<R, W>,
+    runtime: Runtime<S, B>,
+    client: ProgressClient<R, W>,
     control: bool,
     mut wait: F,
 ) -> WorkerReport
@@ -431,7 +433,59 @@ where
     W: io::Write,
     F: FnMut(&Runtime<S, B>, &ProgressClient<R, W>, &mut MonotonicClock) -> io::Result<WorkerWake>,
 {
-    let mut clock = MonotonicClock::new();
+    run_with_poll_control(
+        runtime,
+        client,
+        control,
+        MonotonicClock::new(),
+        NoConsumer,
+        |runtime, client, clock, _| wait(runtime, client, clock),
+    )
+}
+pub(crate) trait PollControl<S: CaptureSource, B: FrameBackend> {
+    fn before_poll(
+        &mut self,
+        runtime: &Runtime<S, B>,
+        clock: &mut MonotonicClock,
+        now: MonoTime,
+    ) -> Result<MonoTime, WorkerError>;
+    fn next_wakeup(&self) -> Option<MonoTime>;
+}
+struct NoConsumer;
+impl<S: CaptureSource, B: FrameBackend> PollControl<S, B> for NoConsumer {
+    fn before_poll(
+        &mut self,
+        _: &Runtime<S, B>,
+        _: &mut MonotonicClock,
+        now: MonoTime,
+    ) -> Result<MonoTime, WorkerError> {
+        Ok(now)
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        None
+    }
+}
+pub(crate) fn run_with_poll_control<S, B, R, W, C, F>(
+    mut runtime: Runtime<S, B>,
+    mut client: ProgressClient<R, W>,
+    control: bool,
+    mut clock: MonotonicClock,
+    mut poll_control: C,
+    mut wait: F,
+) -> WorkerReport
+where
+    S: CaptureSource,
+    B: FrameBackend,
+    R: io::Read,
+    W: io::Write,
+    C: PollControl<S, B>,
+    F: FnMut(
+        &Runtime<S, B>,
+        &ProgressClient<R, W>,
+        &mut MonotonicClock,
+        Option<MonoTime>,
+    ) -> io::Result<WorkerWake>,
+{
     let result = (|| {
         let mut now = clock.now()?;
         loop {
@@ -449,12 +503,13 @@ where
             } else {
                 client.receive(&runtime)?;
             }
+            now = poll_control.before_poll(&runtime, &mut clock, now)?;
             runtime.poll(now)?;
             client.publish(&runtime)?;
             if runtime.phase() == RuntimePhase::Stopped {
                 return Ok(runtime.stop_reason().unwrap_or(StopReason::ControlFault));
             }
-            let wake = wait(&runtime, &client, &mut clock)?;
+            let wake = wait(&runtime, &client, &mut clock, poll_control.next_wakeup())?;
             now = wake.at_ns;
             if let Some(reason) = wake.failure {
                 runtime.external_fault(reason);
@@ -468,10 +523,91 @@ where
         runtime.external_fault(StopReason::ControlFault);
         runtime.finish_recovery();
     }
+    let termination = runtime.termination_report();
+    drop(runtime); // all capture/output owners precede the read-only provider
+    drop(poll_control);
     WorkerReport {
         outcome: result,
-        termination: runtime.termination_report(),
+        termination,
     }
+}
+
+struct ConsoleControl {
+    provider: crate::console::ConsoleProvider,
+    lease: crate::console::Lease,
+}
+impl PollControl<crate::capture::EvdevSource, crate::uinput::UinputDevice> for ConsoleControl {
+    fn before_poll(
+        &mut self,
+        runtime: &Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+        clock: &mut MonotonicClock,
+        now: MonoTime,
+    ) -> Result<MonoTime, WorkerError> {
+        if runtime.phase() != RuntimePhase::Active {
+            return Ok(now);
+        }
+        let now = clock.now()?;
+        let output = runtime
+            .backend()
+            .ok_or(crate::console::ConsoleLeaseError::NotReady)?;
+        if self.lease.check(output.input_syspath(), now)? {
+            let ready = self
+                .provider
+                .observe(output, clock)
+                .map_err(|error| self.lease.provider_failed(error))?;
+            let after = clock.now()?;
+            self.lease.renew(output.input_syspath(), after, ready)?;
+            return Ok(after);
+        }
+        Ok(now)
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        self.lease.next_wakeup()
+    }
+}
+/// Explicit opt-in active text-console loop. All values come from the guarded
+/// ConsoleBootstrap handoff; clock must be that same worker monotonic clock.
+/// Stop wins before provider IO. Consumer failure uses ControlFault shutdown,
+/// preserving the independent error and Runtime termination facts.
+pub fn run_console_worker_controlled_report<R, W>(
+    runtime: Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+    client: ProgressClient<R, W>,
+    guard: &WorkerParentGuard,
+    provider: crate::console::ConsoleProvider,
+    clock: MonotonicClock,
+    ready: crate::console::ConsoleReady,
+) -> Result<WorkerReport, WorkerError>
+where
+    R: io::Read + std::os::fd::AsFd,
+    W: io::Write + std::os::fd::AsFd,
+{
+    WorkerParentGuard::verify(guard.parent_pid())?;
+    for request in client.wait_requests_with_control(true) {
+        crate::ioctl::nonblocking(request.fd)?;
+    }
+    Ok(run_with_poll_control(
+        runtime,
+        client,
+        true,
+        clock,
+        ConsoleControl {
+            provider,
+            lease: crate::console::Lease::new(ready),
+        },
+        |runtime, client, clock, deadline| runtime.wait_native_until(client, clock, true, deadline),
+    ))
+}
+pub fn run_reporting_console_worker(
+    runtime: Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+    provider: crate::console::ConsoleProvider,
+    clock: MonotonicClock,
+    ready: crate::console::ConsoleReady,
+    startup: ReportingStartup,
+) -> Result<ReportedWorker, WorkerError> {
+    let (guard, client, mut terminal) = startup.into_parts();
+    let worker =
+        run_console_worker_controlled_report(runtime, client, &guard, provider, clock, ready)?;
+    Ok(finalize_worker_report(worker, &mut terminal))
 }
 #[cfg(test)]
 mod tests {
