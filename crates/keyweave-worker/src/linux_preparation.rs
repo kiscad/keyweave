@@ -1,12 +1,14 @@
 //! Cold Linux configuration validation. No device or process resources.
-use crate::{LoadError, compile_config_bytes_for, read_config_bytes};
+use crate::{
+    LoadError, compile_config_bytes_for_generation, next_config_generation, read_config_bytes,
+};
 use keyweave_engine::{ConfigSnapshot, Engine, EngineError};
 use keyweave_linux::{
     keys,
     output::{DeviceSpec, RepeatPolicy},
     runtime::{RuntimeError, validate_config},
 };
-use keyweave_types::BackendCapabilities;
+use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use std::{io::Read, sync::Arc};
 
 #[derive(Debug, thiserror::Error)]
@@ -42,10 +44,37 @@ impl std::fmt::Debug for PreparedConfig {
 }
 impl PreparedConfig {
     pub fn read(reader: impl Read, output: DeviceSpec) -> Result<Self, PreparationError> {
-        Self::from_bytes(read_config_bytes(reader)?, output)
+        Self::read_for_generation(reader, output, ConfigGeneration(1))
     }
     pub fn from_bytes(bytes: Vec<u8>, output: DeviceSpec) -> Result<Self, PreparationError> {
-        let snapshot = compile_config_bytes_for(&bytes, &BackendCapabilities::linux())?;
+        Self::from_bytes_for_generation(bytes, output, ConfigGeneration(1))
+    }
+    /// Cold preparation only. Runtime validates freshness and its actual output
+    /// spec at activation; preparation does not acknowledge a successful switch.
+    pub fn read_for_generation(
+        reader: impl Read,
+        output: DeviceSpec,
+        generation: ConfigGeneration,
+    ) -> Result<Self, PreparationError> {
+        if generation.0 == 0 {
+            return Err(LoadError::Generation.into());
+        }
+        Self::from_bytes_for_generation(read_config_bytes(reader)?, output, generation)
+    }
+    pub fn read_next(
+        reader: impl Read,
+        output: DeviceSpec,
+        current: ConfigGeneration,
+    ) -> Result<Self, PreparationError> {
+        Self::read_for_generation(reader, output, next_config_generation(current)?)
+    }
+    pub fn from_bytes_for_generation(
+        bytes: Vec<u8>,
+        output: DeviceSpec,
+        generation: ConfigGeneration,
+    ) -> Result<Self, PreparationError> {
+        let snapshot =
+            compile_config_bytes_for_generation(&bytes, &BackendCapabilities::linux(), generation)?;
         if output.repeat() != RepeatPolicy::Kernel {
             return Err(RuntimeError::RepeatPolicy.into());
         }

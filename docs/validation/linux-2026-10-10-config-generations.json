@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0089 cold next-generation config preparation",
+  "source_base_commit": "7a048517e492ddbfa9e9356c43128d9d10c4342d",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-worker/src/lib.rs": "f86396b586d1f044f900aa106e69efa44dc9c8b2bf1aafb2afbecb8b4afda154",
+    "crates/keyweave-worker/src/linux_preparation.rs": "698b4098cdc4058dc9415019507a281093d0aaf23612b79cf189e8cf9b532615",
+    "crates/keyweave-worker/src/preparation.rs": "dd205d608308e9dc96e1c55fba2723d3357340d439d4b6a5caaebdabd1b716f4",
+    "crates/keyweave-worker/tests/generations.rs": "ffe24d2cd5ca64b48713bddc2218244855a70ee5687a0b106e11f7173f12966b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 876,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_portable_tests": 4,
+    "test_scope": "both Linux/Windows prepared factories with deterministic Engine, no native capture/output",
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261010-config-generations/clippy.log",
+        "sha256": "e78860cec60b108361ed8341ca0604d4cfefcea749cf76e6d1d627cb043bcade"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-config-generations/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-config-generations/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-config-generations/workspace-tests.log",
+        "sha256": "3d66a9ecbfdd6fc48f53a8e3688d5f61d6e3ba94ff2165c63a6d11b968d660b5"
+      }
+    }
+  },
+  "abi": "No native/FFI/ABI/dependency changes; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "four portable new tests and cold factory/default path changes require native Windows check; prior pending checks remain after automatic approval quota failure"
+  },
+  "limitations": [
+    "Generation is explicit control metadata, not proof of current actor generation, run authenticity or activation ack.",
+    "read_next must use observed active generation, not latest candidate; failed or queued preparation does not advance it.",
+    "Actor activate retains responsibility for freshness, live variable limits and actual output-spec admission. Old held bindings retain original Arc.",
+    "Exact raw JSONC bytes do not include generation metadata. Seal alone does not deliver reload generation; startup defaults to generation1 as before.",
+    "Native hot-update IPC, actor commit acknowledgements, config watcher and user-facing reload control remain unimplemented.",
+    "Cold parsing/compilation stays outside callbacks/active input polling; no files, subprocesses, input/output or driver actions in new tests.",
+    "Full original cross-platform goal remains incomplete."
+  ]
+}

@@ -4,6 +4,8 @@
 
 Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 consumer 只支持显式文本 VT，`none` 永久禁止设备访问。图形桌面、普通 WSL2 终端及真实设备/停机验收尚未完成，见 [Linux 使用说明](LINUX_USAGE.zh-CN.md)。该入口没有放宽本表的配置语义 gate。
 
+两平台冷 PreparedConfig 可指定非零 generation 或从已观察活动代号准备下一代，旧默认入口仍为1。配置准备不确认 actor 切换；旧持键使用旧 binding，新的 down 才使用已激活候选。跨进程热配置交付、确认与文件监听仍待接入，见 [ADR-0089](ADR-0089-prepared-config-generations.md)。
+
 | 项目 | 当前行为 |
 | --- | --- |
 | JSONC | 接受 `//`、`/* */`，保留源行号；8 MiB、serde 默认递归限额；拒绝尾逗号、重复对象成员（含 Unicode 转义等价键） |

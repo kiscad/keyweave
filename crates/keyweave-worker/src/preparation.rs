@@ -1,6 +1,10 @@
 //! Cold host preparation. No backend, input API, timers or process creation.
-use crate::{ArgumentError, LoadError, compile_config_bytes, read_config_bytes};
+use crate::{
+    ArgumentError, LoadError, compile_config_bytes_for_generation, next_config_generation,
+    read_config_bytes,
+};
 use keyweave_engine::ConfigSnapshot;
+use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use keyweave_windows::{
     keys::{IdentityPolicy, InjectionTag},
     runtime::{RuntimeError, preflight_config},
@@ -27,12 +31,39 @@ impl std::fmt::Debug for PreparedConfig {
 }
 impl PreparedConfig {
     pub fn read(reader: impl Read) -> Result<Self, PreparationError> {
-        let bytes = read_config_bytes(reader)?;
-        Self::from_bytes(bytes)
+        Self::read_for_generation(reader, ConfigGeneration(1))
     }
     /// Retains exact original JSONC/UTF8 bytes. Rejects before any native resource.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, PreparationError> {
-        let snapshot = compile_config_bytes(&bytes)?;
+        Self::from_bytes_for_generation(bytes, ConfigGeneration(1))
+    }
+    /// Cold only; actor activation still decides whether this generation is fresh.
+    pub fn read_for_generation(
+        reader: impl Read,
+        generation: ConfigGeneration,
+    ) -> Result<Self, PreparationError> {
+        if generation.0 == 0 {
+            return Err(LoadError::Generation.into());
+        }
+        Self::from_bytes_for_generation(read_config_bytes(reader)?, generation)
+    }
+    /// Must use the actor's observed active generation, not the latest prepared
+    /// candidate. Failed/queued preparation never acknowledges activation.
+    pub fn read_next(
+        reader: impl Read,
+        current: ConfigGeneration,
+    ) -> Result<Self, PreparationError> {
+        Self::read_for_generation(reader, next_config_generation(current)?)
+    }
+    pub fn from_bytes_for_generation(
+        bytes: Vec<u8>,
+        generation: ConfigGeneration,
+    ) -> Result<Self, PreparationError> {
+        let snapshot = compile_config_bytes_for_generation(
+            &bytes,
+            &BackendCapabilities::windows_hook(),
+            generation,
+        )?;
         preflight_config(snapshot.clone())?;
         Ok(Self {
             bytes: bytes.into_boxed_slice(),

@@ -97,6 +97,8 @@ impl Arguments {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
+    #[error("configuration generation is zero or exhausted")]
+    Generation,
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("configuration exceeds {MAX_CONFIG_BYTES} bytes")]
@@ -134,16 +136,38 @@ fn read_config_bytes(reader: impl Read) -> Result<Vec<u8>, LoadError> {
 fn compile_config_bytes(bytes: &[u8]) -> Result<Arc<ConfigSnapshot>, LoadError> {
     compile_config_bytes_for(bytes, &BackendCapabilities::windows_hook())
 }
+/// Caller supplies the observed active generation; not an activation ack.
+/// Pure arithmetic, no global counter or wall-clock-derived identity.
+pub fn next_config_generation(current: ConfigGeneration) -> Result<ConfigGeneration, LoadError> {
+    if current.0 == 0 {
+        return Err(LoadError::Generation);
+    }
+    current
+        .0
+        .checked_add(1)
+        .map(ConfigGeneration)
+        .ok_or(LoadError::Generation)
+}
 fn compile_config_bytes_for(
     bytes: &[u8],
     capabilities: &BackendCapabilities,
 ) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    compile_config_bytes_for_generation(bytes, capabilities, ConfigGeneration(1))
+}
+fn compile_config_bytes_for_generation(
+    bytes: &[u8],
+    capabilities: &BackendCapabilities,
+    generation: ConfigGeneration,
+) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    if generation.0 == 0 {
+        return Err(LoadError::Generation);
+    }
     keyweave_windows::startup::ensure_preparation_context()?;
     if bytes.len() > MAX_CONFIG_BYTES {
         return Err(LoadError::TooLarge);
     }
     let text = std::str::from_utf8(bytes)?;
-    let compiled = keyweave_config::compile(text, capabilities, ConfigGeneration(1))?;
+    let compiled = keyweave_config::compile(text, capabilities, generation)?;
     if !compiled.executable_without_loss() {
         return Err(LoadError::Loss {
             disabled: compiled.disabled_rules,
