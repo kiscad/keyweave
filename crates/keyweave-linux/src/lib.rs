@@ -2,6 +2,8 @@
 pub mod activation;
 pub mod capture;
 #[cfg(target_os = "linux")]
+pub mod config_artifact;
+#[cfg(target_os = "linux")]
 pub mod device;
 #[cfg(target_os = "linux")]
 pub mod discovery;

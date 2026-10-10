@@ -7,11 +7,21 @@ import tempfile
 from pathlib import Path
 
 source = r'''
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stddef.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+_Static_assert(MFD_CLOEXEC == 1 && MFD_ALLOW_SEALING == 2, "memfd flags");
+_Static_assert(F_ADD_SEALS == 1033 && F_GET_SEALS == 1034, "sealing commands");
+_Static_assert(F_SEAL_SEAL == 1 && F_SEAL_SHRINK == 2 && F_SEAL_GROW == 4 && F_SEAL_WRITE == 8, "seals");
+_Static_assert(O_RDONLY == 0 && O_RDWR == 2 && O_ACCMODE == 3 && FD_CLOEXEC == 1, "descriptor flags");
 int main(void) {
+    int (*create_memory)(const char *, unsigned int) = memfd_create;
+    int (*control_fd)(int, int, ...) = fcntl;
+    (void)create_memory; (void)control_fd;
     printf("{\"event_size\":%zu,\"type_offset\":%zu,\"code_offset\":%zu,"
            "\"value_offset\":%zu,\"id_size\":%zu,\"word_size\":%zu,"
            "\"id_request\":%lu,\"event_bits_request\":%lu,"
@@ -47,4 +57,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI sizes, offsets and evdev/uinput request encodings; no device access')
+print('Verified local C UAPI, evdev/uinput, memfd/seal constants and prototypes; no device access')

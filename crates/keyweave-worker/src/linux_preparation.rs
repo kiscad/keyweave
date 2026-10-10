@@ -66,6 +66,11 @@ impl PreparedConfig {
     pub fn output_spec(&self) -> &DeviceSpec {
         &self.output
     }
+    /// Seals exactly the cold-validated bytes. Does not spawn or grab devices.
+    #[cfg(target_os = "linux")]
+    pub fn seal(&self) -> std::io::Result<keyweave_linux::config_artifact::ConfigArtifact> {
+        keyweave_linux::config_artifact::ConfigArtifact::create(&self.bytes)
+    }
 }
 
 #[cfg(test)]
@@ -87,6 +92,19 @@ mod tests {
         assert_eq!(prepared.output_spec().repeat(), RepeatPolicy::Kernel);
         assert!(!prepared.output_spec().leds());
         assert!(!format!("{prepared:?}").contains("private"));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cold_prepared_image_seals_exact_bytes_without_reopening_a_path() {
+        assert_eq!(
+            keyweave_config::MAX_CONFIG_BYTES,
+            keyweave_linux::config_artifact::MAX_ARTIFACT_BYTES
+        );
+        let prepared = prepare(JSONC).unwrap();
+        let artifact = prepared.seal().unwrap();
+        assert_eq!(artifact.read_bytes().unwrap(), prepared.bytes());
+        assert_eq!(artifact.byte_length(), JSONC.len());
+        assert!(!format!("{artifact:?}").contains("private"));
     }
     #[test]
     fn byte_constructor_enforces_inclusive_size_limit() {

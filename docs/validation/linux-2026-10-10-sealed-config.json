@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0075 Linux sealed configuration image and cold preparation binding",
+  "source_base_commit": "b0738cd72d32709870c1b08de62542c34260a571",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "82b20a56b1b563fbb52602d88b111ded83f6b4a41d3753cfd327d782b1e80300",
+    "crates/keyweave-linux/src/config_artifact.rs": "ce0f71f5797df70ea805919ac6274d73c6456cdef81b65af0aab8bc384d2ed7f",
+    "crates/keyweave-worker/src/linux_preparation.rs": "f4b57f11db7331aa2c4179c89836aadafaa1f92423d2bceb14067cf279a4a553",
+    "tools/verify_linux_abi.py": "6536f7cfc4bc09d0463b487cec4c7b5c45bd1cfb09aa3f07ebe859b94da4851e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 792,
+    "test_session": 8246,
+    "test_terminal_exit": 0,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "Extended local C UAPI probe passed: memfd/fcntl prototypes, flags/seals plus existing evdev/uinput layout and request checks; no device access",
+    "commands": [
+      "RUSTUP_TOOLCHAIN=stable cargo test --locked --offline --workspace",
+      "RUSTUP_TOOLCHAIN=stable cargo clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "RUSTUP_TOOLCHAIN=stable cargo fmt --all --check",
+      "python3 tools/verify_linux_abi.py",
+      "python3 tools/verify_sources.py"
+    ],
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261010-sealed-config/tests.log",
+        "sha256": "362d5f7758b2ab042962832f50ea022e391aa708b9728de7313e7bf051f38ec1"
+      },
+      "tests-final": {
+        "path": "target/validation/linux-20261010-sealed-config/tests-final.log",
+        "sha256": "34325d39b489eb19a6ab2faa69765c414a9a9a50a4dbc5fd521360364c13fbc4"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-sealed-config/clippy.log",
+        "sha256": "5f9e3384f2d6cdad633acae859400f3f6c24e08037c1846d2bf899093638a6a9"
+      }
+    }
+  },
+  "preliminary": {
+    "session": 69986,
+    "terminal_exit": 0,
+    "scope": "before readable-mode admission and alias test; not final evidence"
+  },
+  "new_tests": {
+    "real_owned_memory_kernel_tests": 5,
+    "worker_preparation_test": 1
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "new artifact module and seal method cfg Linux; preceding Windows context/provider changes still require native verification",
+    "approval_review_usage_failure_unresolved": true
+  },
+  "limitations": [
+    "Immutable image is not sender authentication, config compilation proof, startup admission or consumer readiness.",
+    "Supervisor selected FD inheritance and worker config claim are not connected yet.",
+    "Tests use only own memory files and /proc/self/fd aliases, no evdev grab/uinput or real global input.",
+    "CLOEXEC retained; creation does not deliver descriptors or spawn children.",
+    "No mmap created; no writable-map or real cross-process delivery tests performed.",
+    "Full Linux bootstrap/readiness/hotplug/add, Windows native checks, advanced rules, hot configuration, GUI, packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。
 
+最新 Linux 配置资源：内核 sealed memfd 映像及冷准备 seal 已实现，Supervisor/worker FD 交付尚未接通。Linux 全套 792 tests、Clippy/fmt/source 和扩展 C ABI 检查通过；无真实输入设备操作。见 [ADR-0075](ADR-0075-linux-sealed-config-image.md)、[验证记录](validation/linux-2026-10-10-sealed-config.json)。Linux 完整启动与所有原目标继续未完成。
+
 最新上下文改动：Windows 前台应用路径 provider 代码已接到 CaptureSession 活动控制循环，经 SessionActor 交付有期限快照；Linux 固定工具链全套 786 tests、Clippy/fmt/source 校验通过。Windows 原生编译/新 SDK 原型检查和真实桌面验收待完成；自动审批额度错误仍未解决，不能用旧编译报告背书。见 [ADR-0074](ADR-0074-windows-foreground-application-provider.md) 与 [验证记录](validation/windows-2026-10-10-application-provider.json)。全部原目标仍未完成。
 
 | 项目 | 状态 | 证据 |

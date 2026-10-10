@@ -2,6 +2,8 @@
 
 ## 当前项目与任务入口
 
+ADR-0075：Linux ConfigArtifact 以 CLOEXEC|ALLOW_SEALING memfd 保存最多8MiB精确bytes，必须 WRITE/GROW/SHRINK/SEAL 全封存；无普通文件/弱seal降级。admit消费File，先读取权限+seal再metadata；seal非认证/schema/父保护。read_exact_at避免共享seek offset；Debug不泄露内容。PreparedConfig.seal只封原已验证bytes。Supervisor继承交付/worker claim尚未接通；不得自行清CLOEXEC或称已完成bootstrap/consumer-ready。Linux792tests与扩展memfd/fcntl C ABI通过，Windows原生验证仍待补跑。
+
 ADR-0074已连接Windows应用路径provider代码到CaptureSession控制循环，Windows原生编译仍待补验。query在callback外，不跨API借actor/access；前后HWND/PID/thread tuple仅减小竞态，不证明原子/ABA安全。100ms限频、查询前起算500ms有效期，失败/迟到清Unknown；不伪造bundle或完整库存/输入源。独立CloseHandle错误保留ShutdownReport.application_provider并纳入worker fault，输出恢复成功不抹去；metadata关闭错误不等同访问撤销。未来多provider必须统一revision并合并字段。Linux786tests通过；新FFI/SDK和上一轮入口的Windows双架构验证未执行，不能沿用旧报告。
 
 KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边的 `../Karabiner-Elements/`。已创建 Rust workspace 与基础离线切片，真实进展见 STATUS；不要把规划当作代码已完成。
