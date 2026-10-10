@@ -1,0 +1,167 @@
+{
+  "date": "2026-10-10",
+  "feature": "Executable Windows user host cold startup, independent control, actual exit/resource reporting and startup rollback (ADR-0062)",
+  "source_base_commit": "53f9992bfdeb7038392fe0abffe662e67461f2e4",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 read earlier in ADR-0059 this date; not freshly read this run",
+  "msvc": "19.44.35229.0 / VCTools 14.44.35207",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "75c2fb038dd649f997f76f343d0150e3",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 667,
+      "new_host_report_unit_tests": 2,
+      "new_host_cancellation_tests": 2,
+      "cancellation_actual_owned_file_tests": 1,
+      "new_host_cli_metadata_tests": 4,
+      "windows_unit_tests_passed": 296,
+      "source_files_hash_checked": 189,
+      "source_mismatches": 0,
+      "validation_session": 55196,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 34600,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "existing /W4 /WX /std:c11 /Zs passed; no new FFI",
+      "native_cases": [
+        {
+          "mode": "active",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=18, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "standby",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "stop_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=43, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "startup_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "invalid_pe",
+          "host_exit": 1,
+          "stdout": "",
+          "stderr": "Starting Windows session; press Enter to stop.\nworker startup failed: configuration worker startup failed: Job startup failed: worker startup failed: CreateProcessW failed: 216; rollback: None; preparation resources retained; resources_complete=true; diagnostics=[]",
+          "owned_image_notfound": true
+        }
+      ],
+      "raw_evidence": "target/validation/windows-20261010-user-host-x64-1.97.1",
+      "manifest_sha256": "86c5d76a40b059c6406686d7c65c9a72eca2482fcdf58cad955f3960613fef9b",
+      "native_tool_sha256": "c57db442b9f0b0031cbad5c783d651f4382c2c3c714e66e01df11dc8bd2d600b"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "eb91654de506404cac5592ff3f28e8d0",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 667,
+      "new_host_report_unit_tests": 2,
+      "new_host_cancellation_tests": 2,
+      "cancellation_actual_owned_file_tests": 1,
+      "new_host_cli_metadata_tests": 4,
+      "windows_unit_tests_passed": 296,
+      "source_files_hash_checked": 189,
+      "source_mismatches": 0,
+      "validation_session": 55196,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 34600,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "existing /W4 /WX /std:c11 /Zs passed; no new FFI",
+      "native_cases": [
+        {
+          "mode": "active",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=20, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "standby",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "stop_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=44, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "startup_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false",
+          "stderr": "Starting Windows session; press Enter to stop.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "invalid_pe",
+          "host_exit": 1,
+          "stdout": "",
+          "stderr": "Starting Windows session; press Enter to stop.\nworker startup failed: configuration worker startup failed: Job startup failed: worker startup failed: CreateProcessW failed: 216; rollback: None; preparation resources retained; resources_complete=true; diagnostics=[]",
+          "owned_image_notfound": true
+        }
+      ],
+      "raw_evidence": "target/validation/windows-20261010-user-host-x86-1.97.1",
+      "manifest_sha256": "86c5d76a40b059c6406686d7c65c9a72eca2482fcdf58cad955f3960613fef9b",
+      "native_tool_sha256": "c57db442b9f0b0031cbad5c783d651f4382c2c3c714e66e01df11dc8bd2d600b"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 696,
+    "new_host_cli_metadata_tests": 6,
+    "main_thread_no_device_harness": "worker_parent passed within workspace command",
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes_verified": 60,
+    "raw_evidence": "target/validation/linux-20261010-user-host",
+    "note": "Final additional Rust changes are exclusively cfg(windows) host implementation, so Linux compiled code is unchanged from 696-test run; fmt and source verifier repeated after edits."
+  },
+  "tool_validation": {
+    "note": "Final fullvalidation includes tools/check_host.ps1 and all 189 selected source files; all SHA match. All final Rust code/lock and script unchanged between fullvalidation and actual native execution.",
+    "preliminary_fullvalidation_session": 99801,
+    "preliminary_fullvalidation_terminal_exit": 0,
+    "preliminary_native_sessions": [
+      18332,
+      48140
+    ],
+    "preliminary_native_terminal_exit": [
+      0,
+      0
+    ],
+    "reason_for_relevant_repeat": "Initial cmd UNC cwd warning fixed by local Push-Location; final Rust added known pre-spawn stop cancellation. All earlier tests/fixtures passed but are preliminary, not final-source evidence. Invalid PE case keeps stdin open to exercise CreateProcess failure rather than cancelling at EOF.",
+    "preliminary_evidence": [
+      "target/validation/windows-20261010-user-host-before-local-cwd-{x64,x86}",
+      "target/validation/windows-20261010-user-host-before-startup-cancel-{x64,x86}"
+    ]
+  },
+  "limits": [
+    "Real host ran only explicit no-input check_host_worker example and owned invalid-PE fixture, never default capture worker with a valid configuration; no Hook/SendInput/driver/real user configuration.",
+    "Fixture epoch is synthetic; code0/actual process exit/resource report/NotFound do not prove CaptureSession progress or global key recovery.",
+    "Locator avoids PATH/shell and default sibling escapes but does not authenticate image, signatures, ACLs or resist trusted-path replacement; trusted deployment remains required.",
+    "resources_complete covers explicit returned pipe/config resource reports; native Job/process handle Drop is not a separate successful-close proof.",
+    "Input thread provides Enter/input/EOF stop; native console Ctrl+C handler, detailed diagnostics, hot config, GUI, trusted packaging and normal Windows11/hardware capture remain. Linux bootstrap/consumer readiness, D05, Rust driver and companion audit plus original scope continue.",
+    "Prior x86 process/MSVC-overlap anomalies remain unknown; new checks are not fix claims.",
+    "Known startup cancellation reports no created child, not an observed child exit; cancellation success requires explicit complete cleanup. Stop arriving after last pre-spawn check still uses cooperative stop, not an atomic no-create guarantee."
+  ]
+}

@@ -88,3 +88,6 @@ Windows host 已有冷配置准备层：保留原始 JSONC 字节，复用 worke
 
 
 Windows host 已增加每次启动的系统随机 run ID 和注入标记生成，固定两架构 marker 宽度并限制零值重试。[设计](docs/ADR-0061-host-run-identity.md)。完整 host 启动和正常输入验收继续开发。
+
+
+已增加 `keyweave-host` 用户入口：`check-windows --config PATH` 离线检查；`run-windows --config PATH --identity strict` 显式启动 Windows 会话，按 Enter 停止。需要同目录已构建的 `keyweave-worker.exe`；开发时可显式指定可信的绝对 `--worker` 路径。配置准备、随机启动身份、原文件对象交付、独立进度监督与退出清理已接通。[设计与运行限制](docs/ADR-0062-windows-user-host.md)。目前仍属开发版，正常键盘、控制台信号、热更新及完整发布验收继续。

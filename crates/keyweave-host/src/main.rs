@@ -1,0 +1,142 @@
+use clap::{Parser, Subcommand, ValueEnum};
+use keyweave_windows::keys::IdentityPolicy;
+use keyweave_worker::preparation::PreparedConfig;
+use std::{path::PathBuf, process::ExitCode};
+#[derive(Parser)]
+#[command(version, about = "KeyWeave session host")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+#[derive(Subcommand)]
+enum Command {
+    /// Check a Windows configuration without opening input or starting a worker.
+    CheckWindows {
+        #[arg(long)]
+        config: PathBuf,
+    },
+    /// Run an experimental Windows remapping session. Press Enter to stop.
+    RunWindows {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long, value_enum)]
+        identity: Identity,
+        /// Explicit trusted developer executable; otherwise use the packaged sibling.
+        #[arg(long)]
+        worker: Option<PathBuf>,
+        /// Existing local directory for owned temporary configuration files.
+        #[arg(long)]
+        artifact_directory: Option<PathBuf>,
+    },
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Identity {
+    Strict,
+    CanonicalScan,
+}
+impl From<Identity> for IdentityPolicy {
+    fn from(value: Identity) -> Self {
+        match value {
+            Identity::Strict => Self::StrictUnique,
+            Identity::CanonicalScan => Self::CanonicalScan,
+        }
+    }
+}
+fn main() -> ExitCode {
+    match Cli::parse().command {
+        Command::CheckWindows { config } => match std::fs::File::open(config)
+            .map_err(|e| e.to_string())
+            .and_then(|f| PreparedConfig::read(f).map_err(|e| e.to_string()))
+        {
+            Ok(config) => {
+                println!(
+                    "configuration accepted: bytes={}, generation={}",
+                    config.bytes().len(),
+                    config.snapshot().generation.0
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("configuration rejected: {error}");
+                ExitCode::from(1)
+            }
+        },
+        Command::RunWindows {
+            config,
+            identity,
+            worker,
+            artifact_directory,
+        } => run(config, identity.into(), worker, artifact_directory),
+    }
+}
+#[cfg(not(windows))]
+fn run(_: PathBuf, _: IdentityPolicy, _: Option<PathBuf>, _: Option<PathBuf>) -> ExitCode {
+    eprintln!("run-windows requires Windows; Linux capture bootstrap is not yet connected");
+    ExitCode::from(78)
+}
+#[cfg(windows)]
+fn run(
+    config: PathBuf,
+    identity: IdentityPolicy,
+    worker: Option<PathBuf>,
+    directory: Option<PathBuf>,
+) -> ExitCode {
+    use std::{
+        io::Read,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+    let preparation = (|| -> Result<_, String> {
+        let executable = keyweave_host::locate_worker(
+            &std::env::current_exe().map_err(|e| e.to_string())?,
+            worker.as_deref(),
+        )
+        .map_err(|e| format!("worker location: {e}"))?;
+        let config = config
+            .canonicalize()
+            .map_err(|e| format!("config path: {e}"))?;
+        let prepared =
+            PreparedConfig::read(std::fs::File::open(&config).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        let directory = directory.unwrap_or_else(std::env::temp_dir);
+        if !directory.is_absolute() {
+            return Err("artifact directory must be absolute".into());
+        }
+        Ok((executable, config, prepared, directory))
+    })();
+    let (executable, path, prepared, directory) = match preparation {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("startup rejected: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let stop = Arc::new(AtomicBool::new(false));
+    let input_stop = stop.clone();
+    // This bounded read is on an independent thread, never the control loop.
+    // Any input/EOF/read failure requests stop. Don't join a blocked console read.
+    if let Err(error) = std::thread::Builder::new()
+        .name("keyweave-user-stop".into())
+        .spawn(move || {
+            let mut byte = [0u8; 1];
+            let _ = std::io::stdin().read(&mut byte);
+            input_stop.store(true, Ordering::Release);
+        })
+    {
+        eprintln!("control input startup failed: {error}");
+        return ExitCode::from(1);
+    }
+    eprintln!("Starting Windows session; press Enter to stop.");
+    match keyweave_host::windows::run(&executable, &path, &directory, prepared, identity, &stop) {
+        Ok(report) => {
+            println!("{report}");
+            ExitCode::from(if report.successful() { 0 } else { 1 })
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}

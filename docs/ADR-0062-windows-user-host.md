@@ -1,0 +1,21 @@
+# ADR-0062：可运行 Windows 用户 host 与独立控制循环
+
+将已有冷配置准备、fresh随机身份、sealed file与四句柄Supervisor接入新的keyweave-host可执行包。用户入口为check-windows与显式run-windows，identity必须指定；Windows之外run明确78，不冒充Linux bootstrap。check离线编译/原生输出准入，不创建输入/worker。配置在控制循环前有界读取和无损编译；run每次fresh身份→固定argv→seal→Supervisor.spawn_with_config，不回到legacy path-only启动。
+
+自动worker定位只选canonical current_exe同目录keyweave-worker.exe，拒绝默认symlink逃到另一目录；开发者可显式指定可信absolute --worker，无PATH/shell搜索。定位不核验签名/ACL/原子image身份；部署目录权限与调用者信任是前提，不能据此声称防御同用户恶意修改/路径替换。打包部署须落实可信安装路径；本轮不提升权限或安装服务。artifact目录必须absolute并通过原文件层本地持久ACL卷准入。
+
+host主线程是独立于worker捕获线程的控制者，保留!Send native owners，只执行同Instant epoch→Supervisor.poll；active循环不读/编译配置，不做stdio、同步用户输入等待或后台心跳。独立输入线程只读一个stdin byte（正常console按Enter交付），输入/EOF/错误设AtomicBool请求stop；不等待阻塞输入线程join。首次请求调用协作Stop，期限仍取旧lease与2秒较小；不续租、不自动重启。不把退出帧/EOF当进程退出。控制线程按最近deadline与5ms housekeeping睡眠，非实时调度承诺。
+
+强制stop后实际退出观察至多5秒；API错误保留首组有界diagnostics、不因一次错误丢owner，后续继续stop/poll。真实Exited后才独立close_resources，report分开worker_exit/reason/resources_complete/progress_epoch/diagnostics。未观察退出返回exit=None/resources=false并以非零host退出；Drop原有限fallback与必要资源保留不是清理成功。只有真实code0、资源报告complete、无操作错误且reason None/Cooperative才成功，不遮蔽原独立EOF/强制停止原因；报告不证明所有全局按键恢复。
+
+启动失败显式递归处理Supervisor Config envelope与独立Job owner；Prepared无child可清理，其余先强制stop并观察真实Exited，随后独立child端点/准备reader/writer关闭。resume失败保留Supervisor执行观察，不重试resume。所有errors保留主错误与各cleanup结果；观察超时不提前关闭writer或称已退出。底层工厂未返回资源沿原Drop/poison边界，不承诺全失败路径可显式回收。artifact prepare失败保留原cause/rollback并尝试返回owner关闭。最多16条去重操作诊断，不在active循环写stdout/stderr；终止后才打印。
+
+无输入真实fixture用单独example实现严格main admission/config reader/共享compiler/合成进度/Stop，永不调用Hook/SendInput。用真实host→ownJob→fixture验证自然stop/Standby/超时强制退出与失败PE准备回滚，不能替代正常CaptureSession或物理恢复。CLI检查/定位拒绝亦只操作自有临时文件。正常run的默认worker是实际capture实现，测试禁止拿有效配置启动它。
+
+后续console control handler、详细结构化诊断/热更新/GUI、可信部署与正常输入/Windows11/硬件验收；Linux bootstrap/consumer-ready、D05、打包、Rust driver与companion审计仍是原目标。stdin控制作为当前明确可用停止入口；默认Ctrl+C/父异常退出依赖ownedJob释放，并不提供已知输出协作恢复保证。
+
+
+启动取消补充：run先拒绝callback，再检查已知stop；在seal完成后、创建Job之前再次检查。已知停止直接返回startup_cancelled=true/worker_exit=None/progress_epoch0，并明确关闭已创建的artifact，不伪造实际worker退出。此取消可成功，但没有child时不能把worker_exit=None一般当作成功：普通观察超时仍startup_cancelled=false且失败。检查与process create之间不是跨线程原子切换，停止若恰在末次检查后到达仍走既有协作停止。新增测试用无效相对路径证实预先停止不创建Job/文件，并以实际自有sealed file验证取消后明确close/NotFound。
+
+
+最终验收：Linux696、Windows x64/i686各667、Clippy/fmt/SDK/source60通过，两份189源hash全匹配，所有最终验证进程actual exit0。真实host到无输入fixture五场景每arch通过，另有两个启动取消tests（其中实际自有文件close/NotFound），[完整证据与preliminary说明](validation/windows-2026-10-10-user-host.json)。

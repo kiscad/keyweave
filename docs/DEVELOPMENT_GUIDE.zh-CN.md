@@ -523,3 +523,18 @@ Windows：Windows 11 x64 首发目标，明确测试 build；ARM64/Windows 10 �
 建议 replay case 文件包含 `schema_version`、source manifest、backend capabilities、初始 config/context/devices、按 `at_ns + seq` 排序的 inputs/control/deadline advances、expected outputs/effects/final state。fixture 用合成事件；D01 确定并提交正式 schema 后再生成实例，避免将上游 JSON enum 编码当成公开 API。
 
 单个案例失败要打印第一处差异的输入 seq、rule/stage、配置 generation、expected/actual、owner 和 pending deadline 摘要。不得只显示整份 JSON 不同，也不得通过舍弃时序字段让测试“兼容”。只有针对浮点/Mach 转换的已说明容差可以用于源 fixture 适配；新 fixture 时间用整数，不引入无说明的时间 epsilon。
+
+## 当前 Windows host 开发入口（ADR-0062）
+
+新增 `keyweave-host`，真实 worker 仍为 `keyweave-worker`。在 Windows-local 源码与正确 MSVC 环境构建两个可执行文件：
+
+```text
+cargo +1.97.1 build --locked --offline --workspace --target x86_64-pc-windows-msvc
+keyweave-host.exe check-windows --config C:\path\config.jsonc
+```
+
+两 exe 同目录时，显式用户运行入口为 `keyweave-host.exe run-windows --config C:\path\config.jsonc --identity strict`；需要用户明确选择 canonical scan 策略时改为 `--identity canonical-scan`。正常 console 按 Enter 停止，stdin EOF/失败亦请求停止。开发者可显式选择可信 absolute `--worker`，不搜索 PATH；定位不是签名/ACL认证，可信部署仍是前提。当前原生 Ctrl+C handler 尚未接入，不把父默认退出等同于协作按键恢复。不要将此说明视为完成硬件验收或在 agent 中自动启动真实捕获的授权。
+
+四句柄启动链已接通：冷读/无损compile/原生输出与Engine准入→fresh随机run/marker→sealed config→Supervisor→worker真实main准入→文件对象加载→CaptureSession。控制main与捕获worker独立，同epoch Instant 驱动poll，无active stdio/同步配置准备。Enter请求保持旧lease，不以EOF当实际Exited；真正退出后检查独立pipe/config清理。启动前已知stop取消创建，seal后亦检查并明确关闭artifact；取消与观察不到退出分别报告。错误不自动重启、不重新resume失败child。
+
+无输入验收使用 `tools/check_host.ps1 -ValidationRoot WINDOWS_LOCAL_VALIDATION_ROOT -Arch x64`，必须在对应 fullvalidation 进程实际退出之后运行。该脚本在同一已核验Rust snapshot构建host与独立 `check_host_worker` example，并显式把host的 `--worker` 指向fixture；仅协议/自有config/Job，不运行真实capture worker。五场景覆盖active/standby协作stop、两种stall强制actualExit与invalidPE startup rollback，检查last close后实际NotFound。fixture epochs不是CaptureSession poll。x86使用i686目标与x86 MSVC环境。版本/源码hash/报告记录见STATUS与validation文档；Linux bootstrap、高级规则、GUI、打包、Rust driver及companion审计范围仍保留。

@@ -1,0 +1,98 @@
+//! Offline CLI and metadata only; never run a valid capture worker.
+#![allow(clippy::unwrap_used)]
+use std::{fs, process::Command};
+fn dir(name: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!("keyweave-host-test-{}-{name}", std::process::id()));
+    fs::create_dir(&p).unwrap();
+    p
+}
+#[test]
+fn check_preserves_private_body_and_reports_only_metadata() {
+    let root = dir("check");
+    let path = root.join("config with spaces.jsonc");
+    fs::write(&path,br#"// synthetic private comment
+{"profiles":[{"name":"private synthetic profile","selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b"}]}]}]}"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args(["check-windows", "--config"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("generation=1"));
+    assert!(!text.contains("private"));
+    fs::remove_dir_all(root).unwrap();
+}
+#[test]
+fn check_rejects_native_special_output_and_invalid_utf8_without_body() {
+    let root = dir("rejection");
+    let path = root.join("config.json");
+    for bytes in [br#"{"profiles":[{"selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"print_screen"}]}]}]}"#.as_slice(),b"private-secret\xff"] {
+        fs::write(&path,bytes).unwrap();let output=Command::new(env!("CARGO_BIN_EXE_keyweave-host")).args(["check-windows","--config"]).arg(&path).output().unwrap();
+        assert!(!output.status.success());assert!(output.stdout.is_empty());assert!(!String::from_utf8(output.stderr).unwrap().contains("private-secret"));
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+#[test]
+fn run_requires_explicit_identity_and_no_default_capture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args(["run-windows", "--config", "unused.json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}
+#[cfg(not(windows))]
+#[test]
+fn linux_run_is_explicitly_unavailable() {
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args([
+            "run-windows",
+            "--config",
+            "unused.json",
+            "--identity",
+            "strict",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(78));
+}
+#[test]
+fn locator_requires_existing_file_and_explicit_absolute_choice() {
+    let root = dir("locate");
+    let host = root.join("host.exe");
+    fs::write(&host, b"metadata only").unwrap();
+    assert!(keyweave_host::locate_worker(&host, None).is_err());
+    let worker = root.join("keyweave-worker.exe");
+    fs::write(&worker, b"metadata only").unwrap();
+    assert_eq!(
+        keyweave_host::locate_worker(&host, None).unwrap(),
+        worker.canonicalize().unwrap()
+    );
+    assert!(
+        keyweave_host::locate_worker(&host, Some(std::path::Path::new("keyweave-worker.exe")))
+            .is_err()
+    );
+    let folder = root.join("folder.exe");
+    fs::create_dir(&folder).unwrap();
+    assert!(keyweave_host::locate_worker(&host, Some(&folder)).is_err());
+    fs::remove_dir_all(root).unwrap();
+}
+#[cfg(unix)]
+#[test]
+fn packaged_sibling_cannot_resolve_outside_host_directory() {
+    let root = dir("escape");
+    let outside = root.join("other");
+    fs::create_dir(&outside).unwrap();
+    let host = root.join("host");
+    fs::write(&host, b"metadata").unwrap();
+    let target = outside.join("worker");
+    fs::write(&target, b"metadata").unwrap();
+    std::os::unix::fs::symlink(&target, root.join("keyweave-worker.exe")).unwrap();
+    assert!(keyweave_host::locate_worker(&host, None).is_err());
+    assert_eq!(
+        keyweave_host::locate_worker(&host, Some(&target)).unwrap(),
+        target.canonicalize().unwrap()
+    );
+    fs::remove_dir_all(root).unwrap();
+}

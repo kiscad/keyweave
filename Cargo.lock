@@ -138,6 +138,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyweave-host"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "keyweave-progress",
+ "keyweave-types",
+ "keyweave-windows",
+ "keyweave-worker",
+]
+
+[[package]]
 name = "keyweave-linux"
 version = "0.1.0"
 dependencies = [

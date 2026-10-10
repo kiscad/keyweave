@@ -172,3 +172,9 @@ ADR-0060 已有 host 冷准备层 PreparedConfig：8MiB+1读取预算、共享wo
 
 
 ADR-0061 已有 Windows RunIdentity::generate：callback 外 BCrypt system-preferred RNG抽12bytes，明确LE解码非零u64 run与非零u32 marker，最多4次完整重抽；NTSTATUS非零立即失败，无PID/时间/计数器fallback。每次host新建worker重新生成，getter只读、无Clone/Copy、Debug不输出值；这不禁止调用者手动复用getter值，完整host仍须落实每次启动fresh状态。32bit随机marker可碰撞，不是鉴权凭据，不能以own-injected当跨用户认证。冷准备只能在启动前执行，不在active watchdog/callback。真实RNG集成test只检查范围及固定argv roundtrip，不假定两次随机值必然不同。下一步可信exe定位与独立控制/用户stop/完整host启动事务，原任务范围继续。
+
+
+ADR-0062 新增keyweave-host实际用户入口：check-windows离线、run-windows显式identity，非Windows run=78。默认只canonical同目录keyweave-worker.exe，显式absolute --worker用于可信开发image，无PATH/shell；不是签名/ACL/原子image认证，部署仍需可信目录。冷File/read/compile→fresh identity→seal→四句柄Supervisor；主线程独立于worker capture持有全部!Send owners，同Instant epoch驱动poll，active不做stdio/文件准备。输入线程只读一个stdin byte，input/EOF/error AtomicBool请求一次协作Stop，不join阻塞console；Ctrl+C默认父死亡保护不保证已知输出恢复。强制stop最多5秒实际exit观察，无实际Exited不得称cleanup完成；Exited后独立close_resources，非零code/强制reason/操作错误/incomplete均失败。启动失败递归Config envelope/Job owner与Resume owner，先actualExit/Prepared后独立端点/准备reader/writer关闭，不resume重试。诊断最多16条并显式标记截断，终止后才输出。tools/check_host.ps1只用独立check_host_worker协议fixture，无Hook/SendInput，绝不把有效配置交给真实capture worker做测试。后续console handler/详细诊断/热更新/可信打包与真实键盘、Linux/D05/GUI/driver等原目标继续。
+
+
+host startup_cancelled与未观察到exit必须区分：callback guard后/preRNG和seal后/preJob检查已知stop，取消只在实际未创建child时成立；已封存artifact显式关闭。取消报告exit=None/epoch0/无reason，只有完整资源报告与无diagnostics可成功；普通超时exit=None仍失败。检查后新到stop不是原子禁止create承诺，走原协作Stop。invalid-PE fixture保持stdin开放直到失败退出，避免EOF将CreateProcess错误测试变成启动取消。

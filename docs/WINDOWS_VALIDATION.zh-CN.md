@@ -221,3 +221,14 @@ Windows host冷配置准备（2026-10-10）：同worker无损compiler和SessionA
 Windows host 随机启动身份（2026-10-10）：callback外系统RNG产生非零u64 run与非零u32 marker，零值最多4次整pair重抽，无弱fallback。
 
 最终fixed1.97.1：Linux690 workspace+独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各659 tests（Windowsunit296、新6mock+实际RNG/argv1）、alltargetsClippy/fmt/既有SDK oracle通过，两个182源文件SHA匹配工作区。fullvalidation session48694与随后同snapshot fmt session99265实际terminal0，无本轮失败。ignored target/validation/linux-20261010-run-identity及windows-20261010-run-identity-{x64,x86}-1.97.1保留日志/manifest/命令。[报告](validation/windows-2026-10-10-run-identity.json)、[ADR-0061](ADR-0061-host-run-identity.md)。实际生成证明本机系统API调用与固定argv范围，不能证明绝对唯一/认证/完整host/真实键盘；旧x86异常未解释，不以本轮通过称修复。下一步可信exe定位/用户控制/host启动事务，原目标继续未完成。
+
+
+Windows用户host实际链路（2026-10-10）：
+
+D08 Windows可运行用户host（2026-10-10）：ADR-0062新增workspace包keyweave-host，check-windows离线与run-windows显式identity，非Windows run=78。默认canonical current_exe同目录worker，显式absolute可信developer image，无PATH/shell；不是签名/ACL/原子image验证。冷File/read/无损compile/native+Engine gate→fresh identity→seal→四句柄Supervisor接通真实worker入口。主控制线程独立于worker capture持有全部native owners，同Instant epoch驱动poll；active无stdio/同步配置IO。独立输入线程一个byte/EOF/error设stop flag，不join阻塞读；首次协作停止不延长旧lease，强制stop最多5秒观察actualExit，不自动重启/resume。Exited后独立pipe/config close，bounded去重diagnostics显式截断。启动错误递归独立Config envelope/Job与Resume owner，先Prepared/actualExit后关闭端点/准备reader/writer，超时不称cleanup成功。已知stop在preRNG/preJob取消，封存artifact明确关闭；startup_cancelled与未观察到exit区分，不伪造child退出，检查后新stop仍走协作路径。
+
+最终fixed1.97.1：Linux696 workspace+独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各667 tests（host4unit/4CLI，其中一个实际取消文件test，原Windowsunit296）、alltargetsClippy/fmt/既有SDK通过。两份189源hash全匹配（含新PowerShell工具），fullvalidation55196和随后native/fmt34600实际terminal0。Linux最后新增变化仅在cfg(windows) host文件，其已测compiled代码未变。初版665 tests/native绿快照仅preliminary；修正工具UNC cwd警告后，再补启动取消并最终双arch全量重验，所有旧session先确认terminal后再构建，无本轮失败掩盖。
+
+各arch真实host→ownedJob→check_host_worker无输入fixture五场景通过：active/standby按stdin停止自然child0/host0（standby epoch0），stop_stall/startup_stall旧lease内强制真实child3763033857/host1，invalidPE真实CreateProcess失败与Prepared回滚host1。所有case明确资源报告并实际观察自有image NotFound；fixture只严格main准入/原reader加载/合成进度，不调用Hook/SendInput；有用配置从未传给真实capture worker。工具tools/check_host.ps1可复验同Windows-local snapshot；epoch不是CaptureSession，resources_complete只指返回pipe/config报告、不独立证明Job handle Drop或全局按键恢复。
+
+[设计](ADR-0062-windows-user-host.md)、[最终证据](validation/windows-2026-10-10-user-host.json)。ignored target/validation/linux-20261010-user-host与windows-20261010-user-host-{x64,x86}-1.97.1留存日志/manifest/cmd/最终case stdout+stderr，before-local-cwd与before-startup-cancel保留preliminary证据。下一步原生console Ctrl+C协作控制、详细child诊断/热更新、可信打包与正常CaptureSession/Windows11/硬件；Linuxbootstrap/consumer-ready、D05/GUI/Rustdriver/companion与所有原目标继续未完成，旧x86异常原因仍未知。
