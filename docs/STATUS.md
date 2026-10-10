@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。
 
+最新真实入口：Linux 专用有限参数与 main 的父/run/三管道/封存配置冷准备已接通；只有无 provider 模式，明确返回 Unsupported、不开设备、不伪造 Runtime 报告。Linux 800 tests、Clippy/fmt/source60 和真实 exe 的 66/65/78 退出检查通过；捕获 bootstrap/consumer-ready/host 仍未完成。见 [ADR-0077](ADR-0077-linux-worker-cold-entry.md)、[验证记录](validation/linux-2026-10-10-worker-cold-entry.json)。
+
 最新 Linux 交付：Supervisor 的显式 sealed-config 启动模式和 WorkerStartup/ReportingStartup 单次 claim 已实现，真实 main fixture 完成实际 FD 继承/精确字节/拒绝重试验证。Linux 全套 794 tests、Clippy/fmt/source60/扩展 C ABI 通过；真实捕获 exe/main、consumer-ready/bootstrap/host 未完成。见 [ADR-0076](ADR-0076-linux-config-fd-handoff.md)、[验证记录](validation/linux-2026-10-10-config-handoff.json)。
 
 Linux 配置资源基础：内核 sealed memfd 映像及冷准备 seal 已实现，Supervisor/startup FD 交付已由 ADR-0076 接入，真实捕获入口仍未接通。Linux 全套 792 tests、Clippy/fmt/source 和扩展 C ABI 检查通过；无真实输入设备操作。见 [ADR-0075](ADR-0075-linux-sealed-config-image.md)、[验证记录](validation/linux-2026-10-10-sealed-config.json)。Linux 完整启动与所有原目标继续未完成。

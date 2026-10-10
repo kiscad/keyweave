@@ -2,6 +2,8 @@
 
 ## 当前项目与任务入口
 
+ADR-0077：真实Linux main识别独立--keyweave-linux-worker格式，限定64输入/136参数读取，路径只lexical absolute/不丢非Unicode；不把解析当设备验证。先ReportingStartup再parent/run比对和sealed claim，原bytes经Linux无损冷编译。仅session-provider=none可解析，它必须永远禁止设备open，返回Unsupported而非映射成功；不得将valid-config exe测试改为capture-enabled provider。无Runtime不造TerminationReport；真实入口66/65/78已验。非Windows finish保留scalar、不截Windows mask。Linux800tests通过；native捕获bootstrap/consumer-ready/host及所有完整目标继续，Windows原生补验仍待做。
+
 ADR-0076：spawn_reporting_config消费sealed Artifact，父侧F_DUPFD_CLOEXEC最低3，Command closure保留File；parent-death hook先于config hook，后者仅重验seal/清选定FD CLOEXEC，无alloc/环境/配置IO。旧spawn移除CONFIG_ENV，新模式覆盖；可信Command caller不得pre_exec关闭/rebind该FD，不承诺全FD allowlist/认证。startup claim_config一次尝试含失败，main再核验guard、canonical FD>=3，先fcntl成功dup再构造唯一File/完整admit，不接管原FD；原继承FD保留至true Exit。真实无输入main harness已验证传递及旧mode拒绝；Linux794tests/扩展C ABI通过。实际Linuxmain/bootstrap/consumer-ready/host仍未接通，不能当真实捕获验收；Windows原生验证仍待补跑。
 
 ADR-0075：Linux ConfigArtifact 以 CLOEXEC|ALLOW_SEALING memfd 保存最多8MiB精确bytes，必须 WRITE/GROW/SHRINK/SEAL 全封存；无普通文件/弱seal降级。admit消费File，先读取权限+seal再metadata；seal非认证/schema/父保护。read_exact_at避免共享seek offset；Debug不泄露内容。PreparedConfig.seal只封原已验证bytes。Supervisor/startup交付现见ADR-0076；清CLOEXEC仅限其选定继承合约，真实worker入口/bootstrap/consumer-ready尚未完成。Linux792tests与扩展memfd/fcntl C ABI通过，Windows原生验证仍待补跑。

@@ -132,6 +132,12 @@ pub struct ReportingStartup {
     terminal: crate::termination::TerminalWriter<std::fs::File>,
 }
 impl ReportingStartup {
+    pub fn guard(&self) -> &WorkerParentGuard {
+        self.startup.guard()
+    }
+    pub fn run_id(&self) -> u64 {
+        self.startup.run_id()
+    }
     pub fn claim_config(&mut self) -> io::Result<crate::config_artifact::ConfigArtifact> {
         self.startup.claim_config()
     }

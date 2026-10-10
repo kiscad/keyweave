@@ -50,6 +50,90 @@ fn direct_valid_worker_invocation_cannot_bypass_native_admission() {
     assert!(result.stdout.is_empty());
     assert!(result.stderr.is_empty());
 }
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_private_entry_cannot_bypass_guard_or_parse_unavailable_provider_as_ready() {
+    use keyweave_worker::linux_arguments::LINUX_WORKER_ARGUMENT;
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    for (provider, code) in [
+        ("none", WorkerExit::Admission),
+        ("ready", WorkerExit::Arguments),
+    ] {
+        let result = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"))
+            .args([
+                LINUX_WORKER_ARGUMENT,
+                "1",
+                "57",
+                "--uinput",
+                "/keyweave-absent-output",
+                "--session-provider",
+                provider,
+                "--input",
+                "/keyweave-absent-input",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(code as i32));
+        assert!(result.stdout.is_empty() && result.stderr.is_empty());
+    }
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_real_main_consumes_sealed_config_and_preserves_cold_failures() {
+    use keyweave_linux::{
+        config_artifact::ConfigArtifact,
+        progress::Policy,
+        supervisor::{Supervisor, SupervisorStatus},
+        termination::ReadStatus,
+    };
+    use keyweave_types::MonoTime;
+    use keyweave_worker::linux_arguments::LINUX_WORKER_ARGUMENT;
+    use std::time::{Duration, Instant};
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    let valid = br#"{"profiles":[{"selected":true,"simple_modifications":[]}]}"#;
+    for (bytes, header_run, expected) in [
+        (&b"invalid json"[..], 57, WorkerExit::Config),
+        (&b"\xff"[..], 57, WorkerExit::Config),
+        (&valid[..], 58, WorkerExit::Admission),
+        (&valid[..], 57, WorkerExit::UnsupportedPlatform),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"));
+        command.args([
+            LINUX_WORKER_ARGUMENT,
+            &std::process::id().to_string(),
+            &header_run.to_string(),
+            "--uinput",
+            "/keyweave-absent-output",
+            "--session-provider",
+            "none",
+            "--input",
+            "/keyweave-absent-input",
+        ]);
+        // None is an invariant: no provider grant, no device lookup/open, even
+        // with valid config. Never change this test to a capture-enabled provider.
+        let start = Instant::now();
+        let mut supervisor = Supervisor::spawn_reporting_config(
+            command,
+            57,
+            Policy::default(),
+            MonoTime(0),
+            ConfigArtifact::create(bytes).unwrap(),
+        )
+        .unwrap();
+        loop {
+            let now = MonoTime(u64::try_from(start.elapsed().as_nanos()).unwrap());
+            if let SupervisorStatus::Exited { status, .. } = supervisor.poll(now).unwrap() {
+                assert_eq!(status.code(), Some(expected as i32));
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(3));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let terminal = supervisor.collect_terminal();
+        assert_eq!(terminal.status, ReadStatus::Missing);
+        assert!(terminal.failure.is_none()); // No fake Runtime termination report.
+    }
+}
 #[cfg(windows)]
 #[test]
 fn missing_config_after_owned_admission_exits_before_input_installation() {

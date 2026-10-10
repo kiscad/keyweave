@@ -2,6 +2,8 @@
 
 日期：2026-10-10。状态：Supervisor/启动 token 交付已实现；真实 worker 可执行入口和完整 bootstrap 待连接。
 
+后续：真实 worker 的冷参数/配置消费由 [ADR-0077](ADR-0077-linux-worker-cold-entry.md) 接入；捕获启动事务仍未完成。
+
 ## 交付合约
 
 新增 `Supervisor::spawn_reporting_config`，消费 ADR-0075 的 ConfigArtifact。原两个 spawn 方法保持行为，并移除残留 KEYWEAVE_CONFIG_FD；新模式替换该值为库选定的 FD，不信任 Command 原有环境值。

@@ -5,6 +5,7 @@ use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use keyweave_windows::keys::{IdentityPolicy, InjectionTag};
 use std::{ffi::OsString, io::Read, path::PathBuf, sync::Arc};
 
+pub mod linux_arguments;
 pub mod linux_preparation;
 pub mod preparation;
 

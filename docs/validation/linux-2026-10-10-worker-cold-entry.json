@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0077 actual Linux main bounded arguments and sealed cold configuration preparation",
+  "source_base_commit": "981bd7b9f4becba4b5bc7d07582b6a61e70bd30c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/worker.rs": "3df0b91e8721fd7c339561ab75347e16a9b829304738840709070c457eca3088",
+    "crates/keyweave-worker/src/lib.rs": "300c5b89b36866b24987e60d223079aa49645747b8d5e71166d149975e203aec",
+    "crates/keyweave-worker/src/linux_arguments.rs": "050f272ceeb6c9b12fd1bace73a0a36350b5fa1ba4564abcbb59f76036d62831",
+    "crates/keyweave-worker/src/main.rs": "cd61cd3e27e4f85b68c741371540dc91e17ad7a49937fda3ad1163a658983387",
+    "crates/keyweave-worker/tests/entry.rs": "867c70bd593d5ccf9def853d624cb8f19afde8d7984360781e2f9316ccbe697e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 800,
+    "test_session": 74447,
+    "test_terminal_exit": 0,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "no new native ABI/unsafe; C oracle unchanged and not rerun",
+    "real_entry_cases": "direct guard rejection; unsupported provider ready rejected; owned sealed invalid JSON/UTF8 returns 66, run mismatch 65, valid config with none provider 78; terminal Missing preserves absence of Runtime evidence",
+    "logs": {
+      "crate-tests": {
+        "path": "target/validation/linux-20261010-worker-cold-entry/crate-tests.log",
+        "sha256": "34dc49a5d50c7ce5673e5efded1e7b9c7270479e7b41052b08d4782dfee72784"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-worker-cold-entry/workspace-tests.log",
+        "sha256": "8c555e766255d558d0917b7d4ecf80795b2b613c80fb39c383c20702491e3d33"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-worker-cold-entry/clippy.log",
+        "sha256": "6475e502290440ca234a587c31c3b0887e78ba30582bdbf417f04a283bf64e5b"
+      }
+    }
+  },
+  "preliminary": {
+    "crate_only_session": 47671,
+    "terminal_exit": 0,
+    "scope": "before added actual exe integration tests"
+  },
+  "new_tests": {
+    "pure_arguments": 4,
+    "real_entry_tests": 2
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "three new portable argument tests require native Windows check; preceding application provider and context ingress native checks remain pending due unresolved approval-review quota failure"
+  },
+  "limitations": [
+    "Only session-provider=none is supported; it must never open devices and is not a readiness grant.",
+    "Actual Linux capture bootstrap/output creation/discovery/neutral/grab/Runtime/progress/host still incomplete.",
+    "No Runtime report is fabricated during cold preparation; missing terminal frame is not global recovery proof.",
+    "Path parsing is lexical only; native device/syspath/capability/identity validation still required before opening/capture.",
+    "Legacy Windows-format Linux invocation remains unsupported, Windows entry behavior unchanged.",
+    "No evdev/uinput, Hook/SendInput or driver operation performed; valid exe test is explicitly none-provider with absent device paths.",
+    "Full objective including advanced rules, hotplug/add, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}
