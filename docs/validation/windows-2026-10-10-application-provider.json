@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0074 foreground application provider connected to CaptureSession",
+  "source_base_commit": "8f969ef18b86cf6131565de9e9e950b91b355bf8",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/native.rs": "bd52930446d357195ec2dc4d01d0c3124beec9c030a7d1ff6657b4f8eecbae83",
+    "crates/keyweave-windows/src/native/application.rs": "53e80ad6001ef382ef6d4ba48d1cb7089dceeeee4405acfc48d0fb00d04daa64",
+    "crates/keyweave-windows/src/native/application/api.rs": "268ffb5bf114e09cf9870fa75b66806da895b046696a05d8a54f2df69d2ba46a",
+    "crates/keyweave-windows/src/native/application/tests.rs": "dcf3edc3543a9b321837e0f38f8e6e60283784535d9e7166290f578bfd065a3b",
+    "crates/keyweave-windows/src/native/session.rs": "433619de71de68cbb8a92dcad251a0b28aa8c883b26cd5f6445f08a22aded415",
+    "crates/keyweave-windows/src/native/session/tests.rs": "512f1d5d863d6b9e05e3026ab933a929aec15f3168a81a6acc507be32970fc71",
+    "crates/keyweave-windows/src/runtime.rs": "eb0e9be20c220b53ab7d09d2c69dccfd36d6c00a4cf219dd2740dc358d8b01ce",
+    "crates/keyweave-worker/src/main.rs": "e3bf4544958499a7755184062dcd02d7bd07e4167c658dc427b76616a3b2b1c7",
+    "tools/windows_input_abi.c": "6fd601eae5ce50b73411ecd718a897e5b76c820830d85ecbd10f5ce82dbc12fe"
+  },
+  "linux": {
+    "rust": "1.97.1",
+    "workspace_tests_passed": 786,
+    "test_session": 85680,
+    "test_terminal_exit": 0,
+    "clippy_session": 47886,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "logs": {
+      "application-tests.log": {
+        "path": "target/validation/linux-20261010-application-provider/application-tests.log",
+        "sha256": "1e757baf8668faca274a191a71ec0833c6b0abaf1afd7cceb2ec424747e7e43c"
+      },
+      "application-tests-2.log": {
+        "path": "target/validation/linux-20261010-application-provider/application-tests-2.log",
+        "sha256": "3e185cc27618444321baad3cef38eb2ccdd02531642eaa36108d80954c714f81"
+      },
+      "application-full-tests.log": {
+        "path": "target/validation/linux-20261010-application-provider/application-full-tests.log",
+        "sha256": "391e4a527442f00e9e58a2ef89ed3a8348960eae63e2cbd5e65e4099aa9ed2c2"
+      },
+      "application-clippy.log": {
+        "path": "target/validation/linux-20261010-application-provider/application-clippy.log",
+        "sha256": "6085068828b16acf355ced2cb58da70e4aabb82bedbb1181fd9c5bf9dd2b4275"
+      },
+      "application-full-tests-final.log": {
+        "path": "target/validation/linux-20261010-application-provider/application-full-tests-final.log",
+        "sha256": "28ae7aac84f49f2c883d9e2dcbd2a1646219646c03f128baa700710084d14534"
+      },
+      "application-clippy-final.log": {
+        "path": "target/validation/linux-20261010-application-provider/application-clippy-final.log",
+        "sha256": "909c0c65b9022cc9965fe1abb7737695dafe2274c4a506ac453f676c9ab7b076"
+      }
+    }
+  },
+  "preliminary": [
+    {
+      "session": 57656,
+      "terminal_exit": 101,
+      "reason": "new ApplicationRefresh missing in existing mock CaptureSession initializer; added default state"
+    },
+    {
+      "session": 94412,
+      "terminal_exit": 0,
+      "scope": "crate-only before session integration tests; not final evidence"
+    },
+    {
+      "session": 91823,
+      "terminal_exit": 101,
+      "reason": "new test activated duplicate config generation; fixture corrected to generation 2, production gate unchanged"
+    },
+    {
+      "session": 86076,
+      "terminal_exit": 0,
+      "scope": "clippy before fixture generation correction"
+    }
+  ],
+  "windows": {
+    "status": "not executed",
+    "reason": "Previous context-ingress escalation rejected because automatic approval review could not complete due to usage limit. Unresolved; no bypass or fresh invocation attempted.",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "i686-pc-windows-msvc"
+    ],
+    "new_abi": "QueryFullProcessImageNameW WINAPI prototype added to SDK C oracle; not executed",
+    "historical_native_reports_cover_this_change": false
+  },
+  "new_tests": {
+    "api_replacements": 4,
+    "capture_session_integration": 3
+  },
+  "limitations": [
+    "Production foreground API calls and updated worker main/SDK oracle remain unverified on native Windows.",
+    "No real Hook/SendInput or driver operation performed; all input/API session tests use mocks.",
+    "Foreground tuple comparison is not an atomic guarantee and does not rule out HWND/PID ABA.",
+    "Context is refreshed outside callback, not sampled per key; bounded staleness remains.",
+    "Unicode paths are retained losslessly but current engine regex property policy still yields Unknown for non-ASCII paths.",
+    "CloseHandle failure is retained, may leave a process handle until process exit, and is not proof of clean resource release.",
+    "Current sole writer publishes application only; independent-provider merge required before adding input-source/device writers.",
+    "Complete project objective, native validation, advanced rules, Linux full bootstrap/readiness/hotplug/add, hot configuration, GUI, packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

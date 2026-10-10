@@ -2,6 +2,8 @@
 
 日期：2026-10-10。状态：执行者入口已实现；原生 provider 与 CaptureSession 接入待实现。
 
+后续状态：provider 代码连接由 [ADR-0074](ADR-0074-windows-foreground-application-provider.md) 实施；本文件以下范围描述本次入口切片。
+
 ## 问题与决定
 
 配置编译器与共享 Engine 已支持应用和输入源条件，但 Windows SessionActor 只能交付按键与计时器。即使控制面取得可信上下文，也没有可以遵循执行者顺序和故障策略的交付入口，条件一直保持 Unknown。

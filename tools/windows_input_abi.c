@@ -309,6 +309,8 @@ int main(void) {
     HWND (WINAPI *console_window)(void) = GetConsoleWindow;
     BOOL (WINAPI *console_event)(DWORD, DWORD) = GenerateConsoleCtrlEvent;
     BOOL (WINAPI *console_hide)(HWND, int) = ShowWindow;
+    BOOL (WINAPI *image_name)(HANDLE, DWORD, LPWSTR, PDWORD) = QueryFullProcessImageNameW;
+    (void)image_name;
     (void)console_handler; (void)console_members; (void)console_allocate;
     (void)console_release; (void)console_window; (void)console_event; (void)console_hide;
     return 0;

@@ -70,7 +70,10 @@ fn execute(args: Arguments) -> NativeWorkerExit {
         return WorkerExit::Cleanup.into();
     };
     let outcome = keyweave_worker::TerminalFacts {
-        fault: run_failed || report.reason == WorkerStopReason::Fault || report.primary.is_some(),
+        fault: run_failed
+            || report.reason == WorkerStopReason::Fault
+            || report.primary.is_some()
+            || shutdown.application_provider.is_some(),
         progress_failed: report.progress.is_some(),
         shutdown_present: true,
         stopped: worker.phase() == ActorPhase::Stopped,

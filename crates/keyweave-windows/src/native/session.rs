@@ -16,7 +16,7 @@ use crate::{
     startup::{InputSample, ProbeError},
 };
 use keyweave_engine::ConfigSnapshot;
-use keyweave_types::{CaptureDecision, MonoTime};
+use keyweave_types::{CaptureDecision, ContextSnapshot, DeviceInventoryScope, MonoTime};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -61,12 +61,114 @@ pub enum SessionStep {
 }
 #[derive(Debug)]
 pub struct ShutdownReport {
+    pub application_provider: Option<ProbeError>,
     pub access_lost: bool,
     pub session_changed: bool,
     pub notifications: NotificationCleanup,
     pub untracked_input: bool,
     pub unhook: Result<(), HookSessionError>,
     pub recovery: Result<(), RuntimeError>,
+}
+#[derive(Default)]
+struct ApplicationRefresh {
+    next: Option<MonoTime>,
+    revision: u64,
+    failure: Option<ProbeError>,
+}
+const APPLICATION_REFRESH_NS: u64 = 100_000_000;
+const APPLICATION_LIFETIME_NS: u64 = 500_000_000;
+fn refresh_application<B: SendBackend>(
+    state: &mut ApplicationRefresh,
+    actor: &RefCell<SessionActor<B>>,
+    emergency: &RefCell<EmergencyChord>,
+    access: &RefCell<AccessLease>,
+    mut clock: impl FnMut() -> Option<MonoTime>,
+    sample: impl FnOnce() -> Result<Option<keyweave_types::ApplicationContext>, ProbeError>,
+) -> Result<WaitPlan, HookFault> {
+    let Some(before) = clock() else {
+        return active_wait(actor, emergency, access, None);
+    };
+    if state.next.is_some_and(|next| before < next) {
+        return active_wait(actor, emergency, access, Some(before));
+    }
+    access
+        .try_borrow()
+        .map_err(|_| HookFault::Reentrant)?
+        .check(before)
+        .map_err(HookFault::AccessLease)?;
+    guard(emergency, before, None)?;
+    // No actor/lease borrow spans potentially reentrant metadata calls.
+    let sampled = sample();
+    if let Err(error) = sampled {
+        state.failure.get_or_insert(error);
+    }
+    if let Some(fault) = super::hook_thread::current_fault() {
+        return Err(fault);
+    }
+    let application = sampled.map_err(|error| {
+        if let Ok(mut actor) = actor.try_borrow_mut() {
+            actor.control_failed(RuntimeError::ApplicationProvider(error));
+        }
+        HookFault::Handler
+    })?;
+    let Some(after) = clock() else {
+        return active_wait(actor, emergency, access, None);
+    };
+    access
+        .try_borrow()
+        .map_err(|_| HookFault::Reentrant)?
+        .check(after)
+        .map_err(HookFault::AccessLease)?;
+    guard(emergency, after, None)?;
+    let result = (|| {
+        if after < before {
+            return Err(RuntimeError::Time);
+        }
+        let valid_until = MonoTime(
+            before
+                .0
+                .checked_add(APPLICATION_LIFETIME_NS)
+                .ok_or(RuntimeError::Time)?,
+        );
+        let next = MonoTime(
+            after
+                .0
+                .checked_add(APPLICATION_REFRESH_NS)
+                .ok_or(RuntimeError::Time)?,
+        );
+        let revision = state
+            .revision
+            .checked_add(1)
+            .ok_or(RuntimeError::Sequence)?;
+        let context = ContextSnapshot {
+            revision,
+            provider: "windows-foreground-image-v1".into(),
+            observed_at_ns: before,
+            valid_until_ns: valid_until,
+            application: if after < valid_until {
+                application
+            } else {
+                None
+            },
+            devices: None,
+            device_inventory_scope: DeviceInventoryScope::Partial,
+            input_source: None,
+        };
+        actor
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::NotActive)?
+            .context_changed(context, after)?;
+        state.revision = revision;
+        state.next = Some(next);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if let Ok(mut actor) = actor.try_borrow_mut() {
+            actor.control_failed(error);
+        }
+        return Err(HookFault::Handler);
+    }
+    active_wait(actor, emergency, access, Some(after))
 }
 struct GuardedBackend<B: SendBackend> {
     backend: B,
@@ -214,6 +316,7 @@ fn monitored_wait<B: SendBackend>(
 /// supply independent progress/session supervision or a deployment-ready host.
 /// Call shutdown explicitly: Drop disables the Hook without injecting releases.
 pub struct CaptureSession<B: SendBackend + 'static> {
+    application: ApplicationRefresh,
     session: SessionIdentity,
     progress_epoch: u64,
     notifications: SessionNotifications,
@@ -272,6 +375,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             }
         };
         Ok(Self {
+            application: ApplicationRefresh::default(),
             session,
             progress_epoch: 0,
             notifications,
@@ -358,6 +462,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             let actor = self.actor.clone();
             let emergency = self.emergency.clone();
             let access = self.access.clone();
+            let application = &mut self.application;
             return Ok(
                 match self.hook.poll_with_control(&mut || {
                     monitored_wait(
@@ -366,6 +471,14 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
                         &access,
                         || clock.now(),
                         || check_input_access_in_session(session),
+                    )?;
+                    refresh_application(
+                        application,
+                        &actor,
+                        &emergency,
+                        &access,
+                        || clock.now(),
+                        super::application::sample,
                     )
                 })? {
                     LoopStep::Continue => SessionStep::Continue,
@@ -455,6 +568,7 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
             };
             let notifications = self.notifications.close();
             ShutdownReport {
+                application_provider: self.application.failure,
                 access_lost: access_lost
                     || super::hook_thread::access_lost()
                     || self.notifications.access_lost(),

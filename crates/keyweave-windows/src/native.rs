@@ -1,6 +1,7 @@
 //! Private Windows unsafe boundary; native calls require explicit session actions.
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
+mod application;
 mod config_artifact;
 mod console_control;
 #[cfg(windows)]

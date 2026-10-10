@@ -23,6 +23,8 @@ pub enum ActorPhase {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("application context provider failed: {0}")]
+    ApplicationProvider(crate::startup::ProbeError),
     #[error("untracked input may have changed global output ownership")]
     UntrackedInput,
     #[error("desktop/session access was revoked")]

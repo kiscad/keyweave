@@ -2,7 +2,7 @@
 
 更新日期：2026-10-10。
 
-最新执行者改动：Windows SessionActor 已有上下文交付入口，原生应用 provider 与 CaptureSession 调用尚未接通。Linux 固定工具链全套 779 tests、Clippy/fmt/source 校验通过；本次 Windows 原生验证因自动审批额度错误未执行，不能沿用旧编译结果为此修改背书。见 [ADR-0073](ADR-0073-windows-context-ingress.md) 与 [验证记录](validation/windows-2026-10-10-context-ingress.json)。全部原目标仍未完成。
+最新上下文改动：Windows 前台应用路径 provider 代码已接到 CaptureSession 活动控制循环，经 SessionActor 交付有期限快照；Linux 固定工具链全套 786 tests、Clippy/fmt/source 校验通过。Windows 原生编译/新 SDK 原型检查和真实桌面验收待完成；自动审批额度错误仍未解决，不能用旧编译报告背书。见 [ADR-0074](ADR-0074-windows-foreground-application-provider.md) 与 [验证记录](validation/windows-2026-10-10-application-provider.json)。全部原目标仍未完成。
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |

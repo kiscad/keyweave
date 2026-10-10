@@ -68,6 +68,123 @@ fn install() -> (CaptureSession<Backend>, Rc<RefCell<Trace>>) {
     .unwrap();
     (session, trace)
 }
+fn application_config() -> Arc<ConfigSnapshot> {
+    let mut cfg = (*config()).clone();
+    cfg.generation = ConfigGeneration(2);
+    cfg.complex.push(keyweave_engine::Mapping {
+        id: "app".into(),
+        from: keyweave_types::KeyId::new(7, 4),
+        to: vec![keyweave_types::KeyId::new(7, 5).into()],
+        allow_extra_modifiers: true,
+        extras: keyweave_engine::MappingExtras {
+            conditions: vec![keyweave_engine::Condition::Application {
+                bundle_identifiers: vec![],
+                file_paths: vec![keyweave_engine::Pattern::compile("editor[.]exe$").unwrap()],
+                unless: false,
+            }],
+            ..Default::default()
+        },
+    });
+    Arc::new(cfg)
+}
+#[test]
+fn active_poll_delivers_native_application_and_failed_query_clears_it() {
+    super::super::application::test_sample_mode(true, true);
+    let (mut session, trace) = install();
+    session.activate_config(application_config()).unwrap();
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert_eq!(session.poll().unwrap(), SessionStep::Continue);
+    assert_eq!(session.application.revision, 1);
+    assert_eq!(session.progress_epoch(), 2); // Context doesn't mint a new epoch.
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(trace.borrow().calls[0][0].scan, 0x30);
+    super::super::application::test_sample_mode(false, true);
+    session.application.next = None; // Force the refresh boundary without sleep.
+    assert_eq!(session.poll().unwrap(), SessionStep::Continue);
+    assert_eq!(session.application.revision, 2);
+    assert_eq!(test_send(0x1e, true), 1);
+    assert_eq!(trace.borrow().calls[1][0].scan, 0x30); // Saved old binding.
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(trace.borrow().calls[2][0].scan, 0x1e); // Fresh Unknown.
+    session.shutdown();
+}
+#[test]
+fn application_close_failure_stops_without_claiming_revoked_input_access() {
+    super::super::application::test_sample_mode(false, false);
+    let (mut session, trace) = install();
+    assert_eq!(session.poll().unwrap(), SessionStep::Activated);
+    assert_eq!(test_send(0x1e, false), 1);
+    assert!(matches!(
+        session.poll(),
+        Err(SessionError::Hook(HookSessionError::Callback(
+            HookFault::Handler
+        )))
+    ));
+    let report = session.shutdown_report().unwrap();
+    assert_eq!(
+        report.application_provider,
+        Some(ProbeError::Api {
+            call: "CloseHandle(application)",
+            code: 5
+        })
+    );
+    assert!(!report.access_lost);
+    assert!(report.unhook.is_ok() && report.recovery.is_ok());
+    assert_eq!(trace.borrow().calls.len(), 2);
+    assert!(matches!(
+        session.actor.borrow().failure(),
+        Some(RuntimeError::ApplicationProvider(_))
+    ));
+}
+#[test]
+fn application_refresh_is_throttled_and_query_time_does_not_extend_validity() {
+    let (mut session, trace, now) = timed_session(application_config());
+    let mut times = std::collections::VecDeque::from([MonoTime(0), MonoTime(100_000_000)]);
+    refresh_application(
+        &mut session.application,
+        &session.actor,
+        &session.emergency,
+        &session.access,
+        || times.pop_front(),
+        || {
+            assert_eq!(test_send(0x1e, false), 1); // Reentrant input may borrow actor.
+            assert_eq!(test_send(0x1e, true), 1);
+            Ok(Some(keyweave_types::ApplicationContext {
+                bundle_identifier: None,
+                file_path: Some("editor.exe".into()),
+            }))
+        },
+    )
+    .unwrap();
+    assert!(
+        trace
+            .borrow()
+            .calls
+            .iter()
+            .flatten()
+            .all(|p| p.scan == 0x1e)
+    );
+    refresh_application(
+        &mut session.application,
+        &session.actor,
+        &session.emergency,
+        &session.access,
+        || Some(MonoTime(150_000_000)),
+        || panic!("early metadata query"),
+    )
+    .unwrap();
+    assert_eq!(session.application.revision, 1);
+    // Access is independently renewed; app metadata retains its original expiry.
+    session
+        .access
+        .borrow_mut()
+        .renew_after_probe(MonoTime(400_000_000))
+        .unwrap();
+    now.set(MonoTime(500_000_000));
+    assert_eq!(test_send(0x1e, false), 1);
+    assert_eq!(trace.borrow().calls.last().unwrap()[0].scan, 0x1e);
+    session.shutdown();
+}
 #[test]
 fn passive_binding_cannot_capture_a_repeat_then_active_output_closes_first() {
     let (mut session, trace) = install();
@@ -374,6 +491,7 @@ fn timed_session(
     hook.guard_untracked_input().unwrap();
     (
         CaptureSession {
+            application: ApplicationRefresh::default(),
             session: own_session().unwrap(),
             progress_epoch: 0,
             notifications: SessionNotifications::install().unwrap(),

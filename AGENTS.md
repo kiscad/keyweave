@@ -2,6 +2,8 @@
 
 ## 当前项目与任务入口
 
+ADR-0074已连接Windows应用路径provider代码到CaptureSession控制循环，Windows原生编译仍待补验。query在callback外，不跨API借actor/access；前后HWND/PID/thread tuple仅减小竞态，不证明原子/ABA安全。100ms限频、查询前起算500ms有效期，失败/迟到清Unknown；不伪造bundle或完整库存/输入源。独立CloseHandle错误保留ShutdownReport.application_provider并纳入worker fault，输出恢复成功不抹去；metadata关闭错误不等同访问撤销。未来多provider必须统一revision并合并字段。Linux786tests通过；新FFI/SDK和上一轮入口的Windows双架构验证未执行，不能沿用旧报告。
+
 KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边的 `../Karabiner-Elements/`。已创建 Rust workspace 与基础离线切片，真实进展见 STATUS；不要把规划当作代码已完成。
 
 ADR-0073：SessionActor.context_changed 是可信控制面在 callback 外交付快照的入口，不是原生应用 provider。先 due 旧上下文，再 dispatch 新快照，再 due，共享64操作预算与统一seq；错误使 Active→StopRequired，已有输出须 unhook-first 恢复。旧持键不rematch，Unknown/过期不让unless成立。未来多provider须合并字段/统一revision/同actor时钟，不伪造Windows bundle ID或Hook设备身份。本切片Linux验证通过，Windows原生验证被自动审批额度错误阻止，未执行；须补验，不能用旧报告替代。
