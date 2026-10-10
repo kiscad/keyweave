@@ -19,6 +19,8 @@ pub fn locate_worker(host: &Path, explicit: Option<&Path>) -> std::io::Result<Pa
     }
     Ok(resolved)
 }
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(windows)]
 pub mod windows;
 /// Linux sibling/explicit locator only, not image authentication or execution.

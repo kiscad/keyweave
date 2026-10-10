@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0085 Linux host owned Session and terminal classification",
+  "source_base_commit": "64b403d5fb4dad883a6a2cc706a53ed5186824fd",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "Cargo.lock": "725ac3c8ca2ee9d88dd4cfe0a67ae60239fe23fa5eee98fc9ae940a479886614",
+    "crates/keyweave-host/Cargo.toml": "ce63395cc8283a54b12190ed4c939f5c3d2e5be97ac882d391ef9018a153bfa5",
+    "crates/keyweave-host/src/lib.rs": "7fb8afb37cd55f7f08d19b91161691265cc137f5fc7680d5f83093e392c09801",
+    "crates/keyweave-host/src/linux.rs": "d7ac1b98833444102806ba9b5de81ac26b518e2cf5e3e787a55f164184e95ffe",
+    "crates/keyweave-host/tests/linux_session.rs": "0ce69f970bf1740db4c758f6eaa888faf748790ae0ecaade4f0face356da1048"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 852,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_unit_tests": 4,
+    "new_custom_main_harness": "three no-input child modes: complete/uncertain/missing reports; injected stop event only",
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261010-host-session/clippy.log",
+        "sha256": "561ffae8cbb8468dde13fc2742616f5e0fc95102b1cd9d79dbbbc12ab8a0125b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-host-session/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-host-session/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-host-session/workspace-tests.log",
+        "sha256": "ceb50721000c5d20ec8797a8892f0a218608780dc06cb43cbdad8b10d1a4a1c4"
+      }
+    }
+  },
+  "abi": "No FFI/native ABI change; ADR-0084 oracle not rerun in this slice.",
+  "dependencies": "Only existing local keyweave-linux added as Linux-specific host dependency; no registry additions.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only controller and harness; earlier native/portable pending checks unchanged after automatic approval quota failure"
+  },
+  "limitations": [
+    "Controller requires trusted controlled worker and same explicit time domain as spawn; caller must continue driving same Supervisor independently of worker.",
+    "Actual native signal/clock/wait pump, run-linux CLI and cold host startup composition remain incomplete.",
+    "Signal receipt and requested Stop do not prove delivery or exit; report produced only after Supervisor authoritative actual exit.",
+    "Terminal recovery_confirmed classifies worker-reported owner/recovery facts, not physical acceptance or global keyboard recovery.",
+    "Synthetic KWLT facts from no-input fixture prove transport/classification only. Injected timestamps do not test real lease scheduling.",
+    "No foreground-group signals, actual Ctrl+C, VT/evdev/uinput, Hook/SendInput or driver operation.",
+    "Full original cross-platform objective remains incomplete."
+  ]
+}
