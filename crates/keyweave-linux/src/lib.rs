@@ -4,6 +4,8 @@ pub mod activation;
 pub mod bootstrap;
 pub mod capture;
 #[cfg(target_os = "linux")]
+mod clock_continuity;
+#[cfg(target_os = "linux")]
 pub mod config_artifact;
 #[cfg(target_os = "linux")]
 pub mod console;

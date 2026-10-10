@@ -51,6 +51,10 @@ SIGINT（Ctrl+C）、SIGTERM、SIGHUP 由 host 主线程 signalfd 接收，首�
 
 host 返回0要求实际 worker code0、可接受终止原因、完整恢复 facts 与无 host/关闭故障。pre-Runtime 停止没有 KWLT，当前不会被 host 自动判为已完成恢复。观察超时返回1并报告 `worker_exit=unobserved`；其 emergency Drop 的有限 kill/reap 不算已观察到退出，更不证明全局键恢复。库调用方可保留 NativeSession 继续观察同一个 child，不能因超时重新 spawn。
 
+## 暂停时间检查
+
+原生时钟保留 evdev 的 MONOTONIC 时间域，同时用 BOOTTIME 夹在两次 MONOTONIC 之间的采样检查连续性。检测到偏移区间不一致、倒退、过宽或调用失败会永久使本轮时钟失效，停止路径保留最后接受的时间；不自动创建新 clock 继续原授权。该检查仍有区间歧义和采样后的竞态，不能视为完整 suspend/resume 支持，见 [ADR-0088](ADR-0088-linux-clock-continuity.md)。
+
 ## 尚需完成
 
 当前验证覆盖离线引擎、模拟输入/输出、无输入子进程和真实 None 冷链路。真实 VT、evdev 抓取/uinput 输出、按键释放、暂停/切换、Ctrl+C、suspend/resume 与系统权限/故障仍需真机验收。图形消费者、动态添加设备、LED、高级规则、热配置、GUI、包装发布与驱动仍未完成；完整状态以 [STATUS](STATUS.md) 为准。

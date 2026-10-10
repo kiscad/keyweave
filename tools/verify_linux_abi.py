@@ -17,6 +17,8 @@ source = r'''
 #include <unistd.h>
 #include <termios.h>
 #include <sys/random.h>
+#include <time.h>
+_Static_assert(CLOCK_MONOTONIC == 1 && CLOCK_BOOTTIME == 7, "continuity clock IDs");
 #include <sys/signalfd.h>
 #include <signal.h>
 #include <pthread.h>
@@ -37,6 +39,8 @@ _Static_assert(F_SEAL_SEAL == 1 && F_SEAL_SHRINK == 2 && F_SEAL_GROW == 4 && F_S
 _Static_assert(O_RDONLY == 0 && O_RDWR == 2 && O_ACCMODE == 3 && FD_CLOEXEC == 1, "descriptor flags");
 _Static_assert(F_DUPFD_CLOEXEC == 1030 && F_GETFD == 1 && F_SETFD == 2, "descriptor handoff");
 int main(void) {
+    int (*read_clock)(clockid_t,struct timespec *) = clock_gettime;
+    (void)read_clock;
     int (*signals_fd)(int,const sigset_t *,int) = signalfd;
     int (*thread_mask)(int,const sigset_t *,sigset_t *) = pthread_sigmask;
     int (*process_mask)(int,const sigset_t *,sigset_t *) = sigprocmask;
@@ -93,4 +97,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control getrandom and signalfd ABI; no device access')
+print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control getrandom, signalfd and paired-clock ABI; no device access')

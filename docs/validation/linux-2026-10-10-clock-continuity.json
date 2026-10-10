@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0088 Linux paired clock continuity and latched native clock faults",
+  "source_base_commit": "d977f8ea41d71f3960fb8c3cae6181e80250112a",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/ioctl.rs": "f2e86b750d1cc64955e02a4f5019c7c805bb6d8c598825bdaef38d22d6560117",
+    "crates/keyweave-linux/src/lib.rs": "e92318e49d9e476a4ac265d4c55a659a9478af4472d24d15be50ea4557bcc7d0",
+    "crates/keyweave-linux/src/reactor.rs": "104c36c965faf7667f6b139d84fbb27c05b4d3233727bf6b5a5542919d2bf393",
+    "tools/verify_linux_abi.py": "1eacb7ed902a70f9c56476b5fb5b21e1d1aad4121d3e29cb2ecbc9e0cedf114c",
+    "crates/keyweave-linux/src/clock_continuity.rs": "a240df9e6ccac5c6deef5c0ddfe778f29131c93110870d9209b3e0df61a0e45e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 872,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "abi": "GNU C checks MONOTONIC1/BOOTTIME7 and clock_gettime prototype plus prior ABI; no clock calls in oracle",
+    "new_unit_tests": 8,
+    "native": "existing read-only reactor clock/wait and no-input native host/worker harnesses now use paired clocks",
+    "logs": {
+      "abi": {
+        "path": "target/validation/linux-20261010-clock-continuity/abi.log",
+        "sha256": "fc45354be99e4e918d4675b14c0a042d260ed13adf4ead5f1f069dd1987f258b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-clock-continuity/clippy.log",
+        "sha256": "a7d6bbf0199c25183d23c41e122213cc2c4e9a73e3c4a98ed0c862c8521c436a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-clock-continuity/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-clock-continuity/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-clock-continuity/workspace-tests.log",
+        "sha256": "427d96fe7dc06f19fd3e61f6d1cac7a0a233bc28f3522a6d81ab37a9aafadda1"
+      }
+    }
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only change; prior portable CLI/native checks remain pending after automatic approval quota failure"
+  },
+  "limitations": [
+    "CLOCK_MONOTONIC remains the event/deadline domain. BOOTTIME is evidence only, not substitute event timestamps or fabricated lease progress.",
+    "Every now samples mono-before/boot/mono-after; span<=10ms. Intersect signed offset intervals across the same run, accepting equality/negative namespace offsets.",
+    "Overlapping intervals can hide small offset changes; initial/current widths permit up to20ms ambiguity. This is not proof of no suspend.",
+    "Non-atomic sample-to-dispatch gap remains; suspend after sampling may occur before dispatch. Pre-suspend notification/inhibition and actual suspend/resume tests remain necessary.",
+    "First sample establishes baseline; no historical suspend evidence is inferred. New clock must not reauthorize existing runtime/provider.",
+    "Clock fault is permanent for the same object, preserves last accepted time/errno, no retry/alternate clock fallback. Fresh terminal-finalization clocks operate after runtime owners drop.",
+    "No system suspend/resume/time setting, VT/evdev/uinput, Hook/SendInput or driver operation performed. Native tests read clocks and owned no-input IPC only.",
+    "Kernel scheduling/syscall stalls can exceed sample width and cause conservative failure; native operations have no hard execution bound.",
+    "Full cross-platform goal remains incomplete."
+  ]
+}

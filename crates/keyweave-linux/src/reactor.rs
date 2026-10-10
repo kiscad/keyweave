@@ -63,6 +63,8 @@ impl Wake {
 #[derive(Debug, Default)]
 pub struct MonotonicClock {
     last: Option<MonoTime>,
+    continuity: crate::clock_continuity::Continuity,
+    failure: Option<(io::ErrorKind, Option<i32>)>,
 }
 impl MonotonicClock {
     pub fn new() -> Self {
@@ -79,8 +81,41 @@ impl MonotonicClock {
         self.last = Some(now);
         Ok(now)
     }
+    /// Same MONOTONIC event/deadline domain, with BOOTTIME bracket continuity.
+    /// Failure latches this run; constructing a new clock is not reauthorization.
     pub fn now(&mut self) -> io::Result<MonoTime> {
-        self.observe(crate::ioctl::monotonic_now()?)
+        self.now_with(|| {
+            Ok(crate::clock_continuity::Sample {
+                before: crate::ioctl::monotonic_now()?,
+                boot: crate::ioctl::boottime_now()?,
+                after: crate::ioctl::monotonic_now()?,
+            })
+        })
+    }
+    fn now_with(
+        &mut self,
+        sample: impl FnOnce() -> io::Result<crate::clock_continuity::Sample>,
+    ) -> io::Result<MonoTime> {
+        if let Some((kind, code)) = self.failure {
+            return Err(code.map_or_else(
+                || io::Error::new(kind, "Linux clock continuity revoked"),
+                io::Error::from_raw_os_error,
+            ));
+        }
+        let result = (|| {
+            let nanos = self.continuity.observe(sample()?).map_err(|fault| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Linux clock continuity fault: {fault:?}"),
+                )
+            })?;
+            self.observe(nanos)
+        })();
+        if let Err(error) = &result {
+            self.continuity.revoke();
+            self.failure = Some((error.kind(), error.raw_os_error()));
+        }
+        result
     }
     pub fn last(&self) -> Option<MonoTime> {
         self.last
@@ -222,5 +257,57 @@ mod tests {
         assert_eq!(clock.last(), Some(MonoTime(5)));
         assert!(Readiness::decode(libc::POLLNVAL).unwrap().invalid);
         assert!(Readiness::decode(libc::POLLPRI).is_err());
+    }
+    #[test]
+    fn paired_clock_change_latches_error_and_never_requeries_or_rewinds_time() {
+        use crate::clock_continuity::Sample;
+        let mut clock = MonotonicClock::new();
+        assert_eq!(
+            clock
+                .now_with(|| Ok(Sample {
+                    before: 100,
+                    boot: 150,
+                    after: 101
+                }))
+                .unwrap(),
+            MonoTime(101)
+        );
+        assert_eq!(
+            clock
+                .now_with(|| Ok(Sample {
+                    before: 102,
+                    boot: 1_000_152,
+                    after: 103
+                }))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(clock.last(), Some(MonoTime(101)));
+        assert!(
+            clock
+                .now_with(|| panic!("revoked clock must not query again"))
+                .is_err()
+        );
+        assert_eq!(clock.last(), Some(MonoTime(101)));
+    }
+    #[test]
+    fn clock_syscall_error_preserves_native_errno_and_prevents_fallback() {
+        let mut clock = MonotonicClock::new();
+        assert_eq!(
+            clock
+                .now_with(|| Err(io::Error::from_raw_os_error(libc::EAGAIN)))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EAGAIN)
+        );
+        assert_eq!(
+            clock
+                .now_with(|| panic!("must not retry or use another clock"))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EAGAIN)
+        );
+        assert_eq!(clock.last(), None);
     }
 }

@@ -307,13 +307,20 @@ pub(crate) fn verify_isolated_group(expected: u32) -> io::Result<()> {
     parent_matches(expected)
 }
 pub(crate) fn monotonic_now() -> io::Result<u64> {
+    clock_now(libc::CLOCK_MONOTONIC)
+}
+pub(crate) fn boottime_now() -> io::Result<u64> {
+    clock_now(libc::CLOCK_BOOTTIME)
+}
+// Private callers select only the two audited fixed clock IDs above.
+fn clock_now(id: libc::clockid_t) -> io::Result<u64> {
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
     };
     // SAFETY: exclusively borrowed, aligned initialized timespec lives for the
-    // synchronous CLOCK_MONOTONIC query. Kernel/libc retains no pointer.
-    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut time) } < 0 {
+    // synchronous fixed MONOTONIC/BOOTTIME query. Kernel/libc retains no pointer.
+    if unsafe { libc::clock_gettime(id, &mut time) } < 0 {
         return Err(io::Error::last_os_error());
     }
     let seconds = u64::try_from(time.tv_sec).ok();
@@ -323,7 +330,7 @@ pub(crate) fn monotonic_now() -> io::Result<u64> {
     seconds
         .zip(nanos)
         .and_then(|(seconds, nanos)| seconds.checked_mul(1_000_000_000)?.checked_add(nanos))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid monotonic clock"))
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid Linux clock sample"))
 }
 pub(crate) fn wait_ready(
     requests: &[crate::reactor::WaitRequest<'_>],
