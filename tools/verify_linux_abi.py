@@ -16,6 +16,8 @@ source = r'''
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <sys/random.h>
+_Static_assert(GRND_NONBLOCK == 1, "nonblocking entropy flag");
 #include <sys/ioctl.h>
 #include <linux/kd.h>
 #include <linux/vt.h>
@@ -38,6 +40,8 @@ int main(void) {
     pid_t (*process_session)(pid_t) = getsid;
     pid_t (*process_group)(pid_t) = getpgid;
     int (*query)(int, unsigned long, ...) = ioctl;
+    ssize_t (*entropy)(void *, size_t, unsigned int) = getrandom;
+    (void)entropy;
     (void)tty_session; (void)tty_foreground; (void)process_session;
     (void)process_group; (void)query;
     printf("{\"event_size\":%zu,\"type_offset\":%zu,\"code_offset\":%zu,"
@@ -75,4 +79,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput, memfd/seals and VT/job-control ABI; no device access')
+print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control and getrandom ABI; no device access')

@@ -90,7 +90,7 @@ fn main() -> ExitCode {
 }
 #[cfg(not(windows))]
 fn run(_: PathBuf, _: IdentityPolicy, _: Option<PathBuf>, _: Option<PathBuf>) -> ExitCode {
-    eprintln!("run-windows requires Windows; Linux capture bootstrap is not yet connected");
+    eprintln!("run-windows requires Windows");
     ExitCode::from(78)
 }
 #[cfg(windows)]

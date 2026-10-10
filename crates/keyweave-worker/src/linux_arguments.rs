@@ -35,6 +35,33 @@ impl std::fmt::Debug for LinuxArguments {
     }
 }
 impl LinuxArguments {
+    /// Cold host builder: pass the returned OsStrings to Command.args, never
+    /// join into shell text. Uses the same strict validation as the real main.
+    pub fn into_argv(self) -> Result<Vec<OsString>, ArgumentError> {
+        if self.inputs.is_empty() || self.inputs.len() > MAX_INPUTS {
+            return Err(ArgumentError);
+        }
+        let mut argv = Vec::with_capacity(9 + 2 * self.inputs.len());
+        argv.extend([
+            LINUX_WORKER_ARGUMENT.into(),
+            self.parent.to_string().into(),
+            self.run_id.to_string().into(),
+            "--uinput".into(),
+            self.uinput.into_os_string(),
+            "--session-provider".into(),
+        ]);
+        match self.session_provider {
+            SessionProvider::None => argv.push("none".into()),
+            SessionProvider::Console { vt } => {
+                argv.extend(["console".into(), "--vt".into(), vt.into_os_string()])
+            }
+        }
+        for path in self.inputs {
+            argv.extend(["--input".into(), path.into_os_string()]);
+        }
+        Self::parse(argv.iter().cloned())?;
+        Ok(argv)
+    }
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, ArgumentError> {
         let args: Vec<_> = args.into_iter().take(MAX_ARGUMENTS + 1).collect();
         if args.len() < 9
@@ -235,5 +262,68 @@ mod tests {
         let mut a = args();
         a.splice(7..7, ["--vt".into(), "/dev/tty1".into()]);
         assert!(LinuxArguments::parse(a).is_err());
+    }
+    #[test]
+    fn builder_preserves_fixed_contract_and_literal_paths_with_spaces() {
+        for provider in [
+            SessionProvider::None,
+            SessionProvider::Console {
+                vt: "/dev/tty2".into(),
+            },
+        ] {
+            let a = LinuxArguments {
+                parent: 42,
+                run_id: 57,
+                uinput: std::env::temp_dir().join("output 'literal'"),
+                inputs: vec![std::env::temp_dir().join("input $literal space")],
+                session_provider: provider.clone(),
+            };
+            let output = a.uinput.clone();
+            let input = a.inputs[0].clone();
+            let argv = a.into_argv().unwrap();
+            assert_eq!(argv[0], LINUX_WORKER_ARGUMENT);
+            assert_eq!(argv[3], "--uinput");
+            assert_eq!(argv[4], output.as_os_str());
+            let parsed = LinuxArguments::parse(argv).unwrap();
+            assert_eq!(parsed.inputs, vec![input]);
+            assert_eq!(parsed.session_provider, provider);
+        }
+    }
+    #[test]
+    fn builder_rejects_zero_identity_and_duplicate_inputs_before_spawn() {
+        for (parent, run_id, duplicate) in [(0, 57, false), (42, 0, false), (42, 57, true)] {
+            let input = std::env::temp_dir().join("input");
+            let a = LinuxArguments {
+                parent,
+                run_id,
+                uinput: std::env::temp_dir().join("output"),
+                inputs: if duplicate {
+                    vec![input.clone(), input]
+                } else {
+                    vec![input]
+                },
+                session_provider: SessionProvider::None,
+            };
+            assert!(a.into_argv().is_err());
+        }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn native_run_and_non_unicode_path_round_trip_without_process_or_input() {
+        use std::os::unix::ffi::OsStringExt;
+        let identity = keyweave_linux::run_identity::RunIdentity::generate().unwrap();
+        let input = PathBuf::from(OsString::from_vec(b"/tmp/input-\xff".to_vec()));
+        let argv = LinuxArguments {
+            parent: std::process::id(),
+            run_id: identity.run_id(),
+            uinput: "/dev/uinput".into(),
+            inputs: vec![input.clone()],
+            session_provider: SessionProvider::None,
+        }
+        .into_argv()
+        .unwrap();
+        let parsed = LinuxArguments::parse(argv).unwrap();
+        assert!(parsed.run_id == identity.run_id());
+        assert_eq!(parsed.inputs, vec![input]);
     }
 }

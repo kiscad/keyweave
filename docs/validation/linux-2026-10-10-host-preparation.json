@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0082 Linux cold run identity, worker argv and native sibling locator",
+  "source_base_commit": "003f2b69b0d3876b4349e933ea2f281edb965029",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/run_identity.rs": "ff481f0552a976298aa3fb2dfd4feaa26ce94c6dee11430800d859e5bc1b65ea",
+    "crates/keyweave-linux/src/lib.rs": "693ed115263ec085c416f805a6641d3d58178ed8a0dd77afe951514fa6bdade8",
+    "crates/keyweave-worker/src/linux_arguments.rs": "47a055122185155f2a0280744d4baffb36890a8583b068b29439b073872ad784",
+    "crates/keyweave-host/src/lib.rs": "0959571008cdef16d519ef58ebaf078465c8a87ddb31cec4aea01ec1174cf3e4",
+    "crates/keyweave-host/src/main.rs": "51f9c55a893b228c90569802a64ea7d6d976e033bf41289bcf3159d8336c230a",
+    "tools/verify_linux_abi.py": "64ce6ea481f3278fa634bd1f616a92c610bf716dda661c9193cd69c6070560e5"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 843,
+    "test_session": 11179,
+    "test_terminal_exit": 0,
+    "clippy_session": 12831,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "local GNU C oracle verifies GRND_NONBLOCK/getrandom prototype plus prior native ABI; no RNG/device calls in C oracle",
+    "logs": {
+      "abi": {
+        "path": "target/validation/linux-20261010-host-preparation/abi.log",
+        "sha256": "6c5f3626efec7d8318730daa1c9af978862eeaa7c3bf9854f7190a8c4cfff8ea"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-host-preparation/clippy.log",
+        "sha256": "9bb495dcf9c6cd0879cac0078ff3e5149ca36f6d5c4fc07c23920a18ebb6c236"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-host-preparation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-host-preparation/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-host-preparation/workspace-tests.log",
+        "sha256": "559caec628bfb736f5237cecd394e29ce66d49cdfb98ba7543ebca7007ce0cf8"
+      }
+    }
+  },
+  "preliminary": {
+    "rng_test_session": 12276,
+    "rng_test_terminal_exit": 0,
+    "rng_tests": 4
+  },
+  "new_tests": {
+    "rng": 4,
+    "argv_builder": 3,
+    "owned_files_locator": 3
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "two portable builder tests need native Windows check; prior portable arguments/context/application native checks remain pending after unresolved automatic approval review quota failure; no new invocation attempted"
+  },
+  "limitations": [
+    "Cold components are implemented but complete Linux host/Supervisor/signal/process-group/run-linux wiring remains incomplete.",
+    "RunIdentity uses kernel getrandom NONBLOCK and exact eight bytes, zero retry bound4/error immediate; no fallback. RNG values are not logged or asserted probabilistically unique.",
+    "Getter can still be manually reused; future host must generate once per new spawn. Random run ID is not cross-user authentication or own-virtual provenance.",
+    "Argv builder uses fixed OsStrings and strict parser; lexical validation is not native capability/consumer/neutral proof.",
+    "Locator requires canonical regular file and at least one execute bit, not effective ACL/mount access, ELF validation, signature or atomic image identity; deployment trust and actual spawn checks remain necessary.",
+    "Actual kernel RNG and owned private /tmp file/symlink metadata tested; no image execution, VT/evdev/uinput, Hook/SendInput or driver operation performed.",
+    "Additional unsafe is confined to eight-byte getrandom FFI; no dependency/lockfile changes.",
+    "Full objective including graphical providers, suspend/session control, advanced rules, hotplug/add, LED, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}
