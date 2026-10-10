@@ -30,6 +30,8 @@ pub enum StopReason {
     OutputFault,
     ClockFault,
     ControlFault,
+    NoDevices,
+    EmergencyUnavailable,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
@@ -69,6 +71,8 @@ pub enum RuntimeError {
     IdentityExhausted,
     #[error("device context validity would overflow monotonic time")]
     ContextTimeOverflow,
+    #[error("device instance is unknown, retired or not captured")]
+    DeviceNotCaptured,
     #[error("physical key was unexpectedly bypassed by engine")]
     UnexpectedPass,
 }
@@ -78,6 +82,13 @@ pub struct PollReport {
     pub work: usize,
     pub pending: bool,
     pub progress_epoch: u64,
+}
+/// Control transaction status, not proof that queued output ups were accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RemovalReport {
+    pub device: DeviceInstanceId,
+    pub remaining_devices: usize,
+    pub phase: RuntimePhase,
 }
 struct Input<S: CaptureSource> {
     id: DeviceInstanceId,
@@ -352,8 +363,12 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         Ok(())
     }
     fn read_one(&mut self) -> Result<(), RuntimeError> {
-        let index = self.cursor;
-        self.cursor = (self.cursor + 1) % self.inputs.len();
+        // Closed tombstones retain stable indices for every buffered event.
+        let index = (0..self.inputs.len())
+            .map(|offset| (self.cursor + offset) % self.inputs.len())
+            .find(|index| self.inputs[*index].capture.phase() == CapturePhase::Captured)
+            .ok_or(RuntimeError::InputClosed)?;
+        self.cursor = (index + 1) % self.inputs.len();
         match self.inputs[index].capture.read_batch()? {
             ReadBatch::Closed => Err(RuntimeError::InputClosed),
             ReadBatch::WouldBlock => Ok(()),
@@ -558,6 +573,77 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 Err(error)
             }
         }
+    }
+    /// Trusted lifecycle/user controller only. Match the full instance and call
+    /// before ordinary poll/due work. This does not detect or authenticate unplug.
+    /// No rearm or slot reuse: a new device requires separate startup admission.
+    pub fn remove_device(
+        &mut self,
+        device: DeviceInstanceId,
+        now: MonoTime,
+    ) -> Result<RemovalReport, RuntimeError> {
+        if self.phase != RuntimePhase::Active {
+            return Err(RuntimeError::Stopped);
+        }
+        let index = self
+            .inputs
+            .iter()
+            .position(|input| input.id == device && input.capture.phase() == CapturePhase::Captured)
+            .ok_or(RuntimeError::DeviceNotCaptured)?;
+        if now < self.now {
+            self.stop(StopReason::ClockFault);
+            return Err(RuntimeError::ClockBackwards);
+        }
+        self.now = now;
+        // Physical client release precedes engine/output cleanup. Neither the
+        // normalizer nor discarded undelivered down events synthesize an up.
+        let input = &mut self.inputs[index];
+        input.capture.close();
+        input.normalizer.reset();
+        input.decoder = FrameDecoder::new();
+        input.emergency.reset();
+        self.raw.retain(|(slot, _)| *slot != index);
+        if self
+            .logical
+            .as_ref()
+            .is_some_and(|(slot, _)| *slot == index)
+        {
+            self.logical = None;
+        }
+        self.captured_devices.retain(|entry| entry.device != device);
+        self.context_refresh_at = now;
+        let remaining_devices = self
+            .inputs
+            .iter()
+            .filter(|input| input.capture.phase() == CapturePhase::Captured)
+            .count();
+        if remaining_devices == 0 {
+            self.stop(StopReason::NoDevices);
+        } else if !self.inputs.iter().any(|input| {
+            input
+                .capture
+                .probe()
+                .is_some_and(|probe| EmergencyChord::supported(&probe.capabilities.keys))
+        }) {
+            self.stop(StopReason::EmergencyUnavailable);
+        } else if let Err(error) = self.dispatch(index, InputEvent::DeviceRemoved) {
+            let reason = match &error {
+                RuntimeError::Output(_) | RuntimeError::IncompleteOutput => StopReason::OutputFault,
+                RuntimeError::IdentityExhausted => StopReason::ControlFault,
+                _ => StopReason::EngineFault,
+            };
+            self.stop(reason);
+            return Err(error);
+        }
+        Ok(RemovalReport {
+            device,
+            remaining_devices: self
+                .inputs
+                .iter()
+                .filter(|input| input.capture.phase() == CapturePhase::Captured)
+                .count(),
+            phase: self.phase,
+        })
     }
     pub fn pause(&mut self, now: MonoTime) -> Result<(), RuntimeError> {
         if now < self.now {
@@ -2064,5 +2150,364 @@ mod tests {
             assert!(submits(&trace).is_empty());
             assert_eq!(runtime.context_refresh_at, MonoTime(0));
         }
+    }
+    fn instance(id: u64) -> DeviceInstanceId {
+        DeviceInstanceId { id, generation: 1 }
+    }
+    #[test]
+    fn removal_keeps_other_owner_and_never_reads_the_retired_slot() {
+        let (mut runtime, trace) = make_runtime(
+            vec![
+                vec![frame(30, 1), Err(io::Error::other("retired slot read"))],
+                vec![frame(30, 1), frame(30, 0)],
+            ],
+            config(1, "b"),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.poll(MonoTime(1)).unwrap();
+        let epoch = runtime.progress_epoch();
+        let report = runtime.remove_device(instance(1), MonoTime(2)).unwrap();
+        assert_eq!(
+            report,
+            RemovalReport {
+                device: instance(1),
+                remaining_devices: 1,
+                phase: RuntimePhase::Active
+            }
+        );
+        assert_eq!(runtime.progress_epoch(), epoch);
+        assert_eq!(runtime.inputs.len(), 2);
+        assert_eq!(runtime.inputs[0].capture.phase(), CapturePhase::Closed);
+        assert_eq!(runtime.engine_state().bindings, 1);
+        assert_eq!(submits(&trace).len(), 1); // shared b remains down
+        runtime.poll(MonoTime(2)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(
+            submits(&trace),
+            vec![
+                (vec![NativeKey { code: 48, value: 1 }], false),
+                (vec![NativeKey { code: 48, value: 0 }], false)
+            ]
+        );
+        assert!(trace.borrow().contains(&Call::InputClose(1)));
+        assert!(!trace.borrow().contains(&Call::InputClose(2)));
+        assert_eq!(
+            runtime
+                .captured_devices
+                .iter()
+                .map(|d| d.device)
+                .collect::<Vec<_>>(),
+            vec![instance(2)]
+        );
+    }
+    #[test]
+    fn removal_releases_old_config_binding_after_capture_close_without_extra_taps() {
+        let mut cfg = (*config(1, "b")).clone();
+        cfg.simple.clear();
+        cfg.complex = vec![Mapping {
+            id: "a".into(),
+            from: "a".parse().unwrap(),
+            to: vec!["b".parse::<KeyId>().unwrap().into()],
+            allow_extra_modifiers: true,
+            extras: keyweave_engine::MappingExtras {
+                if_alone: vec!["c".parse::<KeyId>().unwrap().into()],
+                after_key_up: vec!["d".parse::<KeyId>().unwrap().into()],
+                ..Default::default()
+            },
+        }];
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)], vec![]], Arc::new(cfg));
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.activate(config(2, "e")).unwrap();
+        runtime.remove_device(instance(1), MonoTime(1)).unwrap();
+        assert!(runtime.submitted().contains(&"b".parse().unwrap())); // up is queued, not yet accepted
+        assert_eq!(trace.borrow()[1], Call::InputClose(1));
+        runtime.poll(MonoTime(1)).unwrap();
+        assert_eq!(
+            submits(&trace),
+            vec![
+                (vec![NativeKey { code: 48, value: 1 }], false),
+                (vec![NativeKey { code: 48, value: 0 }], false)
+            ]
+        );
+        assert_eq!(runtime.engine_state().bindings, 0);
+    }
+    #[test]
+    fn known_removal_wins_over_own_held_deadline_but_keeps_other_timer() {
+        let cfg = Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "remove held".into(),
+            simple: vec![],
+            complex: [("a", "b", "c"), ("d", "f", "g")]
+                .into_iter()
+                .map(|(from, to, held)| Mapping {
+                    id: from.into(),
+                    from: from.parse().unwrap(),
+                    to: vec![to.parse::<KeyId>().unwrap().into()],
+                    allow_extra_modifiers: true,
+                    extras: keyweave_engine::MappingExtras {
+                        if_held_down: vec![held.parse::<KeyId>().unwrap().into()],
+                        held_threshold_ns: 5,
+                        ..Default::default()
+                    },
+                })
+                .collect(),
+        });
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)], vec![frame(32, 1)]], cfg);
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.remove_device(instance(1), MonoTime(5)).unwrap();
+        runtime.poll(MonoTime(5)).unwrap();
+        let edges: Vec<_> = submits(&trace).into_iter().flat_map(|(e, _)| e).collect();
+        assert_eq!(
+            edges,
+            vec![
+                NativeKey { code: 48, value: 1 },
+                NativeKey { code: 33, value: 1 },
+                NativeKey { code: 48, value: 0 },
+                NativeKey { code: 33, value: 0 },
+                NativeKey { code: 34, value: 1 }
+            ]
+        );
+        assert_eq!(runtime.engine_state().bindings, 1);
+    }
+    #[test]
+    fn removal_cancels_delayed_work_even_after_original_key_up() {
+        let cfg = Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "remove pending".into(),
+            simple: vec![],
+            complex: vec![Mapping {
+                id: "a".into(),
+                from: "a".parse().unwrap(),
+                to: vec!["b".parse::<KeyId>().unwrap().into()],
+                allow_extra_modifiers: true,
+                extras: keyweave_engine::MappingExtras {
+                    delayed: Some(DelayedAction {
+                        if_invoked: vec!["c".parse::<KeyId>().unwrap().into()],
+                        if_canceled: vec!["d".parse::<KeyId>().unwrap().into()],
+                        delay_ns: 5,
+                    }),
+                    ..Default::default()
+                },
+            }],
+        });
+        let (mut runtime, trace) =
+            make_runtime(vec![vec![frame(30, 1), frame(30, 0)], vec![]], cfg);
+        for t in 0..3 {
+            runtime.poll(MonoTime(t)).unwrap();
+        }
+        assert!(runtime.engine.next_delayed().is_some());
+        runtime.remove_device(instance(1), MonoTime(5)).unwrap();
+        assert!(runtime.engine.next_delayed().is_none());
+        runtime.poll(MonoTime(10)).unwrap();
+        assert_eq!(
+            submits(&trace),
+            vec![
+                (vec![NativeKey { code: 48, value: 1 }], false),
+                (vec![NativeKey { code: 48, value: 0 }], false)
+            ]
+        );
+    }
+    #[test]
+    fn discarded_buffered_source_events_do_not_rebind_other_slot_or_invent_up() {
+        let cfg = device_config(
+            1,
+            "b",
+            DeviceProperties {
+                vendor_id: Some(2),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        let (mut runtime, trace) = make_runtime(vec![vec![], vec![]], cfg);
+        runtime
+            .raw
+            .extend([(0, Event::output(1, 30, 1)), (1, Event::output(1, 30, 1))]);
+        runtime.logical = Some((
+            0,
+            InputEvent::Key {
+                key: "a".parse().unwrap(),
+                edge: KeyEdge::Down,
+            },
+        ));
+        runtime.remove_device(instance(1), MonoTime(0)).unwrap();
+        assert!(submits(&trace).is_empty());
+        assert!(runtime.logical.is_none());
+        assert_eq!(runtime.raw.front().unwrap().0, 1);
+        runtime.poll(MonoTime(0)).unwrap();
+        assert_eq!(
+            submits(&trace),
+            vec![(vec![NativeKey { code: 48, value: 1 }], false)]
+        );
+        assert_eq!(runtime.inputs[1].id, instance(2));
+    }
+    #[test]
+    fn stale_unknown_and_duplicate_removal_cannot_advance_or_touch_live_capture() {
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)], vec![]], config(1, "b"));
+        runtime.poll(MonoTime(10)).unwrap();
+        let seq = runtime.seq;
+        let count = trace.borrow().len();
+        for device in [
+            instance(99),
+            DeviceInstanceId {
+                id: 1,
+                generation: 2,
+            },
+            DeviceInstanceId {
+                id: 1,
+                generation: 0,
+            },
+        ] {
+            assert!(matches!(
+                runtime.remove_device(device, MonoTime(u64::MAX)),
+                Err(RuntimeError::DeviceNotCaptured)
+            ));
+            assert_eq!(runtime.now, MonoTime(10));
+            assert_eq!(runtime.seq, seq);
+            assert_eq!(trace.borrow().len(), count);
+        }
+        runtime.remove_device(instance(1), MonoTime(11)).unwrap();
+        let seq = runtime.seq;
+        assert!(matches!(
+            runtime.remove_device(instance(1), MonoTime(12)),
+            Err(RuntimeError::DeviceNotCaptured)
+        ));
+        assert_eq!(runtime.seq, seq);
+        assert_eq!(runtime.now, MonoTime(11));
+        assert_eq!(runtime.inputs[1].capture.phase(), CapturePhase::Captured);
+    }
+    #[test]
+    fn last_device_removal_uses_finite_recovery_without_claiming_output_is_clear() {
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        runtime.poll(MonoTime(0)).unwrap();
+        let report = runtime.remove_device(instance(1), MonoTime(1)).unwrap();
+        assert_eq!(report.remaining_devices, 0);
+        assert_eq!(report.phase, RuntimePhase::Recovering);
+        assert_eq!(runtime.stop_reason(), Some(StopReason::NoDevices));
+        assert!(!runtime.submitted().is_empty());
+        assert_eq!(trace.borrow()[1], Call::InputClose(1));
+        runtime.poll(MonoTime(1)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        assert!(runtime.submitted().is_empty());
+        assert!(matches!(
+            runtime.remove_device(instance(1), MonoTime(2)),
+            Err(RuntimeError::Stopped)
+        ));
+    }
+    #[test]
+    fn removal_sequence_failure_and_backward_clock_close_all_before_recovery() {
+        for sequence in [true, false] {
+            let (mut runtime, trace) =
+                make_runtime(vec![vec![frame(30, 1)], vec![]], config(1, "b"));
+            runtime.poll(MonoTime(10)).unwrap();
+            if sequence {
+                runtime.seq = u64::MAX;
+            }
+            let result =
+                runtime.remove_device(instance(1), MonoTime(if sequence { 11 } else { 9 }));
+            if sequence {
+                assert!(matches!(result, Err(RuntimeError::IdentityExhausted)));
+                assert_eq!(runtime.stop_reason(), Some(StopReason::ControlFault));
+            } else {
+                assert!(matches!(result, Err(RuntimeError::ClockBackwards)));
+                assert_eq!(runtime.stop_reason(), Some(StopReason::ClockFault));
+            }
+            assert_eq!(
+                &trace.borrow()[1..],
+                &[Call::InputClose(1), Call::InputClose(2)]
+            );
+            runtime.poll(runtime.now).unwrap();
+            assert!(runtime.submitted().is_empty());
+        }
+    }
+    #[test]
+    fn removal_output_short_write_stops_remaining_capture_before_recovery() {
+        let (inputs, mut backend, trace) = resources(vec![vec![frame(30, 1)], vec![]]);
+        backend.receipts.extend([
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Ok(FrameWrite::Incomplete {
+                accepted: 1,
+                report_pending: true,
+            }),
+        ]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.remove_device(instance(1), MonoTime(1)).unwrap();
+        assert!(matches!(
+            runtime.poll(MonoTime(1)),
+            Err(RuntimeError::IncompleteOutput)
+        ));
+        assert_eq!(runtime.stop_reason(), Some(StopReason::OutputFault));
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.phase(), RuntimePhase::Recovering); // empty ledger does not finish REPORT
+        runtime.poll(MonoTime(1)).unwrap();
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        let calls = trace.borrow();
+        let remaining_close = calls
+            .iter()
+            .position(|c| *c == Call::InputClose(2))
+            .unwrap();
+        let flush = calls.iter().position(|c| *c == Call::Flush).unwrap();
+        assert!(remaining_close < flush);
+        assert!(!calls.iter().any(|c| matches!(c, Call::Submit(_, true)))); // up was already accepted
+    }
+    #[test]
+    fn ambiguous_native_enodev_still_stops_every_capture() {
+        let (mut runtime, trace) = make_runtime(
+            vec![
+                vec![frame(30, 1), Err(io::Error::from_raw_os_error(19))],
+                vec![],
+            ],
+            config(1, "b"),
+        );
+        runtime.poll(MonoTime(0)).unwrap();
+        runtime.poll(MonoTime(1)).unwrap();
+        assert!(matches!(
+            runtime.poll(MonoTime(2)),
+            Err(RuntimeError::Capture(CaptureError::Read(_)))
+        ));
+        assert_eq!(runtime.stop_reason(), Some(StopReason::InputFault));
+        assert!(
+            trace.borrow().contains(&Call::InputClose(1))
+                && trace.borrow().contains(&Call::InputClose(2))
+        );
+    }
+    #[test]
+    fn removal_of_last_emergency_interface_restores_remaining_physical_input() {
+        let (mut inputs, backend, trace) = resources(vec![vec![frame(30, 1)]]);
+        let output = node_for_removal_test(&backend);
+        let proof = OutputNodeReady::verify(&backend.spec, &backend.path, &output).unwrap();
+        let mut consumer = probe("/sys/devices/mock/input/consumer2");
+        consumer.capabilities.keys = bits(768, &[113]);
+        let mut input = CaptureDevice::new(Source {
+            id: 2,
+            probe: consumer,
+            reads: VecDeque::new(),
+            trace: trace.clone(),
+        });
+        assert_eq!(input.arm(&proof).unwrap(), ArmResult::Captured);
+        inputs.push((instance(2), input));
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        let report = runtime.remove_device(instance(1), MonoTime(1)).unwrap();
+        assert_eq!(report.remaining_devices, 0);
+        assert_eq!(report.phase, RuntimePhase::Recovering);
+        assert_eq!(
+            runtime.stop_reason(),
+            Some(StopReason::EmergencyUnavailable)
+        );
+        assert_eq!(
+            &trace.borrow()[1..],
+            &[Call::InputClose(1), Call::InputClose(2)]
+        );
+        runtime.poll(MonoTime(1)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        assert!(runtime.submitted().is_empty());
+    }
+    fn node_for_removal_test(backend: &Backend) -> Probe {
+        probe(backend.path.to_str().unwrap())
     }
 }

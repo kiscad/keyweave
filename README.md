@@ -100,3 +100,5 @@ Windows host终止报告现显示稳定worker退出码的分类与处理建议�
 Windows终止报告现保留 worker 同时出现的独立故障事实（例如恢复未确认、访问丢失、会话变化），同时保留父侧监督与资源结果。[设计](docs/ADR-0065-independent-terminal-evidence.md)。
 
 Linux runtime已将捕获设备的vendor/product接入设备条件，并区分部分与完整设备列表，避免把未捕获设备误判为不存在。[设计](docs/ADR-0066-linux-device-context.md)。真实设备和完整Linux启动验收继续。
+
+Linux runtime已支持可信控制器按完整device generation移除单个捕获实例，保留其他键盘的按键所有权；自动热插拔监控与重新准入继续开发。[设计](docs/ADR-0067-linux-device-removal.md)。

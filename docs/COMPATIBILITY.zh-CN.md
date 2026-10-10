@@ -92,3 +92,5 @@ ADR-0049把Windows owned Job准入放入CreateProcessW扩展启动事务，无�
 Windows新增native overlapped pipe transport（ADR-0050）：私有单向byte pair、64-byte稳定buffer/单flight/不可继承句柄，与共享v1协议相容；pending不等于发送完成，changed pending write拒绝。显式取消只有event completion确认后才能回收；Drop未完成会保留资源并毒化线程，不承诺全部回收。双架构无输入原生例程验证same-process往返/EOF/cancel；fixture epochs不表示真实runtime活性，尚无child端句柄交付/启动鉴别或独立progress supervisor。
 
 Linux Runtime已连接captured Probe vendor/product与device条件：current-device匹配使用完整DeviceInstanceId/generation，其他属性无证明保持Unknown。ContextSnapshot的device_inventory_scope=partial表示仅部分设备；已知存在可True，未匹配不足以证明不存在，exists_unless不变True。Complete继续旧完整inventory语义，缺字段只沿用旧provider契约；Linux runtime始终发Partial。1h有效期与半小时bounded刷新保持绝对时钟和原持键release，仍未证明全局inventory/热插拔/consumer-ready/真实设备验收。[ADR-0066](ADR-0066-linux-device-context.md)。
+
+Linux runtime新增单实例remove_device控制：完整device/generation匹配，关闭该捕获后仅清其owner/timer/未交付buffer，其他设备同键仍持有输出；last-device/emergency loss进入原整体有限恢复。tombstone保持slot身份，不重排队列。自动检测、可信hotplug绑定和device add尚未实现，普通IO/ENODEV/HUP仍全局故障恢复；不能将控制事务等同自动热插拔。[ADR-0067](ADR-0067-linux-device-removal.md)。

@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0067 Linux exact-instance device removal control transaction",
+  "source_base_commit": "f9aa059878170a43a383a02afdbeefcfbe42f588",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "c0d995dfc75443b082d62ef20acf4c6f",
+      "workspace_tests_passed": 702,
+      "source_files_hash_checked": 195,
+      "source_mismatches": 0,
+      "validation_session": 40966,
+      "validation_terminal_exit": 0,
+      "fmt_session": 39426,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-device-removal-x64-1.97.1",
+      "manifest_sha256": "61e3bc8a067efd78406792e4c7f894c1760fb690cb607c4b1fe257067436af90"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "0fc2258b52c64573b778b9e1dcc3ec27",
+      "workspace_tests_passed": 702,
+      "source_files_hash_checked": 195,
+      "source_mismatches": 0,
+      "validation_session": 40966,
+      "validation_terminal_exit": 0,
+      "fmt_session": 39426,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-device-removal-x86-1.97.1",
+      "manifest_sha256": "61e3bc8a067efd78406792e4c7f894c1760fb690cb607c4b1fe257067436af90"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 728,
+    "test_session": 81759,
+    "test_terminal_exit": 0,
+    "clippy_session": 91069,
+    "clippy_terminal_exit": 0,
+    "worker_parent_harness": "passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "unchanged; not rerun this component",
+    "raw_evidence": "target/validation/linux-20261010-device-removal"
+  },
+  "preliminary": [
+    {
+      "session": 56316,
+      "terminal_exit": 0,
+      "scope": "baseline before 11 new tests; not final evidence"
+    },
+    {
+      "session": 74791,
+      "terminal_exit": 101,
+      "reason": "one new test supplied invalid accepted=0/report_pending=false output receipt",
+      "fix": "use physically valid accepted=1/report_pending=true short SYN_REPORT receipt; assert empty ledger still requires flush and capture closes first; production receipt checks unchanged"
+    }
+  ],
+  "limitations": [
+    "Trusted controller API only; no native hotplug detection or event authentication.",
+    "Exact full device identity/generation required before ordinary poll/due; no add/rearm or slot reuse.",
+    "NoDevices/EmergencyUnavailable triggers whole-runtime bounded recovery; transaction report does not prove queued ups accepted.",
+    "ENODEV/HUP may reflect revoked capture; ordinary read/wait errors remain whole-runtime faults.",
+    "All new runtime tests use mocks; no real evdev grab/uinput, Hook/SendInput, or driver install/load.",
+    "No new host/native input fixture needed or run; existing SDK oracle is regression coverage only.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Full bootstrap/consumer readiness, native hotplug/LED/context providers, advanced timing/simultaneous, Windows hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}
