@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0073 Windows SessionActor context ingress",
+  "source_base_commit": "edbf8b1ebcccda5024c4fc9da06b1984aed99a15",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/runtime.rs": "47ee44478897284c4f05acbafc860a287511fafd84a73db8b78eb0b41d664f67",
+    "crates/keyweave-windows/src/runtime/tests.rs": "be6340470acc8237c445abf9417f8eaecd1a3ca297c99aa9a55eb3044ab5bb6b"
+  },
+  "linux": {
+    "rust": "1.97.1",
+    "workspace_tests_passed": 779,
+    "test_session": 82281,
+    "test_terminal_exit": 0,
+    "clippy_session": 88753,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "commands": [
+      "RUSTUP_TOOLCHAIN=stable cargo test --locked --offline --workspace",
+      "RUSTUP_TOOLCHAIN=stable cargo clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "RUSTUP_TOOLCHAIN=stable cargo fmt --all --check",
+      "python3 tools/verify_sources.py"
+    ],
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261010-windows-context-ingress/tests.log",
+        "sha256": "b075f34065fe5476d61338095512a1e854d507f570c0b6fb326d2a0aa74b3467"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-windows-context-ingress/clippy.log",
+        "sha256": "6085068828b16acf355ced2cb58da70e4aabb82bedbb1181fd9c5bf9dd2b4275"
+      }
+    }
+  },
+  "windows": {
+    "status": "not executed",
+    "reason": "Automatic approval review could not complete because of usage limit; this was a review failure, not a safety determination. No bypass attempted.",
+    "attempted_wrapper": "/tmp/keyweave-windows-pinned-validate.ps1",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "i686-pc-windows-msvc"
+    ],
+    "historical_reports_apply_to_this_change": false
+  },
+  "new_tests": 4,
+  "limitations": [
+    "Actor API only; native foreground-application provider and CaptureSession/worker delivery remain incomplete.",
+    "No Hook/SendInput/evdev grab/uinput creation or driver operation performed.",
+    "Due work can run before an invalid context is rejected; caller must unhook before recovery.",
+    "Windows native compilation for this change remains unverified.",
+    "Advanced duration/simultaneous, complete Linux bootstrap/readiness/hotplug/add, hot configuration, GUI, packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

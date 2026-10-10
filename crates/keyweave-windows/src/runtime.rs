@@ -227,6 +227,26 @@ impl<B: SendBackend> SessionActor<B> {
         let result = self.advance(now).and_then(|()| self.due(&mut 0));
         self.result(result)
     }
+    /// Deliver a trusted provider snapshot outside the Hook callback. Due work
+    /// uses the previous context before this control event, like ordinary input.
+    /// The host supplies the actor's clock domain and merges independent fields;
+    /// this method neither samples OS state nor proves provider completeness.
+    /// Invalid snapshots stop capture; existing bindings still require unhook-
+    /// first recovery. Updating context doesn't rematch held input or activate.
+    pub fn context_changed(
+        &mut self,
+        context: ContextSnapshot,
+        now: MonoTime,
+    ) -> Result<(), RuntimeError> {
+        let result = (|| {
+            self.advance(now)?;
+            let mut work = 0;
+            self.due(&mut work)?;
+            self.dispatch(InputEvent::ContextChanged { context }, &mut work)?;
+            self.due(&mut work)
+        })();
+        self.result(result)
+    }
     /// Called synchronously by HookDispatcher, with resolved Scan 1 identity.
     pub fn key(
         &mut self,

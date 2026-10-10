@@ -65,6 +65,27 @@ fn event(usage: u16, edge: KeyEdge) -> HookEvent {
     }
 }
 type Calls = Rc<RefCell<Vec<Vec<keys::KeyboardPacket>>>>;
+fn application_condition(unless: bool) -> Condition {
+    Condition::Application {
+        bundle_identifiers: vec![],
+        file_paths: vec![keyweave_engine::Pattern::compile("^editor$").unwrap()],
+        unless,
+    }
+}
+fn context(revision: u64, at: u64, until: u64, path: Option<&str>) -> ContextSnapshot {
+    ContextSnapshot {
+        revision,
+        provider: "test-only".into(),
+        observed_at_ns: MonoTime(at),
+        valid_until_ns: MonoTime(until),
+        application: path.map(|path| ApplicationContext {
+            bundle_identifier: None,
+            file_path: Some(path.into()),
+        }),
+        device_inventory_scope: DeviceInventoryScope::Partial,
+        ..Default::default()
+    }
+}
 fn actor(
     config: Arc<ConfigSnapshot>,
     replies: Vec<Result<Insertion, SubmitError>>,
@@ -111,6 +132,112 @@ fn dispatcher_engine_output_pipeline_captures_passthrough_once() {
     );
     actor.borrow_mut().stop_after_unhook().unwrap();
     assert_eq!(actor.borrow().phase(), ActorPhase::Stopped);
+}
+#[test]
+fn context_updates_affect_new_input_without_rematching_held_owners() {
+    let mut map = mapping(4, 5);
+    map.extras.conditions = vec![application_condition(false)];
+    let (mut actor, calls) = actor(config(1, vec![map]), vec![]);
+    actor
+        .context_changed(context(1, 0, 100, Some("editor")), MonoTime(0))
+        .unwrap();
+    assert!(calls.borrow().is_empty());
+    actor.key(event(4, KeyEdge::Down), MonoTime(1)).unwrap();
+    actor
+        .context_changed(context(2, 2, 100, None), MonoTime(2))
+        .unwrap();
+    assert_eq!(
+        actor.output.ledger().desired(),
+        &std::collections::BTreeSet::from([key(5)])
+    );
+    actor.key(event(4, KeyEdge::Up), MonoTime(3)).unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(4)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(5)).unwrap();
+    assert_eq!(actor.seq, 6);
+    assert_eq!(
+        calls
+            .borrow()
+            .iter()
+            .flatten()
+            .map(|p| (p.scan, p.flags))
+            .collect::<Vec<_>>(),
+        vec![(0x30, 8), (0x30, 10), (0x1e, 8), (0x1e, 10)]
+    );
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn expired_or_missing_context_does_not_enable_unless() {
+    let mut map = mapping(4, 5);
+    map.extras.conditions = vec![application_condition(true)];
+    let (mut actor, calls) = actor(config(1, vec![map]), vec![]);
+    for (revision, at, until, path) in [(1, 0, 2, Some("other")), (2, 4, 10, None)] {
+        actor
+            .context_changed(context(revision, at, until, path), MonoTime(at))
+            .unwrap();
+        let now = if revision == 1 { 2 } else { at };
+        actor.key(event(4, KeyEdge::Down), MonoTime(now)).unwrap();
+        actor.key(event(4, KeyEdge::Up), MonoTime(now + 1)).unwrap();
+    }
+    assert!(calls.borrow().iter().flatten().all(|p| p.scan == 0x1e));
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn context_at_held_deadline_runs_due_actions_with_previous_snapshot() {
+    let mut map = mapping(4, 5);
+    let mut held: keyweave_engine::Action = key(6).into();
+    held.conditions = vec![application_condition(false)];
+    map.extras.if_held_down = vec![held];
+    map.extras.held_threshold_ns = 10;
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "context held".into(),
+        simple: vec![],
+        complex: vec![map],
+    });
+    let (mut actor, calls) = actor(cfg, vec![]);
+    actor
+        .context_changed(context(1, 0, 100, Some("editor")), MonoTime(0))
+        .unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(0)).unwrap();
+    actor
+        .context_changed(context(2, 10, 100, None), MonoTime(10))
+        .unwrap();
+    assert_eq!(
+        actor.output.ledger().desired(),
+        &std::collections::BTreeSet::from([key(6)])
+    );
+    assert_eq!(actor.seq, 4); // Context, down, timer, context share one sequence.
+    actor.key(event(4, KeyEdge::Up), MonoTime(11)).unwrap();
+    assert_eq!(
+        calls
+            .borrow()
+            .iter()
+            .flatten()
+            .map(|p| (p.scan, p.flags))
+            .collect::<Vec<_>>(),
+        vec![(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
+    );
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn invalid_context_stops_actor_and_retains_output_for_unhook_first_recovery() {
+    let (mut actor, calls) = actor(config(1, vec![]), vec![]);
+    actor
+        .context_changed(context(1, 0, 100, None), MonoTime(0))
+        .unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(1)).unwrap();
+    let before = actor.seq;
+    assert!(matches!(
+        actor.context_changed(context(1, 2, 100, None), MonoTime(2)),
+        Err(RuntimeError::Engine(EngineError::InvalidContext))
+    ));
+    assert_eq!(actor.seq, before);
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert_eq!(calls.borrow().len(), 1);
+    assert!(actor.output.ledger().submitted().contains(&key(4)));
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(actor.phase(), ActorPhase::Stopped);
+    assert!(actor.output.ledger().submitted().is_empty());
 }
 #[test]
 fn held_binding_uses_old_config_then_new_down_uses_new_config() {
