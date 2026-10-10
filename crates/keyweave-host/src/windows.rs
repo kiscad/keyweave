@@ -60,6 +60,9 @@ impl std::fmt::Display for Report {
                 ", worker_classification={}, message={}, remediation={}",
                 diagnostic.code, diagnostic.message, diagnostic.remediation
             )?;
+            if let Some(evidence) = diagnostic.terminal {
+                write!(f, ", terminal_issues={evidence:?}")?;
+            }
         }
         Ok(())
     }
@@ -404,6 +407,22 @@ mod tests {
             assert!(report.to_string().contains(&raw.to_string()));
             assert!(!report.successful());
         }
+    }
+    #[test]
+    fn terminal_evidence_keeps_all_issues_without_overriding_supervisor_failure() {
+        let report = Report {
+            startup_cancelled: false,
+            worker_exit: Some(0x4b57_03ff),
+            reason: Some(TerminationReason::Requested),
+            resources_complete: false,
+            progress_epoch: 3,
+            diagnostics: vec!["parent cleanup failed".into()],
+        };
+        let text = report.to_string();
+        assert!(text.contains("KW-WORKER-069"));
+        assert!(text.contains("[Fault, ProgressFailed, ShutdownMissing, StoppedUnconfirmed, UnhookUnconfirmed, RecoveryUnconfirmed, NotificationsUnconfirmed, AccessLost, SessionChanged, UntrackedInput]"));
+        assert!(text.contains("Requested") && text.contains("parent cleanup failed"));
+        assert!(!report.successful());
     }
     #[test]
     fn repeated_errors_deduplicate_and_overflow_is_visible_and_bounded() {

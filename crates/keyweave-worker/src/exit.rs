@@ -16,6 +16,7 @@ pub enum WorkerExit {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExitDiagnostic {
     pub raw_code: u32,
+    pub terminal: Option<crate::TerminalEvidence>,
     pub code: &'static str,
     pub message: &'static str,
     pub remediation: &'static str,
@@ -40,7 +41,12 @@ impl ExitDiagnostic {
     /// Caller must obtain `raw_code` from the actual owned process exit.
     /// A chosen developer image can return any code; this is not image attestation.
     pub const fn observed(raw_code: u32) -> Self {
-        let (code, message, remediation) = match WorkerExit::from_code(raw_code) {
+        let terminal = crate::TerminalEvidence::decode(raw_code);
+        let classification = match terminal {
+            Some(evidence) => Some(evidence.classification()),
+            None => WorkerExit::from_code(raw_code),
+        };
+        let (code, message, remediation) = match classification {
             Some(WorkerExit::Clean) => (
                 "KW-WORKER-000",
                 "worker reported clean termination",
@@ -89,6 +95,7 @@ impl ExitDiagnostic {
         };
         Self {
             raw_code,
+            terminal,
             code,
             message,
             remediation,

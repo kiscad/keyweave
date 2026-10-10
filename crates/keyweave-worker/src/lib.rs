@@ -12,7 +12,9 @@ pub const ARGUMENT_COUNT: usize = 9;
 pub const MAX_ARGUMENT_COUNT: usize = 11;
 
 mod exit;
+mod terminal;
 pub use exit::{ExitDiagnostic, WorkerExit};
+pub use terminal::{NativeWorkerExit, TerminalEvidence, TerminalIssue};
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid private worker arguments")]

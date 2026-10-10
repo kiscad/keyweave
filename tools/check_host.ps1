@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ValidationRoot,
     [ValidateSet('x64','x86')][string]$Arch='x64',
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$Toolchain='1.97.1',
-    [switch]$ConsoleEvents
+    [switch]$ConsoleEvents,
+    [switch]$TerminalEvidence
 )
 $ErrorActionPreference='Stop'
 if ($ValidationRoot -match '[%!^"\r\n]' -or $ValidationRoot.StartsWith('\\')) { throw 'Windows-local validation path required' }
@@ -38,7 +39,9 @@ New-Item -ItemType Directory -Path $casesRoot | Out-Null
 $config=Join-Path $casesRoot 'synthetic.jsonc'
 [IO.File]::WriteAllText($config,'{"profiles":[{"name":"host fixture","selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b"}]}]}]}',(New-Object Text.UTF8Encoding $false))
 $results=@()
-foreach ($mode in @('active','standby','stop_stall','startup_stall','invalid_pe')) {
+$modes=@('active','standby','stop_stall','startup_stall','invalid_pe')
+if ($TerminalEvidence) {$modes+=@('terminal_loop','terminal_cleanup')}
+foreach ($mode in $modes) {
     $dir=Join-Path $casesRoot $mode
     New-Item -ItemType Directory -Path $dir | Out-Null
     $worker=$fixture
@@ -70,6 +73,16 @@ foreach ($mode in @('active','standby','stop_stall','startup_stall','invalid_pe'
             if ($stdout -notmatch 'worker_exit=Some\(0\), reason=Some\(Cooperative\), resources_complete=true') {throw 'natural stop/cleanup not confirmed'}
             if ($mode -eq 'active' -and ($stdout -notmatch 'progress_epoch=([0-9]+)' -or [UInt64]$Matches[1] -eq 0)) {throw 'active fixture progress not observed'}
             if ($mode -eq 'standby' -and $stdout -notmatch 'progress_epoch=0,') {throw 'standby minted progress'}
+        } elseif ($mode -in @('terminal_loop','terminal_cleanup')) {
+            $native=if ($mode -eq 'terminal_loop') {[UInt32]0x4b570003} else {[UInt32]0x4b5703ff}
+            $classification=if ($mode -eq 'terminal_loop') {'KW-WORKER-068'} else {'KW-WORKER-069'}
+            if ($stdout -notmatch ('worker_exit=Some\('+[string]$native+'\), reason=Some\(Cooperative\), resources_complete=true') -or $stdout -notmatch $classification) {throw 'terminal native code/classification lost'}
+            if ($stdout -notmatch 'terminal_issues=\[Fault, ProgressFailed') {throw 'independent loop evidence lost'}
+            if ($mode -eq 'terminal_cleanup') {
+                foreach ($issue in @('ShutdownMissing','StoppedUnconfirmed','UnhookUnconfirmed','RecoveryUnconfirmed','NotificationsUnconfirmed','AccessLost','SessionChanged','UntrackedInput')) {
+                    if ($stdout -notmatch $issue) {throw ('independent terminal issue lost: '+$issue)}
+                }
+            }
         } elseif ($mode -eq 'invalid_pe') {
             if ($stderr -notmatch 'worker startup failed:.*resources_complete=true') {throw 'invalid PE explicit rollback not confirmed'}
         } else {

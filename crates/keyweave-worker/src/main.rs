@@ -1,5 +1,5 @@
 //! Real process main; binary stdin/stderr must never be read/formatted by stdio.
-use keyweave_worker::{Arguments, WorkerExit};
+use keyweave_worker::{Arguments, NativeWorkerExit, WorkerExit};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -10,17 +10,17 @@ fn main() -> ExitCode {
         Ok(args) => args,
         Err(_) => return ExitCode::from(WorkerExit::Arguments as u8),
     };
-    ExitCode::from(execute(args) as u8)
+    finish(execute(args))
 }
 
 #[cfg(not(windows))]
-fn execute(_args: Arguments) -> WorkerExit {
+fn execute(_args: Arguments) -> NativeWorkerExit {
     // Linux bootstrap remains a separate task; never silently run without it.
-    WorkerExit::UnsupportedPlatform
+    WorkerExit::UnsupportedPlatform.into()
 }
 
 #[cfg(windows)]
-fn execute(args: Arguments) -> WorkerExit {
+fn execute(args: Arguments) -> NativeWorkerExit {
     use keyweave_windows::{
         NotificationCleanup, SendInputBackend, Worker, WorkerStartup, WorkerStopReason,
         runtime::ActorPhase,
@@ -29,17 +29,17 @@ fn execute(args: Arguments) -> WorkerExit {
     // stdio before this claim. Rejection is final; never retry/install directly.
     let mut startup = match WorkerStartup::claim(args.parent, args.run_id) {
         Ok(startup) => startup,
-        Err(_) => return WorkerExit::Admission,
+        Err(_) => return WorkerExit::Admission.into(),
     };
     let loaded = if let Some(value) = args.config_handle {
         let mut reader = match startup.claim_config_reader(value) {
             Ok(reader) => reader,
-            Err(_) => return WorkerExit::Admission,
+            Err(_) => return WorkerExit::Admission.into(),
         };
         // Consume the inherited file object, never reopen the diagnostic path.
         let loaded = keyweave_worker::load_config(&mut reader);
         if reader.close().is_err() {
-            return WorkerExit::Cleanup;
+            return WorkerExit::Cleanup.into();
         }
         loaded
     } else {
@@ -51,26 +51,26 @@ fn execute(args: Arguments) -> WorkerExit {
     };
     let config = match loaded {
         Ok(config) => config,
-        Err(_) => return WorkerExit::Config,
+        Err(_) => return WorkerExit::Config.into(),
     };
     // This constructor allocates only; it does not install or inject input.
     let backend = SendInputBackend::new(args.tag);
     let mut worker = match Worker::install(startup, backend, args.tag, args.identity, config) {
         Ok(worker) => worker,
-        Err(_) => return WorkerExit::Install,
+        Err(_) => return WorkerExit::Install.into(),
     };
-    if worker.run().is_err() {
+    let run_failed = worker.run().is_err();
+    if run_failed {
         let _ = worker.request_stop();
-        return WorkerExit::Loop;
     }
     let Some(report) = worker.report() else {
-        return WorkerExit::Loop;
+        return WorkerExit::Loop.into();
     };
     let Some(shutdown) = worker.shutdown_report() else {
-        return WorkerExit::Cleanup;
+        return WorkerExit::Cleanup.into();
     };
     let outcome = keyweave_worker::TerminalFacts {
-        fault: report.reason == WorkerStopReason::Fault || report.primary.is_some(),
+        fault: run_failed || report.reason == WorkerStopReason::Fault || report.primary.is_some(),
         progress_failed: report.progress.is_some(),
         shutdown_present: true,
         stopped: worker.phase() == ActorPhase::Stopped,
@@ -81,10 +81,26 @@ fn execute(args: Arguments) -> WorkerExit {
         session_changed: shutdown.session_changed,
         untracked_input: shutdown.untracked_input,
     }
-    .exit();
+    .native_exit();
     // Explicit Session shutdown already ran. Drop does not inject. Returning
     // exits the real process and releases original borrowed binary std handles.
-    // A scalar exit code is classification, not a full error/ledger report.
+    // Terminal mask preserves independent facts, not API details/ledger proof.
     drop(worker);
     outcome
+}
+
+#[cfg(windows)]
+fn finish(outcome: NativeWorkerExit) -> ExitCode {
+    // execute has returned and dropped all owners, including worker. Stable
+    // ExitCode only accepts u8; preserve the Windows mask without skipping an
+    // active owner's Drop. The closed outcome type guarantees nonnegative i32.
+    match u8::try_from(outcome.raw()) {
+        Ok(code) => ExitCode::from(code),
+        Err(_) => std::process::exit(outcome.native_i32()),
+    }
+}
+#[cfg(not(windows))]
+fn finish(_outcome: NativeWorkerExit) -> ExitCode {
+    // Non-Windows execute only emits the legacy UnsupportedPlatform code.
+    ExitCode::from(WorkerExit::UnsupportedPlatform as u8)
 }

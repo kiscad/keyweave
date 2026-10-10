@@ -31,7 +31,16 @@ fn main() {
         Err(_) => std::process::exit(25),
     };
     let mode = std::env::var("KEYWEAVE_HOST_FIXTURE_MODE").unwrap_or_default();
-    if !["active", "standby", "stop_stall", "startup_stall"].contains(&mode.as_str()) {
+    if ![
+        "active",
+        "standby",
+        "stop_stall",
+        "startup_stall",
+        "terminal_loop",
+        "terminal_cleanup",
+    ]
+    .contains(&mode.as_str())
+    {
         std::process::exit(26)
     }
     let mut epoch = 1u64;
@@ -46,6 +55,26 @@ fn main() {
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
+                }
+                if mode.starts_with("terminal_") {
+                    // Synthetic terminal evidence only; never a CaptureSession.
+                    let cleanup = mode == "terminal_cleanup";
+                    let outcome = keyweave_worker::TerminalFacts {
+                        fault: true,
+                        progress_failed: true,
+                        shutdown_present: !cleanup,
+                        stopped: !cleanup,
+                        unhook_ok: !cleanup,
+                        recovery_ok: !cleanup,
+                        notifications_ok: !cleanup,
+                        access_lost: cleanup,
+                        session_changed: cleanup,
+                        untracked_input: cleanup,
+                    }
+                    .native_exit();
+                    // Do not use process::exit while owning protocol resources.
+                    drop(client);
+                    std::process::exit(outcome.native_i32());
                 }
                 std::process::exit(0)
             }
