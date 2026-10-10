@@ -24,6 +24,9 @@ pub enum ActivationError {
     Inputs,
     #[error("invalid capture group phase")]
     Phase,
+    #[cfg(target_os = "linux")]
+    #[error("console observation is stale or belongs to another output")]
+    ConsoleNotReady,
     #[error(transparent)]
     Engine(#[from] EngineError),
     #[error(transparent)]
@@ -173,6 +176,25 @@ impl<S: CaptureSource> CaptureGroup<S> {
             self.close();
         }
         result
+    }
+    /// Initial text-console gate, checked before any neutral query or grab.
+    /// The caller supplies current monotonic time and independent supervision.
+    /// This is not an active lease: reobserve after admission, before Runtime
+    /// dispatch, and throughout the active loop; close capture on lost evidence.
+    #[cfg(target_os = "linux")]
+    pub fn try_arm_console(
+        &mut self,
+        output: &OutputNodeReady<'_>,
+        ready: &crate::console::ConsoleReady,
+        now: keyweave_types::MonoTime,
+    ) -> Result<ArmResult, ActivationError> {
+        if self.phase != GroupPhase::Standby {
+            return Err(ActivationError::Phase);
+        }
+        if !ready.fresh_for(output.input_syspath(), now) {
+            return Err(ActivationError::ConsoleNotReady);
+        }
+        self.try_arm(output)
     }
     pub fn close(&mut self) {
         for (_, input) in &mut self.inputs {
@@ -386,6 +408,55 @@ mod tests {
     }
     fn held() -> io::Result<Bits> {
         Ok(bits(768, &[30]))
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn console_rejection_precedes_all_queries_and_grabs_and_keeps_standby() {
+        let trace = Trace::default();
+        let mut group = CaptureGroup::new(inputs(vec![source(1, &trace)]), config()).unwrap();
+        let spec = spec();
+        let node = probe(OUTPUT);
+        let proof = proof(&spec, &node);
+        for (path, observed, until, now) in [
+            (node.input_syspath.clone(), 10, 20, 9),
+            (node.input_syspath.clone(), 10, 20, 20),
+            (crate::mock_syspath("other-output"), 10, 20, 11),
+        ] {
+            let ready =
+                crate::console::ConsoleReady::for_test(path, MonoTime(observed), MonoTime(until));
+            assert!(matches!(
+                group.try_arm_console(&proof, &ready, MonoTime(now)),
+                Err(ActivationError::ConsoleNotReady)
+            ));
+            assert_eq!(group.phase(), GroupPhase::Standby);
+            assert!(trace.borrow().is_empty());
+        }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fresh_console_observation_enters_existing_neutral_transaction() {
+        let trace = Trace::default();
+        let mut group = CaptureGroup::new(inputs(vec![source(1, &trace)]), config()).unwrap();
+        let spec = spec();
+        let node = probe(OUTPUT);
+        let ready = crate::console::ConsoleReady::for_test(
+            node.input_syspath.clone(),
+            MonoTime(10),
+            MonoTime(20),
+        );
+        let proof = proof(&spec, &node);
+        assert_eq!(
+            group.try_arm_console(&proof, &ready, MonoTime(11)).unwrap(),
+            ArmResult::Captured
+        );
+        assert_eq!(group.phase(), GroupPhase::Armed);
+        assert!(trace.borrow().contains(&Call::Grab(1, true)));
+        let count = trace.borrow().len();
+        assert!(matches!(
+            group.try_arm_console(&proof, &ready, MonoTime(11)),
+            Err(ActivationError::Phase)
+        ));
+        assert_eq!(trace.borrow().len(), count);
     }
     fn neutral() -> io::Result<Bits> {
         Ok(bits(768, &[]))

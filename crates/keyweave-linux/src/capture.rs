@@ -14,6 +14,10 @@ pub struct OutputNodeReady<'a> {
     input_syspath: &'a Path,
 }
 impl<'a> OutputNodeReady<'a> {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn input_syspath(&self) -> &Path {
+        self.input_syspath
+    }
     pub(crate) fn spec(&self) -> &DeviceSpec {
         self.spec
     }

@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0078 Linux read-only text-console readiness and initial group gate",
+  "source_base_commit": "3e0964d17b7fb96de7ccb4635c400eb9134156e6",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/console.rs": "857b3120b96c4eac5e9fcb4868eda6c0017b318242ed3e13e99148b6498a737f",
+    "crates/keyweave-linux/src/console/tests.rs": "f485bee6574fb7d35be2fbc06fe83e5ecb368ce1a40d8864df97b964a85bf602",
+    "crates/keyweave-linux/src/activation.rs": "2f781397bbb519c67b27bee2d1277bb30a34a3ba66f533c6a6c9d735fdace6bb",
+    "crates/keyweave-linux/src/capture.rs": "3c212b64113f6b24c0c7001e08caded6d97f11b0f096644a0a96cfbcbd8db21f",
+    "crates/keyweave-linux/src/lib.rs": "227bf0c1f4ad00ce367a07205243a4ccca825d1f02b7ce0bdb4bfca81eccd5d4",
+    "tools/verify_linux_abi.py": "af8371ab359a21d2eb0e25e5828d3736f68ec1052f0c8f44366bc2e1d5e03503"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 808,
+    "test_session": 84121,
+    "test_terminal_exit": 0,
+    "clippy_session": 36687,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "local x86_64 GNU C oracle verifies VT struct layout/constants/read-only job-control prototypes, existing evdev/uinput/memfd/seals; no device operation",
+    "logs": {
+      "abi-preliminary": {
+        "path": "target/validation/linux-20261010-console-ready/abi-preliminary.log",
+        "sha256": "2c3e525ad7a93ec1e246bbb87dc080ff6c5ec36fa26791c0cd48393d265e56cc"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261010-console-ready/abi.log",
+        "sha256": "11de87266b2a8633c48a8e21ca584c70abc8198fcf5d496fc916eda7a32fb0e1"
+      },
+      "clippy-preliminary": {
+        "path": "target/validation/linux-20261010-console-ready/clippy-preliminary.log",
+        "sha256": "aaeda5d03763b0762ca2e775eb2debb413ca5589824d007138d97ce31ad38dee"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-console-ready/clippy.log",
+        "sha256": "3330b45f3ce0611824c70c9e6de9e3b90aeaafc6abf2e0b8137d75b08c17563b"
+      },
+      "fmt-final": {
+        "path": "target/validation/linux-20261010-console-ready/fmt-final.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-console-ready/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-console-ready/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests-final": {
+        "path": "target/validation/linux-20261010-console-ready/workspace-tests-final.log",
+        "sha256": "f9e921d08570ca8f54121fb6aa77de365a71b8d8ec6fc75e8c640374bed14863"
+      },
+      "workspace-tests-preliminary": {
+        "path": "target/validation/linux-20261010-console-ready/workspace-tests-preliminary.log",
+        "sha256": "68ab0030219c2b1e0377f5272b02929106bdfdc3030bb30b21dd5823b0324c1e"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-console-ready/workspace-tests.log",
+        "sha256": "f378af199020c21809090208984b13615f8f08bb222b1d1c3d479acb38550211"
+      }
+    }
+  },
+  "preliminary": {
+    "provider_only_session": 31513,
+    "provider_only_terminal_exit": 0,
+    "provider_only_tests": 6,
+    "first_workspace_session": 26517,
+    "first_workspace_terminal_exit": 101,
+    "first_workspace_error": "test fixture attempted integer addition to OUTPUT string; corrected to separate output path",
+    "first_abi_terminal_exit": 1,
+    "first_abi_error": "C probe lacked termios.h for tcgetsid declaration; fixed without weakening checks",
+    "first_clippy_session": 17820,
+    "first_clippy_terminal_exit": 101,
+    "first_clippy_error": "collapsible handler branch and missing test-only unwrap policy; corrected production branch and test module only",
+    "intermediate_workspace_session": 83143,
+    "intermediate_workspace_terminal_exit": 0,
+    "intermediate_workspace_tests": 808,
+    "final_tests_after_production_branch_fix": true
+  },
+  "new_tests": {
+    "provider": 6,
+    "initial_capture_group_gate": 2
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "new APIs are Linux cfg only; preceding context/application provider and portable argument native checks remain pending after unresolved approval-review quota failure; no new native invocation attempted"
+  },
+  "limitations": [
+    "Provider scope is the worker controlling text VT and anchored foreground parent group, not graphical desktops/PTYS/WSL Terminal.",
+    "Handler/inhibited and repeated VT samples are limited metadata evidence; not atomic, ABA-free or end-to-end delivery/global recovery proof.",
+    "Initial group gate must be followed by fresh observation after arm and before Runtime dispatch plus active renewal/revocation; actual bootstrap/control-loop connection remains incomplete.",
+    "250ms validity starts before queries; bounded bytes and O_NONBLOCK do not guarantee bounded syscall duration; independent supervision still required.",
+    "No real VT ioctl, user terminal read, evdev/uinput, Hook/SendInput or driver operation performed; regular own memfd rejection only.",
+    "None-provider valid-config executable tests remain permanently no-device; capture-enabled CLI not added.",
+    "CLOCK_MONOTONIC excludes suspend, and this slice adds no suspend/resume correctness claim.",
+    "Full objective including advanced rules, hotplug/add, LED, Linux host, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}

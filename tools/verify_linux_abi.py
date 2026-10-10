@@ -14,6 +14,16 @@ source = r'''
 #include <linux/uinput.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <linux/kd.h>
+#include <linux/vt.h>
+_Static_assert(VT_GETSTATE == 0x5603 && KDGETMODE == 0x4b3b && KDGKBMODE == 0x4b44, "VT queries");
+_Static_assert(KD_TEXT == 0 && K_XLATE == 1 && K_UNICODE == 3, "VT modes");
+_Static_assert(sizeof(struct vt_stat) == 6 && _Alignof(struct vt_stat) == 2, "VT struct");
+_Static_assert(offsetof(struct vt_stat, v_active) == 0 && offsetof(struct vt_stat, v_signal) == 2 && offsetof(struct vt_stat, v_state) == 4, "VT offsets");
+_Static_assert(sizeof(pid_t) == 4 && sizeof(int) == 4 && O_NOCTTY == 0x100, "VT scalar types");
 _Static_assert(MFD_CLOEXEC == 1 && MFD_ALLOW_SEALING == 2, "memfd flags");
 _Static_assert(F_ADD_SEALS == 1033 && F_GET_SEALS == 1034, "sealing commands");
 _Static_assert(F_SEAL_SEAL == 1 && F_SEAL_SHRINK == 2 && F_SEAL_GROW == 4 && F_SEAL_WRITE == 8, "seals");
@@ -23,6 +33,13 @@ int main(void) {
     int (*create_memory)(const char *, unsigned int) = memfd_create;
     int (*control_fd)(int, int, ...) = fcntl;
     (void)create_memory; (void)control_fd;
+    pid_t (*tty_session)(int) = tcgetsid;
+    pid_t (*tty_foreground)(int) = tcgetpgrp;
+    pid_t (*process_session)(pid_t) = getsid;
+    pid_t (*process_group)(pid_t) = getpgid;
+    int (*query)(int, unsigned long, ...) = ioctl;
+    (void)tty_session; (void)tty_foreground; (void)process_session;
+    (void)process_group; (void)query;
     printf("{\"event_size\":%zu,\"type_offset\":%zu,\"code_offset\":%zu,"
            "\"value_offset\":%zu,\"id_size\":%zu,\"word_size\":%zu,"
            "\"id_request\":%lu,\"event_bits_request\":%lu,"
@@ -58,4 +75,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput, memfd/seal constants and prototypes; no device access')
+print('Verified local C UAPI, evdev/uinput, memfd/seals and VT/job-control ABI; no device access')

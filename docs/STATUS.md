@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。
 
+最新 Linux 就绪组件：文本 ConsoleProvider 与 CaptureGroup 初始 gate 已实现；严格 VT/会话/前台组、owned input 的 kbd handler/inhibited、查询前起算250ms输出 scope 证据。Linux 808 tests、Clippy/fmt/source60/扩展 VT C ABI 通过，未访问真实 VT/evdev/uinput；不是图形桌面或端到端交付证明。worker 的 bootstrap、arm 后与活动续期循环、Linux host 仍未连接，none 模式永久无设备 invariant 保持。见 [ADR-0078](ADR-0078-linux-text-console-readiness.md)、[验证记录](validation/linux-2026-10-10-console-ready.json)。完整目标继续未完成，Windows 待补原生验证未执行。
+
 最新真实入口：Linux 专用有限参数与 main 的父/run/三管道/封存配置冷准备已接通；只有无 provider 模式，明确返回 Unsupported、不开设备、不伪造 Runtime 报告。Linux 800 tests、Clippy/fmt/source60 和真实 exe 的 66/65/78 退出检查通过；捕获 bootstrap/consumer-ready/host 仍未完成。见 [ADR-0077](ADR-0077-linux-worker-cold-entry.md)、[验证记录](validation/linux-2026-10-10-worker-cold-entry.json)。
 
 最新 Linux 交付：Supervisor 的显式 sealed-config 启动模式和 WorkerStartup/ReportingStartup 单次 claim 已实现，真实 main fixture 完成实际 FD 继承/精确字节/拒绝重试验证。Linux 全套 794 tests、Clippy/fmt/source60/扩展 C ABI 通过；真实捕获 exe/main、consumer-ready/bootstrap/host 未完成。见 [ADR-0076](ADR-0076-linux-config-fd-handoff.md)、[验证记录](validation/linux-2026-10-10-config-handoff.json)。
