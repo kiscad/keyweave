@@ -85,3 +85,6 @@ Windows Supervisor 已接入四句柄配置启动，并保留失败时的独立�
 
 
 Windows host 已有冷配置准备层：保留原始 JSONC 字节，复用 worker 的无损编译，并在创建进程前核验原生输出与引擎限制；worker 安装前仍独立重验。[设计](docs/ADR-0060-host-config-preparation.md)。完整用户 host、控制流程和正常键盘验收继续开发。
+
+
+Windows host 已增加每次启动的系统随机 run ID 和注入标记生成，固定两架构 marker 宽度并限制零值重试。[设计](docs/ADR-0061-host-run-identity.md)。完整 host 启动和正常输入验收继续开发。

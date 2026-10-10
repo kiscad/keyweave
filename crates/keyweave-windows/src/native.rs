@@ -2,6 +2,9 @@
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
 mod config_artifact;
+mod host_identity;
+#[cfg(target_os = "windows")]
+pub use host_identity::{IdentityError, RunIdentity};
 #[cfg(any(target_os = "windows", test))]
 mod hook_thread;
 #[cfg(any(target_os = "windows", test))]

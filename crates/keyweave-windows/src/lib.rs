@@ -21,6 +21,8 @@ pub use native::{
 #[cfg(target_os = "windows")]
 pub use native::{HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
+pub use native::{IdentityError, RunIdentity};
+#[cfg(target_os = "windows")]
 pub use native::{check_input_access, sample_input_state};
 
 #[cfg(target_os = "windows")]

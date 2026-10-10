@@ -169,3 +169,6 @@ ADR-0059 已有 Supervisor.spawn_with_config 消费预先prepared artifact并受
 
 
 ADR-0060 已有 host 冷准备层 PreparedConfig：8MiB+1读取预算、共享worker Windows capabilities/generation1无损compiler、共享SessionActor.new的native output→Engine gate，保存原始不可变bytes与Arc，不做JSON重序列化。read/compile在callback外，准备时没有backend/input/process/timer。seal只创建自有原文件对象，完整host必须先准备再Supervisor.spawn_with_config，不能在active watchdog控制循环同步读/编译/写文件。worker仍独立重验，Prepared不证明desktop/neutral/access/真实输出。固定extra argv builder保持绝对OsString/非零u32 marker/显式identity。UTF8错误只存offset类型，不把原body带进Debug；这不意味着所有compiler诊断完全不含配置字段。后续继续run/marker生成、可信exe定位、独立控制/用户stop/详细诊断与完整启动事务，原任务范围继续。
+
+
+ADR-0061 已有 Windows RunIdentity::generate：callback 外 BCrypt system-preferred RNG抽12bytes，明确LE解码非零u64 run与非零u32 marker，最多4次完整重抽；NTSTATUS非零立即失败，无PID/时间/计数器fallback。每次host新建worker重新生成，getter只读、无Clone/Copy、Debug不输出值；这不禁止调用者手动复用getter值，完整host仍须落实每次启动fresh状态。32bit随机marker可碰撞，不是鉴权凭据，不能以own-injected当跨用户认证。冷准备只能在启动前执行，不在active watchdog/callback。真实RNG集成test只检查范围及固定argv roundtrip，不假定两次随机值必然不同。下一步可信exe定位与独立控制/用户stop/完整host启动事务，原任务范围继续。

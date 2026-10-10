@@ -9,6 +9,7 @@ fn production_native_symbols_link_without_installation_or_injection() {
     };
     type Control = fn() -> Result<WaitPlan, HookFault>;
     let addresses = [
+        keyweave_windows::RunIdentity::generate as *const () as usize,
         keyweave_windows::runtime::preflight_config as *const () as usize,
         keyweave_windows::startup::ensure_preparation_context as *const () as usize,
         keyweave_windows::ConfigArtifact::create as *const () as usize,

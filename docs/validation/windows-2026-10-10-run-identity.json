@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-10",
+  "feature": "Windows cold fresh RunIdentity using system RNG, bounded nonzero rejection and u32 marker (ADR-0061)",
+  "source_base_commit": "70099bf304c57fdb8d9e19ed6a6244c3211a260e",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 last read in ADR-0059 this date; not re-read in this run",
+  "msvc": "19.44.35229.0 / VCTools 14.44.35207",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "fbbafa6e61d5458d8b8762cfd92036a7",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 659,
+      "windows_unit_tests_passed": 296,
+      "new_native_mock_tests": 6,
+      "new_actual_system_rng_and_argv_tests": 1,
+      "source_files_hash_checked": 182,
+      "source_mismatches": 0,
+      "validation_session": 48694,
+      "validation_terminal_exit": 0,
+      "fmt_session": 99265,
+      "fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "existing BCrypt prototype/system-preferred flag oracle /W4 /WX /std:c11 /Zs passed; stdout retained in invocation.log",
+      "raw_evidence": "target/validation/windows-20261010-run-identity-x64-1.97.1",
+      "manifest_sha256": "46d044db86836a3d97e4abae5f11cce202f0923e362d80e85b5fd5adc6465e3e"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "30fbcd781bd04e0dba25a4506898d73c",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 659,
+      "windows_unit_tests_passed": 296,
+      "new_native_mock_tests": 6,
+      "new_actual_system_rng_and_argv_tests": 1,
+      "source_files_hash_checked": 182,
+      "source_mismatches": 0,
+      "validation_session": 48694,
+      "validation_terminal_exit": 0,
+      "fmt_session": 99265,
+      "fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "existing BCrypt prototype/system-preferred flag oracle /W4 /WX /std:c11 /Zs passed; stdout retained in invocation.log",
+      "raw_evidence": "target/validation/windows-20261010-run-identity-x86-1.97.1",
+      "manifest_sha256": "46d044db86836a3d97e4abae5f11cce202f0923e362d80e85b5fd5adc6465e3e"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 690,
+    "main_thread_no_device_harness": "worker_parent passed within workspace command",
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes_verified": 60,
+    "raw_evidence": "target/validation/linux-20261010-run-identity"
+  },
+  "failures": [],
+  "limits": [
+    "New production RNG test only calls system RNG and pure fixed worker argv builder/parser; never installs Hook, calls SendInput, starts a worker or loads real user config. Existing workspace entry/file tests continue using owned synthetic no-input resources.",
+    "Generator does not guarantee absolute uniqueness or authentication; u32 marker can collide and read-only getters may be manually reused, so full host must enforce fresh identity per startup.",
+    "Generation is cold and callback-rejected; does not promise a real-time RNG deadline and must not run in active watchdog loop.",
+    "No worker locator/control thread/user stop/full host wired yet. All normal capture/Windows11/hardware, Linux bootstrap/consumer readiness, D05, GUI, packaging, Rust driver and companion audit remain required.",
+    "Prior ADR-0053 x86 native process anomaly and MSVC overlap/path anomaly remain unexplained; current green checks are not proof of fixes."
+  ]
+}

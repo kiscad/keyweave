@@ -216,3 +216,8 @@ x86对应i686-pc-windows-msvc，并使用x86 vcvars环境；不要与正在运�
 Windows host冷配置准备（2026-10-10）：同worker无损compiler和SessionActor/Engine gate，保留原JSONC image，纯准备不构造backend或启动input。
 
 最终固定 Rust1.97.1：Linux684 workspace tests及独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各652 tests（Windowsunit290、worker lib13、实际prepared文件1）、alltargetsClippy/fmt/既有SDK通过。两个181源文件SHA全匹配最终工作区，fullvalidation父进程34463和随后fmt父进程67228实际terminal0。初次Mapping未实现PartialEq的编译错误改为逐项语义断言，callback测试两处unwrap引起的Clippy失败改为明确成功断言；初始失败与首Windows快照留存，不屏蔽lint。[验证报告](validation/windows-2026-10-10-prepared-config.json)、[ADR-0060](ADR-0060-host-config-preparation.md)。ignored target/validation/linux-20261010-prepared-config、windows-20261010-prepared-config-{x64,x86}-1.97.1和before-callback-assert-x64保留原始证据。未改变FFI/SDK/协议、不重跑无关旧native fixture作本功能证明。旧x86异常原因仍未知；完整host/真实输入与原目标继续未完成。
+
+
+Windows host 随机启动身份（2026-10-10）：callback外系统RNG产生非零u64 run与非零u32 marker，零值最多4次整pair重抽，无弱fallback。
+
+最终fixed1.97.1：Linux690 workspace+独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各659 tests（Windowsunit296、新6mock+实际RNG/argv1）、alltargetsClippy/fmt/既有SDK oracle通过，两个182源文件SHA匹配工作区。fullvalidation session48694与随后同snapshot fmt session99265实际terminal0，无本轮失败。ignored target/validation/linux-20261010-run-identity及windows-20261010-run-identity-{x64,x86}-1.97.1保留日志/manifest/命令。[报告](validation/windows-2026-10-10-run-identity.json)、[ADR-0061](ADR-0061-host-run-identity.md)。实际生成证明本机系统API调用与固定argv范围，不能证明绝对唯一/认证/完整host/真实键盘；旧x86异常未解释，不以本轮通过称修复。下一步可信exe定位/用户控制/host启动事务，原目标继续未完成。

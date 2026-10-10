@@ -244,3 +244,11 @@ D08 Windows host 冷配置准备（2026-10-10）：ADR-0060 新增 keyweave-work
 
 
 最终固定 Rust1.97.1：Linux684 workspace tests及独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各652 tests（Windowsunit290、worker lib13、实际prepared文件1）、alltargetsClippy/fmt/既有SDK通过。两个181源文件SHA全匹配最终工作区，fullvalidation父进程34463和随后fmt父进程67228实际terminal0。初次Mapping未实现PartialEq的编译错误改为逐项语义断言，callback测试两处unwrap引起的Clippy失败改为明确成功断言；初始失败与首Windows快照留存，不屏蔽lint。[验证报告](validation/windows-2026-10-10-prepared-config.json)、[ADR-0060](ADR-0060-host-config-preparation.md)。ignored target/validation/linux-20261010-prepared-config、windows-20261010-prepared-config-{x64,x86}-1.97.1和before-callback-assert-x64保留原始证据。未改变FFI/SDK/协议、不重跑无关旧native fixture作本功能证明。旧x86异常原因仍未知；完整host/真实输入与原目标继续未完成。
+
+
+D08 Windows host启动身份（2026-10-10）：ADR-0061新增RunIdentity::generate，在callback外使用BCrypt系统随机源抽12bytes，明确LE解码非零u64 run/u32 marker，最多4次完整pair重抽；NTSTATUS非零立即返回，无固定值/PID/时间等fallback。只读getter、无Clone/Copy、Debug不含数值；调用者仍能手动复用getter，完整host必须保证每次启动fresh状态。类型不是认证凭据，32bit随机marker不保证绝对唯一。无文件/进程/input/后台timer操作，不能在active watchdog内生成。
+
+6个新native mock行为tests核验精确宽度/字节、零run与零marker完整重抽、4次耗尽、最后尝试成功与下一call重新抽样、首/后续RNG失败、callback零调用和Debug redaction；新增Windows真实BCrypt test核验范围与worker固定argv roundtrip，无概率唯一性断言/worker启动/Hook/SendInput。生产native_link保留generate地址，SDK原型与system-preferred flags沿用已有oracle。下一步可信exe定位、独立控制/用户stop/完整host事务；正常capture/Windows11/硬件和全部原目标继续，验证汇总后附。
+
+
+最终fixed1.97.1：Linux690 workspace+独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各659 tests（Windowsunit296、新6mock+实际RNG/argv1）、alltargetsClippy/fmt/既有SDK oracle通过，两个182源文件SHA匹配工作区。fullvalidation session48694与随后同snapshot fmt session99265实际terminal0，无本轮失败。ignored target/validation/linux-20261010-run-identity及windows-20261010-run-identity-{x64,x86}-1.97.1保留日志/manifest/命令。[报告](validation/windows-2026-10-10-run-identity.json)、[ADR-0061](ADR-0061-host-run-identity.md)。实际生成证明本机系统API调用与固定argv范围，不能证明绝对唯一/认证/完整host/真实键盘；旧x86异常未解释，不以本轮通过称修复。下一步可信exe定位/用户控制/host启动事务，原目标继续未完成。
