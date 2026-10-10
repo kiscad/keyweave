@@ -99,6 +99,11 @@ fn missing_config_after_owned_admission_exits_before_input_installation() {
         unreachable!()
     };
     assert_eq!(code, WorkerExit::Config as u32);
+    assert_eq!(WorkerExit::from_code(code), Some(WorkerExit::Config));
+    assert_eq!(
+        keyweave_worker::ExitDiagnostic::observed(code).code,
+        "KW-WORKER-066"
+    );
     // Std handles can close before the process object becomes signaled. Keep
     // that independently observed channel error; it is not admission failure.
     if let Some(reason) = reason {
@@ -158,6 +163,11 @@ fn inherited_invalid_config_exits_after_file_admission_before_input() {
             }
         };
         assert_eq!(code, WorkerExit::Config as u32);
+        assert_eq!(WorkerExit::from_code(code), Some(WorkerExit::Config));
+        assert_eq!(
+            keyweave_worker::ExitDiagnostic::observed(code).code,
+            "KW-WORKER-066"
+        );
         assert!(child.close_config().unwrap().unwrap().complete());
         assert!(parent_reader.close().unwrap().complete());
         assert!(parent_writer.close().unwrap().complete());
@@ -228,6 +238,11 @@ fn supervised_file_object_config_failure_keeps_writer_until_actual_exit() {
         unreachable!()
     };
     assert_eq!(code, WorkerExit::Config as u32);
+    assert_eq!(WorkerExit::from_code(code), Some(WorkerExit::Config));
+    assert_eq!(
+        keyweave_worker::ExitDiagnostic::observed(code).code,
+        "KW-WORKER-066"
+    );
     if let Some(reason) = reason {
         let keyweave_windows::TerminationReason::Channel(failure) = reason else {
             panic!("unexpected reason {reason:?}")

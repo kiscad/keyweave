@@ -11,19 +11,8 @@ pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
 pub const ARGUMENT_COUNT: usize = 9;
 pub const MAX_ARGUMENT_COUNT: usize = 11;
 
-/// Stable, deliberately small exit codes. No error text enters binary stdio.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum WorkerExit {
-    Clean = 0,
-    Arguments = 64,
-    Admission = 65,
-    Config = 66,
-    Install = 67,
-    Loop = 68,
-    Cleanup = 69,
-    UnsupportedPlatform = 78,
-}
+mod exit;
+pub use exit::{ExitDiagnostic, WorkerExit};
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid private worker arguments")]

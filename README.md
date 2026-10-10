@@ -94,3 +94,5 @@ Windows host 已增加每次启动的系统随机 run ID 和注入标记生成�
 
 
 Windows host 现已接入控制台 Ctrl+C / Ctrl+Break 协作停止，Enter/EOF 控制继续可用；关闭窗口、注销和关机的恢复边界另见[设计](docs/ADR-0063-console-cooperative-stop.md)。两架构原生验证使用自有私有控制台和无输入协议fixture，真实键盘及发布验收仍继续。
+
+Windows host终止报告现显示稳定worker退出码的分类与处理建议，保留独立监督原因和资源结果；未知码不推测恢复状态。[设计](docs/ADR-0064-worker-exit-diagnostics.md)。

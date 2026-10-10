@@ -26,6 +26,12 @@ pub struct Report {
     pub diagnostics: Vec<String>,
 }
 impl Report {
+    /// Only actual observed exit codes have a classification; no inferred exit.
+    pub fn worker_diagnostic(&self) -> Option<keyweave_worker::ExitDiagnostic> {
+        self.worker_exit
+            .map(keyweave_worker::ExitDiagnostic::observed)
+    }
+
     pub fn successful(&self) -> bool {
         (if self.startup_cancelled {
             self.worker_exit.is_none() && self.reason.is_none() && self.progress_epoch == 0
@@ -47,7 +53,15 @@ impl std::fmt::Display for Report {
             self.progress_epoch,
             self.diagnostics,
             self.startup_cancelled
-        )
+        )?;
+        if let Some(diagnostic) = self.worker_diagnostic() {
+            write!(
+                f,
+                ", worker_classification={}, message={}, remediation={}",
+                diagnostic.code, diagnostic.message, diagnostic.remediation
+            )?;
+        }
+        Ok(())
     }
 }
 fn record(errors: &mut Vec<String>, error: impl std::fmt::Display) {
@@ -342,6 +356,54 @@ mod tests {
         report.worker_exit = Some(0);
         report.diagnostics.push("close failed".into());
         assert!(!report.successful());
+    }
+    #[test]
+    fn diagnostics_require_actual_exit_and_preserve_independent_failures() {
+        let mut report = Report {
+            startup_cancelled: false,
+            worker_exit: None,
+            reason: Some(TerminationReason::Requested),
+            resources_complete: false,
+            progress_epoch: 0,
+            diagnostics: vec!["independent cleanup failed".into()],
+        };
+        assert_eq!(report.worker_diagnostic(), None);
+        assert!(!report.to_string().contains("worker_classification="));
+        report.worker_exit = Some(66);
+        assert_eq!(
+            report.worker_diagnostic().map(|d| d.code),
+            Some("KW-WORKER-066")
+        );
+        let rendered = report.to_string();
+        assert!(rendered.contains("check-windows"));
+        assert!(rendered.contains("Requested") && rendered.contains("independent cleanup failed"));
+        assert!(rendered.contains("resources_complete=false"));
+        assert!(!report.successful());
+        // A clean scalar must not override a forced reason/cleanup failure.
+        report.worker_exit = Some(0);
+        assert_eq!(
+            report.worker_diagnostic().map(|d| d.code),
+            Some("KW-WORKER-000")
+        );
+        assert!(!report.successful());
+    }
+    #[test]
+    fn unknown_native_exit_is_reported_in_full_without_false_success() {
+        let mut report = Report {
+            startup_cancelled: false,
+            worker_exit: Some(3763033857),
+            reason: None,
+            resources_complete: true,
+            progress_epoch: 7,
+            diagnostics: vec![],
+        };
+        for raw in [3763033857, 259, u32::MAX] {
+            report.worker_exit = Some(raw);
+            assert_eq!(report.worker_diagnostic().map(|d| d.raw_code), Some(raw));
+            assert!(report.to_string().contains("KW-WORKER-UNKNOWN"));
+            assert!(report.to_string().contains(&raw.to_string()));
+            assert!(!report.successful());
+        }
     }
     #[test]
     fn repeated_errors_deduplicate_and_overflow_is_visible_and_bounded() {

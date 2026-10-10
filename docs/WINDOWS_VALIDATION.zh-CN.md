@@ -237,3 +237,8 @@ D08 Windows可运行用户host（2026-10-10）：ADR-0062新增workspace包keywe
 2026-10-10 ADR-0063最终验证：固定Rust1.97.1，Windows x64/i686各673tests、all-targets Clippy -D warnings、fmt和更新console SDK oracle通过；两份193源hash匹配最终源代码。fullvalidation22452及随后native/fmt38147均实际terminal0。每arch私有console event0/1×active/standby四场景自然worker0/Cooperative/资源报告完整，delivery/unregister/release各Ok，自有配置文件实际NotFound；旧5个stdin/停滞/启动失败场景通过。Linux702tests及独立无设备main-thread harness通过。
 
 初次原生18187实际exit1：CreateNoWindow仍附隐藏console，被准入拒绝，未进入body、未跑x86原生；保留日志。修正为DETACHED_PROCESS自启动自有helper，保持拒绝既有console，最终重新双arch全量通过。早期fullvalidation通过快照仅preliminary，不代替最终快照。ConsoleProbe factory失败在body前仅有限Drop回退，不能声称独立完整清理报告。详细快照/manifest/session/case及限制见[JSON报告](validation/windows-2026-10-10-console.json)与[ADR](ADR-0063-console-cooperative-stop.md)。软件生成控制台事件未安装Hook/SendInput，不能证明物理键盘/Terminal/RDP/Windows11或完整移植。旧x86异常仍未知，不用本轮通过称已修复。
+
+
+D08 worker实际退出诊断（2026-10-10）：ADR-0064将WorkerExit移到共享exit模块，按完整u32解释已知8项契约，ExitDiagnostic只含静态code/message/remediation。host只对实际worker_exit=Some显示分类，并保留原exit/reason/resources/diagnostics；None不推断clean，成功判定不变。未知码保留全值，clean不覆盖独立强制原因/cleanup失败；分类不是image鉴权/具体API因果或恢复证明。完整独立终止报告通道继续待做。
+
+最终fixed1.97.1：Linux705tests及独立main-thread无设备harness、Clippy/fmt/source60通过；Windows x64/i686各678tests（新增3共享exit+2host报告tests）、alltargetsClippy/fmt/既有SDK通过。两个194源hash匹配最终代码，fullvalidation60454实际terminal0，后续native/fmt54556实际terminal0。每arch5个真实host无输入场景实际显示clean或未知分类，保留3763033857与Progress(Expired)，invalidPE仍保留CreateProcess失败；全部自有文件实际NotFound。真实缺配置/无效bytes worker测试确认code66共享分类，无Hook/SendInput。[设计](ADR-0064-worker-exit-diagnostics.md)、[报告](validation/windows-2026-10-10-exit-diagnostics.json)。原始证据在ignored target/validation/*exit-diagnostics*；无本轮失败。旧x86异常未解释，真实键盘/完整终止诊断/热更新/可信打包及所有Linux/D05/GUI/Rustdriver/companion原范围继续未完成。

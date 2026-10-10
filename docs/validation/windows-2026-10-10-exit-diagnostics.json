@@ -1,0 +1,134 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0064 observed worker scalar exit classification and remediation; independent faults preserved",
+  "source_base_commit": "529c1d4efe102eeed4e94d75596b9967e93d4634",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "8799aa9947ed49009f8a5c3cfe2589c0",
+      "workspace_tests_passed": 678,
+      "source_files_hash_checked": 194,
+      "source_mismatches": 0,
+      "validation_session": 60454,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 54556,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "fmt": "passed",
+      "sdk": "existing oracle passed; no ABI change",
+      "host_cases": [
+        {
+          "mode": "active",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=18, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-000, message=worker reported clean termination, remediation=Check the independent supervisor and resource results; this code alone does not prove global key recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "standby",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-000, message=worker reported clean termination, remediation=Check the independent supervisor and resource results; this code alone does not prove global key recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "stop_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=44, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-UNKNOWN, message=worker exit does not match the known scalar contract, remediation=Preserve the full native exit code and supervisor reason; investigate forced termination, exception or image mismatch without inferring recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "startup_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-UNKNOWN, message=worker exit does not match the known scalar contract, remediation=Preserve the full native exit code and supervisor reason; investigate forced termination, exception or image mismatch without inferring recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "invalid_pe",
+          "host_exit": 1,
+          "stdout": "",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.\nworker startup failed: configuration worker startup failed: Job startup failed: worker startup failed: CreateProcessW failed: 216; rollback: None; preparation resources retained; resources_complete=true; diagnostics=[]",
+          "owned_image_notfound": true
+        }
+      ],
+      "raw_evidence": "target/validation/windows-20261010-exit-diagnostics-x64-1.97.1",
+      "manifest_sha256": "d38987f315efbbd06db07dd374a04354395bf971a8075d9f8aedb5fd9dc8bc53"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "a3b1d3c5744a4cbdb8ab39499d49a2a6",
+      "workspace_tests_passed": 678,
+      "source_files_hash_checked": 194,
+      "source_mismatches": 0,
+      "validation_session": 60454,
+      "validation_terminal_exit": 0,
+      "native_and_fmt_session": 54556,
+      "native_and_fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "fmt": "passed",
+      "sdk": "existing oracle passed; no ABI change",
+      "host_cases": [
+        {
+          "mode": "active",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=21, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-000, message=worker reported clean termination, remediation=Check the independent supervisor and resource results; this code alone does not prove global key recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "standby",
+          "host_exit": 0,
+          "stdout": "worker_exit=Some(0), reason=Some(Cooperative), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-000, message=worker reported clean termination, remediation=Check the independent supervisor and resource results; this code alone does not prove global key recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "stop_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=43, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-UNKNOWN, message=worker exit does not match the known scalar contract, remediation=Preserve the full native exit code and supervisor reason; investigate forced termination, exception or image mismatch without inferring recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "startup_stall",
+          "host_exit": 1,
+          "stdout": "worker_exit=Some(3763033857), reason=Some(Progress(Expired)), resources_complete=true, progress_epoch=0, diagnostics=[], startup_cancelled=false, worker_classification=KW-WORKER-UNKNOWN, message=worker exit does not match the known scalar contract, remediation=Preserve the full native exit code and supervisor reason; investigate forced termination, exception or image mismatch without inferring recovery.",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.",
+          "owned_image_notfound": true
+        },
+        {
+          "mode": "invalid_pe",
+          "host_exit": 1,
+          "stdout": "",
+          "stderr": "Starting Windows session; Enter, Ctrl+C or Ctrl+Break stops it.\nworker startup failed: configuration worker startup failed: Job startup failed: worker startup failed: CreateProcessW failed: 216; rollback: None; preparation resources retained; resources_complete=true; diagnostics=[]",
+          "owned_image_notfound": true
+        }
+      ],
+      "raw_evidence": "target/validation/windows-20261010-exit-diagnostics-x86-1.97.1",
+      "manifest_sha256": "d38987f315efbbd06db07dd374a04354395bf971a8075d9f8aedb5fd9dc8bc53"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 705,
+    "test_session": 67935,
+    "test_terminal_exit": 0,
+    "worker_parent_main_thread_harness": "passed without device access",
+    "clippy": "all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "raw_evidence": "target/validation/linux-20261010-exit-diagnostics"
+  },
+  "limitations": [
+    "Scalar contract is not an authenticated cause or complete independent shutdown diagnostic channel.",
+    "None exit is not classified; clean code does not override supervisor reason or resource failure.",
+    "Only no-input fixtures and invalid/missing real worker configuration were run; no Hook/SendInput/physical keyboard acceptance.",
+    "No change to progress ABI, actual-exit gate, watchdog or success policy.",
+    "Old x86 anomalies remain unexplained; these checks do not establish a fix.",
+    "Full Linux/Windows port, advanced timing/simultaneous, hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

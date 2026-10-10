@@ -185,3 +185,5 @@ ADR-0063已有ConsoleControl：process-lifetime单次claim、同线程!Send/!Syn
 with_private_console_event只用于无输入诊断：拒绝已有console，自建并隐藏自己的console，再注册；producer生成0/1到该私有console，body不得改attachment/table，释放前join producer，独立delivery/unregister/release。check_console_host只接受固定check_host_worker.exe，stdin不驱动停止（AtomicBool恒false），真实run_with_console→ownJob→fixture自然退出才通过；不可换真实capture worker。tools/check_host.ps1 -ConsoleEvents覆盖两事件active/standby并回归旧stdin/超时/PE。fixture epochs不是CaptureSession，真实物理Ctrl+C/Terminal/RDP/关窗/键盘、热更新/详细诊断/可信打包及所有原范围继续。
 
 console诊断 helper 外层必须先以 DETACHED_PROCESS 自启动自有子进程，内层仍拒绝任何既有console；CreateNoWindow不证明无console，禁止为绕过准入Free/复用用户console。外层只操作所持Child handle，10秒请求终止/12秒观察上限，未知exit不得称清理成功。ConsoleProbe进入body前的factory错误只有限Drop回退，不是独立完整清理报告。最终软件验证：docs/validation/windows-2026-10-10-console.json；物理输入及完整原目标仍未完成。
+
+ADR-0064的WorkerExit::from_code按完整u32精确解释已知标量，不截低byte；ExitDiagnostic只有静态code/message/remediation，不含配置/按键/path/marker。host Report.worker_diagnostic仅对实际worker_exit=Some提供解释，None不造成功；Display保留原exit/reason/resources/diagnostics并追加分类建议，successful不变。分类不是image认证/详细因果/ledger恢复证明，强制原因和清理错误不得被clean scalar覆盖。完整独立终止诊断通道仍待实现。
