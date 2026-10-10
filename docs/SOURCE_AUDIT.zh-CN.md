@@ -4,6 +4,8 @@
 
 分析对象是本地 `../../Karabiner-Elements/`，而非网络 main 的假定状态。
 
+本文件记录 2026-10-08 的源码评估；表中的“未进行”描述该次分析，不描述后续 Rust 项目的开发进度。2026-10-10 再运行 `python3 tools/verify_sources.py`，固定 HEAD、60 个关键源码哈希及 fixture 副本均通过。后续 Windows 原生编译验证见 [Windows 验证指南](WINDOWS_VALIDATION.zh-CN.md)，项目实际实现状态见 [STATUS](STATUS.md)。
+
 | 项目 | 本次观察 |
 | --- | --- |
 | HEAD | `ec2fea8940f7254a748c052a890ee9db7113d9b1` |

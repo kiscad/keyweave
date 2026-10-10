@@ -1,5 +1,7 @@
 # Windows 原生验证入口
 
+本文按功能切片保留验证历史，各段测试数量对应当次源码。最新已归档记录为 2026-10-10 的 [Linux terminal finalization 双架构验证](validation/windows-2026-10-10-linux-terminal-finalization.json)：固定 Rust 1.97.1，x64/i686 各 732 个 workspace 测试、Clippy、fmt 与既有 SDK 检查通过，两个快照各核对 200 个源码文件哈希。该记录不包含真实键盘抓取/注入或驱动加载；之后的代码修改须重新验证。
+
 已通过 WSL2 调用固定 Windows Rust 1.97.1：x64/i686 各 432 个 workspace 测试、生产 Win32 符号链接、fmt/clippy 和 12 个离线回放通过；SDK x64/x86 oracle 均通过。结果和日志 hash 见 [固定版本验证记录](validation/windows-2026-10-09-pinned.json)。此前的 [1.99 x64 验证记录](validation/windows-2026-10-09.json) 保留历史结果。实际输入验收仍待执行，生产代码与 unit-test 的 Win32 API 替换分开验证。
 
 ## SDK 与编译

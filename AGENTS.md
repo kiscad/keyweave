@@ -10,6 +10,7 @@ KeyWeave 是 Rust 键盘映射项目，目标 Linux 与 Windows，参考旁边�
 - `docs/DEVELOPMENT_GUIDE.zh-CN.md`：架构、语义、平台边界与验收。
 - `docs/IMPLEMENTATION_BACKLOG.zh-CN.md`：D00–D11/M01 的依赖与工作单。
 - `docs/SOURCE_AUDIT.zh-CN.md` 与 `docs/source-manifest.json`：固定来源和证据。
+- `docs/WINDOWS_VALIDATION.zh-CN.md`：WSL2 调用宿主 Windows Rust/MSVC/SDK 的命令、固定工具链和验证证据。完整引用含空格路径；按本次源码生成独占 Windows 本地快照并记录实际退出码，不以历史编译报告代替重验。
 
 文档与评审说明默认中文，代码标识符、CLI 名、错误 code 用英文。完成当前授权任务并留下可审查的代码与验证证据；普通读写、代码/文档修改、离线测试不另求确认。系统安装、真实全局抓取与加载驱动不由“编写源码”的授权自动包含，按当前用户明确授权与运行环境权限处理。
 

@@ -1,8 +1,8 @@
 # KeyWeave 开发指导文档
 
-版本：设计草案 1.0。日期：2026-10-08。读者：实现本项目的 Coding Agent、代码审查者和平台测试人员。
+版本：设计草案 1.1。初始分析：2026-10-08；开发环境补充：2026-10-10。读者：实现本项目的 Coding Agent、代码审查者和平台测试人员。
 
-本文件中的“必须”是项目实施约束，“建议”是可通过 ADR 修改的初始选择，“目标”是待验证指标。所有 API 草图、命令和目录树均描述未来实现，不代表已经存在的可执行软件。源码证据见 [SOURCE_AUDIT](SOURCE_AUDIT.zh-CN.md)，实施工作单见 [IMPLEMENTATION_BACKLOG](IMPLEMENTATION_BACKLOG.zh-CN.md)。
+本文件中的“必须”是项目实施约束，“建议”是可通过 ADR 修改的初始选择，“目标”是待验证指标。API 草图和建议目录树是设计规格；当前已经存在的模块、可执行入口及验证结果以 [STATUS](STATUS.md)、[兼容范围](COMPATIBILITY.zh-CN.md) 和对应 ADR 为准。源码证据见 [SOURCE_AUDIT](SOURCE_AUDIT.zh-CN.md)，实施工作单见 [IMPLEMENTATION_BACKLOG](IMPLEMENTATION_BACKLOG.zh-CN.md)。后续 Agent 应在现有实现上继续，避免根据早期设计重复创建模块。
 
 ## 1. 可行性结论与产品边界
 
@@ -453,6 +453,16 @@ keyweavectl resume
 fuzz 配置/协议/native packet 边界，限制深度、分配和执行时间。FFI 安全包装用 Miri/静态检查能验证的部分验证；真实 Hook/驱动不能由 Miri 代替。
 
 ### 9.3 平台与故障验证
+
+WSL2 调用宿主 Windows 编译器的路线已有实际证据：截至 2026-10-10 的 [固定工具链验证记录](validation/windows-2026-10-10-linux-terminal-finalization.json)，Windows 原生 Rust 1.97.1 在 x64/i686 各通过 732 个 workspace 测试、Clippy、fmt 与既有 SDK ABI 检查。记录对应明确源码快照，不代表后续修改已经验证。宿主 Windows 10 上的编译及 WoW64 测试也不替代首发目标 Windows 11 的桌面验收。
+
+后续 Windows 修改按以下步骤执行：
+
+1. 读取 `rust-toolchain.toml`，核验宿主 Rust、目标标准库、MSVC 和 SDK；固定项目版本，与用户默认工具链分开。
+2. 从 WSL 调用 `tools/validate_windows.ps1 -Toolchain 1.97.1 -Arch x64`，完成后再运行 `-Arch x86`；需要离线时传入 `-Offline -SeedCargoHome`。使用脚本生成的 Windows 本地独占源码、cache 和 target 目录。
+3. 对同一快照补跑 fmt 和本次变化涉及的离线回放或无输入原生例程。脚本当前自动执行 SDK、tests 和 Clippy，不自动执行所有额外验收。
+4. 等待每个验证进程实际退出，保存退出码、源码 manifest、工具链与日志；失败先修复再重验。不能根据仍运行的进程或旧日志报告通过。
+5. 更新 STATUS 和功能验证报告；将正常键盘、权限切换、睡眠/恢复与故障恢复的桌面验收单独保留。
 
 当前开发主机为 WSL2，Windows Rust 已安装在 `C:\Users\sam chen\.cargo\bin`。后续 Agent 在 WSL 内编写和验证纯引擎/Linux 代码，同时通过 WSL interop 调用 Windows 原生 Rust、MSVC 和 SDK 验证 Windows 后端；路径含空格，必须引用完整路径。具体命令、固定工具链隔离、Windows-local 源码快照与日志归档见 [Windows 验证指南](WINDOWS_VALIDATION.zh-CN.md)。MSVC linker/SDK 不齐全时先记录缺失条件，不能将安装 Rust 等同于 Windows 构建环境完整。
 
