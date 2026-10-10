@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0079 finite owned native console capture bootstrap and private mock fault injection",
+  "source_base_commit": "74f3f866f6be1d2ced64bcc9dbed9969f707be01",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "06d6f6a236097beb43420009eabede9a33e4d4868a0ba3b25b7b5aa87eebdbc3",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "df99ab5a74f37338cce7ce2cda727751adc1e6a0e02055e714a01eed648f20eb",
+    "crates/keyweave-linux/src/lib.rs": "28ca30b28fdd7519876af7e57b103a5d0b8fde231649259d2518f5cd8e7bbafc"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 817,
+    "test_session": 67409,
+    "test_terminal_exit": 0,
+    "clippy_session": 19098,
+    "clippy_terminal_exit": 0,
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "source_hashes_verified": 60,
+    "abi": "no new FFI/unsafe/UAPI; C oracle unchanged and not rerun",
+    "logs": {
+      "clippy-intermediate": {
+        "path": "target/validation/linux-20261010-console-bootstrap/clippy-intermediate.log",
+        "sha256": "bc3405a91f1c22458cd95e725d7cdbba923f4649dc19f5c8042c80ac8dbbf5ef"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261010-console-bootstrap/clippy.log",
+        "sha256": "30fbf9ed52ba4855f2f006cfb8077ecac468c03736a5b37d6369fd2059ea46c6"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-console-bootstrap/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-console-bootstrap/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests-intermediate": {
+        "path": "target/validation/linux-20261010-console-bootstrap/workspace-tests-intermediate.log",
+        "sha256": "b05552616ca146c86719ed8a98e00ec0003496d43db478be50ef619a6364fc0c"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-console-bootstrap/workspace-tests.log",
+        "sha256": "4f7f24dd773ea1a1934b1f6d8ef708d624e552c5e172ebd3f5d6250da01b2846"
+      }
+    }
+  },
+  "preliminary": {
+    "cargo_check_session": 33959,
+    "cargo_check_terminal_exit": 0,
+    "component_test_session": 29055,
+    "component_test_terminal_exit": 0,
+    "component_tests": 8,
+    "first_clippy_session": 35033,
+    "first_clippy_terminal_exit": 101,
+    "first_clippy_error": "generic tuple return type complexity; replaced with named private Handoff, no production lint suppression",
+    "intermediate_workspace_session": 35476,
+    "intermediate_workspace_terminal_exit": 0,
+    "intermediate_workspace_tests": 817,
+    "intermediate_clippy_session": 4625,
+    "intermediate_clippy_terminal_exit": 0,
+    "final_scope": "after provider-last close order and corresponding trace assertions"
+  },
+  "new_tests": {
+    "private_platform_mock_behaviors": 9
+  },
+  "windows": {
+    "status": "not executed",
+    "scope": "bootstrap module is Linux cfg only; ADR-0073/0074/0077 native Windows checks remain pending after unresolved approval-review quota failure, no new native invocation attempted"
+  },
+  "limitations": [
+    "Native component is wired to owned uinput/EvdevSource/discovery/ConsoleProvider/CaptureGroup/Runtime, but no actual device operation was performed; all new successful/fault paths are mocks.",
+    "Actual executable main remains permanent none-provider/no-device; capture-enabled CLI, pending stop/progress/wait, active provider renewal and Linux host are not connected.",
+    "Constructor validates cold data and observes read-only VT; ten-second deadline starts before first step, does not cover constructor or extend independent parent startup lease.",
+    "512 step limit, byte/operation bounds and native O_NONBLOCK do not prove kernel syscall duration; independent supervision still required.",
+    "Post-arm consumer reobservation and handoff expiry checks are enforced; after handoff caller must use same clock and renew/revoke before dispatch and during active operation.",
+    "Ownership cleanup inputs-before-output-before-provider is not independent close/ungrab/global recovery evidence; no fake Runtime terminal report is generated during bootstrap.",
+    "Provider scope stays text controlling VT; graphical desktops, PTYS/WSL Terminal and suspend/session handling need separate work.",
+    "Full objective including advanced rules, hotplug/add, LED, hot configuration, GUI, packaging, Rust driver and companion audit remains incomplete."
+  ]
+}

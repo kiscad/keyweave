@@ -2,6 +2,8 @@
 
 ## 当前项目与任务入口
 
+ADR-0079：ConsoleBootstrap public只能native，私有Platform供mock。先冷validate64输入/positive uniqueid/gen/absolute lexicalpaths、Kernel spec/config/Engine，再guard与只读VT。step重验guard/time；owned uinput→owned节点proof→每步一个物理client→group→每次新console观察/neutralarm→独立postarm观察→Ready handoff再验。首step+10s/512预算，不含constructor、不延长parent lease；无sleep/thread/metadata progress。未知consumer在arm前Pending/零querygrab，arm后即fault关闭，任何错误/Drop inputs→output→provider；Ready后再step也关闭，不重试。返回Runtime/provider/同clock/ready仍需首dispatch前与active续期/失效stop；main/provider loop/host未接通，None exe invariant不变。Linux817tests/Clippy/fmt/source60通过，无新ABI/unsafe/C oracle未重跑，无真实VT/evdev/uinput；Windows待补原生检查保留。完整目标继续。
+
 ADR-0078：Linux ConsoleProvider 只读显式tty1..63，main parentguard先验；字符设备4/minor、活动textVT/XLATE|UNICODE、控制TTY SID==parent==worker及foregroundPGID==parentgroup，初始SID/PGID锚定不自动rebind。精确owned sysfs inventory+独立kbd token、前后inhibited=0/元数据一致；250ms TTL查询前起算，不延长、不证明atomic/ABA或端到端delivery。try_arm_console仅initial gate、stale/mismatch零query/grab保留Standby；必须arm后首dispatch前再观察和活动续期/失效先关闭capture，尚未连接。None provider永久无设备测试不变，不开放capture参数。Linux808tests/Clippy/fmt/source60/VT C ABI已通过；无真实VT/ioctl/evdev/uinput。Windows待补原生检查仍未完成。下一步bounded mockable bootstrap与provider active loop/host，完整原目标继续。
 
 ADR-0077：真实Linux main识别独立--keyweave-linux-worker格式，限定64输入/136参数读取，路径只lexical absolute/不丢非Unicode；不把解析当设备验证。先ReportingStartup再parent/run比对和sealed claim，原bytes经Linux无损冷编译。仅session-provider=none可解析，它必须永远禁止设备open，返回Unsupported而非映射成功；不得将valid-config exe测试改为capture-enabled provider。无Runtime不造TerminationReport；真实入口66/65/78已验。非Windows finish保留scalar、不截Windows mask。Linux800tests通过；native捕获bootstrap/consumer-ready/host及所有完整目标继续，Windows原生补验仍待做。

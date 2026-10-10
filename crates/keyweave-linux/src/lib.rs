@@ -1,5 +1,7 @@
 //! Linux evdev/uinput protocol and owned input-query boundaries.
 pub mod activation;
+#[cfg(target_os = "linux")]
+pub mod bootstrap;
 pub mod capture;
 #[cfg(target_os = "linux")]
 pub mod config_artifact;

@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。
 
+最新启动组件：Linux ConsoleBootstrap 已连接原生 owned output→节点发现→逐个输入 open→整组 consumer/neutral arm→post-arm再观察→Runtime handoff；首step+10s/512预算、同一clock、故障/Drop inputs先于output/provider关闭。Linux817tests/Clippy/fmt/source60通过，无真实设备操作。main仍仅none无设备，Pending stop/progress等待与活动provider续期、实际Linux host待连接；完整目标未完成。见 [ADR-0079](ADR-0079-linux-console-bootstrap.md)、[验证记录](validation/linux-2026-10-10-console-bootstrap.json)。Windows此前待补原生检查未执行。
+
 最新 Linux 就绪组件：文本 ConsoleProvider 与 CaptureGroup 初始 gate 已实现；严格 VT/会话/前台组、owned input 的 kbd handler/inhibited、查询前起算250ms输出 scope 证据。Linux 808 tests、Clippy/fmt/source60/扩展 VT C ABI 通过，未访问真实 VT/evdev/uinput；不是图形桌面或端到端交付证明。worker 的 bootstrap、arm 后与活动续期循环、Linux host 仍未连接，none 模式永久无设备 invariant 保持。见 [ADR-0078](ADR-0078-linux-text-console-readiness.md)、[验证记录](validation/linux-2026-10-10-console-ready.json)。完整目标继续未完成，Windows 待补原生验证未执行。
 
 最新真实入口：Linux 专用有限参数与 main 的父/run/三管道/封存配置冷准备已接通；只有无 provider 模式，明确返回 Unsupported、不开设备、不伪造 Runtime 报告。Linux 800 tests、Clippy/fmt/source60 和真实 exe 的 66/65/78 退出检查通过；捕获 bootstrap/consumer-ready/host 仍未完成。见 [ADR-0077](ADR-0077-linux-worker-cold-entry.md)、[验证记录](validation/linux-2026-10-10-worker-cold-entry.json)。
