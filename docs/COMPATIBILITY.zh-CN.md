@@ -100,3 +100,5 @@ Linux配置可通过host check-linux离线校验完整可执行性：Linux capab
 Linux默认challenge协议与run_worker行为保留；新增receive_command/run_worker_controlled仅显式启用KWPS停止。父request_shutdown必须知道worker支持，否则到期限强制停止，不推断兼容。停止先关闭捕获、有限恢复；短写必须补REPORT，unknown acceptance保留错误。父不读取旧receipt续租，Stop写完不等于退出，Cooperative/StopReason不证明键盘恢复。真实Linux入口仍待接通。[ADR-0069](ADR-0069-linux-cooperative-stop.md)。
 
 Linux新增TerminationReport与受控WorkerReport：原StopReason/outcome保持，明确destroy前pending REPORT、未知接受量、未释放submitted、恢复预算与错误，Engine reset和owner释放独立。报告不含按键或设备身份；进程内资源/接受量事实不能证明compositor或全局状态，当前无跨进程报告通道/真实Linux入口。[ADR-0070](ADR-0070-linux-termination-evidence.md)。
+
+Linux终止报告使用显式第三管道与KWLT/v1严格32byte codec，完整reason与10事实mask，正run/reserved/一致性校验；原KWPC/KWPR与默认两管道模式保持。父仅actual exit后读取，完整frame+EOF才确认交付；Missing/Invalid/Pending不等于clean。真实主线程例程只证明protocol/ownership/EOF，不证明实际键盘恢复，真实Linux入口/host仍待接入。[ADR-0071](ADR-0071-linux-terminal-channel.md)。

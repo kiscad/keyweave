@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-10",
+  "feature": "ADR-0071 Linux explicit third private pipe for fixed terminal facts after actual exit",
+  "source_base_commit": "cf03cdc806f1d45ea9f76907415cb7fe9247dca8",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 on this date; not freshly read",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "653aba9101d04ce6a09c317b029241b3",
+      "workspace_tests_passed": 724,
+      "source_files_hash_checked": 198,
+      "source_mismatches": 0,
+      "validation_session": 30154,
+      "validation_terminal_exit": 0,
+      "fmt_session": 67753,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-terminal-channel-x64-1.97.1",
+      "manifest_sha256": "195a1b6a7af7d190c759f8607b855d2e961ec5f65deb6143f55ac4fc53e354b0"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "57650af67d914b769f60b28bb16b7d4d",
+      "workspace_tests_passed": 724,
+      "source_files_hash_checked": 198,
+      "source_mismatches": 0,
+      "validation_session": 30154,
+      "validation_terminal_exit": 0,
+      "fmt_session": 67753,
+      "fmt_terminal_exit": 0,
+      "clippy": "all-targets -D warnings passed",
+      "sdk": "existing C SDK oracle passed; no new FFI/ABI",
+      "raw_evidence": "target/validation/windows-20261010-linux-terminal-channel-x86-1.97.1",
+      "manifest_sha256": "195a1b6a7af7d190c759f8607b855d2e961ec5f65deb6143f55ac4fc53e354b0"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 764,
+    "test_session": 7443,
+    "test_terminal_exit": 0,
+    "clippy_session": 53026,
+    "clippy_terminal_exit": 0,
+    "worker_parent_harness": "main-thread ReportingStartup, third pipe complete/uncertain synthetic frames, actual child exit and EOF, duplicate claim, original guard/startup cases passed without device access",
+    "fmt": "passed",
+    "upstream_source_hashes": 60,
+    "linux_abi": "unchanged; no new unsafe/native ABI, not rerun this component",
+    "raw_evidence": "target/validation/linux-20261010-linux-terminal-channel"
+  },
+  "new_tests": "8 portable codec/reader/writer tests plus extended independent main-thread no-input reporting harness cases",
+  "preliminary": [
+    {
+      "scope": "initial fmt command",
+      "terminal_exit": 1,
+      "reason": "declared tests module before creating its file; resolved by adding actual tests"
+    },
+    {
+      "session": 40115,
+      "terminal_exit": 101,
+      "reason": "integer fallback inferred i32 in u16 bit mask closure",
+      "fix": "explicit u16 mask/zero and u32 shift in production decoder and tests; no contract weakened"
+    }
+  ],
+  "limitations": [
+    "Terminal channel carries termination facts, not detailed WorkerError/outcome; future real entry/host must independently check native exit code and original loop outcome.",
+    "ReportingStartup verifies structural private nonblocking distinct endpoints/parent protection on actual main; it is not cross-user authentication.",
+    "Original stdout remains reserved until real exit; dropping copied writer is not EOF proof.",
+    "Complete requires full valid frame and EOF after actual owned child exit; caller must bound pending EOF observation.",
+    "Frame writes and report completion do not prove compositor processing, native ungrab or global key recovery.",
+    "Main-thread reporting child facts are synthetic no-input evidence; not actual Runtime capture or output recovery.",
+    "Actual Linux capture executable and user host do not yet select third-channel startup or finite sender/reader scheduling.",
+    "All codec/stream tests use mocks; no evdev grab/uinput, Hook/SendInput, or driver installation/loading was run.",
+    "Windows validates 8 portable protocol tests; real Linux main-thread handoff cases are cfg excluded.",
+    "Old x86 anomalies remain unexplained; passing this matrix is not a repair claim.",
+    "Consumer readiness/hotplug/add, advanced duration/simultaneous, context providers, Windows hot configuration, GUI, trusted packaging, Rust driver and companion audit remain incomplete."
+  ]
+}

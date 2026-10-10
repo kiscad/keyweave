@@ -19,6 +19,81 @@ fn main() {
     const MODE: &str = "KEYWEAVE_PARENT_TEST_MODE";
     const PARENT: &str = "KEYWEAVE_SUPERVISOR_PID";
     if let Ok(mode) = std::env::var(MODE) {
+        if mode == "reporting" || mode == "reporting_uncertain" {
+            use keyweave_linux::{
+                runtime::{StopReason, TerminationReport},
+                worker::ReportingStartup,
+            };
+            let startup = ReportingStartup::from_supervisor_environment().unwrap();
+            let (guard, client, mut terminal) = startup.into_parts();
+            assert_eq!(
+                guard.parent_pid().to_string(),
+                std::env::var(PARENT).unwrap()
+            );
+            assert_eq!(
+                ReportingStartup::from_supervisor_environment()
+                    .err()
+                    .unwrap()
+                    .kind(),
+                io::ErrorKind::AlreadyExists
+            );
+            assert_eq!(
+                WorkerStartup::from_supervisor_environment()
+                    .err()
+                    .unwrap()
+                    .kind(),
+                io::ErrorKind::AlreadyExists
+            );
+            // Synthetic no-input facts only: transport validation is not a
+            // real Runtime recovery or native keyboard acceptance test.
+            let uncertain = mode == "reporting_uncertain";
+            terminal
+                .prepare(TerminationReport {
+                    reason: StopReason::Pause,
+                    input_owners_released: true,
+                    engine_reset_confirmed: true,
+                    recovery_failed: false,
+                    recovery_budget_exhausted: uncertain,
+                    submitted_remaining: false,
+                    report_pending: uncertain,
+                    acceptance_unknown: false,
+                    output_recovery_confirmed: !uncertain,
+                    output_owner_dropped: true,
+                    backend_transition_confirmed: true,
+                })
+                .unwrap();
+            let end = Instant::now() + Duration::from_secs(3);
+            while !terminal.flush().unwrap() {
+                assert!(Instant::now() < end);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            drop((terminal, client)); // original stdio remains until real exit
+            let mut bytes = [0; CHALLENGE_BYTES];
+            let mut read = 0;
+            while read < bytes.len() {
+                match io::stdin().read(&mut bytes[read..]) {
+                    Ok(0) => panic!("report fixture channel closed"),
+                    Ok(n) => read += n,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(1))
+                    }
+                    Err(e) => panic!("{e}"),
+                };
+                assert!(Instant::now() < end);
+            }
+            io::stderr()
+                .write_all(
+                    &Receipt {
+                        challenge: Challenge::decode(&bytes).unwrap(),
+                        baseline: 0,
+                        epoch: 1,
+                        phase: RuntimePhase::Stopped,
+                    }
+                    .encode(),
+                )
+                .unwrap();
+            return;
+        }
         if mode == "relay_bad_run" {
             // Test-only normal exec before startup handoff or device opening.
             // Preserve the inherited kernel guard while replacing one env value
@@ -124,10 +199,52 @@ fn main() {
         command.env(MODE, mode).stdout(Stdio::null());
         command
     };
+    for mode in ["reporting", "reporting_uncertain"] {
+        use keyweave_linux::termination::ReadStatus;
+        let mut supervisor =
+            Supervisor::spawn_reporting(fixture(mode), 57, Policy::default(), MonoTime(0)).unwrap();
+        assert_eq!(supervisor.poll_terminal(), ReadStatus::NotExited);
+        let end = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let SupervisorStatus::Exited { status, reason } =
+                supervisor.poll(MonoTime(0)).unwrap()
+            {
+                assert!(status.success());
+                assert_eq!(reason, None);
+                break;
+            }
+            assert!(Instant::now() < end);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let epoch = supervisor.progress_epoch();
+        let deadline = supervisor.deadline();
+        let frame = loop {
+            match supervisor.poll_terminal() {
+                ReadStatus::Pending => (),
+                ReadStatus::Complete(frame) => break frame,
+                status => panic!("unexpected terminal status {status:?}"),
+            };
+            assert!(Instant::now() < end);
+        };
+        assert_eq!(frame.run_id, 57);
+        assert_eq!(frame.report.output_recovery_confirmed, mode == "reporting");
+        assert_eq!(frame.report.report_pending, mode == "reporting_uncertain");
+        assert_eq!(
+            frame.report.recovery_budget_exhausted,
+            mode == "reporting_uncertain"
+        );
+        assert_eq!(supervisor.poll_terminal(), ReadStatus::Complete(frame));
+        assert_eq!(supervisor.progress_epoch(), epoch);
+        assert_eq!(supervisor.deadline(), deadline);
+    }
     let mut command = fixture("verified");
     // Supervisor replaces stale/untrusted inherited values.
     command.env(PARENT, "0");
     let mut supervisor = Supervisor::spawn(command, 57, Policy::default(), MonoTime(0)).unwrap();
+    assert_eq!(
+        supervisor.poll_terminal(),
+        keyweave_linux::termination::ReadStatus::Unsupported
+    );
     let end = Instant::now() + Duration::from_secs(3);
     let status = loop {
         if let SupervisorStatus::Exited { status, reason } = supervisor.poll(MonoTime(0)).unwrap() {
@@ -175,7 +292,7 @@ fn main() {
             .success()
     );
     println!(
-        "worker_parent: guard/startup channels, duplicate claim, malformed run ID, missing protection and malformed/absent parent identity passed (no device access)"
+        "worker_parent: guard/startup/report channels and synthetic terminal EOF, duplicate claim, malformed run ID, missing protection and malformed/absent parent identity passed (no device access)"
     );
 }
 #[cfg(not(target_os = "linux"))]

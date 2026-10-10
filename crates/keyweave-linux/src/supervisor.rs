@@ -53,6 +53,7 @@ pub struct Supervisor {
     command_started: bool,
     stop_frame: bool,
     shutdown: Option<CooperativeShutdown>,
+    terminal: Option<crate::termination::TerminalReader<PipeReader>>,
 }
 impl Supervisor {
     /// Command must be a fixed trusted worker, with no inherited device FDs.
@@ -60,11 +61,24 @@ impl Supervisor {
     /// The creating thread must live until the worker exits: Linux parent-death
     /// SIGKILL is installed before exec. Worker main must verify its inherited
     /// guard before opening devices; credential-changing exec is unsupported.
-    pub fn spawn(
+    pub fn spawn(command: Command, run_id: u64, policy: Policy, now: MonoTime) -> io::Result<Self> {
+        Self::spawn_mode(command, run_id, policy, now, false)
+    }
+    /// Explicit third private terminal pipe. Only a reporting worker may use it.
+    pub fn spawn_reporting(
+        command: Command,
+        run_id: u64,
+        policy: Policy,
+        now: MonoTime,
+    ) -> io::Result<Self> {
+        Self::spawn_mode(command, run_id, policy, now, true)
+    }
+    fn spawn_mode(
         mut command: Command,
         run_id: u64,
         policy: Policy,
         now: MonoTime,
+        reporting: bool,
     ) -> io::Result<Self> {
         let watchdog = ProgressWatchdog::new(run_id, policy, now)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -86,6 +100,21 @@ impl Supervisor {
             .stdin(Stdio::from(worker_reader))
             .stderr(Stdio::from(worker_writer));
         command.env(crate::worker::RUN_ENV, run_id.to_string());
+        let terminal = if reporting {
+            let (reader, writer) = io::pipe()?;
+            crate::ioctl::nonblocking(reader.as_fd())?;
+            crate::ioctl::nonblocking(writer.as_fd())?;
+            command
+                .stdout(Stdio::from(writer))
+                .env(crate::worker::REPORT_ENV, "1");
+            Some(
+                crate::termination::TerminalReader::new(reader, run_id)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?,
+            )
+        } else {
+            command.env_remove(crate::worker::REPORT_ENV);
+            None
+        };
         let parent = std::process::id();
         command.env(crate::worker::PARENT_ENV, parent.to_string());
         crate::ioctl::command_parent_death(&mut command, parent)?;
@@ -110,7 +139,19 @@ impl Supervisor {
             command_started: false,
             stop_frame: false,
             shutdown: None,
+            terminal,
         })
+    }
+    /// Never reads terminal bytes while the owned child may still be alive.
+    /// This does not change exit status, stop reason, epoch or lease.
+    pub fn poll_terminal(&mut self) -> crate::termination::ReadStatus {
+        let Some(reader) = self.terminal.as_mut() else {
+            return crate::termination::ReadStatus::Unsupported;
+        };
+        if self.exit.is_none() {
+            return crate::termination::ReadStatus::NotExited;
+        }
+        reader.poll()
     }
     pub fn progress_epoch(&self) -> u64 {
         self.watchdog.epoch()

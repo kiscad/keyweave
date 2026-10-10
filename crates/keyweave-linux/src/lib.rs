@@ -20,6 +20,7 @@ pub mod read;
 pub mod runtime;
 #[cfg(target_os = "linux")]
 pub mod supervisor;
+pub mod termination;
 #[cfg(target_os = "linux")]
 pub mod uinput;
 #[cfg(target_os = "linux")]

@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, marker::PhantomData, rc::Rc};
 
 pub(crate) const PARENT_ENV: &str = "KEYWEAVE_SUPERVISOR_PID";
+pub(crate) const REPORT_ENV: &str = "KEYWEAVE_TERMINAL_REPORT";
 pub(crate) const RUN_ENV: &str = "KEYWEAVE_PROGRESS_RUN_ID";
 static CHANNELS_CLAIMED: AtomicBool = AtomicBool::new(false);
 
@@ -88,6 +89,53 @@ impl WorkerStartup {
         ProgressClient<std::fs::File, std::fs::File>,
     ) {
         (self.guard, self.client)
+    }
+}
+
+/// Third-channel startup, verified on real main before files/devices/threads.
+/// Original stdout is reserved until actual process exit, never formatted.
+pub struct ReportingStartup {
+    startup: WorkerStartup,
+    terminal: crate::termination::TerminalWriter<std::fs::File>,
+}
+impl ReportingStartup {
+    pub fn from_supervisor_environment() -> io::Result<Self> {
+        use std::os::fd::AsFd;
+        let _guard = WorkerParentGuard::from_supervisor_environment()?;
+        if std::env::var(REPORT_ENV).ok().as_deref() != Some("1") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "reporting mode required",
+            ));
+        }
+        let run_id = positive_environment_u64(RUN_ENV)?;
+        let stdout = io::stdout();
+        let report_id = crate::ioctl::pipe_identity(stdout.as_fd(), true)?;
+        if report_id == crate::ioctl::pipe_identity(io::stdin().as_fd(), false)?
+            || report_id == crate::ioctl::pipe_identity(io::stderr().as_fd(), true)?
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "terminal pipe must be distinct",
+            ));
+        }
+        let startup = WorkerStartup::from_supervisor_environment()?;
+        // Validated protocol endpoint only; std OwnedFd creates CLOEXEC copy.
+        // Never take or close the original standard descriptor.
+        let file = std::fs::File::from(stdout.as_fd().try_clone_to_owned()?);
+        let terminal = crate::termination::TerminalWriter::new(file, run_id)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        Ok(Self { startup, terminal })
+    }
+    pub fn into_parts(
+        self,
+    ) -> (
+        WorkerParentGuard,
+        ProgressClient<std::fs::File, std::fs::File>,
+        crate::termination::TerminalWriter<std::fs::File>,
+    ) {
+        let (guard, client) = self.startup.into_parts();
+        (guard, client, self.terminal)
     }
 }
 
