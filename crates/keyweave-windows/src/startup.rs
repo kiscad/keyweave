@@ -31,3 +31,12 @@ pub enum ProbeError {
     #[error("{call} failed: {code}")]
     Api { call: &'static str, code: u32 },
 }
+
+/// Metadata-only callback gate for cold configuration work. No OS/input probes.
+pub fn ensure_preparation_context() -> Result<(), ProbeError> {
+    #[cfg(any(windows, test))]
+    if !crate::native::outside_callback() {
+        return Err(ProbeError::InCallback);
+    }
+    Ok(())
+}

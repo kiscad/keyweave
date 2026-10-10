@@ -5,6 +5,8 @@ use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use keyweave_windows::keys::{IdentityPolicy, InjectionTag};
 use std::{ffi::OsString, io::Read, path::PathBuf, sync::Arc};
 
+pub mod preparation;
+
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
 pub const ARGUMENT_COUNT: usize = 9;
 pub const MAX_ARGUMENT_COUNT: usize = 11;
@@ -107,7 +109,9 @@ pub enum LoadError {
     #[error("configuration exceeds {MAX_CONFIG_BYTES} bytes")]
     TooLarge,
     #[error(transparent)]
-    Utf8(#[from] std::string::FromUtf8Error),
+    Utf8(#[from] std::str::Utf8Error),
+    #[error(transparent)]
+    Context(#[from] keyweave_windows::startup::ProbeError),
     #[error(transparent)]
     Compile(#[from] ConfigError),
     #[error("configuration cannot be activated without loss")]
@@ -121,6 +125,10 @@ pub enum LoadError {
 /// Native output/engine compatibility is also checked by Worker.install before
 /// its first input probe/notification/Hook call. No metadata/script evaluation.
 pub fn load_config(reader: impl Read) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    compile_config_bytes(&read_config_bytes(reader)?)
+}
+fn read_config_bytes(reader: impl Read) -> Result<Vec<u8>, LoadError> {
+    keyweave_windows::startup::ensure_preparation_context()?;
     let mut bytes = Vec::new();
     reader
         .take(MAX_CONFIG_BYTES as u64 + 1)
@@ -128,9 +136,16 @@ pub fn load_config(reader: impl Read) -> Result<Arc<ConfigSnapshot>, LoadError> 
     if bytes.len() > MAX_CONFIG_BYTES {
         return Err(LoadError::TooLarge);
     }
-    let text = String::from_utf8(bytes)?;
+    Ok(bytes)
+}
+fn compile_config_bytes(bytes: &[u8]) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    keyweave_windows::startup::ensure_preparation_context()?;
+    if bytes.len() > MAX_CONFIG_BYTES {
+        return Err(LoadError::TooLarge);
+    }
+    let text = std::str::from_utf8(bytes)?;
     let compiled = keyweave_config::compile(
-        &text,
+        text,
         &BackendCapabilities::windows_hook(),
         ConfigGeneration(1),
     )?;

@@ -75,6 +75,15 @@ fn validate(config: &ConfigSnapshot) -> Result<(), RuntimeError> {
     }
     Ok(())
 }
+fn prepare_engine(config: Arc<ConfigSnapshot>) -> Result<Engine, RuntimeError> {
+    validate(&config)?;
+    Ok(Engine::new(config)?)
+}
+/// Cold pure output/Engine admission. No backend/OS/clock/activation operations.
+/// Doesn't prove input access, neutral state or actual output acceptance.
+pub fn preflight_config(config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
+    prepare_engine(config).map(drop)
+}
 pub struct SessionActor<B: SendBackend> {
     engine: Engine,
     output: OutputPump<B>,
@@ -89,8 +98,7 @@ impl<B: SendBackend> SessionActor<B> {
         tag: InjectionTag,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        validate(&config)?;
-        let engine = Engine::new(config)?;
+        let engine = prepare_engine(config)?;
         Ok(Self {
             engine,
             output: OutputPump::new(backend, tag),

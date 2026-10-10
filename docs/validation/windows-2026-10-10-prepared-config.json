@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-10",
+  "feature": "Cold host PreparedConfig shared lossless compiler and native output/Engine preflight (ADR-0060)",
+  "source_base_commit": "7c0e5d857df62857273de83b6a100b5fd1b78096",
+  "source_has_uncommitted_changes": true,
+  "rust": "1.97.1",
+  "windows_build": "10.0.19045.0 previously read in ADR-0059 validation this date; not re-read this run",
+  "msvc": "19.44.35229.0 / VCTools 14.44.35207",
+  "sdk": "10.0.26100.0",
+  "runs": [
+    {
+      "arch": "x64",
+      "snapshot": "4f0d3ad79af64eb880c80c5106b525f5",
+      "target": "x86_64-pc-windows-msvc",
+      "workspace_tests_passed": 652,
+      "windows_unit_tests_passed": 290,
+      "worker_library_tests_passed": 13,
+      "new_actual_owned_file_tests": 1,
+      "source_files_hash_checked": 181,
+      "source_mismatches": 0,
+      "validation_session": 34463,
+      "validation_terminal_exit": 0,
+      "fmt_session": 67228,
+      "fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "existing /W4 /WX /std:c11 /Zs passed; no new FFI/ABI; output retained in invocation.log",
+      "raw_evidence": "target/validation/windows-20261010-prepared-config-x64-1.97.1",
+      "manifest_sha256": "eb929f7680cf31209a5741be9f079ae6e4670c1e2b6946a3a64905084517363d"
+    },
+    {
+      "arch": "x86",
+      "snapshot": "9595acb4d092498a88e88a476dc65fd3",
+      "target": "i686-pc-windows-msvc",
+      "workspace_tests_passed": 652,
+      "windows_unit_tests_passed": 290,
+      "worker_library_tests_passed": 13,
+      "new_actual_owned_file_tests": 1,
+      "source_files_hash_checked": 181,
+      "source_mismatches": 0,
+      "validation_session": 34463,
+      "validation_terminal_exit": 0,
+      "fmt_session": 67228,
+      "fmt_terminal_exit": 0,
+      "clippy": "workspace all-targets -D warnings passed",
+      "sdk": "existing /W4 /WX /std:c11 /Zs passed; no new FFI/ABI; output retained in invocation.log",
+      "raw_evidence": "target/validation/windows-20261010-prepared-config-x86-1.97.1",
+      "manifest_sha256": "eb929f7680cf31209a5741be9f079ae6e4670c1e2b6946a3a64905084517363d"
+    }
+  ],
+  "linux": {
+    "workspace_tests_passed": 684,
+    "main_thread_no_device_harness": "worker_parent passed separately within workspace command",
+    "clippy": "workspace all-targets -D warnings passed",
+    "fmt": "passed",
+    "upstream_source_hashes_verified": 60,
+    "raw_evidence": "target/validation/linux-20261010-prepared-config"
+  },
+  "initial_failures": [
+    {
+      "reason": "Mapping lacks PartialEq; compare meaningful from/to fields rather than adding equality to production type",
+      "evidence": "target/validation/linux-20261010-prepared-config/initial-mapping-equality-compile.log"
+    },
+    {
+      "reason": "Two unwrap calls in callback guard test violated Clippy; changed to explicit successful Result assertions, no lint suppression",
+      "linux_evidence": "target/validation/linux-20261010-prepared-config/initial-callback-clippy.log",
+      "windows_snapshot": "c5e2c4e71f0040fa994a001c88e2ae96",
+      "windows_session": 17006,
+      "terminal_exit": 101,
+      "evidence": "target/validation/windows-20261010-prepared-config-before-callback-assert-x64"
+    }
+  ],
+  "limits": [
+    "No Hook installation, SendInput, keyboard devices, driver or real user configuration accessed.",
+    "Sealed file test is in-process owned synthetic image; proves exact original bytes, shared compiler result and actual NotFound after all owner close. Existing cross-process fixtures not repeated as proof of this feature.",
+    "Pure preflight does not prove desktop access, neutral state, actual output acceptance or capture loop progress.",
+    "Complete host, normal capture, Windows 11/hardware, Linux bootstrap/consumer readiness, D05, GUI, packaging, Rust driver and companion audit remain required.",
+    "Earlier ADR-0053 x86 STATUS_THREAD_IS_TERMINATING and prior overlapping MSVC path anomaly remain unexplained; these passes are not a fix claim."
+  ]
+}

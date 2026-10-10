@@ -844,3 +844,15 @@ pub(super) fn test_wait_calls() -> usize {
 pub(super) fn test_notify_before_install() {
     api::notify_install();
 }
+#[cfg(test)]
+#[test]
+fn cold_preparation_context_rejects_callback_without_native_work() {
+    assert!(crate::startup::ensure_preparation_context().is_ok());
+    with_callback_borrow(|| {
+        assert_eq!(
+            crate::startup::ensure_preparation_context(),
+            Err(crate::startup::ProbeError::InCallback)
+        );
+    });
+    assert!(crate::startup::ensure_preparation_context().is_ok());
+}

@@ -557,3 +557,49 @@ fn untracked_input_cannot_turn_unknown_empty_prefix_into_clean_stop() {
     assert_eq!(actor.phase(), ActorPhase::Unresolved);
     assert_eq!(calls.borrow().len(), 1);
 }
+#[test]
+fn pure_preflight_rejects_device_conditions_and_special_outputs_in_all_actions() {
+    let mut rule = mapping(4, 5);
+    rule.to[0].conditions.push(Condition::Device {
+        identifiers: vec![],
+        unless: false,
+        exists: false,
+    });
+    assert!(matches!(
+        preflight_config(config(1, vec![rule])),
+        Err(RuntimeError::DeviceCondition)
+    ));
+    let mut rule = mapping(4, 5);
+    rule.extras.if_alone = vec![key(0x46).into()];
+    assert!(matches!(
+        preflight_config(config(1, vec![rule])),
+        Err(RuntimeError::Key(KeyError::SpecialSequence))
+    ));
+}
+#[test]
+fn pure_preflight_shares_engine_timing_gate_and_does_not_construct_output() {
+    preflight_config(config(1, vec![mapping(4, 5)])).unwrap();
+    let mut rule = mapping(4, 5);
+    rule.to[0].hold_down_ns = 1;
+    assert!(matches!(
+        preflight_config(config(1, vec![rule])),
+        Err(RuntimeError::Engine(EngineError::UnsupportedActionTiming))
+    ));
+    let calls = Rc::new(RefCell::new(vec![]));
+    let backend = Backend {
+        calls: calls.clone(),
+        replies: VecDeque::new(),
+        zero: false,
+    };
+    let mut rule = mapping(4, 5);
+    rule.to[0].hold_down_ns = 1;
+    assert!(matches!(
+        SessionActor::new(
+            backend,
+            InjectionTag::new(1).unwrap(),
+            config(1, vec![rule])
+        ),
+        Err(RuntimeError::Engine(EngineError::UnsupportedActionTiming))
+    ));
+    assert!(calls.borrow().is_empty());
+}

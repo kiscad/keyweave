@@ -211,3 +211,8 @@ cargo +1.97.1 build --locked --offline -p keyweave-windows --example check_coope
 ```
 
 x86对应i686-pc-windows-msvc，并使用x86 vcvars环境；不要与正在运行的MSVC fullvalidation并行native构建。例程只操作自有process/pipe/synthetic临时文件，不安装Hook；不等价于完整用户host。
+
+
+Windows host冷配置准备（2026-10-10）：同worker无损compiler和SessionActor/Engine gate，保留原JSONC image，纯准备不构造backend或启动input。
+
+最终固定 Rust1.97.1：Linux684 workspace tests及独立main-thread无设备harness、alltargetsClippy/fmt/source60通过；Windows x64/i686各652 tests（Windowsunit290、worker lib13、实际prepared文件1）、alltargetsClippy/fmt/既有SDK通过。两个181源文件SHA全匹配最终工作区，fullvalidation父进程34463和随后fmt父进程67228实际terminal0。初次Mapping未实现PartialEq的编译错误改为逐项语义断言，callback测试两处unwrap引起的Clippy失败改为明确成功断言；初始失败与首Windows快照留存，不屏蔽lint。[验证报告](validation/windows-2026-10-10-prepared-config.json)、[ADR-0060](ADR-0060-host-config-preparation.md)。ignored target/validation/linux-20261010-prepared-config、windows-20261010-prepared-config-{x64,x86}-1.97.1和before-callback-assert-x64保留原始证据。未改变FFI/SDK/协议、不重跑无关旧native fixture作本功能证明。旧x86异常原因仍未知；完整host/真实输入与原目标继续未完成。
