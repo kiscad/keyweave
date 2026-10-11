@@ -1,0 +1,364 @@
+//! Destination-queue logical state changes at generation, not timed delivery.
+//! This queue is a building block; binding execution and modifier scopes are separate.
+use crate::{
+    action_plan::{ActionSlot, PlannedAction},
+    rule_selection::{self, MappingStage, RuleSelection},
+    timeline::{DueEvent, MAX_STAGE_APPEND, Stage, StageEvent, StageTimeline, TimelineError},
+    *,
+};
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum GeneratedError {
+    #[error(transparent)]
+    Engine(#[from] EngineError),
+    #[error(transparent)]
+    Timeline(#[from] TimelineError),
+    #[error("event belongs to a different destination stage")]
+    Stage,
+    #[error("invalid generated slot lifecycle")]
+    Lifecycle,
+    #[error("generated event has different saved provenance")]
+    Provenance,
+}
+pub struct RejectedGeneratedBatch {
+    pub error: GeneratedError,
+    pub events: Vec<StageEvent<PlannedAction>>,
+}
+impl std::fmt::Debug for RejectedGeneratedBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RejectedGeneratedBatch")
+            .field("error", &self.error)
+            .field("event_count", &self.events.len())
+            .finish()
+    }
+}
+struct Down {
+    device: DeviceInstanceId,
+    source: SourceToken,
+    config: Arc<ConfigSnapshot>,
+    target: ActionTarget,
+}
+struct Environment {
+    stage: Stage,
+    config: Arc<ConfigSnapshot>,
+    down: BTreeMap<ActionSlot, Down>,
+    variables: BTreeMap<String, Option<VariableValue>>,
+}
+struct Append<'a> {
+    environment: &'a mut Environment,
+    down: BTreeMap<ActionSlot, Option<Down>>,
+    variables: BTreeMap<String, Option<VariableValue>>,
+}
+impl Append<'_> {
+    fn commit(self) {
+        for (slot, down) in self.down {
+            match down {
+                Some(down) => {
+                    self.environment.down.insert(slot, down);
+                }
+                None => {
+                    self.environment.down.remove(&slot);
+                }
+            }
+        }
+        for (name, value) in self.variables {
+            self.environment.variables.insert(name, value);
+        }
+    }
+}
+fn variable_update(target: &ActionTarget, edge: KeyEdge) -> Option<(&str, Option<VariableValue>)> {
+    let ActionTarget::SetVariable(variable) = target else {
+        return None;
+    };
+    match (&variable.operation, edge) {
+        (
+            VariableOperation::Set {
+                value: Some(value), ..
+            },
+            KeyEdge::Down,
+        ) => Some((&variable.name, Some(value.clone()))),
+        (
+            VariableOperation::Set {
+                key_up_value: Some(value),
+                ..
+            },
+            KeyEdge::Up,
+        ) => Some((&variable.name, Some(value.clone()))),
+        (VariableOperation::Unset, KeyEdge::Down) => Some((&variable.name, None)),
+        _ => None,
+    }
+}
+impl Environment {
+    fn prepare(
+        &mut self,
+        events: &[StageEvent<PlannedAction>],
+    ) -> Result<Append<'_>, GeneratedError> {
+        if events.len() > MAX_STAGE_APPEND {
+            return Err(TimelineError::Capacity.into());
+        }
+        let mut down = BTreeMap::<ActionSlot, Option<Down>>::new();
+        let mut variables = BTreeMap::new();
+        let mut count = self.down.len();
+        for event in events {
+            if event.stage != self.stage {
+                return Err(GeneratedError::Stage);
+            }
+            let action = &event.payload;
+            let previous = match down.get(&action.slot) {
+                Some(value) => value.as_ref(),
+                None => self.down.get(&action.slot),
+            };
+            match action.edge {
+                KeyEdge::Down => {
+                    if previous.is_some() || down.contains_key(&action.slot) {
+                        return Err(GeneratedError::Lifecycle);
+                    }
+                    if !Arc::ptr_eq(&event.config, &self.config) {
+                        return Err(GeneratedError::Provenance);
+                    }
+                    if let ActionTarget::SetVariable(variable) = &action.target {
+                        let valid = match &variable.operation {
+                            VariableOperation::Set {
+                                value,
+                                key_up_value,
+                            } => {
+                                (value.is_some() || key_up_value.is_some())
+                                    && value
+                                        .iter()
+                                        .chain(key_up_value.iter())
+                                        .all(VariableValue::bounded)
+                            }
+                            VariableOperation::Unset => true,
+                        };
+                        if !valid || !self.variables.contains_key(&variable.name) {
+                            return Err(EngineError::InvalidVariable.into());
+                        }
+                    }
+                    count += 1;
+                    if count > MAX_OUTPUT_OWNERS {
+                        return Err(EngineError::ResourceLimit.into());
+                    }
+                    down.insert(
+                        action.slot,
+                        Some(Down {
+                            device: event.device,
+                            source: event.source,
+                            config: Arc::clone(&event.config),
+                            target: action.target.clone(),
+                        }),
+                    );
+                }
+                KeyEdge::Up => {
+                    let previous = previous.ok_or(GeneratedError::Lifecycle)?;
+                    if previous.device != event.device
+                        || previous.source != event.source
+                        || !Arc::ptr_eq(&previous.config, &event.config)
+                        || previous.target != action.target
+                    {
+                        return Err(GeneratedError::Provenance);
+                    }
+                    count -= 1;
+                    down.insert(action.slot, None);
+                }
+                KeyEdge::Repeat => return Err(GeneratedError::Lifecycle),
+            }
+            if let Some((name, value)) = variable_update(&action.target, action.edge) {
+                variables.insert(name.to_owned(), value);
+            }
+        }
+        Ok(Append {
+            environment: self,
+            down,
+            variables,
+        })
+    }
+    fn remove(&mut self, predicate: impl Fn(&Down, ActionSlot) -> bool) -> Vec<ActionSlot> {
+        let slots: Vec<_> = self
+            .down
+            .iter()
+            .filter(|(slot, down)| predicate(down, **slot))
+            .map(|(slot, _)| *slot)
+            .collect();
+        for slot in slots.iter().rev() {
+            if let Some(down) = self.down.remove(slot)
+                && let Some((name, value)) = variable_update(&down.target, KeyEdge::Up)
+            {
+                self.variables.insert(name.to_owned(), value);
+            }
+        }
+        slots
+    }
+}
+/// One destination stage's bounded causal queue and generated logical environment.
+/// Input/OS execution, scopes, source allocation and original-up recipes remain caller-owned.
+pub struct GeneratedStageQueue {
+    environment: Environment,
+    timeline: StageTimeline<PlannedAction>,
+}
+impl GeneratedStageQueue {
+    pub fn new(stage: Stage, config: Arc<ConfigSnapshot>) -> Result<Self, GeneratedError> {
+        config.validate_timed_stages(true)?;
+        let variables = config
+            .variable_names()?
+            .into_iter()
+            .map(|name| (name, None))
+            .collect();
+        Ok(Self {
+            environment: Environment {
+                stage,
+                config,
+                down: BTreeMap::new(),
+                variables,
+            },
+            timeline: StageTimeline::new(),
+        })
+    }
+    pub fn queued_events(&self) -> usize {
+        self.timeline.len()
+    }
+    pub fn logical_slots(&self) -> usize {
+        self.environment.down.len()
+    }
+    pub fn next_deadline(&self) -> Option<MonoTime> {
+        self.timeline.next_deadline()
+    }
+    pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
+        &self.environment.config
+    }
+    pub fn modifiers(&self) -> BTreeSet<KeyId> {
+        self.environment
+            .down
+            .values()
+            .filter_map(|down| match down.target {
+                ActionTarget::Key(key) if key.is_modifier() => Some(key),
+                _ => None,
+            })
+            .collect()
+    }
+    pub fn variable_values(&self) -> BTreeMap<String, VariableValue> {
+        self.environment
+            .variables
+            .iter()
+            .filter_map(|(name, value)| value.clone().map(|value| (name.clone(), value)))
+            .collect()
+    }
+    pub fn condition_truth(
+        &self,
+        condition: &Condition,
+        context: &ContextSnapshot,
+        device: DeviceInstanceId,
+        at: MonoTime,
+    ) -> Truth {
+        variable_truth(&self.environment.variables, condition)
+            .unwrap_or_else(|| condition.evaluate(context, device, at))
+    }
+    /// Select the manipulator writing into this queue, using generated state.
+    pub fn select(
+        &self,
+        key: KeyId,
+        context: &ContextSnapshot,
+        device: DeviceInstanceId,
+        at: MonoTime,
+    ) -> Result<Option<RuleSelection>, GeneratedError> {
+        let stage = match self.environment.stage {
+            Stage::Complex => MappingStage::Simple,
+            Stage::Output => MappingStage::Complex,
+            Stage::Simple => return Err(GeneratedError::Stage),
+        };
+        Ok(rule_selection::select_rule(
+            Arc::clone(self.snapshot()),
+            stage,
+            key,
+            self.modifiers(),
+            |condition| self.condition_truth(condition, context, device, at),
+        ))
+    }
+    /// Prepare all logical effects before queue admission; commit only on success.
+    pub fn enqueue(
+        &mut self,
+        events: Vec<StageEvent<PlannedAction>>,
+    ) -> Result<(), RejectedGeneratedBatch> {
+        let append = match self.environment.prepare(&events) {
+            Ok(append) => append,
+            Err(error) => return Err(RejectedGeneratedBatch { error, events }),
+        };
+        match self.timeline.enqueue(events) {
+            Ok(()) => {
+                append.commit();
+                Ok(())
+            }
+            Err(rejected) => Err(RejectedGeneratedBatch {
+                error: rejected.error.into(),
+                events: rejected.events,
+            }),
+        }
+    }
+    /// Delivery does not replay logical assignments or modifier edges.
+    pub fn poll(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Option<DueEvent<PlannedAction>>, GeneratedError> {
+        Ok(self.timeline.pop_due(at)?)
+    }
+    /// Timeline validates device history first. Returned slots/events require caller cleanup.
+    pub fn observe_device(
+        &mut self,
+        device: DeviceInstanceId,
+        removed: bool,
+    ) -> Result<(Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>), GeneratedError> {
+        let events = self.timeline.observe_device(device, removed)?;
+        let slots = self.environment.remove(|down, _| {
+            down.device.id == device.id
+                && (down.device.generation < device.generation
+                    || (removed && down.device.generation == device.generation))
+        });
+        Ok((slots, events))
+    }
+    pub fn cancel_batch(
+        &mut self,
+        batch: action_plan::BatchId,
+    ) -> (Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>) {
+        let events = self
+            .timeline
+            .discard_where(|event| event.payload.slot.batch == batch);
+        let slots = self.environment.remove(|_, slot| slot.batch == batch);
+        (slots, events)
+    }
+    pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), GeneratedError> {
+        if config.generation <= self.environment.config.generation {
+            return Err(EngineError::InvalidGeneration.into());
+        }
+        config.validate_timed_stages(true)?;
+        let names = config.variable_names()?;
+        if self
+            .environment
+            .variables
+            .keys()
+            .chain(names.iter())
+            .collect::<BTreeSet<_>>()
+            .len()
+            > MAX_VARIABLES
+        {
+            return Err(EngineError::ResourceLimit.into());
+        }
+        for name in names {
+            self.environment.variables.entry(name).or_insert(None);
+        }
+        self.environment.config = config;
+        Ok(())
+    }
+    pub fn reset(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Vec<StageEvent<PlannedAction>>, GeneratedError> {
+        let events = self.timeline.reset(at)?;
+        self.environment.down.clear();
+        self.environment
+            .variables
+            .retain(|name, _| self.environment.config.references_variable(name));
+        for value in self.environment.variables.values_mut() {
+            *value = None;
+        }
+        Ok(events)
+    }
+}

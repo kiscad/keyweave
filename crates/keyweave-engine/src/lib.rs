@@ -1,6 +1,7 @@
 //! Deterministic remapping. No OS input, file IO, threads or wall clock.
 pub mod action_plan;
 mod conditions;
+pub mod generated_stage;
 pub mod modifier_scope;
 mod modifiers;
 pub mod rule_selection;
@@ -500,6 +501,28 @@ struct DelayedPayload {
     consumed: BTreeSet<KeyId>,
 }
 
+fn variable_truth(
+    variables: &BTreeMap<String, Option<VariableValue>>,
+    condition: &Condition,
+) -> Option<Truth> {
+    let Condition::Variable {
+        name,
+        value,
+        unless,
+    } = condition
+    else {
+        return None;
+    };
+    let matched = variables
+        .get(name)
+        .and_then(Option::as_ref)
+        .map_or(*value == VariableValue::Integer(0), |actual| {
+            actual == value
+        })
+        != *unless;
+    Some(if matched { Truth::True } else { Truth::False })
+}
+
 pub struct Engine {
     config: Arc<ConfigSnapshot>,
     variables: BTreeMap<String, Option<VariableValue>>,
@@ -638,25 +661,10 @@ impl Engine {
     }
 
     fn condition_truth(&self, condition: &Condition) -> Truth {
-        if let Condition::Variable {
-            name,
-            value,
-            unless,
-        } = condition
-        {
-            let matched = self
-                .variables
-                .get(name)
-                .and_then(Option::as_ref)
-                .map_or(*value == VariableValue::Integer(0), |actual| {
-                    actual == value
-                })
-                != *unless;
-            if matched { Truth::True } else { Truth::False }
-        } else {
-            condition.evaluate(&self.context, self.current_device, self.now)
-        }
+        variable_truth(&self.variables, condition)
+            .unwrap_or_else(|| condition.evaluate(&self.context, self.current_device, self.now))
     }
+
     fn validate_context(
         &self,
         context: &ContextSnapshot,

@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0108 destination generated logical stage environment and causal queue",
+  "source_base_commit": "ba1894e2ace1d8bb986210b4e6baf1be8660951c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "702c7c5e3e5fb326082b8e02da5089bd38cf6af92c25db80b9deb899759e04c3",
+    "crates/keyweave-engine/src/generated_stage.rs": "7d5cd4d1a5f90158ea2d78da05f1e0b5dfbdb7aa6ec1f4cdbaa76089e34110aa",
+    "crates/keyweave-engine/tests/generated_stage.rs": "890034b2d8917c398f2e1b8eca9a0be635402f73306dc87f40424c82cecc94f5"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1001,
+    "new_tests": 7,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-generated-stage/tests.log",
+        "sha256": "22f3bc7adcfb84cb51ac7be9aa3017aa6a291c4f963239ed2ee2f105ad3283d4"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-generated-stage/clippy.log",
+        "sha256": "3409f9efd38e61bbd19f619fecb9f83aed559ff7c284d004093001470326f097"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-generated-stage/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-generated-stage/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Focused test compilation rejected whole StageEvent PartialEq; assertion now checks each field and Arc identity.",
+    "Clippy redundant_pattern_matching replaced by is_err and workspace checks rerun."
+  ],
+  "abi": "Pure Rust shared generated environment and Engine variable truth refactor; no unsafe/FFI/dependencies/ABI change; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; Windows native build and previous validations pending prior approval quota issue."
+  },
+  "limitations": [
+    "Generation state updates on enqueue; due delivery does not replay effects. This is not terminal actual/native output state.",
+    "ScopedActionPlan logical scopes and context event updates are not integrated. Complete stage actor/native runtime, parent-child branches, input-up recipes and source subtree budget remain unfinished.",
+    "Generated logical slots do not enumerate all actual held output owners: already-generated taps may still be awaiting physical Up. Controls require independent actual binding cleanup.",
+    "New Down requires current Arc; saved original Up permits its old Arc. Retained old rule child admission remains for complete actor.",
+    "Variable assignments already generated are not rolled back on queue cancellation; held variable cleanup applies saved Up values in reverse slot order.",
+    "Live logical slots/append/queue are bounded; hard allocator/time guarantees and whole source budgets are separate. Batch IDs must not be reused across lifecycle.",
+    "Pure synthetic/shared actor and existing no-input process checks only; no real global keyboard/devices/native duration/driver. UnsupportedActionTiming retained."
+  ]
+}
