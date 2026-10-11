@@ -514,20 +514,22 @@ impl TerminalActor {
         }
         let bounds = self
             .bindings
-            .cancel(id)
+            .cancel_subtree(id)
             .map_err(|_| ActorError::InvalidSlot)?;
         self.timeline
             .discard_where(|event| event.payload.batch() == id);
         let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
-        for bound in bounds {
-            let mut cursor = batch.base_source;
-            self.core.release_bound(
-                bound,
-                &batch.plan.origin.config,
-                &mut cursor,
-                false,
-                outputs,
-            );
+        for canceled in bounds {
+            for saved in canceled.payloads {
+                let mut cursor = batch.base_source;
+                self.core.release_bound(
+                    saved.payload,
+                    &canceled.origin.config,
+                    &mut cursor,
+                    false,
+                    outputs,
+                );
+            }
         }
         if let Some(scope) = batch.scope {
             self.scope_slots -= scope.reserved;

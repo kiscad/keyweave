@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0110 saved binding subtree inspection and postorder cancellation with terminal actor cleanup",
+  "source_base_commit": "d8214501b95e14e28ad600b52a3d79908ca985f8",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/stage_bindings.rs": "3f775a169ff1511ed8a045c3d66ae8645308a72193bbd4d6b3d24653aa021171",
+    "crates/keyweave-engine/src/terminal_actor.rs": "7a089ef072e1422607cf262860b27a925c15d3f5ca0ff61cac1ef1bcc5f31494",
+    "crates/keyweave-engine/tests/binding_trees.rs": "1750932acb6c5fb9994e817f3d378f340e668c052d12c5198bc528876d948e04"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1017,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-binding-trees/tests.log",
+        "sha256": "193f7e441b7c41ca21e1e589ebf2d667982c403c849deb5a9a7bcde734f8aea2"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-binding-trees/clippy.log",
+        "sha256": "3207e2e4ca687ccc4c3d60c93e93a567505010bd7d3a6cc3fa51f01882fc8d6d"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-binding-trees/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-binding-trees/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust bounded binding adjacency/tree inspection and terminal cancellation; no unsafe/FFI/dependencies/ABI change; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; native Windows build and previous validations pending prior approval quota issue."
+  },
+  "limitations": [
+    "Tree inspection is read-only metadata, not native permission, source reservation or OS accepted output evidence.",
+    "Subtree cancellation returns owned cleanup recipes and discarded-batch identities; caller must discard ALL corresponding queued work before cleanup/resuming. Arena does not execute platform recovery or extra actions.",
+    "TerminalActor contains only Output roots, so existing root-only queue discard is sufficient there; complete multi-stage actor must handle all returned batches.",
+    "Live payload records exclude Reserved/Released slots, but empty canceled child batches still need queue reconciliation.",
+    "Modifier-to-nonmodifier/variable mappings and future reserved descendants require explicit scope semantics; scope difference propagation and complete stage actor remain unfinished.",
+    "Private next-stage graph has depth at most three, <=4096 batches and <=16384 slots; BTreeSet adds metadata allocation and no hard latency/RSS guarantee.",
+    "Pure shared tests and existing no-input process checks only; no real keyboard/devices/native duration/driver. UnsupportedActionTiming retained."
+  ]
+}
