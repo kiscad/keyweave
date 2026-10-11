@@ -5,6 +5,7 @@ pub mod generated_stage;
 pub mod modifier_scope;
 mod modifiers;
 pub mod output_stage;
+pub mod producer_decision;
 pub mod rule_selection;
 pub mod stage_bindings;
 mod stage_delivery;

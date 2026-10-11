@@ -196,6 +196,15 @@ impl OutputStageActor {
     ) -> Result<PreparedOutputChild<'a, T>, OutputStageError> {
         self.prepare_child_scoped(ScopedActionPlan::plain(plan), registration)
     }
+    /// Save the delivered Complex producer's original decision before binding admission.
+    pub fn decide_producer_down(
+        &self,
+        down: &timeline::DueEvent<PlannedAction>,
+        context: &ContextSnapshot,
+    ) -> Result<producer_decision::ProducerDecision, OutputStageError> {
+        self.running()?;
+        Ok(self.generated.decide_producer_down(down, context)?)
+    }
     pub fn prepare_child_scoped<'a, T>(
         &'a mut self,
         plan: ScopedActionPlan,

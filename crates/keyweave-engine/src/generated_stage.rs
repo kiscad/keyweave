@@ -433,6 +433,56 @@ impl GeneratedStageQueue {
             |condition| self.condition_truth(condition, context, device, at),
         ))
     }
+    /// Freeze a delivered producer Down against its saved Arc and this destination's view.
+    /// This is selection only: old plans still require retained-parent joint admission.
+    pub fn decide_producer_down(
+        &self,
+        down: &DueEvent<PlannedAction>,
+        context: &ContextSnapshot,
+    ) -> Result<producer_decision::ProducerDecision, GeneratedError> {
+        let (incoming, mapping) = match self.environment.stage {
+            Stage::Complex => (Stage::Simple, MappingStage::Simple),
+            Stage::Output => (Stage::Complex, MappingStage::Complex),
+            Stage::Simple => return Err(GeneratedError::Stage),
+        };
+        let event = &down.event;
+        if event.stage != incoming {
+            return Err(GeneratedError::Stage);
+        }
+        if event.payload.edge != KeyEdge::Down {
+            return Err(GeneratedError::Lifecycle);
+        }
+        if down.delivered_at < event.at_ns || down.delivered_at < self.now {
+            return Err(TimelineError::TimeReversed.into());
+        }
+        if !Arc::ptr_eq(&event.config, &self.environment.config) {
+            if event.config.generation >= self.environment.config.generation {
+                return Err(GeneratedError::Provenance);
+            }
+            // Current Arc was validated at construction/activation. Caller-supplied
+            // old snapshots still need schema validation before immutable selection.
+            event.config.validate_timed_stages(true)?;
+            event.config.variable_names()?;
+        }
+        let selection = match event.payload.target {
+            ActionTarget::Key(key) => rule_selection::select_rule(
+                Arc::clone(&event.config),
+                mapping,
+                key,
+                self.modifiers(),
+                |condition| {
+                    self.condition_truth(condition, context, event.device, down.delivered_at)
+                },
+            ),
+            ActionTarget::SetVariable(_) => None,
+        };
+        Ok(producer_decision::ProducerDecision::new(
+            event.clone(),
+            down.delivered_at,
+            self.environment.stage,
+            selection,
+        ))
+    }
     /// Prepare all logical effects before queue admission; commit only on success.
     pub fn enqueue(
         &mut self,

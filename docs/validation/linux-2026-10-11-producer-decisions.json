@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0121 saved producer Down destination decisions",
+  "source_base_commit": "3baa9297b2388cbcc630fc1e10e8aa2988b15cdf",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "1e5e78e9af6773e162f2281f68ace4d686f000b441017c3ea5fffe4d0c021c77",
+    "crates/keyweave-engine/src/generated_stage.rs": "06bc9e78e2bb023a660bf1cdbdf8e6f4df0b457c7d1a31be7f113d5590a7e3b4",
+    "crates/keyweave-engine/src/output_stage.rs": "d6a7feb9471ce0b103b3e57827eeab3089d96a545ffe6df117ef8a5decbfdaac",
+    "crates/keyweave-engine/src/producer_decision.rs": "dc31d3284bd2f2ee9398dd586da7ef9fbc88c931bd4f2c4c43f382e00cbd2638",
+    "crates/keyweave-engine/tests/producer_decisions.rs": "4eae897d28cfb17a19111177d3682310c2f6f9ac947c54e4aae6359ae83efef0"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1132,
+    "new_tests": 12,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-producer-decisions/tests.log",
+        "sha256": "be16c9e69d2c2059586b8563eebd15a8f1e668249889a86128f7093928447faa"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-producer-decisions/clippy.log",
+        "sha256": "ec1c0a676cef81ae74e42f546304fdae5c7aed461e08b7cd1512640d27a67bea"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-producer-decisions/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-producer-decisions/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust immutable decision and selector API; no unsafe, FFI, dependency or native ABI change. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Previous automatic approval quota issue remains for pending native validation; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "ProducerDecision freezes incoming StageEvent/config Arc, delivered_at, destination and selected rule/eligible main indices. No binding, source, queue, logical scope, variable or clock mutation occurs.",
+    "Uses saved event Arc and current destination generated modifier/variable view; context evaluated at delivered_at. Validated exact current Arc avoids full-schema rescan; caller-provided older Arc is schema checked. Future/same-generation foreign Arc and invalid stage/edge/causal/destination clock rejected.",
+    "Public DueEvent is caller-provided consistency evidence, not native/queue authentication. Caller must retain this decision for retries and original Up; repeated explicit decide calls can create a different new decision as environment changes. Controller enforcement is still pending.",
+    "Selection is not old-root authorization: ordinary old enqueue/prepare remain gated; retained/activated parent joint admission is still required. Variable namespace admission and reset rules unchanged.",
+    "Some selection with zero eligible actions consumes the rule. No selection passes target/lazy with saved original-Up release; incoming halt remains upstream metadata and is not copied into a new downstream rule action. Controller still has to propagate halt correctly.",
+    "Read-only original RuleSelection supports fresh branch filtering; no held/alone/delayed eligibility/timer/halt scheduler added here. Pass-through does not duplicate incoming hold/tap; original producer Up drives saved child Up.",
+    "One integration stores non-Clone decision as actual producer payload using joint output admission and saved original Up across reload. Manual deterministic wiring does not prove full producer/controller/native runtime or crossstage scope propagation.",
+    "Complete controller, empty main parent binding, child original-Up/completion barrier, crossstage scope/source ID pool/context/branches/native duration/simultaneous/Windows adapters/hardware/UI/packaging/driver remain pending. Production duration gate retained.",
+    "No real input, device, driver, installation or Windows build executed."
+  ]
+}
