@@ -20,6 +20,8 @@ pub enum GeneratedError {
     Lifecycle,
     #[error("generated event has different saved provenance")]
     Provenance,
+    #[error(transparent)]
+    Binding(#[from] stage_bindings::BindingError),
 }
 pub struct RejectedGeneratedBatch {
     pub error: GeneratedError,
@@ -119,6 +121,22 @@ impl PreparedScopedGeneration<'_> {
     pub fn commit(self) -> ScopedGeneration {
         self.append.commit();
         self.saved
+    }
+}
+/// Atomic Simple-parent registration and Complex destination generation.
+/// No actual producer binding or downstream execution is implied by this guard.
+#[must_use = "commit or discard the child registration and generation together"]
+pub struct PreparedGeneratedChild<'a, T> {
+    generated: PreparedScopedGeneration<'a>,
+    registration: stage_bindings::Reservation<'a, T>,
+}
+impl<T> PreparedGeneratedChild<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) -> ScopedGeneration {
+        self.registration.commit();
+        self.generated.commit()
     }
 }
 /// Saved original-Up admission. Drop leaves scope, variables, recipe and clock unchanged.
@@ -468,6 +486,31 @@ impl GeneratedStageQueue {
         plan: &modifier_scope::ScopedActionPlan,
     ) -> Result<PreparedScopedGeneration<'_>, GeneratedError> {
         self.prepare_scoped_inner(plan, None)
+    }
+    /// Generate a Complex child from an exclusively retained Live Simple parent.
+    /// This preserves the parent's old Arc without relaxing ordinary root admission.
+    /// Snapshot extra sources are charged here; do not also charge the same scope.
+    /// Actual child/scopes must finish before the caller clears external registration.
+    pub fn prepare_complex_child_scoped<'a, T>(
+        &'a mut self,
+        plan: &modifier_scope::ScopedActionPlan,
+        registration: stage_bindings::Reservation<'a, T>,
+    ) -> Result<PreparedGeneratedChild<'a, T>, GeneratedError> {
+        if self.environment.stage != Stage::Complex {
+            return Err(GeneratedError::Stage);
+        }
+        let extra = if plan.actions().events().is_empty() {
+            0
+        } else {
+            plan.scope().reservation()
+        };
+        let registration = registration.with_extra_sources(extra)?;
+        let child = registration.child_admission()?;
+        let generated = self.prepare_child_scoped(plan, &child)?;
+        Ok(PreparedGeneratedChild {
+            generated,
+            registration,
+        })
     }
     pub(crate) fn prepare_child_scoped(
         &mut self,

@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0119 atomic retained Live Simple parent to Complex child generation",
+  "source_base_commit": "766220e2aabf501d6014ff062357ae54bd12e119",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/generated_stage.rs": "e3c0be73b6b9547cd31b691a59f1418e3e9498050be6d7a5f7d27b04a0ece923",
+    "crates/keyweave-engine/tests/complex_children.rs": "6b1e491bd2ec85ec0bd3778349734859d6c325f4f5b9522d76c67757089634d5"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1109,
+    "new_tests": 10,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-complex-child-generation/tests.log",
+        "sha256": "a8a91a8b767b9a6fc48b8ea67ac6e7472fc2668d0e39a5e972615950234d9b2c"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-complex-child-generation/clippy.log",
+        "sha256": "46f5250dadf4e63201b63535d4fd437e4ad14d6f45356812077c6e8442034738"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-complex-child-generation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-complex-child-generation/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "run": "first focused run, exit 101, 7 passed / 3 failed",
+      "cause": "Two tests incorrectly expected final repeat=true main Up to wait hold duration; one expected Lifecycle rather than Engine(InvalidVariable) for old variable namespace after reset.",
+      "resolution": "Verified upstream basic/event_sender.hpp last repeat rule and existing action planner; corrected test expectations only."
+    },
+    {
+      "run": "second focused run, exit 101, 8 passed / 2 failed",
+      "cause": "Adjusted tests polled at 109 after input_up_scoped at 110 had advanced queue time, causing TimeReversed.",
+      "resolution": "Moved no-due poll before original-Up admission. Third focused run passed all 10; production timing/error behavior unchanged."
+    }
+  ],
+  "abi": "Pure Rust prepared transaction; no unsafe, FFI, dependency, native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Pending earlier native validation remains prevented by previous automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "Only Complex destination exposes this atomic generated child path; Output requires OutputStageActor three-party admission. Ordinary old roots remain rejected.",
+    "Returned ScopedGeneration is logical original-Up recipe, not actual producer binding/native acceptance. External child registration remains Reserved until controller executes and inserts actual bindings.",
+    "Generation/queue retirement and device cleanup do not release external registration or prove actual downstream completion. Caller must release actual children/scopes before clearing tree registration.",
+    "One test manually composes Simple Live parent, Complex generation, executed Complex binding and Output actor then cleans children first across reload. It is pure deterministic wiring evidence, not full production controller or crossstage modifier scope propagation.",
+    "Global source ID allocation, complete producer actor/context/branches/native duration/simultaneous, native runtime adapter, Windows builds, hardware/UI/packaging/driver remain pending. Production duration gate retained.",
+    "No actual input, device access, driver or installation. No Windows compilation executed."
+  ]
+}
