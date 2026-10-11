@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+Linux 独立reload pipe端点/监督继承/真实main单次认领已实现，907项测试及无输入父子进程传输harness通过。当前真实worker/host尚未采用新模式，活动reload、watcher/CLI仍未连接；不宣称实际捕获热更新或Windows端点支持。见 [ADR-0093](ADR-0093-linux-reload-pipe-handoff.md)。
+
 热配置冷任务与sealed actor交付桥已实现，9项新增portable测试通过（全套904）；每owner最多一job/Ready，Stop不重开/不抢占，actual activation先于ack，失效保持已激活代号不rollback。原生IPC、worker控制循环、CaptureSession借用adapter、watcher/reload仍待连接；Windows原生补验未执行。见 [ADR-0092](ADR-0092-cold-reload-preparation.md)。
 
 此表描述已实现程序，设计文档中的 C1/C2/C3 是开发目标。离线支持不能证明系统后端、设备抓取或注入已实现。

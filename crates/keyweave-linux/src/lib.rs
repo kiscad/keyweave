@@ -28,6 +28,8 @@ pub mod pump;
 pub mod reactor;
 pub mod read;
 #[cfg(target_os = "linux")]
+pub mod reload_channel;
+#[cfg(target_os = "linux")]
 pub mod run_identity;
 pub mod runtime;
 #[cfg(target_os = "linux")]

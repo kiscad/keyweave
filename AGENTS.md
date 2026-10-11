@@ -1,5 +1,7 @@
 # KeyWeave Coding Agent 指南
 
+ADR-0093：Linux reload_channel冷创建两条独立NONBLOCK/CLOEXEC pipes；Supervisor.spawn_reporting_config_reload显式reporting/sealed/isolated，parent-death/config hooks后selected FD>=3继承，仅scalar fcntl；旧模式清除两reload selectors，parent endpoints单次take。ReportingStartup.claim_reload单attempt含失败，main guard→canonical FD→成功dup才owned File→FIFO/方向/NONBLOCK/不同pipe→拒绝与stdin/stderr/stdout dev/ino重叠；原继承FD保留至exit，copies CLOEXEC。受信caller不得clone竞争读者/改变status flags/rebind，非auth/atomic。Linux907tests+actual-main owned noinput两模式harness/Clippy/fmt/source60/C ABI通过；新增3metadata tests，真实64KiB+17正文Rejected/base1，epoch0，实际exit0或owned EOF SIGKILL，非恢复证明。真实worker main/host控制循环仍旧模式、reload actor/lease/pump/watcher/CLI未接；Windows前序native仍待补，完整目标继续。
+
 ADR-0092：PreparationSlot单owned冷thread/Ready slot，Busy不覆盖；start/poll/deliver outside-callback，header/实际body先验≤8MiB，后台两平台PreparedConfig按target冷编译并丢正文，仅Arc IR回传。poll只is_finished后join；Stop永久close、保留running原handle后续回收、晚到结果丢弃，不抢占/不mint progress；Drop未完成detach不是退出证明。deliver先Receiver.awaiting_commit精确taken request+actor实际base，sealed Engine/LinuxRuntime/WindowsSessionActor按平台与原activate准入，实际current构造ack；AwaitingAck仍需AckWriter token，commit后丢ack不rollback。Linux904tests/Clippy/fmt/source60通过，新增9portable线程/Engine/sharedWindowsactor mock零输出测试；LinuxRuntime bridge只编译、原生控制循环/CaptureSession借用adapter/IPC/watcher/reload仍未接。已有local progress dev→production，lock不变、无新FFI/unsafe/外部依赖。Windows新增及前序native仍待补，完整目标未完成。
 
 ## 当前项目与任务入口

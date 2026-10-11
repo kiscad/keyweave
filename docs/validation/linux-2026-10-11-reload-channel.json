@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0093 independent owned Linux reload pipes and guarded inheritance/claim",
+  "source_base_commit": "f360880b245ee9861e416e8662f165082ed8f588",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/Cargo.toml": "90411d5bbb2244381f4df81ff276317b5383669f30f7b8e507b75d602f73e2cf",
+    "crates/keyweave-linux/src/lib.rs": "a296f191308796502774d7c7c4a9a67d34746c80a0f8e69de1b838e631612cc7",
+    "crates/keyweave-linux/src/reload_channel.rs": "d0ea244e8c1890b3703c1a6a2ee7b2d6e5a88cef057a30217b2542563f276da3",
+    "crates/keyweave-linux/src/supervisor.rs": "cb6a8eb863e184312ed9fcdd001a44c2cd6f59b9eae4396c3cf483280f3377d1",
+    "crates/keyweave-linux/src/worker.rs": "3fdab49b116b6fb1c30c86c56c17f2bf9965282bff2d45cbf2fae4afa9c1f5f9",
+    "crates/keyweave-linux/tests/reload_channel.rs": "910e7b2a99ad255ffedcca8b108a6e0811eecf83a97cbb423c822b3a9a85a398"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 907,
+    "workspace_tests_exit": 0,
+    "new_libtest_tests": 3,
+    "new_actual_main_harness": "two owned child modes: reload/legacy absent; passed, not included in libtest count",
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "existing_linux_c_abi_exit": 0,
+    "logs": {
+      "abi": {
+        "path": "target/validation/linux-20261011-reload-channel/abi.log",
+        "sha256": "fc45354be99e4e918d4675b14c0a042d260ed13adf4ead5f1f069dd1987f258b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-reload-channel/clippy.log",
+        "sha256": "9eb7d96ca113ee950fc7058c88a6baa6a20cb640bb440d2a1eab275bbd41aefb"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-reload-channel/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-reload-channel/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-reload-channel/workspace-tests.log",
+        "sha256": "722db8dcbe823ad75e28f4f589530cc4ee2dde0f9ff29015cb0b51d963ce3602"
+      }
+    }
+  },
+  "abi": "New narrow unsafe uses existing fcntl commands/flags only, pipe admission reuses audited fstat; existing C oracle rerun. No external dependencies or lock changes.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only cfg endpoint; prior shared/native checks still pending automatic approval quota issue"
+  },
+  "limitations": [
+    "Actual worker main and host still use old spawn; no active reload/actor/lease/pump integration, watcher or CLI.",
+    "Trusted caller must not change shared O_NONBLOCK/direction, duplicate competing consumers, or rebind selected descriptors; no endpoint authentication/atomic metadata proof.",
+    "Copies CLOEXEC, original inherited selected FD retained until actual exit; physical EOF not guaranteed by logical copy drop.",
+    "Harness only owned child/pipes/sealed memfd and metadata; no input/VT/uinput/Windows global API, suspend or driver.",
+    "Harness sends only Rejected at base=1 with epoch0, no fake actor/Accepted/recovery report.",
+    "Actual exit may be code0 or supervisor-owned SIGKILL on channel EOF race; this is not a cooperative recovery proof.",
+    "Five-second observation polls same child/transaction; no restart. Transport fixture does not concurrently drive progress pump/parent lease.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}

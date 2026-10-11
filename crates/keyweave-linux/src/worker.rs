@@ -46,6 +46,7 @@ fn config_descriptor(value: &str) -> Option<i32> {
 /// stdin/stderr remain reserved for the progress protocol until process exit.
 pub struct WorkerStartup {
     config_claimed: bool,
+    reload_claimed: bool,
     guard: WorkerParentGuard,
     run_id: u64,
     client: ProgressClient<std::fs::File, std::fs::File>,
@@ -81,6 +82,7 @@ impl WorkerStartup {
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         Ok(Self {
             config_claimed: false,
+            reload_claimed: false,
             guard,
             run_id,
             client,
@@ -113,6 +115,35 @@ impl WorkerStartup {
         })?;
         crate::config_artifact::ConfigArtifact::from_inherited(raw)
     }
+    fn claim_reload(&mut self) -> io::Result<crate::reload_channel::WorkerEndpoints> {
+        use std::os::fd::AsFd;
+        if std::mem::replace(&mut self.reload_claimed, true) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "reload already claimed",
+            ));
+        }
+        crate::ioctl::verify_parent_death(self.guard.parent)?;
+        let descriptor = |name| -> io::Result<i32> {
+            let value = std::env::var(name).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing reload descriptor")
+            })?;
+            config_descriptor(&value).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid reload descriptor")
+            })
+        };
+        let endpoints = crate::reload_channel::WorkerEndpoints::from_inherited(
+            descriptor(crate::reload_channel::REQUEST_ENV)?,
+            descriptor(crate::reload_channel::ACK_ENV)?,
+        )?;
+        let reserved = [
+            crate::ioctl::pipe_identity(io::stdin().as_fd(), false)?,
+            crate::ioctl::pipe_identity(io::stderr().as_fd(), true)?,
+            crate::ioctl::pipe_identity(io::stdout().as_fd(), true)?,
+        ];
+        endpoints.reject_reserved(&reserved)?;
+        Ok(endpoints)
+    }
     pub fn run_id(&self) -> u64 {
         self.run_id
     }
@@ -141,6 +172,11 @@ impl ReportingStartup {
     }
     pub fn claim_config(&mut self) -> io::Result<crate::config_artifact::ConfigArtifact> {
         self.startup.claim_config()
+    }
+    /// One cold main-thread attempt, including failure. Original inherited
+    /// descriptors stay reserved until exit; returned copies are owned CLOEXEC.
+    pub fn claim_reload(&mut self) -> io::Result<crate::reload_channel::WorkerEndpoints> {
+        self.startup.claim_reload()
     }
     pub fn from_supervisor_environment() -> io::Result<Self> {
         use std::os::fd::AsFd;

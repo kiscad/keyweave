@@ -25,3 +25,7 @@ expect_used = "warn"
 [[test]]
 name = "worker_parent"
 harness = false
+
+[[test]]
+name = "reload_channel"
+harness = false

@@ -55,6 +55,7 @@ pub struct Supervisor {
     shutdown: Option<CooperativeShutdown>,
     terminal: Option<crate::termination::TerminalReader<PipeReader>>,
     terminal_observation: Option<crate::termination::bounded::ObservationReport>,
+    reload: Option<crate::reload_channel::ParentEndpoints>,
 }
 impl Supervisor {
     /// Command must be a fixed trusted worker, with no inherited device FDs.
@@ -63,7 +64,7 @@ impl Supervisor {
     /// SIGKILL is installed before exec. Worker main must verify its inherited
     /// guard before opening devices; credential-changing exec is unsupported.
     pub fn spawn(command: Command, run_id: u64, policy: Policy, now: MonoTime) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, false, None, false)
+        Self::spawn_mode(command, run_id, policy, now, false, None, (false, false))
     }
     /// Explicit third private terminal pipe. Only a reporting worker may use it.
     pub fn spawn_reporting(
@@ -72,7 +73,7 @@ impl Supervisor {
         policy: Policy,
         now: MonoTime,
     ) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, true, None, false)
+        Self::spawn_mode(command, run_id, policy, now, true, None, (false, false))
     }
     /// Exact sealed image through one selected extra FD. The trusted Command
     /// must not close/rebind it in caller pre_exec hooks or inherit device FDs.
@@ -83,7 +84,15 @@ impl Supervisor {
         now: MonoTime,
         config: crate::config_artifact::ConfigArtifact,
     ) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, true, Some(config), false)
+        Self::spawn_mode(
+            command,
+            run_id,
+            policy,
+            now,
+            true,
+            Some(config),
+            (false, false),
+        )
     }
     /// Console host mode: child gets PGID=its own PID, retains the parent's
     /// session/control terminal. Caller hooks must not change group/session.
@@ -95,7 +104,39 @@ impl Supervisor {
         now: MonoTime,
         config: crate::config_artifact::ConfigArtifact,
     ) -> io::Result<Self> {
-        Self::spawn_mode(command, run_id, policy, now, true, Some(config), true)
+        Self::spawn_mode(
+            command,
+            run_id,
+            policy,
+            now,
+            true,
+            Some(config),
+            (true, false),
+        )
+    }
+    /// Explicit isolated reporting/config mode with independent reload pipes.
+    /// Trusted hooks must preserve the selected endpoints. No reload is sent.
+    pub fn spawn_reporting_config_reload(
+        command: Command,
+        run_id: u64,
+        policy: Policy,
+        now: MonoTime,
+        config: crate::config_artifact::ConfigArtifact,
+    ) -> io::Result<Self> {
+        Self::spawn_mode(
+            command,
+            run_id,
+            policy,
+            now,
+            true,
+            Some(config),
+            (true, true),
+        )
+    }
+    /// Single owned handoff. The caller must close/drop these on Stop/exit and
+    /// bracket transport IO with original independent clocks and parent policy.
+    pub fn take_reload_endpoints(&mut self) -> Option<crate::reload_channel::ParentEndpoints> {
+        self.reload.take()
     }
     fn spawn_mode(
         mut command: Command,
@@ -104,8 +145,9 @@ impl Supervisor {
         now: MonoTime,
         reporting: bool,
         config: Option<crate::config_artifact::ConfigArtifact>,
-        isolated: bool,
+        isolation_reload: (bool, bool),
     ) -> io::Result<Self> {
+        let (isolated, reload_enabled) = isolation_reload;
         let watchdog = ProgressWatchdog::new(run_id, policy, now)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let request = watchdog
@@ -150,6 +192,17 @@ impl Supervisor {
         } else {
             command.env_remove(crate::worker::CONFIG_ENV);
         }
+        let reload = if reload_enabled {
+            let (parent_ends, worker_ends) = crate::reload_channel::channel()?;
+            let (read, write) = worker_ends.command_inherit(&mut command)?;
+            command.env(crate::reload_channel::REQUEST_ENV, read.to_string());
+            command.env(crate::reload_channel::ACK_ENV, write.to_string());
+            Some(parent_ends)
+        } else {
+            command.env_remove(crate::reload_channel::REQUEST_ENV);
+            command.env_remove(crate::reload_channel::ACK_ENV);
+            None
+        };
         if isolated {
             use std::os::unix::process::CommandExt;
             command.process_group(0).env(crate::worker::GROUP_ENV, "1");
@@ -179,6 +232,7 @@ impl Supervisor {
             shutdown: None,
             terminal,
             terminal_observation: None,
+            reload,
         })
     }
     /// Never reads terminal bytes while the owned child may still be alive.
