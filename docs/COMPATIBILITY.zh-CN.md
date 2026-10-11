@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+热配置冷任务与sealed actor交付桥已实现，9项新增portable测试通过（全套904）；每owner最多一job/Ready，Stop不重开/不抢占，actual activation先于ack，失效保持已激活代号不rollback。原生IPC、worker控制循环、CaptureSession借用adapter、watcher/reload仍待连接；Windows原生补验未执行。见 [ADR-0092](ADR-0092-cold-reload-preparation.md)。
+
 此表描述已实现程序，设计文档中的 C1/C2/C3 是开发目标。离线支持不能证明系统后端、设备抓取或注入已实现。
 
 Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 consumer 只支持显式文本 VT，`none` 永久禁止设备访问。图形桌面、普通 WSL2 终端及真实设备/停机验收尚未完成，见 [Linux 使用说明](LINUX_USAGE.zh-CN.md)。该入口没有放宽本表的配置语义 gate。

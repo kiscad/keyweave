@@ -339,6 +339,11 @@ impl<R: Read> Receiver<R> {
             body: std::mem::take(&mut self.body),
         })
     }
+    /// Cold result delivery must match this exact taken transaction before
+    /// mutating an actor. A closed/finished/different receiver cannot commit it.
+    pub fn awaiting_commit(&self, request: Request) -> bool {
+        !self.closed && self.taken && self.ack.is_none() && self.request == Some(request)
+    }
     /// Invoke only with actual actor result/current generation. This does not
     /// send ack, and no new request is read until its exact delivery token.
     pub fn finish(

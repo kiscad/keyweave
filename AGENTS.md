@@ -1,5 +1,7 @@
 # KeyWeave Coding Agent 指南
 
+ADR-0092：PreparationSlot单owned冷thread/Ready slot，Busy不覆盖；start/poll/deliver outside-callback，header/实际body先验≤8MiB，后台两平台PreparedConfig按target冷编译并丢正文，仅Arc IR回传。poll只is_finished后join；Stop永久close、保留running原handle后续回收、晚到结果丢弃，不抢占/不mint progress；Drop未完成detach不是退出证明。deliver先Receiver.awaiting_commit精确taken request+actor实际base，sealed Engine/LinuxRuntime/WindowsSessionActor按平台与原activate准入，实际current构造ack；AwaitingAck仍需AckWriter token，commit后丢ack不rollback。Linux904tests/Clippy/fmt/source60通过，新增9portable线程/Engine/sharedWindowsactor mock零输出测试；LinuxRuntime bridge只编译、原生控制循环/CaptureSession借用adapter/IPC/watcher/reload仍未接。已有local progress dev→production，lock不变、无新FFI/unsafe/外部依赖。Windows新增及前序native仍待补，完整目标未完成。
+
 ## 当前项目与任务入口
 
 ADR-0091：reload::transport提供Parent/RequestWriter/Receiver/AckWriter，header48/body≤64KiB每poll最多1IO；parent前后clock/原deadline，post完整write/read超时仍fail，不advance ack。Receiver先decode+Worker.run/id/base校验再≤8MiB reserve，Ready/take后等待actor finish和精确不可构造/Clone的AckSent local-write token，才重开header；不是peer receipt/progress。partial/WouldBlock/Interrupted不resetprefix/budget，EOF/zero/overcount/error/Stop逻辑close+释放candidate；commit可能先ack失败不rollback。Parent.start由ownedbody派生长度+begin，不匹配显式writer fail。Linux895tests/Clippy/fmt/source60通过，9portable scripted流验证分段/单IO/cap/latepostIO/等待ack/第二事务/失效/错token；无新FFI/deps或native设备。genericIO不证明nonblocking/handle ownership，worker外围lease/time/冷分配/原生adapter/coldjob/actor交付/watcher/reload仍待接；Windows新增及前序native未执行，完整目标继续。

@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0092 single cold reload preparation job and actual actor delivery",
+  "source_base_commit": "135fae32addc57c00b8920edcc52b4652bee2fa6",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-progress/src/reload/transport.rs": "fd35fa7c42b7a8572c939f2a1871db72af6ee4934d857db0fe96aa4c3c7d2af1",
+    "crates/keyweave-worker/Cargo.toml": "dfdad435b71f66e0b93d918e94d93d58c616f64247b85748fbbd43bc16604aad",
+    "crates/keyweave-worker/src/lib.rs": "c3cd0cb9977124a3e46c4dff723837320d27dd1127b1ca167608c8d4154edde5",
+    "crates/keyweave-worker/src/reload_preparation.rs": "0c81435254ddaef55116d0b5274d71d9b374204d14884d1ef59ce78188831f31",
+    "crates/keyweave-worker/tests/reload_preparation.rs": "9eb682a1d7138ff88c11421bcf060e45140407122da084e7d0568e3e6d716906"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 904,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_portable_tests": 9,
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-reload-preparation/clippy.log",
+        "sha256": "1fedb45d09d20b873b4fcf638a13ee88c9f45796901fd98e208ea5504e3bdb88"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-reload-preparation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-reload-preparation/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-reload-preparation/workspace-tests.log",
+        "sha256": "5dd8f574482bd669ad1b6b28e4ffd00285a3da646f99d2ec628f77b97a037d7f"
+      }
+    }
+  },
+  "dependencies": "Existing local keyweave-progress promoted from dev to production; Cargo.lock unchanged; no external dependency/FFI/unsafe changes.",
+  "windows": {
+    "status": "not executed",
+    "scope": "New nine portable and previous shared/native changes still need pinned x64/i686 validation; previous automatic approval quota failure remains."
+  },
+  "limitations": [
+    "One job or ready result per retained owner, not a global bound on caller-created owners.",
+    "No join while running, but scheduling/thread creation/allocator/completed join cleanup have no hard time bound.",
+    "Close cannot preempt compile; keep same owner to reap. Drop detaches unfinished thread, not a termination proof.",
+    "Caller must close receiver at Stop and independently check lease/session/time before each operation; no progress or lease renewal from preparation.",
+    "Sealed Engine/Linux Runtime/Windows SessionActor delivery checks exact pending request and actual base before activation. Linux Runtime trait compiled only; Windows actor uses a no-output mock on Linux.",
+    "Receiver waits for exact AckSent before next transaction; commit before failed ack is preserved without rollback/retry.",
+    "Native reload endpoints, worker control loop and CaptureSession borrow adapter, watcher, reload CLI not connected.",
+    "New tests only owned background threads, pure engine and shared mock actor; no files, native input/output, suspend or drivers.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}

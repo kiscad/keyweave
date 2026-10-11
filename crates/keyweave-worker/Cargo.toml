@@ -12,9 +12,8 @@ keyweave-types.workspace = true
 keyweave-windows = { path = "../keyweave-windows" }
 keyweave-linux = { path = "../keyweave-linux" }
 thiserror.workspace = true
-
-[dev-dependencies]
 keyweave-progress.workspace = true
+
 
 [lints]
 workspace = true
