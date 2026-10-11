@@ -20,6 +20,7 @@ pub enum SourceError {
     Changed,
     Spawn,
     Panicked,
+    Comparison,
 }
 impl From<io::Error> for SourceError {
     fn from(error: io::Error) -> Self {
@@ -37,8 +38,34 @@ impl std::fmt::Display for SourceError {
 impl std::error::Error for SourceError {}
 pub struct Snapshot {
     bytes: Box<[u8]>,
+    comparison: Option<Match>,
+}
+type Baselines = (std::sync::Arc<[u8]>, std::sync::Arc<[u8]>);
+enum Match {
+    Seen,
+    Active,
+    Changed(std::sync::Arc<[u8]>),
+}
+pub enum Compared {
+    Seen,
+    Active,
+    Changed {
+        body: Box<[u8]>,
+        retained: std::sync::Arc<[u8]>,
+    },
 }
 impl Snapshot {
+    pub fn into_comparison(self) -> Result<Compared, SourceError> {
+        match self.comparison {
+            Some(Match::Seen) => Ok(Compared::Seen),
+            Some(Match::Active) => Ok(Compared::Active),
+            Some(Match::Changed(retained)) => Ok(Compared::Changed {
+                body: self.bytes,
+                retained,
+            }),
+            None => Err(SourceError::Comparison),
+        }
+    }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -80,6 +107,19 @@ impl FileSource {
         })
     }
     pub fn request(&mut self) -> Result<(), SourceError> {
+        self.start(None)
+    }
+    /// Compare and duplicate candidate only on the cold thread. Neither arc
+    /// is advanced here; caller owns accepted baseline and last-seen policy.
+    /// Consume via Snapshot::into_comparison; Seen/Active snapshots have no body.
+    pub fn request_compare(
+        &mut self,
+        seen: std::sync::Arc<[u8]>,
+        active: std::sync::Arc<[u8]>,
+    ) -> Result<(), SourceError> {
+        self.start(Some((seen, active)))
+    }
+    fn start(&mut self, compare: Option<Baselines>) -> Result<(), SourceError> {
         if self.closed {
             return Err(SourceError::Closed);
         }
@@ -89,8 +129,22 @@ impl FileSource {
         let path = self.path.clone();
         match std::thread::Builder::new()
             .name("keyweave-source".into())
-            .spawn(move || read_snapshot(&path))
-        {
+            .spawn(move || {
+                let mut snapshot = read_snapshot(&path)?;
+                if let Some((seen, active)) = compare {
+                    snapshot.comparison = Some(if snapshot.bytes.as_ref() == seen.as_ref() {
+                        Match::Seen
+                    } else if snapshot.bytes.as_ref() == active.as_ref() {
+                        Match::Active
+                    } else {
+                        Match::Changed(std::sync::Arc::from(snapshot.bytes.as_ref()))
+                    });
+                    if !matches!(snapshot.comparison, Some(Match::Changed(_))) {
+                        snapshot.bytes = Box::new([]);
+                    }
+                }
+                Ok(snapshot)
+            }) {
             Ok(job) => {
                 self.job = Some(job);
                 Ok(())
@@ -192,6 +246,7 @@ fn finish_snapshot(
     // authenticated content. Exact bytes still require worker cold compilation.
     Ok(Snapshot {
         bytes: bytes.into_boxed_slice(),
+        comparison: None,
     })
 }
 
@@ -350,6 +405,7 @@ mod tests {
             wait.recv().unwrap();
             Ok(Snapshot {
                 bytes: Box::new(*b"late private body"),
+                comparison: None,
             })
         }));
         assert_eq!(source.request().unwrap_err(), SourceError::Busy);
@@ -377,5 +433,40 @@ mod tests {
         ready(&mut source);
         assert_eq!(source.take().unwrap().unwrap_err(), SourceError::Panicked);
         assert_eq!(source.poll(), SourceStep::Idle);
+    }
+    #[test]
+    fn comparison_is_exact_and_retains_only_changed_body_off_thread() {
+        use std::sync::Arc;
+        let dir = Dir::new();
+        let path = dir.file();
+        let active: Arc<[u8]> = Arc::from(b"old\xff".as_slice());
+        let seen: Arc<[u8]> = Arc::from(b"rejected".as_slice());
+        let mut source = FileSource::new(path.clone()).unwrap();
+        for (bytes, expected) in [
+            (b"rejected".as_slice(), 0),
+            (b"old\xff".as_slice(), 1),
+            (b"new\xff".as_slice(), 2),
+        ] {
+            fs::write(&path, bytes).unwrap();
+            source
+                .request_compare(seen.clone(), active.clone())
+                .unwrap();
+            ready(&mut source);
+            match source.take().unwrap().unwrap().into_comparison().unwrap() {
+                Compared::Seen => assert_eq!(expected, 0),
+                Compared::Active => assert_eq!(expected, 1),
+                Compared::Changed { body, retained } => {
+                    assert_eq!(expected, 2);
+                    assert_eq!(body.as_ref(), bytes);
+                    assert_eq!(retained.as_ref(), bytes);
+                }
+            }
+        }
+        source.request().unwrap();
+        ready(&mut source);
+        assert!(matches!(
+            source.take().unwrap().unwrap().into_comparison(),
+            Err(SourceError::Comparison)
+        ));
     }
 }

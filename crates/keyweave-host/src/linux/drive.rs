@@ -277,6 +277,30 @@ impl NativeSession {
             }
         }
     }
+    pub(crate) fn watcher_run(&self) -> Option<u64> {
+        self.pump.reload.as_ref().map(|lane| lane.run_id())
+    }
+    pub(crate) fn watcher_time(&self) -> MonoTime {
+        self.pump.last
+    }
+    pub(crate) fn watcher_ready(&self) -> bool {
+        self.pump.controller.fault.is_none()
+            && self.pump.finished.is_none()
+            && matches!(self.status(), SupervisorStatus::Running)
+            && self.pump.controller.owner.progress_phase()
+                == Some(keyweave_linux::runtime::RuntimePhase::Active)
+            && self
+                .pump
+                .reload
+                .as_ref()
+                .is_some_and(|lane| lane.can_submit())
+    }
+    pub(crate) fn watcher_fail(&mut self, error: io::Error) {
+        self.pump.controller.fail(FaultSource::Control, error);
+        if let Some(lane) = self.pump.reload.as_mut() {
+            lane.close();
+        }
+    }
     /// Queue one bounded raw candidate after an actual Active progress receipt.
     /// Queue admission is not preparation/activation/confirmation.
     pub fn request_reload(&mut self, body: Box<[u8]>) -> io::Result<()> {

@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+Linux host 库已提供固定间隔后台正文监听/手动读取调度，确认前不更新 active 基线，拒绝/取消保旧配置，Stop 沿用原监督并关闭 source；948测试及第三 actual-main 无输入 watcher 场景通过。用户 run-linux 尚未接入监听器，Windows 未提供此组件，真实 console/输入验收仍待做。见 [ADR-0100](ADR-0100-linux-config-watch-scheduler.md)。
+
 Linux提供单任务后台regular配置文件读取，长度1..8MiB、元数据变化拒绝、Stop丢弃晚到正文，938项测试通过。raw snapshot不等于schema/激活或原子认证；watcher调度/host集成/用户reload仍未提供，Windows文件源未实现。见 [ADR-0099](ADR-0099-bounded-config-file-source.md)。
 
 真实父子进程无输入harness已验证NativeSession Active准入、96KiB正文分段、实际后台编译/纯Engine激活、Accepted/Rejected/lostack与原progress/Stop/实际Exit；931libtests+两场景通过。合成Active epoch/session不证明硬件消费者，terminal仍Missing/recoveryfalse，watcher/用户reload与真实console验收待做。见 [ADR-0098](ADR-0098-native-no-input-reload-harness.md)。

@@ -5,6 +5,7 @@
 #[allow(clippy::unwrap_used)]
 fn main() {
     use keyweave_engine::Engine;
+    use keyweave_host::linux::watcher::{ConfigWatcher, WatchEvent};
     use keyweave_host::linux::{DriveStatus, NativeSession, ReloadState, Session};
     use keyweave_linux::{
         config_artifact::ConfigArtifact, host_signals::HostSignals, progress::Policy,
@@ -96,7 +97,7 @@ fn main() {
             assert!(before < parent_until);
             let request = progress.receive_command(epoch).unwrap();
             if request == RequestEvent::Stop {
-                assert_eq!(mode, "accepted");
+                assert!(mode == "accepted" || mode == "watcher");
                 assert_eq!(actor.config_generation(), ConfigGeneration(2));
                 seq += 1;
                 assert_eq!(
@@ -157,7 +158,7 @@ fn main() {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
-    for mode in ["accepted", "lost_ack"] {
+    for mode in ["accepted", "lost_ack", "watcher"] {
         let signals = HostSignals::install().unwrap();
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.env(MODE, mode);
@@ -194,43 +195,114 @@ fn main() {
         body.extend(vec![b'x'; 96 * 1024]);
         body.extend_from_slice(b" */\n");
         body.extend_from_slice(NEW);
-        session.request_reload(body.into_boxed_slice()).unwrap();
-        assert_eq!(
-            session.request_reload(NEW.into()).unwrap_err().kind(),
-            io::ErrorKind::WouldBlock
-        );
-        if mode == "accepted" {
-            loop {
-                assert!(matches!(session.poll_once(), DriveStatus::Pending(_)));
-                if session.reload_state() == Some(ReloadState::Idle)
-                    && session.observed_config_generation() == Some(ConfigGeneration(2))
-                {
-                    break;
-                }
-                assert!(started.elapsed() < Duration::from_secs(5));
-            }
-            // Confirmation result must be taken before the next raw candidate.
-            assert_eq!(
-                session.request_reload(NEW.into()).unwrap_err().kind(),
-                io::ErrorKind::WouldBlock
-            );
-            assert_eq!(session.take_reload_outcome(), Some(Outcome::Accepted));
-            session
-                .request_reload(Box::new(*b"invalid private configuration"))
+        let mut watcher = None;
+        if mode == "watcher" {
+            // Own newly created fixture file only; no input/session provider.
+            let path = std::env::temp_dir()
+                .join(format!("keyweave-watcher-fixture-{}", std::process::id()));
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
                 .unwrap();
-            loop {
-                assert!(matches!(session.poll_once(), DriveStatus::Pending(_)));
-                if let Some(outcome) = session.take_reload_outcome() {
-                    assert_eq!(outcome, Outcome::Rejected);
-                    break;
+            std::io::Write::write_all(&mut file, OLD).unwrap();
+            drop(file);
+            let mut watch =
+                ConfigWatcher::new(path.clone(), std::sync::Arc::from(OLD), 100_000_000).unwrap();
+            fn observe(watch: &mut ConfigWatcher, session: &mut NativeSession) -> WatchEvent {
+                let end = Instant::now() + Duration::from_secs(5);
+                loop {
+                    assert!(matches!(
+                        watch.poll(session).unwrap(),
+                        DriveStatus::Pending(_)
+                    ));
+                    if let Some(event) = watch.take_event()
+                        && event != WatchEvent::Submitted
+                    {
+                        return event;
+                    }
+                    assert!(Instant::now() < end, "same watcher transaction timed out");
                 }
-                assert!(started.elapsed() < Duration::from_secs(5));
             }
+            assert_eq!(observe(&mut watch, &mut session), WatchEvent::Unchanged);
+            std::fs::write(&path, &body).unwrap();
+            watch.request_read().unwrap();
+            assert_eq!(
+                observe(&mut watch, &mut session),
+                WatchEvent::Accepted(ConfigGeneration(2))
+            );
+            std::fs::write(&path, b"invalid private configuration").unwrap();
+            watch.request_read().unwrap();
+            assert_eq!(
+                observe(&mut watch, &mut session),
+                WatchEvent::Rejected(ConfigGeneration(2))
+            );
+            // Already rejected bytes cannot produce another wire transaction.
+            watch.request_read().unwrap();
+            assert_eq!(observe(&mut watch, &mut session), WatchEvent::Unchanged);
+            // Restore actual accepted bytes: no unnecessary generation3.
+            std::fs::write(&path, &body).unwrap();
+            watch.request_read().unwrap();
+            assert_eq!(observe(&mut watch, &mut session), WatchEvent::Unchanged);
+            std::fs::remove_file(&path).unwrap();
+            watch.request_read().unwrap();
+            assert!(matches!(
+                observe(&mut watch, &mut session),
+                WatchEvent::ReadFailed(_)
+            ));
             assert_eq!(
                 session.observed_config_generation(),
                 Some(ConfigGeneration(2))
             );
-            // Only this own parent PID, never foreground group or another app.
+            watcher = Some(watch);
+        } else {
+            session.request_reload(body.into_boxed_slice()).unwrap();
+            assert_eq!(
+                session.request_reload(NEW.into()).unwrap_err().kind(),
+                io::ErrorKind::WouldBlock
+            );
+            if mode == "accepted" {
+                loop {
+                    assert!(matches!(session.poll_once(), DriveStatus::Pending(_)));
+                    if session.reload_state() == Some(ReloadState::Idle)
+                        && session.observed_config_generation() == Some(ConfigGeneration(2))
+                    {
+                        break;
+                    }
+                    assert!(started.elapsed() < Duration::from_secs(5));
+                }
+                // Confirmation result must be taken before the next raw candidate.
+                assert_eq!(
+                    session.request_reload(NEW.into()).unwrap_err().kind(),
+                    io::ErrorKind::WouldBlock
+                );
+                assert_eq!(session.take_reload_outcome(), Some(Outcome::Accepted));
+                session
+                    .request_reload(Box::new(*b"invalid private configuration"))
+                    .unwrap();
+                loop {
+                    assert!(matches!(session.poll_once(), DriveStatus::Pending(_)));
+                    if let Some(outcome) = session.take_reload_outcome() {
+                        assert_eq!(outcome, Outcome::Rejected);
+                        break;
+                    }
+                    assert!(started.elapsed() < Duration::from_secs(5));
+                }
+                assert_eq!(
+                    session.observed_config_generation(),
+                    Some(ConfigGeneration(2))
+                );
+                // Only this own parent PID, never foreground group or another app.
+                assert!(
+                    Command::new("kill")
+                        .args(["-INT", &std::process::id().to_string()])
+                        .status()
+                        .unwrap()
+                        .success()
+                );
+            }
+        }
+        if mode == "watcher" {
             assert!(
                 Command::new("kill")
                     .args(["-INT", &std::process::id().to_string()])
@@ -240,15 +312,28 @@ fn main() {
             );
         }
         let report = loop {
-            match session.poll_once() {
+            let status = if let Some(watch) = watcher.as_mut() {
+                watch.poll(&mut session).unwrap()
+            } else {
+                session.poll_once()
+            };
+            match status {
                 DriveStatus::Exited(report) => break report,
                 DriveStatus::Pending(_) => {}
                 DriveStatus::ObservationExpired => panic!("same child observation expired"),
             }
             assert!(started.elapsed() < Duration::from_secs(10));
         };
+        if let Some(watch) = watcher.as_mut() {
+            assert_eq!(watch.take_event(), Some(WatchEvent::Closed));
+            let end = Instant::now() + Duration::from_secs(5);
+            while !watch.reap_closed().unwrap() {
+                assert!(Instant::now() < end);
+                std::thread::yield_now();
+            }
+        }
         assert!(report.signal_close_failure.is_none());
-        if mode == "accepted" {
+        if mode != "lost_ack" {
             assert!(report.worker.fault.is_none());
             assert_eq!(
                 report.worker.reason,
@@ -267,7 +352,7 @@ fn main() {
         assert_eq!(session.reload_state(), Some(ReloadState::Closed));
         assert_eq!(
             session.observed_config_generation(),
-            Some(ConfigGeneration(if mode == "accepted" { 2 } else { 1 }))
+            Some(ConfigGeneration(if mode != "lost_ack" { 2 } else { 1 }))
         );
         if mode == "lost_ack" {
             assert_eq!(session.take_reload_outcome(), None);
@@ -279,7 +364,7 @@ fn main() {
         assert!(matches!(session.poll_once(),DriveStatus::Exited(cached) if cached==report));
     }
     println!(
-        "linux_reload: owned actual-main accepted/rejected/lost-ack/Stop/progress passed; synthetic Engine only, no device/recovery claims"
+        "linux_reload: owned actual-main accepted/rejected/lost-ack/watcher/Stop/progress passed; synthetic Engine only, no device/recovery claims"
     );
 }
 #[cfg(not(target_os = "linux"))]

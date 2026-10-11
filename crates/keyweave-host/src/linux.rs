@@ -3,6 +3,7 @@ mod drive;
 pub mod file_source;
 mod reload;
 mod startup;
+pub mod watcher;
 pub use drive::{DriveStatus, NativeReport, NativeSession};
 use keyweave_linux::{
     host_signals::StopSignal,

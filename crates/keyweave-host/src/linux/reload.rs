@@ -38,6 +38,7 @@ pub(super) struct ReloadLane<R: Read, W: Write> {
     completion: Option<Outcome>,
     active: ConfigGeneration,
     state: ReloadState,
+    run: u64,
 }
 impl<R: Read, W: Write> ReloadLane<R, W> {
     pub(super) fn new(reader: R, writer: W, run: u64) -> Result<Self, TransferError> {
@@ -52,6 +53,7 @@ impl<R: Read, W: Write> ReloadLane<R, W> {
             completion: None,
             active: ConfigGeneration(1),
             state: ReloadState::Idle,
+            run,
         })
     }
     pub(super) fn submit(&mut self, body: Box<[u8]>) -> Result<(), ReloadError> {
@@ -67,6 +69,12 @@ impl<R: Read, W: Write> ReloadLane<R, W> {
         self.queued = Some(body);
         self.state = ReloadState::Queued;
         Ok(())
+    }
+    pub(super) fn run_id(&self) -> u64 {
+        self.run
+    }
+    pub(super) fn can_submit(&self) -> bool {
+        self.state == ReloadState::Idle && self.completion.is_none()
     }
     pub(super) fn state(&self) -> ReloadState {
         self.state

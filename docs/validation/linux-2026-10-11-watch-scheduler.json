@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0100 Linux configuration read scheduler and actual ack-bound baseline",
+  "source_base_commit": "c263af9a8495b1cb11816075cbc02dc9127a886f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/linux.rs": "317c011477a4dcaec5393f159f0bb5293a85df9166b40ba7ed4c7c5820528e03",
+    "crates/keyweave-host/src/linux/drive.rs": "030924f44ae14984cc569e1fb9e0d3b0ff253e09b2b11d798ef81602296e2081",
+    "crates/keyweave-host/src/linux/reload.rs": "4ef0b7a5b7a2ca175c82c9ad66f948add59305d374e3592296fcde5eee770228",
+    "crates/keyweave-host/src/linux/file_source.rs": "9aeb96f2d8bb5fb746597bae28c75a7a55d76c6b105448de688ae61c7359c9cc",
+    "crates/keyweave-host/src/linux/watcher.rs": "6f208ed5d3ba26cc70985aa45f5ea43bc02d1ffbca8344a9f1b6119afee393f1",
+    "crates/keyweave-host/tests/linux_reload.rs": "6ecd4bdc7617595701587aac8979f7c7acf6c6eb1fba920b75ff80ba6da603f1"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 948,
+    "new_unit_tests": 10,
+    "workspace_tests_exit": 0,
+    "actual_main_reload_scenarios": 3,
+    "new_watcher_scenario": "own create_new file, raw unchanged/Accepted2/Rejected2/rejected unchanged/revert accepted unchanged/missing file, own parent PID SIGINT, actual exit0 and original source reaped; terminal Missing and recovery/success false",
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-watch-scheduler/workspace-tests.log",
+        "sha256": "ae3b3581d6df14d5ab48fa89f9dc4b13b3de548948ec07288ddfb23bbe1602a4"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-watch-scheduler/clippy.log",
+        "sha256": "bc5beb57d5b54a30c62fd5a6eb9bfb0402690977c3c83c8a5bdb3aec39cd1e22"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-watch-scheduler/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-watch-scheduler/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial Clippy rejected type_complexity/collapsible_if and test unwraps; tuple aliases, conditional collapse and existing convention of test-only unwrap allowance fixed them. Tool output retained in session; final full logs recorded."
+  ],
+  "abi": "No new unsafe/FFI/dependencies or native ABI changes; existing oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only watcher/source unavailable on Windows; earlier native checks remain pending approval quota issue."
+  },
+  "limitations": [
+    "Trusted sole session reload owner supplies exact sealed initial generation1 bytes; same run binding is not authentication.",
+    "Fixed interval full-content polling; no inotify/debounce. Manual flag coalesces, unchanged/rejected/cancelled contents suppressed.",
+    "Only matching actual Accepted advances active baseline. Lost ack has no automatic retry or rollback.",
+    "Each poll drives bound NativeSession first; notification backpressure stops reads, not supervision. Wrong session rejected before drive or fail.",
+    "No filesystem/allocator/thread/join/destruction hard time bound. Body cap 8MiB per value, multiple retained baselines, not total RSS bound.",
+    "Close cannot preempt filesystem IO or retract native queued transaction. Retain original source for nonblocking reap and original NativeSession until actual Exit.",
+    "New unit Peer/Source mocks and actual-main synthetic Engine/Active session evidence do not prove native input/console/consumer/recovery.",
+    "No real global input/output/VT/driver/install operations. User run-linux integration and controls, Windows adapter/native tests and complete original scope remain unfinished."
+  ]
+}
