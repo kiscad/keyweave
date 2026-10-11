@@ -2,6 +2,7 @@
 pub mod action_plan;
 mod conditions;
 mod modifiers;
+pub mod rule_selection;
 pub mod terminal_actor;
 pub mod timeline;
 pub use conditions::{Condition, InputSourceFilter, Pattern, Truth};
@@ -634,25 +635,30 @@ impl Engine {
         self.context.revision
     }
 
+    fn condition_truth(&self, condition: &Condition) -> Truth {
+        if let Condition::Variable {
+            name,
+            value,
+            unless,
+        } = condition
+        {
+            let matched = self
+                .variables
+                .get(name)
+                .and_then(Option::as_ref)
+                .map_or(*value == VariableValue::Integer(0), |actual| {
+                    actual == value
+                })
+                != *unless;
+            if matched { Truth::True } else { Truth::False }
+        } else {
+            condition.evaluate(&self.context, self.current_device, self.now)
+        }
+    }
     fn conditions_match(&self, conditions: &[Condition]) -> bool {
-        conditions.iter().all(|condition| {
-            if let Condition::Variable {
-                name,
-                value,
-                unless,
-            } = condition
-            {
-                self.variables
-                    .get(name)
-                    .and_then(Option::as_ref)
-                    .map_or(*value == VariableValue::Integer(0), |actual| {
-                        actual == value
-                    })
-                    != *unless
-            } else {
-                condition.evaluate(&self.context, self.current_device, self.now) == Truth::True
-            }
-        })
+        conditions
+            .iter()
+            .all(|condition| self.condition_truth(condition) == Truth::True)
     }
 
     fn validate_context(
@@ -1108,7 +1114,7 @@ impl Engine {
     fn cancel_stage(
         &mut self,
         stage: usize,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         outputs: &mut Vec<OutputIntent>,
     ) {
@@ -1134,7 +1140,7 @@ impl Engine {
         &mut self,
         payload: &DelayedPayload,
         invoked: bool,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         outputs: &mut Vec<OutputIntent>,
     ) {
@@ -1167,7 +1173,7 @@ impl Engine {
         &mut self,
         actions: &[Action],
         stage: usize,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         modifiers: (&BTreeSet<KeyId>, &BTreeSet<KeyId>, &AtomicBool),
         outputs: &mut Vec<OutputIntent>,
@@ -1234,7 +1240,7 @@ impl Engine {
         &mut self,
         bound: &mut Bound,
         token: DeadlineToken,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         outputs: &mut Vec<OutputIntent>,
     ) -> bool {
@@ -1459,7 +1465,7 @@ impl Engine {
         &mut self,
         request: KeyRequest,
         stage: usize,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         outputs: &mut Vec<OutputIntent>,
     ) -> Bound {
@@ -1467,65 +1473,52 @@ impl Engine {
             self.cancel_stage(stage, config, next_source, outputs);
         }
         let key = request.key;
-        let modifiers_at_down = self.current_modifiers();
-        let mapping = match stage {
-            0 => config.simple.iter().enumerate().find(|(_, mapping)| {
-                mapping.from == key
-                    && self.conditions_match(&mapping.extras.conditions)
-                    && mapping
-                        .extras
-                        .from_modifiers
-                        .consumed(&modifiers_at_down, mapping.allow_extra_modifiers)
-                        .is_some()
-            }),
-            1 => config.complex.iter().enumerate().find(|(_, mapping)| {
-                mapping.from == key
-                    && self.conditions_match(&mapping.extras.conditions)
-                    && mapping
-                        .extras
-                        .from_modifiers
-                        .consumed(&modifiers_at_down, mapping.allow_extra_modifiers)
-                        .is_some()
-            }),
-            _ => {
-                if key.usage == 0 {
-                    self.sync_modifiers(outputs);
-                    return Bound::Suppressed;
-                }
-                // The physical down reserved tokens for every possible down/up
-                // action across both stages, including later alone/up actions.
-                let source = SourceToken(*next_source);
-                *next_source += 1;
-                if request.lazy_down && key.is_modifier() {
-                    self.owners.entry(key).or_default().insert(source);
-                } else {
-                    self.press(key, source, self.now, outputs);
-                }
-                return Bound::Leaf(OwnedKey {
-                    key,
-                    source,
-                    lazy_up: request.lazy_up,
-                });
+        if stage >= 2 {
+            if key.usage == 0 {
+                self.sync_modifiers(outputs);
+                return Bound::Suppressed;
             }
+            // Physical down already reserved all source identities.
+            let source = SourceToken(*next_source);
+            *next_source += 1;
+            if request.lazy_down && key.is_modifier() {
+                self.owners.entry(key).or_default().insert(source);
+            } else {
+                self.press(key, source, self.now, outputs);
+            }
+            return Bound::Leaf(OwnedKey {
+                key,
+                source,
+                lazy_up: request.lazy_up,
+            });
+        }
+        let stage_kind = if stage == 0 {
+            rule_selection::MappingStage::Simple
+        } else {
+            rule_selection::MappingStage::Complex
         };
-        let Some((index, mapping)) = mapping else {
+        let selection = rule_selection::select_rule(
+            Arc::clone(config),
+            stage_kind,
+            key,
+            self.current_modifiers(),
+            |condition| self.condition_truth(condition),
+        );
+        let Some(selection) = selection else {
             return self.press_stage(request, stage + 1, config, next_source, outputs);
         };
-        let consumed = mapping
-            .extras
-            .from_modifiers
-            .consumed(&modifiers_at_down, mapping.allow_extra_modifiers)
-            .unwrap_or_default();
+        let mapping = selection.mapping();
+        let index = selection.index();
+        let modifiers_at_down = selection.modifiers_at_down().clone();
+        let consumed = selection.consumed_modifiers().clone();
+        let actions: Vec<_> = selection.actions().collect();
         let mut suppressed = self.hide_modifiers(&consumed);
-        let last_is_modifier = mapping
-            .to
-            .iter()
-            .rev()
-            .find(|action| self.conditions_match(&action.conditions))
+        let last_is_modifier = actions
+            .last()
             .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
         let halted = Arc::new(AtomicBool::new(false));
-        let (children, repeat_child) = self.press_actions(
-            &mapping.to,
+        let (children, repeat_child) = self.press_filtered_actions(
+            &actions,
             stage + 1,
             config,
             next_source,
@@ -1598,7 +1591,26 @@ impl Engine {
         &mut self,
         actions: &[Action],
         stage: usize,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
+        next_source: &mut u64,
+        policy: (bool, &AtomicBool),
+        outputs: &mut Vec<OutputIntent>,
+    ) -> (Vec<Bound>, Option<usize>) {
+        let (_, halted) = policy;
+        if halted.load(Ordering::Relaxed) {
+            return (Vec::new(), None);
+        }
+        let actions: Vec<_> = actions
+            .iter()
+            .filter(|action| self.conditions_match(&action.conditions))
+            .collect();
+        self.press_filtered_actions(&actions, stage, config, next_source, policy, outputs)
+    }
+    fn press_filtered_actions(
+        &mut self,
+        actions: &[&Action],
+        stage: usize,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         policy: (bool, &AtomicBool),
         outputs: &mut Vec<OutputIntent>,
@@ -1607,10 +1619,6 @@ impl Engine {
         if halted.load(Ordering::Relaxed) {
             return (Vec::new(), None);
         }
-        let actions: Vec<_> = actions
-            .iter()
-            .filter(|action| self.conditions_match(&action.conditions))
-            .collect();
         let mut held = Vec::new();
         let mut repeat_child = None;
         for (index, action) in actions.iter().enumerate() {
@@ -1694,7 +1702,7 @@ impl Engine {
     fn release_bound(
         &mut self,
         bound: Bound,
-        config: &ConfigSnapshot,
+        config: &Arc<ConfigSnapshot>,
         next_source: &mut u64,
         extra_actions: bool,
         outputs: &mut Vec<OutputIntent>,

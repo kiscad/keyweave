@@ -1,0 +1,126 @@
+//! Immutable rule decision for a generating stage; no ownership or IO work.
+use crate::{Action, Condition, ConfigSnapshot, Mapping, Truth};
+use keyweave_types::{DeviceInstanceId, KeyId, MonoTime, SourceToken};
+use std::{collections::BTreeSet, sync::Arc};
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MappingStage {
+    Simple,
+    Complex,
+}
+/// Retains the original snapshot, selected rule and once-filtered main actions.
+/// Delayed/held/alone branches are filtered at their own generating event.
+/// Selection is not activation, source reservation, a binding or a native lease.
+pub struct RuleSelection {
+    config: Arc<ConfigSnapshot>,
+    stage: MappingStage,
+    index: usize,
+    modifiers: BTreeSet<KeyId>,
+    consumed: BTreeSet<KeyId>,
+    actions: Vec<usize>,
+}
+impl RuleSelection {
+    pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
+        &self.config
+    }
+    pub fn stage(&self) -> MappingStage {
+        self.stage
+    }
+    pub fn index(&self) -> usize {
+        self.index
+    }
+    pub fn mapping(&self) -> &Mapping {
+        match self.stage {
+            MappingStage::Simple => &self.config.simple[self.index],
+            MappingStage::Complex => &self.config.complex[self.index],
+        }
+    }
+    pub fn modifiers_at_down(&self) -> &BTreeSet<KeyId> {
+        &self.modifiers
+    }
+    pub fn consumed_modifiers(&self) -> &BTreeSet<KeyId> {
+        &self.consumed
+    }
+    /// Generate only main-to work for the next stage, using the saved eligibility
+    /// and old snapshot. Caller still must reserve owners/slots, enqueue atomically,
+    /// retain input-up bindings and implement the other rule branches.
+    pub fn plan_main(
+        &self,
+        batch: crate::action_plan::BatchId,
+        start: MonoTime,
+        device: DeviceInstanceId,
+        source: SourceToken,
+    ) -> Result<crate::action_plan::ActionPlan, crate::action_plan::PlanError> {
+        crate::action_plan::plan_action_refs(
+            self.actions(),
+            crate::action_plan::PlanOrigin {
+                batch,
+                start,
+                device,
+                source,
+                config: Arc::clone(&self.config),
+                stage: match self.stage {
+                    MappingStage::Simple => crate::timeline::Stage::Complex,
+                    MappingStage::Complex => crate::timeline::Stage::Output,
+                },
+            },
+            false,
+        )
+    }
+    pub fn actions(&self) -> impl DoubleEndedIterator<Item = &Action> + ExactSizeIterator + Clone {
+        self.actions.iter().map(|index| &self.mapping().to[*index])
+    }
+}
+/// Trusted caller supplies its current stage state; evaluate must observe the
+/// same condition state for this whole call. Only Truth::True matches, including
+/// already-negated unless predicates. No re-evaluation on queued delivery.
+pub fn select_rule(
+    config: Arc<ConfigSnapshot>,
+    stage: MappingStage,
+    key: KeyId,
+    modifiers: BTreeSet<KeyId>,
+    mut evaluate: impl FnMut(&Condition) -> Truth,
+) -> Option<RuleSelection> {
+    let mappings = match stage {
+        MappingStage::Simple => &config.simple,
+        MappingStage::Complex => &config.complex,
+    };
+    for (index, mapping) in mappings.iter().enumerate() {
+        if mapping.from != key
+            || !mapping
+                .extras
+                .conditions
+                .iter()
+                .all(|condition| evaluate(condition) == Truth::True)
+        {
+            continue;
+        }
+        let Some(consumed) = mapping
+            .extras
+            .from_modifiers
+            .consumed(&modifiers, mapping.allow_extra_modifiers)
+        else {
+            continue;
+        };
+        let actions = mapping
+            .to
+            .iter()
+            .enumerate()
+            .filter(|(_, action)| {
+                action
+                    .conditions
+                    .iter()
+                    .all(|condition| evaluate(condition) == Truth::True)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        return Some(RuleSelection {
+            config,
+            stage,
+            index,
+            modifiers,
+            consumed,
+            actions,
+        });
+    }
+    None
+}

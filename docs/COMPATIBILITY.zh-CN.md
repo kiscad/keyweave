@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+Engine已共享不可变阶段规则选择，first-match/一次主动作过滤/实际modifier侧别/旧snapshot保留；另提供Simple→Complex→Output主动作计划接口，973测试通过。该接口仍需deferred actor的owner/slot/up/extra分支接入，原生duration gate保留，Windowsnative待验。见 [ADR-0104](ADR-0104-immutable-rule-selection.md)。
+
 阶段队列已修复受阻批次的持续时间压缩，整体平移保原跨度，overflow原子拒绝；966测试通过。该组件及TerminalActor不代表完整duration规则入口，Engine仍拒绝，simple/complex deferred actor/native接入和Windows补验继续待做。见 [ADR-0103](ADR-0103-preserve-causal-batch-duration.md)。
 
 Linux --watch-config 已接后台父目录通知、选定文件名过滤、200ms quiet/持续1s调度上限，原周期兜底保留；通知失效缓存错误并回退，不认证正文或推进代号。960测试与60s周期/5s内自动响应rename/写入/恢复/删除的无输入harness通过。parent替换/外部symlink目标可能依赖轮询；无自动directory重新注册，实时通知/外部操作、成功console硬件及Windows适配仍待。见 [ADR-0102](ADR-0102-linux-directory-notice-debounce.md)。

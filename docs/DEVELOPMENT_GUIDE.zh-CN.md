@@ -580,3 +580,6 @@ ADR-0102 实现进展：Linux watcher首次原文件后台job注册父目录inot
 
 
 ADR-0103进展：StageTimeline已改每stage整批平移保hold跨度，时间overflow返回原owned事件且不改队列/order/len，TerminalActor失败不消耗batch身份/预留。966测试通过，包含前批队尾100时后批50的down100/up150、device125取消和同id重试。完整deferred simple/complex actor和native duration仍需接入，生产gate保留；原目标不变。[设计](ADR-0103-preserve-causal-batch-duration.md)。
+
+
+ADR-0104进展：现有Engine已接rule_selection，保存原Arc/stage/index/consumed与一次filtered main-to，变量/context三值统一；plan_main以旧snapshot产生next-stage计划，私有stable refs复用ActionPlan preflight无整数组复制。973tests通过。后续deferred actor须接owner/slot/up与fresh held/alone/delayed/halt/变量语义和预算，原生duration/simultaneous及全部原目标继续。[设计](ADR-0104-immutable-rule-selection.md)。

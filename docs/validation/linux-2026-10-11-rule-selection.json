@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0104 immutable staged rule selection and next-stage main action planning",
+  "source_base_commit": "137645c064486903e978dc5947050979c337367f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "bd766a93464a2d11bedb027d6707db13b08731c1849d6de5ab24bcc2aa47f012",
+    "crates/keyweave-engine/src/action_plan.rs": "fafc580b25a3731b10bbcda2f3a85bf2145969db71b6646c1cd5c0178ae78c99",
+    "crates/keyweave-engine/src/rule_selection.rs": "660c44bd519539797d22bb72df8cfb441889cd1577dcf8e7f4650c38e41bb784",
+    "crates/keyweave-engine/tests/rule_selection.rs": "f768bea9ccd17bc276c9a900ea3f4b4607ba5c7656cd5feed32c7a597174eedf"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 973,
+    "new_tests": 7,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-rule-selection/workspace-tests.log",
+        "sha256": "9c2a27aa4715e739ea924b344cb6a82d47cae7faa8ea6188ef9efb613325ef7e"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-rule-selection/clippy.log",
+        "sha256": "e6425b1f98b958e782e24ae3e4a00c3417830fa6471b3924832319edf6c08af8"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-rule-selection/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-rule-selection/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "abi": "Pure Rust shared rule selector/planner and private Engine Arc signatures; no unsafe/FFI/dependency/ABI changes, oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine/selection/planner changed; native Windows compilation and prior validations pending approval quota issue."
+  },
+  "initial_failures": [],
+  "limitations": [
+    "Trusted immutable validated config and condition evaluator must observe one consistent generating event state. Selection is not native lease/activation/owner/source/binding admission.",
+    "Main-to eligibility is frozen once; other held/alone/after-up/delayed branches require fresh filtering at their own generating event.",
+    "First-match even when all to actions filtered out. Unknown never matches. Concrete modifier side selection retained without re-evaluation after variable assignments.",
+    "plan_main produces Simple-to-Complex or Complex-to-Output only, preserving old Arc/source/device/options/duration/input-up recipe. Caller must reserve ownership, enqueue and retain saved bindings.",
+    "Private stable iterator preflight reuses original action-plan checks without cloning entire action/condition arrays; no new hard allocator/lookup/condition-time bound.",
+    "Complete deferred stage actor/extra branches and native duration/simultaneous remain unfinished; existing native Engine UnsupportedActionTiming gate retained.",
+    "Deterministic synthetic tests and existing no-input process harnesses only, no actual global input/devices/native duration/driver/install operations.",
+    "Windows adapters/native tests, full context/hotplug/UI/packaging/driver and original scope remain unfinished."
+  ]
+}

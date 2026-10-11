@@ -98,9 +98,20 @@ pub fn plan_actions(
     origin: PlanOrigin,
     tap_all: bool,
 ) -> Result<ActionPlan, PlanError> {
+    plan_action_refs(actions.iter(), origin, tap_all)
+}
+
+// Internal stable iterators only: caller is the slice wrapper or immutable
+// RuleSelection's private index list. Preflight runs before any expansion.
+pub(crate) fn plan_action_refs<'a>(
+    actions: impl Clone + ExactSizeIterator<Item = &'a Action>,
+    origin: PlanOrigin,
+    tap_all: bool,
+) -> Result<ActionPlan, PlanError> {
+    let action_count = actions.len();
     let mut slots = 0usize;
     let mut end = origin.start.0;
-    for (index, action) in actions.iter().enumerate() {
+    for (index, action) in actions.clone().enumerate() {
         slots = slots
             .saturating_add(1)
             .saturating_add(action.modifiers.len());
@@ -115,7 +126,7 @@ pub fn plan_actions(
         {
             return Err(PlanError::InvalidScope);
         }
-        if tap_all || !action.repeat || index + 1 < actions.len() {
+        if tap_all || !action.repeat || index + 1 < action_count {
             end = end
                 .checked_add(action.hold_down_ns)
                 .ok_or(PlanError::TimeOverflow)?;
@@ -125,8 +136,8 @@ pub fn plan_actions(
     let mut release_on_input_up = Vec::new();
     let mut at = origin.start;
     let mut next_slot = 0u16; // Preflight bounds slots <= 512, including all scopes.
-    for (index, action) in actions.iter().enumerate() {
-        let last = index + 1 == actions.len();
+    for (index, action) in actions.enumerate() {
+        let last = index + 1 == action_count;
         let main_modifier = action.key().is_some_and(|key| key.is_modifier());
         let mut scopes = Vec::with_capacity(action.modifiers.len());
         for key in &action.modifiers {
