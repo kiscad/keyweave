@@ -142,6 +142,7 @@ name = "keyweave-host"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "keyweave-engine",
  "keyweave-linux",
  "keyweave-progress",
  "keyweave-types",

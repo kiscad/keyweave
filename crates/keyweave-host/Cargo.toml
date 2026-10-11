@@ -21,3 +21,10 @@ keyweave-linux = { path = "../keyweave-linux" }
 [[test]]
 name = "linux_session"
 harness = false
+
+[dev-dependencies]
+keyweave-engine.workspace = true
+
+[[test]]
+name = "linux_reload"
+harness = false

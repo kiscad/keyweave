@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0098 actual-main native host/worker no-input reload integration harness",
+  "source_base_commit": "c20facfa02aee0ef72071e2511ba101958839b44",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-host/Cargo.toml": "875417b64205ee7512e406635f652e96bdeba26c5321ef10ff7dd049501c9243",
+    "Cargo.lock": "3c5143a2afe35d6a5b190ae328676e455dae236e8dade07b77cf2b4abb11215e",
+    "crates/keyweave-host/tests/linux_reload.rs": "03e21def138654c1167a806be87773349419b17c47170a6df655d958bb238e92"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_libtests_passed": 931,
+    "workspace_tests_exit": 0,
+    "actual_main_harness": {
+      "name": "linux_reload",
+      "scenarios": [
+        "accepted/rejected/own-PID SIGINT cooperative stop",
+        "actual Engine commit with deliberately unwritten/lost ack"
+      ],
+      "status": "passed",
+      "not_included_in_libtest_count": true
+    },
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-native-reload/clippy.log",
+        "sha256": "8b37f70bdf7b49cfab110f5ea72ee140d6e907992ce0bed37f4c95ca657db494"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-native-reload/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-native-reload/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-native-reload/workspace-tests.log",
+        "sha256": "c7a20eecc010dc1bf74459bc30fd3f78f99f1d7edb6e21ea48b6e0ddc943819b"
+      }
+    }
+  },
+  "dependencies": "Existing local keyweave-engine dev dependency only, lock one line; no new production behavior/FFI/unsafe/external dependency.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Harness cfg stub is not native Windows evidence; dev dependency and prior shared/native validations pending approval quota issue."
+  },
+  "limitations": [
+    "Synthetic Engine input and Active epoch/session evidence, not Runtime/native device/console consumer readiness proof.",
+    "Actual NativeSession/watchdog/clock/signalfd/owned child pipes/claim/cold preparation/Engine generation and ack are exercised.",
+    "No KWLT frame; actual code0+Missing/recoveryfalse/successfalse explicitly required.",
+    "Only own testing parent PID receives SIGINT; no foreground group/user-app/global keyboard signals/actions.",
+    "Lost ack case child asserts actual gen2/binding1 and exits0, parent remains observed1/outcomeNone with no rollback/retry.",
+    "Five/ten-second observation drives same transaction and child, never restarts.",
+    "No VT/evdev/uinput/Hook/SendInput/output ledger/suspend/driver/install actions.",
+    "File watcher/user reload command and complete original cross-platform goal remain unfinished."
+  ]
+}
