@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0123 producer original Up preparation and child completion barrier",
+  "source_base_commit": "9f111b82805e175bcdb8bae380ffc12e7ad4174b",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/producer_decision.rs": "5c4b1e87ac7fe4c96a734830eea5b5af6e33f57bf594099b94bdcbd93474536b",
+    "crates/keyweave-engine/src/stage_bindings.rs": "d23c4670dca9451a583eed143f63092621bfb2ebb94b6f92c7df1337eedae15b",
+    "crates/keyweave-engine/tests/producer_up.rs": "a5488fc220372a7c5c0e8bcdd2cd5549b5147b79d0f5291cbed60b4ad04d49cd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1149,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-producer-up/tests.log",
+        "sha256": "ac84956cc5a98a26feb941a16d14a793d511db1d2a99d623c2a4773a087b35cb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-producer-up/clippy.log",
+        "sha256": "1569eb355ab2bee155fa62b15e82494c74c7885c44b4c5a26900d0b6c3c22f38"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-producer-up/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-producer-up/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust saved producer Up state and prepared transaction. No unsafe/FFI/dependencies/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Pending earlier automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "PreparedProducerUp exclusively borrows original decision; commit marks delivered_at once, abort/drop permits same receipt retry. Caller must commit only after saved downstream Up admission succeeds. No compound native transaction or full controller claimed.",
+    "Up requires exact saved slot/stage/device/source/config Arc/target including variable operation/lazy and halt=false. Actual Up must not predate saved actual Down; original earliest Up may precede late delivered Down when both actually deliver together.",
+    "finish_producer requires committed original Up then original take child barrier; external reserved children still block even after output completion until controller detaches registration. Generic take/cancel remain explicit control-cleanup primitives.",
+    "Receipt is caller consistency evidence, not native authentication or child/OS recovery proof. Parent marking does not advance a global actor clock or perform branch scheduling.",
+    "Tests pair parent marking with saved output Up across reload, withhold finish until actual output completion and external registry cleanup, abort marker on 8192 full downstream queue rejection, retry same original receipt, and release consumed empty parent without fabricated output.",
+    "Full controller/branches/child-Up and scope propagation/source ID pool/native duration/simultaneous/Windows adapter/hardware/UI/packaging/driver remain unfinished. Production duration gate retained; no input/device/driver/install/Windows native build executed."
+  ]
+}

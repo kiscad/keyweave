@@ -530,3 +530,39 @@ impl<T> BindingArena<T> {
         Ok(())
     }
 }
+
+impl BindingArena<crate::producer_decision::ProducerDecision> {
+    /// Mark only a saved Live producer's original Up, independently of child completion.
+    pub fn prepare_producer_up(
+        &mut self,
+        up: &DueEvent<PlannedAction>,
+    ) -> Result<
+        crate::producer_decision::PreparedProducerUp<'_>,
+        crate::producer_decision::ProducerUpError,
+    > {
+        let slot = up.event.payload.slot;
+        let saved = self
+            .batches
+            .get_mut(&slot.batch)
+            .and_then(|batch| batch.slots.get_mut(usize::from(slot.index)));
+        let Some(Slot::Live(decision)) = saved else {
+            return Err(crate::producer_decision::ProducerUpError::Lifecycle);
+        };
+        decision.prepare_up(up)
+    }
+    /// Normal original-Up retirement: retained children must already be completed and detached.
+    pub fn finish_producer(
+        &mut self,
+        slot: ActionSlot,
+    ) -> Result<crate::producer_decision::ProducerDecision, crate::producer_decision::ProducerUpError>
+    {
+        if self
+            .live(slot)
+            .and_then(|decision| decision.up_delivered_at())
+            .is_none()
+        {
+            return Err(crate::producer_decision::ProducerUpError::Lifecycle);
+        }
+        Ok(self.take(slot)?)
+    }
+}

@@ -3,7 +3,7 @@ use crate::{
     action_plan::{BatchId, PlanError, PlanOrigin, PlannedAction, plan_actions},
     modifier_scope::ScopedActionPlan,
     rule_selection::RuleSelection,
-    timeline::{Stage, StageEvent},
+    timeline::{DueEvent, Stage, StageEvent},
     *,
 };
 
@@ -14,6 +14,32 @@ pub struct ProducerDecision {
     delivered_at: MonoTime,
     destination: Stage,
     selection: Option<RuleSelection>,
+    up_delivered_at: Option<MonoTime>,
+}
+#[derive(Debug, PartialEq, Eq, Error)]
+pub enum ProducerUpError {
+    #[error("invalid producer Up lifecycle")]
+    Lifecycle,
+    #[error("producer Up does not match saved Down provenance")]
+    Provenance,
+    #[error("producer Up causal time moved backwards")]
+    TimeReversed,
+    #[error(transparent)]
+    Binding(#[from] stage_bindings::BindingError),
+}
+/// Commit only after saved downstream Up admission succeeds. Abort permits original receipt retry.
+#[must_use = "commit or discard the prepared producer Up"]
+pub struct PreparedProducerUp<'a> {
+    decision: &'a mut ProducerDecision,
+    delivered_at: MonoTime,
+}
+impl PreparedProducerUp<'_> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.decision.up_delivered_at = Some(self.delivered_at);
+    }
 }
 impl ProducerDecision {
     pub(crate) fn new(
@@ -27,7 +53,41 @@ impl ProducerDecision {
             delivered_at,
             destination,
             selection,
+            up_delivered_at: None,
         }
+    }
+    pub fn up_delivered_at(&self) -> Option<MonoTime> {
+        self.up_delivered_at
+    }
+    pub fn prepare_up(
+        &mut self,
+        up: &DueEvent<PlannedAction>,
+    ) -> Result<PreparedProducerUp<'_>, ProducerUpError> {
+        if self.up_delivered_at.is_some() || up.event.payload.edge != KeyEdge::Up {
+            return Err(ProducerUpError::Lifecycle);
+        }
+        let event = &up.event;
+        if event.payload.slot != self.down.payload.slot
+            || event.stage != self.down.stage
+            || event.device != self.down.device
+            || event.source != self.down.source
+            || !Arc::ptr_eq(&event.config, &self.down.config)
+            || event.payload.target != self.down.payload.target
+            || event.payload.lazy != self.down.payload.lazy
+            || event.payload.halt
+        {
+            return Err(ProducerUpError::Provenance);
+        }
+        if event.at_ns < self.down.at_ns
+            || up.delivered_at < event.at_ns
+            || up.delivered_at < self.delivered_at
+        {
+            return Err(ProducerUpError::TimeReversed);
+        }
+        Ok(PreparedProducerUp {
+            decision: self,
+            delivered_at: up.delivered_at,
+        })
     }
     pub fn down(&self) -> &StageEvent<PlannedAction> {
         &self.down
