@@ -193,3 +193,89 @@ fn linux_run_bad_config_stops_before_launching_selected_executable() {
     assert!(!text.contains("private config"));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn watch_options_require_explicit_enablement_and_bounded_interval_before_run() {
+    for flags in [
+        vec!["--watch-interval-ms", "1000"],
+        vec!["--watch-config", "--watch-interval-ms", "99"],
+        vec!["--watch-config", "--watch-interval-ms", "60001"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+            .args([
+                "run-linux",
+                "--config",
+                "/absent-config",
+                "--input",
+                "/absent-input",
+                "--session-provider",
+                "none",
+            ])
+            .args(flags)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(
+            !String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("worker_exit=")
+        );
+    }
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn watch_none_rejected_before_config_and_worker_lookup() {
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args([
+            "run-linux",
+            "--config",
+            "/absent-config",
+            "--worker",
+            "/absent-worker",
+            "--input",
+            "/absent-input",
+            "--session-provider",
+            "none",
+            "--watch-config",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("Arguments"));
+    assert!(!text.contains("worker_exit="));
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn watch_console_invalid_config_stops_before_any_signal_or_child_admission() {
+    let root = dir("watch-invalid");
+    let config = root.join("private config.json");
+    fs::write(&config, b"private-secret\xff").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args([
+            "run-linux",
+            "--session-provider",
+            "console",
+            "--vt",
+            "/dev/tty2",
+            "--input",
+            "/absent-input",
+            "--watch-config",
+            "--worker",
+        ])
+        .arg(env!("CARGO_BIN_EXE_keyweave-host"))
+        .arg("--config")
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("Configuration"));
+    assert!(!text.contains("private-secret"));
+    assert!(!text.contains("private config"));
+    assert!(!text.contains("worker_exit="));
+    fs::remove_dir_all(root).unwrap();
+}

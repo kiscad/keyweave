@@ -1,5 +1,5 @@
 //! Cold Linux launch transaction. No device probing or automatic activation.
-use super::{NativeSession, Session};
+use super::{NativeSession, Session, watcher::ConfigWatcher};
 use keyweave_linux::{
     config_artifact::ConfigArtifact,
     host_signals::{HostSignals, StopSignal},
@@ -24,6 +24,7 @@ pub enum StartupStage {
     Arguments,
     WorkerLocation,
     Configuration,
+    Watcher,
     RunIdentity,
     Sealing,
     Signals,
@@ -94,6 +95,32 @@ pub enum StartOutcome {
 }
 impl PreparedLaunch {
     pub fn prepare(host: &Path, options: LaunchOptions) -> Result<Self, StartupError> {
+        Self::prepare_inner(host, options, None).map(|(launch, _)| launch)
+    }
+    /// Cold paired preparation. Keep watcher with the session created by this
+    /// launch, and start polling it only after start has returned Running.
+    /// Console is required; None remains permanently without reload/devices.
+    pub fn prepare_watched(
+        host: &Path,
+        options: LaunchOptions,
+        interval_ns: u64,
+    ) -> Result<(Self, ConfigWatcher), StartupError> {
+        let (launch, watcher) = Self::prepare_inner(host, options, Some(interval_ns))?;
+        watcher
+            .map(|watcher| (launch, watcher))
+            .ok_or_else(|| StartupError::plain(StartupStage::Watcher))
+    }
+    fn prepare_inner(
+        host: &Path,
+        options: LaunchOptions,
+        watch_interval: Option<u64>,
+    ) -> Result<(Self, Option<ConfigWatcher>), StartupError> {
+        if let Some(interval) = watch_interval
+            && (!matches!(options.session_provider, SessionProvider::Console { .. })
+                || !(100_000_000..=60_000_000_000).contains(&interval))
+        {
+            return Err(StartupError::plain(StartupStage::Arguments));
+        }
         // Bound before cloning any device path array. Validation here is only
         // lexical; it never queries /dev or grants consumer/neutral readiness.
         if options.inputs.is_empty() || options.inputs.len() > keyweave_linux::runtime::MAX_DEVICES
@@ -111,7 +138,15 @@ impl PreparedLaunch {
         .map_err(|_| StartupError::plain(StartupStage::Arguments))?;
         let executable = crate::locate_linux_worker(host, options.worker.as_deref())
             .map_err(|e| StartupError::system(StartupStage::WorkerLocation, e))?;
-        let file = std::fs::File::open(&options.config)
+        let source_path = if watch_interval.is_some() {
+            Some(
+                std::path::absolute(&options.config)
+                    .map_err(|e| StartupError::system(StartupStage::Watcher, e))?,
+            )
+        } else {
+            None
+        };
+        let file = std::fs::File::open(source_path.as_deref().unwrap_or(&options.config))
             .map_err(|e| StartupError::system(StartupStage::Configuration, e))?;
         if !file
             .metadata()
@@ -124,6 +159,17 @@ impl PreparedLaunch {
             .map_err(|e| StartupError::system(StartupStage::Configuration, e))?;
         let prepared = PreparedConfig::read(file, output)
             .map_err(|_| StartupError::plain(StartupStage::Configuration))?;
+        // Absolute lexical source path preserves symlink identity for later
+        // replacements. No canonical target cache and no second config read.
+        let watcher = if let Some(interval) = watch_interval {
+            let path = source_path.ok_or_else(|| StartupError::plain(StartupStage::Watcher))?;
+            Some(
+                ConfigWatcher::new(path, std::sync::Arc::from(prepared.bytes()), interval)
+                    .map_err(|_| StartupError::plain(StartupStage::Watcher))?,
+            )
+        } else {
+            None
+        };
         let identity = RunIdentity::generate()
             .map_err(|e| StartupError::system(StartupStage::RunIdentity, e))?;
         let reload = matches!(options.session_provider, SessionProvider::Console { .. });
@@ -139,13 +185,16 @@ impl PreparedLaunch {
         let artifact = prepared
             .seal()
             .map_err(|e| StartupError::system(StartupStage::Sealing, e))?;
-        Ok(Self {
-            executable,
-            argv,
-            artifact,
-            identity,
-            reload,
-        })
+        Ok((
+            Self {
+                executable,
+                argv,
+                artifact,
+                identity,
+                reload,
+            },
+            watcher,
+        ))
     }
     /// Actual main thread only. Installs control before spawn, restores child
     /// mask and uses the explicit isolated sealed-config Supervisor mode.
@@ -310,6 +359,60 @@ mod tests {
                 .unwrap()
                 .stage,
             StartupStage::Configuration
+        );
+    }
+    #[test]
+    fn watched_preparation_rejects_none_or_interval_before_image_and_file_lookup() {
+        let f = Fixture::new();
+        fs::remove_file(&f.config).unwrap();
+        fs::remove_file(f.root.join("keyweave-worker")).unwrap();
+        assert_eq!(
+            PreparedLaunch::prepare_watched(&f.host, f.options(), 1_000_000_000)
+                .err()
+                .unwrap()
+                .stage,
+            StartupStage::Arguments
+        );
+        for interval in [99_999_999, 60_000_000_001] {
+            let mut options = f.options();
+            options.session_provider = SessionProvider::Console {
+                vt: "/dev/tty2".into(),
+            };
+            assert_eq!(
+                PreparedLaunch::prepare_watched(&f.host, options, interval)
+                    .err()
+                    .unwrap()
+                    .stage,
+                StartupStage::Arguments
+            );
+        }
+    }
+    #[test]
+    fn watched_preparation_is_cold_and_seals_initial_source_through_symlink() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        let link = f.root.join("selected.json");
+        symlink(&f.config, &link).unwrap();
+        let mut options = f.options();
+        options.config = link.clone();
+        options.session_provider = SessionProvider::Console {
+            vt: "/dev/tty2".into(),
+        };
+        let (prepared, mut watcher) =
+            PreparedLaunch::prepare_watched(&f.host, options, 100_000_000).unwrap();
+        // Preparing does not open a VT/device, install signals or start a job.
+        watcher.close();
+        assert!(watcher.reap_closed().unwrap());
+        fs::write(&f.config, b"new invalid private body").unwrap();
+        fs::remove_file(link).unwrap();
+        assert_eq!(prepared.artifact.read_bytes().unwrap(), CONFIG);
+        assert!(prepared.reload);
+        let args = LinuxArguments::parse(prepared.argv).unwrap();
+        assert_eq!(
+            args.session_provider,
+            SessionProvider::Console {
+                vt: "/dev/tty2".into()
+            }
         );
     }
 }

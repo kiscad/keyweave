@@ -2,7 +2,7 @@
 
 用 Rust 开发、面向 Linux 与 Windows 的键盘映射工具。名称取自“编织按键行为”，是本项目的工作名称，尚未核验商标或包名可用性。
 
-当前已实现 Rust workspace、HID 键名、JSONC 配置校验、基础与部分复杂规则、确定性离线回放和多来源输出账本。Linux 已连接 owned evdev/uinput、文本控制台消费者、有限 bootstrap、活动消费者续期、独立 worker 与进度/信号监督，并提供实验 `run-linux` 入口；真实 VT、设备抓取/输出与终端停机仍待真机验收。Windows 已连接 Hook/SendInput、共享引擎会话 actor、桌面/权限/会话租约、独立监督与 host 入口；固定 Rust 1.97.1 x64/i686 的既有验证记录已保存，近期新增改动的 Windows 原生补验仍受自动审批额度错误影响。图形消费者、完整高级规则、设备热添加、LED、热配置、GUI、包装与 Rust 驱动继续开发，准确范围见 [STATUS](docs/STATUS.md) 和 [兼容说明](docs/COMPATIBILITY.zh-CN.md)。原始 `../Karabiner-Elements/` 保持不变。
+当前已实现 Rust workspace、HID 键名、JSONC 配置校验、基础与部分复杂规则、确定性离线回放和多来源输出账本。Linux 已连接 owned evdev/uinput、文本控制台消费者、有限 bootstrap、活动消费者续期、独立 worker 与进度/信号监督，并提供实验 `run-linux` 入口和可选 `--watch-config` 文件监听；真实 VT、设备抓取/输出与终端停机仍待真机验收。Windows 已连接 Hook/SendInput、共享引擎会话 actor、桌面/权限/会话租约、独立监督与 host 入口；固定 Rust 1.97.1 x64/i686 的既有验证记录已保存，近期新增改动的 Windows 原生补验仍受自动审批额度错误影响。图形消费者、完整高级规则、设备热添加、LED、热配置、GUI、包装与 Rust 驱动继续开发，准确范围见 [STATUS](docs/STATUS.md) 和 [兼容说明](docs/COMPATIBILITY.zh-CN.md)。原始 `../Karabiner-Elements/` 保持不变。
 
 Linux 构建、永久无设备模式与显式文本控制台参数见 [Linux 使用说明](docs/LINUX_USAGE.zh-CN.md)。普通 WSL2 终端无法提供当前文本 VT 消费者授权。
 

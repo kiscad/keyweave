@@ -1,6 +1,6 @@
 # Linux 当前使用与验收边界
 
-当前 console host 会建立独立 reload 管道，worker 在设备初始化前认领并使用后台配置准备/实际激活控制组件；用户文件监听与 reload 命令尚未连接，启动管道不代表已完成用户热更新。新模式仍未进行成功硬件验收；None 继续永久拒绝设备操作。见 [ADR-0096](ADR-0096-linux-reload-worker-entry.md)。
+console host 支持显式 `--watch-config`，后台读取变化的正文、由 worker 冷准备并确认实际激活；默认不启用。读取失败或拒绝保留旧配置，结果在停止后的汇总中显示。当前实际捕获与监听入口仍需真机验收；None 永久拒绝设备操作且不能启用监听。见 [ADR-0101](ADR-0101-linux-watch-command.md)。
 
 Linux 已提供实际 `keyweave-host run-linux` 入口，连接冷配置校验、密封字节、独立 worker 进程组、父死亡保护、信号/进度监督与 KWLT 终止报告。当前原生消费者只支持显式文本 VT；图形桌面、Wayland/X11 与普通 WSL2 终端尚不能获得该消费者授权。
 
@@ -45,6 +45,20 @@ target/debug/keyweave-host run-linux \
 
 worker 在设备操作前核验父死亡保护、独立组与 unblocked stop signals；以有限 bootstrap 创建输出、发现 owned 节点、逐个打开输入，等待消费者/中立状态，整组抓取后再检查。首次 dispatch 前和活动期间更新消费者证据。未知、过期、切换或故障会停止并进入有限恢复，不自动重新 arm。
 
+## 配置文件监听
+
+在上面的实际 console 命令末尾增加：
+
+```sh
+--watch-config --watch-interval-ms 1000
+```
+
+检查间隔100～60000毫秒，启用时默认1000；指定间隔必须同时启用监听。源配置可使用相对路径或普通symlink，程序在冷准备时固定其绝对文件名，后台按该文件名读取完整变化正文。建议用同目录临时文件加rename保存，读取中检测到变化会保留旧配置后再检查。
+
+保存新配置触发下一次检查；同一已接受/已拒绝正文不会反复提交，恢复已接受正文无需新增代号。有效Accepted才更新配置基线，已按下键仍按原binding完成repeat/up。无效正文/权限/文件删除会保留旧配置，不改用默认配置。当前采用正文轮询，没有目录通知/去抖或独立手动reload命令。
+
+活动监督循环不打印状态；退出后显示 `reload_submitted/accepted/rejected/cancelled`、`config_read_failed`、最近确认的 `reload_confirmed_generation`、`config_watch_fault` 和 `config_source_reaped`。无确认时generation为None；Submitted不能当激活成功。文件任务未能在退出后的一次100ms窗口回收，host返回1并显示false；任务回收不能证明键盘恢复或worker退出。SIGHUP仍请求Stop。
+
 ## 停机与报告
 
 SIGINT（Ctrl+C）、SIGTERM、SIGHUP 由 host 主线程 signalfd 接收，首事件请求一次协作 Stop。worker 在独立组中保留原 session，避免同前台组信号绕过 Stop；实际终端 Ctrl+C 的完整硬件交付尚未验收。不要把直接向 worker PID/其组发送信号当作协作停止。
@@ -59,4 +73,4 @@ host 返回0要求实际 worker code0、可接受终止原因、完整恢复 fac
 
 ## 尚需完成
 
-当前验证覆盖离线引擎、模拟输入/输出、无输入子进程和真实 None 冷链路。真实 VT、evdev 抓取/uinput 输出、按键释放、暂停/切换、Ctrl+C、suspend/resume 与系统权限/故障仍需真机验收。图形消费者、动态添加设备、LED、高级规则、热配置、GUI、包装发布与驱动仍未完成；完整状态以 [STATUS](STATUS.md) 为准。
+当前验证覆盖离线引擎、模拟输入/输出、无输入子进程和真实 None 冷链路。真实 VT、evdev 抓取/uinput 输出、按键释放、暂停/切换、Ctrl+C、suspend/resume 与系统权限/故障仍需真机验收。图形消费者、动态添加设备、LED、高级规则、跨平台热配置、GUI、包装发布与驱动仍未完成；完整状态以 [STATUS](STATUS.md) 为准。

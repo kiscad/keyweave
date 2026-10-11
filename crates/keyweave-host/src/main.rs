@@ -25,6 +25,8 @@ enum Command {
         /// Explicit text VT, required with console; omitted with none.
         #[arg(long)]
         vt: Option<PathBuf>,
+        #[command(flatten)]
+        watch: WatchArgs,
     },
     /// Check Linux configuration against the full supported output table; no input access.
     CheckLinux {
@@ -49,6 +51,15 @@ enum Command {
         #[arg(long)]
         artifact_directory: Option<PathBuf>,
     },
+}
+#[derive(clap::Args)]
+struct WatchArgs {
+    /// Reload changed configuration contents while the console session is active.
+    #[arg(long)]
+    watch_config: bool,
+    /// File check interval (100..60000 milliseconds); default 1000 when enabled.
+    #[arg(long, requires = "watch_config", value_parser = clap::value_parser!(u64).range(100..=60000))]
+    watch_interval_ms: Option<u64>,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum LinuxProvider {
@@ -77,7 +88,8 @@ fn main() -> ExitCode {
             input,
             session_provider,
             vt,
-        } => run_linux(config, worker, uinput, input, session_provider, vt),
+            watch,
+        } => run_linux(config, worker, uinput, input, session_provider, vt, watch),
         Command::CheckLinux { config } => match check_linux(config) {
             Ok(config) => {
                 println!(
@@ -241,6 +253,7 @@ fn run_linux(
     _: Vec<PathBuf>,
     _: LinuxProvider,
     _: Option<PathBuf>,
+    _: WatchArgs,
 ) -> ExitCode {
     eprintln!("run-linux requires Linux");
     ExitCode::from(78)
@@ -253,6 +266,7 @@ fn run_linux(
     input: Vec<PathBuf>,
     provider: LinuxProvider,
     vt: Option<PathBuf>,
+    watch: WatchArgs,
 ) -> ExitCode {
     use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};
     use keyweave_worker::linux_arguments::SessionProvider;
@@ -271,17 +285,25 @@ fn run_linux(
             return ExitCode::from(1);
         }
     };
-    let prepared = match PreparedLaunch::prepare(
-        &host,
-        LaunchOptions {
-            config,
-            worker,
-            uinput,
-            inputs: input,
-            session_provider: provider,
-        },
-    ) {
-        Ok(prepared) => prepared,
+    let options = LaunchOptions {
+        config,
+        worker,
+        uinput,
+        inputs: input,
+        session_provider: provider,
+    };
+    let preparation = if watch.watch_config {
+        PreparedLaunch::prepare_watched(
+            &host,
+            options,
+            watch.watch_interval_ms.unwrap_or(1000) * 1_000_000,
+        )
+        .map(|(launch, watcher)| (launch, Some(watcher)))
+    } else {
+        PreparedLaunch::prepare(&host, options).map(|launch| (launch, None))
+    };
+    let (prepared, mut watcher) = match preparation {
+        Ok(pair) => pair,
         Err(e) => {
             eprintln!("{e}; use check-linux for offline configuration diagnostics");
             return ExitCode::from(1);
@@ -306,25 +328,130 @@ fn run_linux(
                 1
             })
         }
-        StartOutcome::Running(mut native) => match native.run() {
-            DriveStatus::Exited(report) => {
-                println!("{report}");
-                ExitCode::from(if report.successful() { 0 } else { 1 })
+        StartOutcome::Running(mut native) => {
+            // No file parsing, stdin thread or stdio on this control loop.
+            let mut stats = LinuxWatchStats::default();
+            let status = loop {
+                let status = if let Some(watcher) = watcher.as_mut() {
+                    let result = watcher.poll(&mut native);
+                    if let Some(event) = watcher.take_event() {
+                        stats.observe(event);
+                    }
+                    match result {
+                        Ok(status) => status,
+                        Err(error) => {
+                            stats.fault.get_or_insert(error);
+                            // The watcher has closed and requested the original
+                            // owner's stop; keep observing that same child.
+                            continue;
+                        }
+                    }
+                } else {
+                    native.poll_once()
+                };
+                if !matches!(status, DriveStatus::Pending(_)) {
+                    break status;
+                }
+            };
+            let source_reaped = watcher.as_mut().map(reap_linux_source);
+            // Terminal metadata only, outside the active supervision loop.
+            if watcher.is_some() {
+                println!("{stats}, config_source_reaped={source_reaped:?}");
             }
-            DriveStatus::ObservationExpired => {
-                eprintln!(
-                    "worker_exit=unobserved, recovery_confirmed=false, supervisor={:?}, host_fault={:?}",
-                    native.status(),
-                    native.fault()
-                );
-                // Emergency owner Drop runs before mask restoration. Its finite
-                // kill/reap fallback is not counted as an observed actual exit.
-                ExitCode::from(1)
+            let watch_success = stats.fault.is_none() && source_reaped != Some(false);
+            match status {
+                DriveStatus::Exited(report) => {
+                    println!("{report}");
+                    ExitCode::from(if report.successful() && watch_success {
+                        0
+                    } else {
+                        1
+                    })
+                }
+                DriveStatus::ObservationExpired => {
+                    eprintln!(
+                        "worker_exit=unobserved, recovery_confirmed=false, supervisor={:?}, host_fault={:?}",
+                        native.status(),
+                        native.fault()
+                    );
+                    // Emergency owner Drop runs before mask restoration. Its finite
+                    // kill/reap fallback is not counted as an observed actual exit.
+                    ExitCode::from(1)
+                }
+                DriveStatus::Pending(_) => {
+                    eprintln!("worker_exit=unobserved, recovery_confirmed=false");
+                    ExitCode::from(1)
+                }
             }
-            DriveStatus::Pending(_) => {
-                eprintln!("worker_exit=unobserved, recovery_confirmed=false");
-                ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct LinuxWatchStats {
+    submitted: u64,
+    accepted: u64,
+    rejected: u64,
+    cancelled: u64,
+    read_failed: u64,
+    generation: Option<keyweave_types::ConfigGeneration>,
+    fault: Option<keyweave_host::linux::watcher::WatchError>,
+}
+#[cfg(target_os = "linux")]
+impl LinuxWatchStats {
+    fn observe(&mut self, event: keyweave_host::linux::watcher::WatchEvent) {
+        use keyweave_host::linux::watcher::WatchEvent;
+        let counter = match event {
+            WatchEvent::Submitted => &mut self.submitted,
+            WatchEvent::Accepted(generation) => {
+                self.generation = Some(generation);
+                &mut self.accepted
             }
-        },
+            WatchEvent::Rejected(generation) => {
+                self.generation = Some(generation);
+                &mut self.rejected
+            }
+            WatchEvent::Cancelled(generation) => {
+                self.generation = Some(generation);
+                &mut self.cancelled
+            }
+            WatchEvent::ReadFailed(_) => &mut self.read_failed,
+            WatchEvent::Unchanged | WatchEvent::Closed => return,
+        };
+        *counter = counter.saturating_add(1);
+    }
+}
+#[cfg(target_os = "linux")]
+impl std::fmt::Display for LinuxWatchStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "config_watch=true, reload_submitted={}, reload_accepted={}, reload_rejected={}, reload_cancelled={}, config_read_failed={}, reload_confirmed_generation={:?}, config_watch_fault={:?}",
+            self.submitted,
+            self.accepted,
+            self.rejected,
+            self.cancelled,
+            self.read_failed,
+            self.generation.map(|g| g.0),
+            self.fault
+        )
+    }
+}
+#[cfg(target_os = "linux")]
+fn reap_linux_source(watcher: &mut keyweave_host::linux::watcher::ConfigWatcher) -> bool {
+    use std::time::{Duration, Instant};
+    watcher.close();
+    let until = Instant::now() + Duration::from_millis(100);
+    loop {
+        match watcher.reap_closed() {
+            Ok(true) => return true,
+            Err(_) => return false,
+            Ok(false) => {}
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(1));
     }
 }

@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0101 Linux watch-config command and paired cold baseline preparation",
+  "source_base_commit": "6e4b3a2ca6e4098cf1e8fabd0e814478f142a98f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/main.rs": "04f6374da92c1bbcdfc7ae3ae50f70c3e13b3b6f83146127f298a5dec409c8cc",
+    "crates/keyweave-host/src/linux/startup.rs": "a853688f79d9ffa21d716710f585980a5dd1bcf53dce8a7efbb92b7c0be9305b",
+    "crates/keyweave-host/tests/cli.rs": "7b6cfff61428ad9d1b7bee4a5f5433b01bc969dceb8da6babdd64ceb89c583d6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 953,
+    "new_cold_tests": 2,
+    "new_cli_tests": 3,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "native_build_exit": 0,
+    "source_hashes_verified": 60,
+    "existing_actual_main_reload_scenarios": 3,
+    "actual_cli_cases": {
+      "images_sha256": {
+        "target/debug/keyweave-host": "d384a9c4673a84b08e01ee003461c1f1ca88577aee2e39eae3da549ec27412fe",
+        "target/debug/keyweave-worker": "2933cfedf0a14c56e5ed4b7d0f13a5a09d886e5f77b6292de03bd11f24993ea0"
+      },
+      "cases": [
+        {
+          "case": "none",
+          "actual_host_exit": 1,
+          "stdout": "worker_exit=Some(78), worker_signal=None, reason=None, stop_signal=None, progress_epoch=0, terminal=missing, terminal_failure=None, recovery_confirmed=false, recovery_facts=None, host_fault=None, signal_close_failure=None\n",
+          "stderr": ""
+        },
+        {
+          "case": "watch-none-rejected",
+          "actual_host_exit": 1,
+          "stdout": "",
+          "stderr": "Linux startup failed: stage=Arguments, system=None, signal_close_failure=None; use check-linux for offline configuration diagnostics\n"
+        },
+        {
+          "case": "help",
+          "actual_host_exit": 0,
+          "stdout": "Run an experimental Linux session. Ctrl+C, SIGTERM or SIGHUP requests stop\n\nUsage: keyweave-host run-linux [OPTIONS] --config <CONFIG> --input <INPUT> --session-provider <SESSION_PROVIDER>\n\nOptions:\n      --config <CONFIG>\n          \n      --worker <WORKER>\n          \n      --uinput <UINPUT>\n          [default: /dev/uinput]\n      --input <INPUT>\n          \n      --session-provider <SESSION_PROVIDER>\n          [possible values: none, console]\n      --vt <VT>\n          Explicit text VT, required with console; omitted with none\n      --watch-config\n          Reload changed configuration contents while the console session is active\n      --watch-interval-ms <WATCH_INTERVAL_MS>\n          File check interval (100..60000 milliseconds); default 1000 when enabled\n  -h, --help\n          Print help\n",
+          "stderr": ""
+        }
+      ]
+    },
+    "logs": {
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-watch-command/workspace-tests.log",
+        "sha256": "51525bf2a97c2d63414aa8b89cfa406d362783b99a347b509388cb901a77596f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-watch-command/clippy.log",
+        "sha256": "ee1d3fffa2022e962e63e0dbe4d35c9c198450a20c29fc09030f635dbb38bfcd"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-watch-command/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-watch-command/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "build": {
+        "path": "target/validation/linux-20261011-watch-command/build.log",
+        "sha256": "02db5a66fa0c60ca8618bd08aac556eac4f3ec863e8630a0d353dba6a0f6e126"
+      },
+      "native-cases": {
+        "path": "target/validation/linux-20261011-watch-command/native-cases.json",
+        "sha256": "27a40911cb620e1c8f28878844ee45d13017f0d52cbae5e93bc9ec8367adf0aa"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "No new unsafe/FFI/dependency or native ABI changes; existing oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only runtime/source; shared CLI flags changed, no native Windows compilation claim. Previous checks remain pending approval quota issue."
+  },
+  "limitations": [
+    "Explicit console-only watcher; default unmodified, None always no devices and watched None rejected before image/config lookup.",
+    "Cold constructor pairs exact validated original bytes with sealed artifact and absolute lexical source name without reopening the baseline. Library caller must use corresponding session.",
+    "Periodic full-content reads only, no inotify/directory rename events/debounce. Original 100-300ms debounce target remains unfinished.",
+    "No active-loop stdio or stdin thread. Final metadata only; real-time diagnostics and independent manual reload command not implemented.",
+    "One 100ms cleanup observation of same source, cannot preempt filesystem IO. Failed reap fails host independently of actual worker/report; Drop may detach.",
+    "New tests execute only parse/cold admission rejection; console valid native capture CLI not run. Existing synthetic no-input native harness is not true console/consumer proof.",
+    "Actual valid-config worker executable tests use session-provider none only: host1/worker78/Missing/recoveryfalse; watched None host1 Arguments, no child report.",
+    "No real input/output/VT/driver/install actions. Successful console hardware validation, Windows reload adapter/native checks and full original scope remain unfinished."
+  ]
+}
