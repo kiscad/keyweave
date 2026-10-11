@@ -8,6 +8,8 @@ Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 con
 
 热配置独立请求/确认协议与actor当前代号查询已实现，确认不代表旧持键已释放；原生body交付、文件监听和reload命令仍未接通，见 [ADR-0090](ADR-0090-reload-control-protocol.md)。
 
+独立热配置流已有有界header/body/ack读写与激活后确认门控；通用Read/Write未证明原生非阻塞和端点所有权，实际运行中的reload尚未连接。[ADR-0091](ADR-0091-bounded-reload-streams.md)。
+
 | 项目 | 当前行为 |
 | --- | --- |
 | JSONC | 接受 `//`、`/* */`，保留源行号；8 MiB、serde 默认递归限额；拒绝尾逗号、重复对象成员（含 Unicode 转义等价键） |

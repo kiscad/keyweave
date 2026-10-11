@@ -1,5 +1,6 @@
 //! Independent reload control protocol. Never multiplex into progress/Stop IO.
 //! No configuration parsing, OS calls, progress receipts or actor activation.
+pub mod transport;
 use crate::number;
 use keyweave_types::{ConfigGeneration, MonoTime};
 pub const FRAME_BYTES: usize = 48;

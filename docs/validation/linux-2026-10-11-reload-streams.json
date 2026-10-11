@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0091 bounded independent reload streams",
+  "source_base_commit": "85da39dd9a40e00ef5ead46233a1d4935d1b0c5d",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-progress/src/reload.rs": "0d2b8b8d9320d9779941a0816614b240c53d0909dce4022bf1d536350b6898d4",
+    "crates/keyweave-progress/src/reload/transport.rs": "cc33ea1549d23d80b002b7700a597b0e796950fe6d932834e7e0b461cc2c25f3"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 895,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_portable_tests": 9,
+    "scope": "in-memory scripted nonblocking streams; existing workspace tests unchanged",
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-reload-streams/clippy.log",
+        "sha256": "876e0cd725d9aff4bff64b42f34a48707d75d0ebd3241067fecc01cbe19c9e94"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-reload-streams/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-reload-streams/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-reload-streams/workspace-tests.log",
+        "sha256": "c0031e951c4058c6acc9d0020481cf077410f5af3111efc24bba8ba0a9b36d02"
+      }
+    }
+  },
+  "abi": "No native/unsafe/FFI/dependency changes; C oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "nine portable transport tests and previous shared/native changes need native Windows checks; approval quota issue remains"
+  },
+  "limitations": [
+    "Generic Read/Write does not prove nonblocking or descriptor/handle ownership; native endpoint adapters are not implemented.",
+    "Each poll attempts at most one IO; body slices<=64KiB, header/ack<=48bytes. Allocator/native syscall/scheduling costs have no hard time bound.",
+    "Parent brackets IO with caller clock and original transaction deadline. Worker-side receiver/ack sender require external independent parent lease/time checks.",
+    "Header identity/generation validates before bounded body reserve. Received body is unparsed/unhashed and not an actor activation proof.",
+    "Receiver waits for actual finish and exact local AckSent before reading another header. Local write completion is not peer receipt or progress.",
+    "Commit may precede failed/late ack; closed lane preserves active generation and does not roll back or retry. Endpoint resources physically close when native owner drops; logical close prevents further IO.",
+    "Cold preparation task/actor handoff/native transport/host watcher/reload CLI still remain unconnected.",
+    "No files, subprocesses, native input/output, suspend or driver actions in new tests.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}
