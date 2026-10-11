@@ -656,12 +656,6 @@ impl Engine {
             condition.evaluate(&self.context, self.current_device, self.now)
         }
     }
-    fn conditions_match(&self, conditions: &[Condition]) -> bool {
-        conditions
-            .iter()
-            .all(|condition| self.condition_truth(condition) == Truth::True)
-    }
-
     fn validate_context(
         &self,
         context: &ContextSnapshot,
@@ -1271,15 +1265,15 @@ impl Engine {
                 &config.complex[*index]
             };
             *suppressed = self.hide_modifiers(consumed);
-            let last_is_modifier = mapping
-                .extras
-                .if_held_down
-                .iter()
-                .rev()
-                .find(|action| self.conditions_match(&action.conditions))
+            let actions =
+                rule_selection::filter_actions(&mapping.extras.if_held_down, |condition| {
+                    self.condition_truth(condition)
+                });
+            let last_is_modifier = actions
+                .last()
                 .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier));
-            (*children, *repeat_child) = self.press_actions(
-                &mapping.extras.if_held_down,
+            (*children, *repeat_child) = self.press_filtered_actions(
+                &actions,
                 *stage + 1,
                 config,
                 next_source,
@@ -1601,10 +1595,8 @@ impl Engine {
         if halted.load(Ordering::Relaxed) {
             return (Vec::new(), None);
         }
-        let actions: Vec<_> = actions
-            .iter()
-            .filter(|action| self.conditions_match(&action.conditions))
-            .collect();
+        let actions =
+            rule_selection::filter_actions(actions, |condition| self.condition_truth(condition));
         self.press_filtered_actions(&actions, stage, config, next_source, policy, outputs)
     }
     fn press_filtered_actions(

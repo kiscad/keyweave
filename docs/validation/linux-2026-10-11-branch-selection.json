@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0106 frozen extra branch selection and generating-event shared filtering",
+  "source_base_commit": "64a84e2bee55f0fc075b33a2982be4e7c32513f5",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "d438be2679add2e140d7ade00a2a63e38f839448634575d50dfb6694a6667f17",
+    "crates/keyweave-engine/src/rule_selection.rs": "2a4d31857657e6a6e9ca31d9db90d52b70764aad3e1808ff4d48ef1483b616ba",
+    "crates/keyweave-engine/tests/branch_selection.rs": "1d54aa2fa2a33f55d9e1abfc8c237fbd784555a30f44d1dfca36fb6195df53d8"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 982,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-branch-selection/tests.log",
+        "sha256": "7ca88125d7de987f2fb16fc26b7166acefb27b6b30a66656d41e9d6d02bf737b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-branch-selection/clippy.log",
+        "sha256": "47ac5ddc5dbc80ce46709f6a05275169ac69f65a5a46b908cad188a5e3b83c7b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-branch-selection/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-branch-selection/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Held last repeat Up test initially expected 50ns minimum; existing planner and upstream event_sender confirm original input controls Up, test expectation corrected without changing planner.",
+    "Clippy needless_lifetimes corrected and checks rerun."
+  ],
+  "abi": "Pure Rust shared selector/Engine changes; no unsafe/FFI/dependency/ABI change; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; native Windows build and earlier platform validations pending prior approval quota issue."
+  },
+  "limitations": [
+    "Branch admission/timers/alone/cancellation/halt orchestration remains caller responsibility.",
+    "Branch plan contains actions only; actor must retain and implement modifier policy/snapshot/consumed scope separately.",
+    "Complete deferred stage actor, native duration, source/cleanup budget and simultaneous remain unfinished; UnsupportedActionTiming retained.",
+    "Existing shared variable namespace survives activate until reset; no per-generation isolated variable namespace introduced.",
+    "No real global keyboard/devices/native driver operations. Linux results are not Windows native evidence."
+  ]
+}

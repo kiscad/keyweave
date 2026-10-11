@@ -66,6 +66,35 @@ impl RuleSelection {
             false,
         )
     }
+    /// Call at the branch's generating event, after any required child cleanup.
+    /// The caller decides timer/alone/cancellation eligibility and supplies halt.
+    pub fn select_branch(
+        &self,
+        branch: RuleBranch,
+        halted: bool,
+        mut evaluate: impl FnMut(&Condition) -> Truth,
+    ) -> Option<BranchSelection> {
+        let actions = branch_actions(self.mapping(), branch)?;
+        let indices = if halted {
+            Vec::new()
+        } else {
+            actions
+                .iter()
+                .enumerate()
+                .filter(|(_, action)| action_matches(action, &mut evaluate))
+                .map(|(index, _)| index)
+                .collect()
+        };
+        Some(BranchSelection {
+            config: Arc::clone(&self.config),
+            stage: self.stage,
+            index: self.index,
+            branch,
+            actions: indices,
+            modifiers: self.modifiers.clone(),
+            consumed: self.consumed.clone(),
+        })
+    }
     pub fn actions(&self) -> impl DoubleEndedIterator<Item = &Action> + ExactSizeIterator + Clone {
         self.actions.iter().map(|index| &self.mapping().to[*index])
     }
@@ -105,12 +134,7 @@ pub fn select_rule(
             .to
             .iter()
             .enumerate()
-            .filter(|(_, action)| {
-                action
-                    .conditions
-                    .iter()
-                    .all(|condition| evaluate(condition) == Truth::True)
-            })
+            .filter(|(_, action)| action_matches(action, &mut evaluate))
             .map(|(index, _)| index)
             .collect();
         return Some(RuleSelection {
@@ -123,4 +147,108 @@ pub fn select_rule(
         });
     }
     None
+}
+
+/// Branch admission is separate from action eligibility: this enum does not fire a timer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuleBranch {
+    Held,
+    Alone,
+    AfterKeyUp,
+    DelayedInvoked,
+    DelayedCanceled,
+}
+/// Apply this scope at execution; it does not mint owners or physically press keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BranchModifierPolicy {
+    CurrentMinusConsumed,
+    DownSnapshotMinusConsumed,
+}
+/// Frozen branch actions retain the original rule even after RuleSelection is dropped.
+pub struct BranchSelection {
+    config: Arc<ConfigSnapshot>,
+    stage: MappingStage,
+    index: usize,
+    branch: RuleBranch,
+    actions: Vec<usize>,
+    modifiers: BTreeSet<KeyId>,
+    consumed: BTreeSet<KeyId>,
+}
+impl BranchSelection {
+    pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
+        &self.config
+    }
+    pub fn branch(&self) -> RuleBranch {
+        self.branch
+    }
+    pub fn modifiers_at_down(&self) -> &BTreeSet<KeyId> {
+        &self.modifiers
+    }
+    pub fn consumed_modifiers(&self) -> &BTreeSet<KeyId> {
+        &self.consumed
+    }
+    pub fn modifier_policy(&self) -> BranchModifierPolicy {
+        match self.branch {
+            RuleBranch::Held | RuleBranch::AfterKeyUp => BranchModifierPolicy::CurrentMinusConsumed,
+            _ => BranchModifierPolicy::DownSnapshotMinusConsumed,
+        }
+    }
+    pub fn actions(&self) -> impl DoubleEndedIterator<Item = &Action> + ExactSizeIterator + Clone {
+        let mapping = match self.stage {
+            MappingStage::Simple => &self.config.simple[self.index],
+            MappingStage::Complex => &self.config.complex[self.index],
+        };
+        // Construction accepts delayed branches only when their original array exists.
+        let actions = branch_actions(mapping, self.branch).unwrap_or(&[]);
+        self.actions.iter().map(move |index| &actions[*index])
+    }
+    /// Plans action work only; the caller must retain and apply modifier_policy.
+    pub fn plan(
+        &self,
+        batch: crate::action_plan::BatchId,
+        start: MonoTime,
+        device: DeviceInstanceId,
+        source: SourceToken,
+    ) -> Result<crate::action_plan::ActionPlan, crate::action_plan::PlanError> {
+        crate::action_plan::plan_action_refs(
+            self.actions(),
+            crate::action_plan::PlanOrigin {
+                batch,
+                start,
+                device,
+                source,
+                config: Arc::clone(&self.config),
+                stage: match self.stage {
+                    MappingStage::Simple => crate::timeline::Stage::Complex,
+                    MappingStage::Complex => crate::timeline::Stage::Output,
+                },
+            },
+            self.branch != RuleBranch::Held,
+        )
+    }
+}
+fn branch_actions(mapping: &Mapping, branch: RuleBranch) -> Option<&[Action]> {
+    Some(match branch {
+        RuleBranch::Held => &mapping.extras.if_held_down,
+        RuleBranch::Alone => &mapping.extras.if_alone,
+        RuleBranch::AfterKeyUp => &mapping.extras.after_key_up,
+        RuleBranch::DelayedInvoked => &mapping.extras.delayed.as_ref()?.if_invoked,
+        RuleBranch::DelayedCanceled => &mapping.extras.delayed.as_ref()?.if_canceled,
+    })
+}
+fn action_matches(action: &Action, evaluate: &mut impl FnMut(&Condition) -> Truth) -> bool {
+    action
+        .conditions
+        .iter()
+        .all(|condition| evaluate(condition) == Truth::True)
+}
+/// A generating event filters the whole array before the first action executes.
+pub(crate) fn filter_actions(
+    actions: &[Action],
+    mut evaluate: impl FnMut(&Condition) -> Truth,
+) -> Vec<&Action> {
+    actions
+        .iter()
+        .filter(|action| action_matches(action, &mut evaluate))
+        .collect()
 }
