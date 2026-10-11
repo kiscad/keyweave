@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0107 saved deferred modifier scopes with terminal actor execution",
+  "source_base_commit": "f653d9b972cf7da708c1ce2339febe1af55ef4dc",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "e8ae61e399e6d3e44ac94b36cbc50f90e32f5c57dcacf31f96f760cc941f0efe",
+    "crates/keyweave-engine/src/modifier_scope.rs": "2186571feef17c22533add867cd852c1b7cb2296d85c02aa4c0dde38c7635ba3",
+    "crates/keyweave-engine/src/terminal_actor.rs": "71d82c966f6a0722a9caafaf8c93092f958e58d16d3d9f54080521f467bd92cf",
+    "crates/keyweave-engine/tests/modifier_scopes.rs": "21988e58f32893f5e72d6f1a1b2fed56a580c01e695ecbfbd0e07409e943032a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 994,
+    "new_tests": 12,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-modifier-scopes/tests.log",
+        "sha256": "8ce8aea59ec1aa9be23f48c2527077985ca28110370c18c3779c28775115eba8"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-modifier-scopes/clippy.log",
+        "sha256": "61efecee205b36a8e6017f9c166a53892fe518e52bc7d13f47980f0afea2012b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-modifier-scopes/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-modifier-scopes/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Focused duplicate input_up test originally expected false while ScopeUp was already due; preserved existing DeadlinePending contract and corrected test with post-drain duplicate false check.",
+    "Initial focused test compile warned unused import; removed before final workspace and Clippy checks.",
+    "Clippy collapsible_if fixed and workspace tests rerun."
+  ],
+  "abi": "Pure Rust saved scope and private terminal timeline changes; no unsafe/FFI/dependencies/ABI change; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; Windows native build and previous validations pending prior approval quota issue."
+  },
+  "limitations": [
+    "Only Output-stage scope execution is integrated; complete Simple/Complex state, branches, parent-child orchestration and source subtree budget remain unfinished.",
+    "New scoped admission requires current Arc; already admitted old Arc work survives activation. Retained old-stage child admission remains for future actor.",
+    "Modifier output restoration follows existing lazy sync/control boundaries, not native acceptance timestamps or hard real-time guarantees.",
+    "Exact execution-time scope failure consumes the queued event and latches ordinary work until reset; no owner/hidden mutation occurs on that failure.",
+    "Snapshot holds independent owners for its asynchronous lifetime; temporary owner/source reservations are conservative and retained until batch retirement.",
+    "Synthetic actor and existing no-input process checks only; no actual keyboard/devices/native duration/driver. UnsupportedActionTiming gate retained."
+  ]
+}

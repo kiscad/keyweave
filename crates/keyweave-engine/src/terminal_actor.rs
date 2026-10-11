@@ -22,6 +22,8 @@ pub enum ActorError {
     Capacity,
     #[error("saved slot lifecycle invariant failed; runtime must recover")]
     InvalidSlot,
+    #[error("actor execution failed; reset is required before ordinary work")]
+    Failed,
 }
 
 /// Allows at most one pending down and one cleanup up per distinct key on control events.
@@ -33,6 +35,15 @@ struct Batch {
     remaining: usize,
     up_queued: bool,
     keys: BTreeSet<KeyId>,
+    scope: Option<BatchScope>,
+}
+struct BatchScope {
+    pending: Option<modifier_scope::ModifierScope>,
+    active: Option<modifier_scope::ScopeBinding>,
+    remaining: usize,
+    until_input_up: bool,
+    source: u64,
+    reserved: usize,
 }
 #[derive(Debug)]
 pub struct ActorStep {
@@ -42,12 +53,38 @@ pub struct ActorStep {
     pub completed_batch: Option<BatchId>,
 }
 
+enum TerminalWork {
+    Action(action_plan::PlannedAction),
+    ScopeUp(BatchId),
+}
+impl TerminalWork {
+    fn batch(&self) -> BatchId {
+        match self {
+            Self::Action(action) => action.slot.batch,
+            Self::ScopeUp(id) => *id,
+        }
+    }
+}
+fn action_event(
+    event: timeline::StageEvent<action_plan::PlannedAction>,
+) -> timeline::StageEvent<TerminalWork> {
+    timeline::StageEvent {
+        stage: event.stage,
+        at_ns: event.at_ns,
+        device: event.device,
+        source: event.source,
+        config: event.config,
+        payload: TerminalWork::Action(event.payload),
+    }
+}
 pub struct TerminalActor {
     core: Engine,
-    timeline: StageTimeline<action_plan::PlannedAction>,
+    timeline: StageTimeline<TerminalWork>,
     batches: BTreeMap<BatchId, Batch>,
     bindings: stage_bindings::BindingArena<Bound>,
     last_batch: Option<BatchId>,
+    scope_slots: usize,
+    failed: bool,
 }
 impl TerminalActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ActorError> {
@@ -57,6 +94,8 @@ impl TerminalActor {
             batches: BTreeMap::new(),
             bindings: stage_bindings::BindingArena::default(),
             last_batch: None,
+            scope_slots: 0,
+            failed: false,
         })
     }
     pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
@@ -69,11 +108,14 @@ impl TerminalActor {
     pub fn live_slots(&self) -> usize {
         self.bindings.live_slots()
     }
+    pub fn hidden_modifier_references(&self) -> usize {
+        self.core.suppression_references
+    }
     pub fn pending_batches(&self) -> usize {
         self.batches.len()
     }
     pub fn reserved_slots(&self) -> usize {
-        self.bindings.reserved_slots()
+        self.bindings.reserved_slots() + self.scope_slots
     }
     pub fn queued_events(&self) -> usize {
         self.timeline.len()
@@ -130,7 +172,26 @@ impl TerminalActor {
         Ok(outputs)
     }
     /// Atomic admission; source ranges are reserved before any planned down runs.
-    pub fn enqueue(&mut self, mut plan: ActionPlan) -> Result<(), ActorError> {
+    pub fn enqueue(&mut self, plan: ActionPlan) -> Result<(), ActorError> {
+        self.enqueue_inner(plan, None)
+    }
+    /// Scope must describe this frozen plan. Scope owners are opened on its first
+    /// delivered event, not on admission; empty plans never open a scope.
+    pub fn enqueue_scoped(
+        &mut self,
+        plan: modifier_scope::ScopedActionPlan,
+    ) -> Result<(), ActorError> {
+        let (plan, scope) = plan.into_parts();
+        self.enqueue_inner(plan, Some(scope))
+    }
+    fn enqueue_inner(
+        &mut self,
+        mut plan: ActionPlan,
+        scope: Option<modifier_scope::ModifierScope>,
+    ) -> Result<(), ActorError> {
+        if self.failed {
+            return Err(ActorError::Failed);
+        }
         if plan.origin.stage != Stage::Output {
             return Err(ActorError::UnsupportedStage);
         }
@@ -145,8 +206,20 @@ impl TerminalActor {
             .iter()
             .filter(|e| e.payload.edge == KeyEdge::Down)
             .count();
+        let scope_up =
+            !plan.events.is_empty() && scope.as_ref().is_some_and(|scope| scope.until_input_up());
+        let remaining = plan.events.len() + plan.release_on_input_up.len() + usize::from(scope_up);
+        let scope_reserved = if remaining == 0 {
+            0
+        } else {
+            scope.as_ref().map_or(0, |scope| scope.reservation())
+        };
         if self.batches.len() >= MAX_BINDINGS
-            || self.bindings.reserved_slots().saturating_add(slots) > MAX_OUTPUT_OWNERS
+            || self
+                .reserved_slots()
+                .saturating_add(slots)
+                .saturating_add(scope_reserved)
+                > MAX_OUTPUT_OWNERS
         {
             return Err(ActorError::Capacity);
         }
@@ -184,16 +257,30 @@ impl TerminalActor {
                 _ => {}
             }
         }
+        if remaining > 0
+            && let Some(scope) = &scope
+        {
+            for key in scope.keys() {
+                keys.insert(key);
+                batch_keys.insert(key);
+            }
+        }
         if keys.len() > MAX_ACTOR_KEYS {
             return Err(ActorError::Capacity);
         }
         let base_source = self.core.next_source;
-        let next_source = base_source
+        let scope_source = base_source
             .checked_add(slots as u64)
             .ok_or(EngineError::ResourceLimit)?;
-        let remaining = plan.events.len() + plan.release_on_input_up.len();
-        let up_queued = plan.release_on_input_up.is_empty();
-        let events = std::mem::take(&mut plan.events);
+        let next_source = scope_source
+            .checked_add(scope_reserved as u64)
+            .ok_or(EngineError::ResourceLimit)?;
+        let scope_events = plan.events.len();
+        let up_queued = plan.release_on_input_up.is_empty() && !scope_up;
+        let events = std::mem::take(&mut plan.events)
+            .into_iter()
+            .map(action_event)
+            .collect();
         let reservation = if remaining > 0 {
             Some(
                 self.bindings
@@ -212,6 +299,15 @@ impl TerminalActor {
         self.core.next_source = next_source;
         self.last_batch = Some(plan.origin.batch);
         if remaining > 0 {
+            self.scope_slots += scope_reserved;
+            let scope = scope.map(|spec| BatchScope {
+                until_input_up: spec.until_input_up(),
+                pending: Some(spec),
+                active: None,
+                remaining: scope_events,
+                source: scope_source,
+                reserved: scope_reserved,
+            });
             self.batches.insert(
                 plan.origin.batch,
                 Batch {
@@ -220,6 +316,7 @@ impl TerminalActor {
                     remaining,
                     up_queued,
                     keys: batch_keys,
+                    scope,
                 },
             );
         }
@@ -227,6 +324,9 @@ impl TerminalActor {
     }
     /// Unknown/completed or duplicate original up is a no-op, not a new release.
     pub fn input_up(&mut self, batch: BatchId, at: MonoTime) -> Result<bool, ActorError> {
+        if self.failed {
+            return Err(ActorError::Failed);
+        }
         self.check_time(at)?;
         if self
             .timeline
@@ -241,8 +341,29 @@ impl TerminalActor {
         if saved.up_queued {
             return Ok(false);
         }
+        let mut events: Vec<_> = saved
+            .plan
+            .input_up_events(at)
+            .into_iter()
+            .map(action_event)
+            .collect();
+        if saved
+            .scope
+            .as_ref()
+            .is_some_and(|scope| scope.until_input_up)
+        {
+            let origin = &saved.plan.origin;
+            events.push(timeline::StageEvent {
+                stage: origin.stage,
+                at_ns: at.max(saved.plan.ends_at()),
+                device: origin.device,
+                source: origin.source,
+                config: Arc::clone(&origin.config),
+                payload: TerminalWork::ScopeUp(batch),
+            });
+        }
         self.timeline
-            .enqueue(saved.plan.input_up_events(at))
+            .enqueue(events)
             .map_err(|rejected| ActorError::Timeline(rejected.error))?;
         if let Some(saved) = self.batches.get_mut(&batch) {
             saved.up_queued = true;
@@ -252,6 +373,9 @@ impl TerminalActor {
     }
     /// Execute one due stage event. Late delivery uses actual actor time.
     pub fn poll(&mut self, at: MonoTime) -> Result<Option<ActorStep>, ActorError> {
+        if self.failed {
+            return Err(ActorError::Failed);
+        }
         self.check_time(at)?;
         let Some(due) = self.timeline.pop_due(at)? else {
             self.core.now = at;
@@ -259,74 +383,100 @@ impl TerminalActor {
         };
         self.core.now = at;
         self.core.current_device = due.event.device;
-        let action = due.event.payload;
-        let id = action.slot.batch;
-        let batch = self.batches.get(&id).ok_or(ActorError::InvalidSlot)?;
+        let work = due.event.payload;
+        let id = work.batch();
+        let action = match work {
+            TerminalWork::Action(action) => Some(action),
+            TerminalWork::ScopeUp(_) => None,
+        };
+        let batch = self.batches.get_mut(&id).ok_or(ActorError::InvalidSlot)?;
+        if let Some(scope) = &mut batch.scope
+            && let Some(spec) = scope.pending.take()
+        {
+            scope.active = Some(match spec.open(&mut self.core, scope.source) {
+                Ok(active) => active,
+                Err(error) => {
+                    self.failed = true;
+                    return Err(error.into());
+                }
+            });
+        }
         let config = Arc::clone(&batch.plan.origin.config);
-        let mut cursor = batch.base_source + u64::from(action.slot.index);
         let mut outputs = Vec::new();
-        match action.edge {
-            KeyEdge::Down => {
-                self.bindings
-                    .check_down(action.slot)
-                    .map_err(|_| ActorError::InvalidSlot)?;
-                let bound = match &action.target {
-                    ActionTarget::Key(key) => self.core.press_stage(
-                        KeyRequest {
-                            key: *key,
-                            lazy_down: action.lazy,
-                            lazy_up: action.lazy,
-                        },
-                        2,
-                        &config,
-                        &mut cursor,
-                        &mut outputs,
-                    ),
-                    ActionTarget::SetVariable(variable) => {
-                        self.core.sync_modifiers(&mut outputs);
-                        let key_up_value = match &variable.operation {
-                            VariableOperation::Set {
-                                value,
-                                key_up_value,
-                            } => {
-                                if let Some(value) = value {
-                                    self.core
-                                        .assign_variable(&variable.name, Some(value.clone()));
+        if let Some(action) = &action {
+            let mut cursor = batch.base_source + u64::from(action.slot.index);
+            match action.edge {
+                KeyEdge::Down => {
+                    self.bindings
+                        .check_down(action.slot)
+                        .map_err(|_| ActorError::InvalidSlot)?;
+                    let bound = match &action.target {
+                        ActionTarget::Key(key) => self.core.press_stage(
+                            KeyRequest {
+                                key: *key,
+                                lazy_down: action.lazy,
+                                lazy_up: action.lazy,
+                            },
+                            2,
+                            &config,
+                            &mut cursor,
+                            &mut outputs,
+                        ),
+                        ActionTarget::SetVariable(variable) => {
+                            self.core.sync_modifiers(&mut outputs);
+                            let key_up_value = match &variable.operation {
+                                VariableOperation::Set {
+                                    value,
+                                    key_up_value,
+                                } => {
+                                    if let Some(value) = value {
+                                        self.core
+                                            .assign_variable(&variable.name, Some(value.clone()));
+                                    }
+                                    key_up_value.clone()
                                 }
-                                key_up_value.clone()
+                                VariableOperation::Unset => {
+                                    self.core.assign_variable(&variable.name, None);
+                                    None
+                                }
+                            };
+                            Bound::Variable {
+                                name: variable.name.clone(),
+                                key_up_value,
                             }
-                            VariableOperation::Unset => {
-                                self.core.assign_variable(&variable.name, None);
-                                None
-                            }
-                        };
-                        Bound::Variable {
-                            name: variable.name.clone(),
-                            key_up_value,
                         }
-                    }
-                };
-                self.bindings
-                    .insert(action.slot, bound)
-                    .map_err(|_| ActorError::InvalidSlot)?;
+                    };
+                    self.bindings
+                        .insert(action.slot, bound)
+                        .map_err(|_| ActorError::InvalidSlot)?;
+                }
+                KeyEdge::Up => {
+                    let bound = self
+                        .bindings
+                        .take(action.slot)
+                        .map_err(|_| ActorError::InvalidSlot)?;
+                    self.core
+                        .release_bound(bound, &config, &mut cursor, false, &mut outputs);
+                }
+                KeyEdge::Repeat => return Err(ActorError::InvalidSlot),
             }
-            KeyEdge::Up => {
-                let bound = self
-                    .bindings
-                    .take(action.slot)
-                    .map_err(|_| ActorError::InvalidSlot)?;
-                self.core
-                    .release_bound(bound, &config, &mut cursor, false, &mut outputs);
-            }
-            KeyEdge::Repeat => return Err(ActorError::InvalidSlot),
         }
         let batch = self.batches.get_mut(&id).ok_or(ActorError::InvalidSlot)?;
         batch.remaining -= 1;
+        if let Some(scope) = &mut batch.scope {
+            scope.remaining = scope.remaining.saturating_sub(1);
+            if ((scope.remaining == 0 && !scope.until_input_up) || batch.remaining == 0)
+                && let Some(active) = scope.active.take()
+            {
+                active.close(&mut self.core);
+            }
+        }
         let completed_batch = if batch.remaining == 0 {
             self.bindings
                 .retire(id)
                 .map_err(|_| ActorError::InvalidSlot)?;
-            self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
+            let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
+            self.scope_slots -= batch.scope.as_ref().map_or(0, |scope| scope.reserved);
             if !self
                 .batches
                 .values()
@@ -340,7 +490,7 @@ impl TerminalActor {
         };
         Ok(Some(ActorStep {
             outputs,
-            halt_requested: action.halt,
+            halt_requested: action.is_some_and(|action| action.halt),
             completed_batch,
         }))
     }
@@ -367,7 +517,7 @@ impl TerminalActor {
             .cancel(id)
             .map_err(|_| ActorError::InvalidSlot)?;
         self.timeline
-            .discard_where(|event| event.payload.slot.batch == id);
+            .discard_where(|event| event.payload.batch() == id);
         let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
         for bound in bounds {
             let mut cursor = batch.base_source;
@@ -379,6 +529,12 @@ impl TerminalActor {
                 outputs,
             );
         }
+        if let Some(scope) = batch.scope {
+            self.scope_slots -= scope.reserved;
+            if let Some(active) = scope.active {
+                active.close(&mut self.core);
+            }
+        }
         Ok(())
     }
     pub fn reset(&mut self, at: MonoTime) -> Result<Vec<OutputIntent>, ActorError> {
@@ -386,6 +542,8 @@ impl TerminalActor {
         self.timeline.reset(at)?;
         self.batches.clear();
         self.bindings = stage_bindings::BindingArena::default();
+        self.scope_slots = 0;
+        self.failed = false;
         Ok(self.core.reset(at)?)
     }
 }
