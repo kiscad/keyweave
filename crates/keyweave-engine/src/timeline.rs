@@ -85,6 +85,31 @@ pub struct StageTimeline<T> {
     next_order: u64,
     now: MonoTime,
 }
+/// Exclusive, validated admission. Dropping this guard leaves the timeline unchanged.
+/// Commit cannot fail a business check; allocation failure/panic is not covered.
+#[must_use = "commit the prepared admission or abort it without queue changes"]
+pub struct PreparedStageAppend<'a, T> {
+    timeline: &'a mut StageTimeline<T>,
+    events: Vec<StageEvent<T>>,
+    times: Vec<MonoTime>,
+}
+impl<T> PreparedStageAppend<'_, T> {
+    /// Return the original owned work with its original timestamps.
+    pub fn abort(self) -> Vec<StageEvent<T>> {
+        self.events
+    }
+    pub fn commit(self) {
+        for (mut event, at) in self.events.into_iter().zip(self.times) {
+            event.at_ns = at;
+            self.timeline.lanes[event.stage.index()].push_back(Entry {
+                order: self.timeline.next_order,
+                event,
+            });
+            self.timeline.next_order += 1;
+            self.timeline.len += 1;
+        }
+    }
+}
 impl<T> Default for StageTimeline<T> {
     fn default() -> Self {
         Self::new()
@@ -149,6 +174,15 @@ impl<T> StageTimeline<T> {
             .is_some_and(|current| current.generation == device.generation && !current.removed)
     }
     pub fn enqueue(&mut self, events: Vec<StageEvent<T>>) -> Result<(), RejectedBatch<T>> {
+        self.prepare_enqueue(events)?.commit();
+        Ok(())
+    }
+    /// Preflight without queue/order/clock mutations. An exclusive borrow keeps
+    /// device generations, FIFO tails and capacity stable until commit or abort.
+    pub fn prepare_enqueue(
+        &mut self,
+        events: Vec<StageEvent<T>>,
+    ) -> Result<PreparedStageAppend<'_, T>, RejectedBatch<T>> {
         let error = if events.len() > MAX_STAGE_APPEND
             || self.len.saturating_add(events.len()) > MAX_STAGE_EVENTS
         {
@@ -187,17 +221,11 @@ impl<T> StageTimeline<T> {
             tails[index] = at;
             times.push(at);
         }
-        for (mut event, at) in events.into_iter().zip(times) {
-            event.at_ns = at;
-            let lane = &mut self.lanes[event.stage.index()];
-            lane.push_back(Entry {
-                order: self.next_order,
-                event,
-            });
-            self.next_order += 1;
-            self.len += 1;
-        }
-        Ok(())
+        Ok(PreparedStageAppend {
+            timeline: self,
+            events,
+            times,
+        })
     }
     fn first(&self) -> Option<(MonoTime, u64, usize)> {
         self.lanes

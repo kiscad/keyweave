@@ -344,3 +344,67 @@ fn live_generated_slot_budget_checks_peak_and_rejection_does_not_commit_variable
     queue.reset(MonoTime(0)).unwrap();
     assert_eq!(queue.logical_slots(), 0);
 }
+
+#[test]
+fn prepared_variable_abort_keeps_original_events_and_no_delivery_or_logical_ghosts() {
+    let mut queue = queue(Stage::Output);
+    let planned = plan(&queue, Stage::Output, 1, 100, &[variable(1, Some(2))], true);
+    let original = planned.events().to_vec();
+    let events = queue.prepare_enqueue(original).unwrap().abort();
+    assert_eq!(events[0].at_ns, MonoTime(100));
+    assert!(queue.variable_values().is_empty());
+    assert_eq!(queue.logical_slots(), 0);
+    assert_eq!(queue.reserved_slots(), 0);
+    assert_eq!(queue.pending_batches(), 0);
+    assert_eq!(queue.queued_events(), 0);
+    queue.prepare_enqueue(events).unwrap().commit();
+    assert_eq!(queue.variable_values()["v"], VariableValue::Integer(2));
+    assert_eq!(queue.logical_slots(), 0);
+    assert_eq!(queue.reserved_slots(), 1);
+    assert_eq!(
+        queue.delivery_progress(BatchId(1)).unwrap().down_delivered,
+        0
+    );
+}
+
+#[test]
+fn second_generated_queue_rejection_leaves_first_variable_and_modifier_view_untouched() {
+    let mut first = queue(Stage::Output);
+    let mut second = GeneratedStageQueue::new(Stage::Output, first.snapshot().clone()).unwrap();
+    // Second queue has no admitted device; it must reject even though its
+    // environment and delivery preflights independently accept the plan.
+    let planned = plan(
+        &first,
+        Stage::Output,
+        1,
+        100,
+        &[variable(1, None), key("left_shift").into()],
+        false,
+    );
+    let prepared = first.prepare_enqueue(planned.events().to_vec()).unwrap();
+    let rejection = second
+        .prepare_enqueue(planned.events().to_vec())
+        .err()
+        .unwrap();
+    assert_eq!(
+        rejection.error,
+        GeneratedError::Timeline(keyweave_engine::timeline::TimelineError::RetiredDevice)
+    );
+    drop(prepared);
+    for q in [&first, &second] {
+        assert!(q.variable_values().is_empty());
+        assert!(q.modifiers().is_empty());
+        assert_eq!(q.reserved_slots(), 0);
+        assert_eq!(q.queued_events(), 0);
+    }
+    second.observe_device(device(1), false).unwrap();
+    let a = first.prepare_enqueue(planned.events().to_vec()).unwrap();
+    let b = second.prepare_enqueue(planned.events().to_vec()).unwrap();
+    a.commit();
+    b.commit();
+    for q in [&first, &second] {
+        assert_eq!(q.variable_values()["v"], VariableValue::Integer(1));
+        assert!(q.modifiers().contains(&key("left_shift")));
+        assert_eq!(q.reserved_slots(), 2);
+    }
+}

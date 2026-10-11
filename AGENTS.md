@@ -1,5 +1,7 @@
 # KeyWeave Coding Agent 指南
 
+ADR-0112：StageTimeline 与 GeneratedStageQueue 提供独占借用的 prepare/commit/abort 准入。prepare 完成原校验与 FIFO 固定位移，丢弃 guard 不改事件、变量、修饰视图、交付预留或持久 scope；原 enqueue 包装 prepare+commit。scoped 凭据仅在 commit 交付，原计划可同时用于另一队列准备；commit 无业务拒绝，分配失败/panic 不含在原子保证内。新增8个两队列拒绝/成功、无 Clone payload、变量和scope abort/同ID重试测试；Linux1033工作区用例、Clippy/fmt/source60通过，无unsafe/FFI/依赖。TerminalActor预备事务、saved-Up联合准入、完整stage actor/scope传播/旧父新孩子/source预算/native duration/simultaneous/Windows补验/硬件/UI与原目标仍待。
+
 ADR-0111：GeneratedStageQueue新增私有DeliveryLedger，修复future tap逻辑Up已生成但实际待交付时槽位可重用。初始Down新批次/同组source/device/旧Arc，活动批次只接保存Up；overlay+交付预留原子随时间线提交，失败无Ghost。每槽Down交付/Up生成/Up交付进度及snapshot额外来源预留保至显式retire，须全部交付且scope原Up完成；caller另验实际子绑定/scope，非OS接受证明。cancel/device/reset同步回收，4096批次/16384slots+snapshot每队列有界，未统一全输入source pool。Linux1025工作区用例/Clippy/fmt/source60，新增8tests，旧16k及8192fixtures分组保精确边界，无unsafe/FFI/deps。完整stage actor/scope传播/旧父新孩子/source预算/context/分支/native duration gate/simultaneous/Windows补验/硬件及原目标继续。
 
 ADR-0110：BindingArena 每槽child BTreeSet邻接保原严格stage/source/device/旧Arc；visit_subtree只读给出原metadata和Reserved/Live/Released，根须Live、无T Clone。cancel_subtree先完整postorder预检再独占拆树，孩子先父/反槽及反child ID，owned记录保旧origin/parent/真实Live payload；未执行空子批次亦返回用于丢未来队列，单孩子拆边不影响兄弟。TerminalActor取消已接新recipe及原Arc，当前只有Output根故根队列丢弃不变量保留。4096batches/16384slots/深度3边界，非硬RSS/time/native恢复证明。Linux1017工作区用例/Clippy/fmt/source60，新增6tests含4096最大树，无unsafe/FFI/deps。scope差分传播/完整stage actor/普通键变量孩子/预留继承/来源预算/context/分支/native duration gate/simultaneous/Windows补验/硬件及原目标继续。

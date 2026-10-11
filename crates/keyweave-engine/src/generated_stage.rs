@@ -63,8 +63,8 @@ struct Append<'a> {
     down: BTreeMap<ActionSlot, Option<Down>>,
     variables: BTreeMap<String, Option<VariableValue>>,
 }
-impl Append<'_> {
-    fn commit(self) {
+impl<'a> Append<'a> {
+    fn commit(self) -> &'a mut Environment {
         for (slot, down) in self.down {
             match down {
                 Some(down) => {
@@ -78,6 +78,47 @@ impl Append<'_> {
         for (name, value) in self.variables {
             self.environment.variables.insert(name, value);
         }
+        self.environment
+    }
+}
+/// A validated generation transaction. Drop/abort has no logical or queue effects.
+#[must_use = "commit or abort the prepared generation"]
+pub struct PreparedGeneratedAppend<'a> {
+    append: Append<'a>,
+    delivery: stage_delivery::DeliveryAppend<'a>,
+    timeline: timeline::PreparedStageAppend<'a, PlannedAction>,
+    scope: Option<(action_plan::BatchId, LogicalScope)>,
+}
+impl PreparedGeneratedAppend<'_> {
+    pub fn abort(self) -> Vec<StageEvent<PlannedAction>> {
+        self.timeline.abort()
+    }
+    pub fn commit(self) {
+        self.timeline.commit();
+        self.delivery.commit();
+        let environment = self.append.commit();
+        if let Some((id, scope)) = self.scope {
+            for slot in &scope.hidden {
+                *environment.hidden.entry(*slot).or_default() += 1;
+            }
+            environment.references += scope.hidden.len();
+            environment.scopes.insert(id, scope);
+        }
+    }
+}
+/// Only commit creates a usable original-Up recipe for this queue.
+#[must_use = "commit or discard the prepared scoped generation"]
+pub struct PreparedScopedGeneration<'a> {
+    append: PreparedGeneratedAppend<'a>,
+    saved: ScopedGeneration,
+}
+impl PreparedScopedGeneration<'_> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) -> ScopedGeneration {
+        self.append.commit();
+        self.saved
     }
 }
 fn variable_update(target: &ActionTarget, edge: KeyEdge) -> Option<(&str, Option<VariableValue>)> {
@@ -340,6 +381,14 @@ impl GeneratedStageQueue {
         &mut self,
         events: Vec<StageEvent<PlannedAction>>,
     ) -> Result<(), RejectedGeneratedBatch> {
+        self.prepare_enqueue(events)?.commit();
+        Ok(())
+    }
+    /// Hold all validated logical/delivery/timeline changes until explicit commit.
+    pub fn prepare_enqueue(
+        &mut self,
+        events: Vec<StageEvent<PlannedAction>>,
+    ) -> Result<PreparedGeneratedAppend<'_>, RejectedGeneratedBatch> {
         let append = match self.environment.prepare(&events, 0) {
             Ok(append) => append,
             Err(error) => return Err(RejectedGeneratedBatch { error, events }),
@@ -348,17 +397,19 @@ impl GeneratedStageQueue {
             Ok(delivery) => delivery,
             Err(error) => return Err(RejectedGeneratedBatch { error, events }),
         };
-        match self.timeline.enqueue(events) {
-            Ok(()) => {
-                append.commit();
-                delivery.commit();
-                Ok(())
-            }
-            Err(rejected) => Err(RejectedGeneratedBatch {
-                error: rejected.error.into(),
-                events: rejected.events,
-            }),
-        }
+        let timeline =
+            self.timeline
+                .prepare_enqueue(events)
+                .map_err(|rejected| RejectedGeneratedBatch {
+                    error: rejected.error.into(),
+                    events: rejected.events,
+                })?;
+        Ok(PreparedGeneratedAppend {
+            append,
+            delivery,
+            timeline,
+            scope: None,
+        })
     }
     pub fn hidden_modifier_references(&self) -> usize {
         self.environment.references
@@ -369,6 +420,14 @@ impl GeneratedStageQueue {
         &mut self,
         plan: &modifier_scope::ScopedActionPlan,
     ) -> Result<ScopedGeneration, GeneratedError> {
+        Ok(self.prepare_scoped(plan)?.commit())
+    }
+    /// The borrowed plan remains available for a separate execution admission.
+    /// Abort produces no original-Up credential or persistent scope references.
+    pub fn prepare_scoped(
+        &mut self,
+        plan: &modifier_scope::ScopedActionPlan,
+    ) -> Result<PreparedScopedGeneration<'_>, GeneratedError> {
         let actions = plan.actions();
         let spec = plan.scope();
         if actions.origin.stage != self.environment.stage {
@@ -420,31 +479,36 @@ impl GeneratedStageQueue {
                 None
             },
         )?;
-        self.timeline
-            .enqueue(actions.events().to_vec())
+        let timeline = self
+            .timeline
+            .prepare_enqueue(actions.events().to_vec())
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
-        append.commit();
-        delivery.commit();
-        if persistent {
+        let scope = if persistent {
             if !spec.until_input_up() {
                 hidden.clear();
             }
-            for slot in &hidden {
-                *self.environment.hidden.entry(*slot).or_default() += 1;
-            }
-            self.environment.references += hidden.len();
-            self.environment.scopes.insert(
+            Some((
                 actions.origin.batch,
                 LogicalScope {
                     hidden,
                     device: actions.origin.device,
                 },
-            );
-        }
-        Ok(ScopedGeneration {
-            queue: Arc::clone(&self.identity),
-            plan: actions.clone(),
-            up_generated: !persistent,
+            ))
+        } else {
+            None
+        };
+        Ok(PreparedScopedGeneration {
+            append: PreparedGeneratedAppend {
+                append,
+                delivery,
+                timeline,
+                scope,
+            },
+            saved: ScopedGeneration {
+                queue: Arc::clone(&self.identity),
+                plan: actions.clone(),
+                up_generated: !persistent,
+            },
         })
     }
     /// Append saved Up once, then restore logical scope even if timed delivery

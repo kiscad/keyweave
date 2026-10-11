@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0112 composable prepared stage timeline and generated state admissions",
+  "source_base_commit": "9ec919454718f82bf0f5d21d661a3b84013399ce",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/timeline.rs": "47ed0db8b65071e6e8fa4c9581bf51b1be161addbc0edf7d6265c6563651fd98",
+    "crates/keyweave-engine/src/generated_stage.rs": "e76968e43ae5aa787f9c8bb843b22ee26576415ef0721da52e38fa5717237442",
+    "crates/keyweave-engine/tests/stage_timeline.rs": "f46357676d0e057079e84b4c105787d6b7c43ab4b6f525d4cb4bb9056f48932c",
+    "crates/keyweave-engine/tests/generated_stage.rs": "c038e72783ef9134d94d45b28058bbdd1ee0a2e63a2c22d1981a6b4496f56da7",
+    "crates/keyweave-engine/tests/generated_scopes.rs": "d654ac8014207dde533364e6828a4b5586c93f29edf42311720b9d3b914e157b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1033,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-prepared-stage-admission/tests.log",
+        "sha256": "aab1b3127d8559f6534c46ab2da6f7a98255bc219e2fe4abb093c891015fa229"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-prepared-stage-admission/clippy.log",
+        "sha256": "207567e0e994d931d76386cbbf7250aa649ccf9c797b2dec57310115c29574be"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-prepared-stage-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-prepared-stage-admission/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New test used incorrect BranchKind instead of existing RuleBranch and double unwrap of Option<BranchSelection>; corrected test API calls, then focused and full tests passed."
+  ],
+  "abi": "Pure Rust exclusive guards; no unsafe/FFI/dependency/ABI changes, ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changes and earlier native validation remain pending prior automatic approval quota issue; no bypass or new Windows invocation."
+  },
+  "limitations": [
+    "Prepare does not commit changes; guard exclusive borrows freeze validation basis. Only consuming commit publishes logical and timeline state; ordinary allocation failure/process panic is outside atomic guarantees.",
+    "Scoped original-Up recipe is private until commit; existing Up path is still only single queue atomic.",
+    "Independent timeline/generated queues can preflight before either commit. TerminalActor preparation and actual generated/execution pairing remain unfinished.",
+    "No native OS acceptance or actual downstream binding proof. Existing delivery retirement and separate actual scope reconciliation remain necessary.",
+    "Original per-queue capacity/batch/slot/device bounds and native UnsupportedActionTiming gate retained; complete stage actor/scope propagation/old parent child admission/unified source budget/context and branches/simultaneous remain unfinished.",
+    "Linux pure/mock and existing no-input checks only; no real keyboard/device/driver/install or Windows native build this iteration. Full original objective remains active."
+  ]
+}

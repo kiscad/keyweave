@@ -418,3 +418,93 @@ fn a_released_owner_slot_cannot_be_rebound_while_a_scope_still_references_it() {
     assert_eq!(queue.hidden_modifier_references(), 0);
     assert_eq!(queue.logical_slots(), 0);
 }
+
+#[test]
+fn aborted_scoped_preparation_does_not_hide_consumed_owner_or_reserve_identity() {
+    let mut queue = queue(cfg(false));
+    raw(&mut queue, 1, 2, "left_shift");
+    let rule = select(&queue);
+    let planned = main(&rule, 2);
+    queue.prepare_scoped(&planned).unwrap().abort();
+    assert_eq!(modifiers(&queue), BTreeSet::from([key("left_shift")]));
+    assert_eq!(queue.hidden_modifier_references(), 0);
+    assert_eq!(queue.pending_batches(), 1);
+    assert_eq!(queue.reserved_slots(), 1);
+    assert!(queue.delivery_progress(BatchId(2)).is_none());
+    let mut saved = queue.prepare_scoped(&planned).unwrap().commit();
+    assert_eq!(modifiers(&queue), BTreeSet::from([key("right_control")]));
+    assert_eq!(queue.hidden_modifier_references(), 1);
+    assert!(queue.input_up_scoped(&mut saved, MonoTime(10)).unwrap());
+    assert_eq!(modifiers(&queue), BTreeSet::from([key("left_shift")]));
+}
+
+#[test]
+fn scoped_pair_rejection_drops_first_scope_and_success_returns_both_up_recipes() {
+    let config = cfg(false);
+    let mut first = queue(config.clone());
+    let mut second = queue(config);
+    raw(&mut first, 1, 2, "left_shift");
+    raw(&mut second, 1, 2, "left_shift");
+    let rule = select(&first);
+    let planned = main(&rule, 2);
+    second.observe_device(device(1), true).unwrap();
+    let a = first.prepare_scoped(&planned).unwrap();
+    assert!(matches!(
+        second.prepare_scoped(&planned),
+        Err(GeneratedError::Timeline(
+            keyweave_engine::timeline::TimelineError::RetiredDevice
+        ))
+    ));
+    drop(a);
+    for q in [&first, &second] {
+        assert_eq!(q.hidden_modifier_references(), 0);
+        assert_eq!(modifiers(q), BTreeSet::from([key("left_shift")]));
+        assert_eq!(q.reserved_slots(), 1);
+    }
+    // A fresh destination leaves the retired device tombstone untouched.
+    let mut replacement = queue(first.snapshot().clone());
+    raw(&mut replacement, 1, 2, "left_shift");
+    let a = first.prepare_scoped(&planned).unwrap();
+    let b = replacement.prepare_scoped(&planned).unwrap();
+    let mut saved_a = a.commit();
+    let mut saved_b = b.commit();
+    for q in [&first, &replacement] {
+        assert_eq!(q.hidden_modifier_references(), 1);
+    }
+    assert!(first.input_up_scoped(&mut saved_a, MonoTime(10)).unwrap());
+    assert!(
+        replacement
+            .input_up_scoped(&mut saved_b, MonoTime(10))
+            .unwrap()
+    );
+    for q in [&first, &replacement] {
+        assert_eq!(q.hidden_modifier_references(), 0);
+        assert_eq!(modifiers(q), BTreeSet::from([key("left_shift")]));
+    }
+}
+
+#[test]
+fn snapshot_variable_preparation_abort_does_not_assign_or_keep_temporary_sources() {
+    let mut queue = queue(cfg(false));
+    raw(&mut queue, 1, 2, "left_shift");
+    let rule = select(&queue);
+    let branch = rule
+        .select_branch(RuleBranch::Alone, false, |_| Truth::True)
+        .unwrap();
+    let planned = ScopedActionPlan::branch(
+        &branch,
+        BatchId(2),
+        MonoTime(100),
+        device(1),
+        SourceToken(100),
+    )
+    .unwrap();
+    drop(queue.prepare_scoped(&planned).unwrap());
+    assert!(queue.variable_values().is_empty());
+    assert_eq!(queue.reserved_slots(), 1);
+    assert_eq!(queue.pending_batches(), 1);
+    assert_eq!(queue.hidden_modifier_references(), 0);
+    let _saved = queue.prepare_scoped(&planned).unwrap().commit();
+    assert_eq!(queue.variable_values()["v"], VariableValue::Integer(2));
+    assert_eq!(queue.reserved_slots(), 3); // original + variable slot + snapshot source
+}
