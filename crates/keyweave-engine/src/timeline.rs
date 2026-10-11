@@ -92,6 +92,7 @@ pub struct PreparedStageAppend<'a, T> {
     timeline: &'a mut StageTimeline<T>,
     events: Vec<StageEvent<T>>,
     times: Vec<MonoTime>,
+    advance_to: Option<MonoTime>,
 }
 impl<T> PreparedStageAppend<'_, T> {
     /// Return the original owned work with its original timestamps.
@@ -107,6 +108,9 @@ impl<T> PreparedStageAppend<'_, T> {
             });
             self.timeline.next_order += 1;
             self.timeline.len += 1;
+        }
+        if let Some(now) = self.advance_to {
+            self.timeline.now = now;
         }
     }
 }
@@ -225,7 +229,25 @@ impl<T> StageTimeline<T> {
             timeline: self,
             events,
             times,
+            advance_to: None,
         })
+    }
+    /// Validate an append followed by clock advancement as one transaction.
+    /// Existing queued times are preserved; abort changes neither work nor clock.
+    pub fn prepare_enqueue_at(
+        &mut self,
+        events: Vec<StageEvent<T>>,
+        now: MonoTime,
+    ) -> Result<PreparedStageAppend<'_, T>, RejectedBatch<T>> {
+        if now < self.now {
+            return Err(RejectedBatch {
+                error: TimelineError::TimeReversed,
+                events,
+            });
+        }
+        let mut prepared = self.prepare_enqueue(events)?;
+        prepared.advance_to = Some(now);
+        Ok(prepared)
     }
     fn first(&self) -> Option<(MonoTime, u64, usize)> {
         self.lanes

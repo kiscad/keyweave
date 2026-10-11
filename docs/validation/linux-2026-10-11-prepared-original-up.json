@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0114 prepared saved original-Up admissions and clocked timeline transactions",
+  "source_base_commit": "977673710762c6c37d9add6515006897bf013feb",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/timeline.rs": "ecc65418cc829c7999e1f74eca2b5698f43d700c8a990d48bc14e13f8fb0c862",
+    "crates/keyweave-engine/src/generated_stage.rs": "6019a4fc9cc92e3f084d1447e52476770252f3ec1cde3c4db7914a6695dc6f00",
+    "crates/keyweave-engine/src/terminal_actor.rs": "e9446f6592f7a0595586c476573b5457eb69eee0eddb8faf797e88f28c986ec0",
+    "crates/keyweave-engine/tests/stage_timeline.rs": "900c1f3e34c95cc5badef92de68f4f424042546841bb8b6efe6467473c47a1e5",
+    "crates/keyweave-engine/tests/prepared_terminal.rs": "6e9cde2adc320651846368f4f7316ec179e8972b8517cf36e6423c5f9bdc361b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1050,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-prepared-original-up/tests.log",
+        "sha256": "a5afe0b9948f98f326cb13bd0415d2d633ac57c81dd5730cd7127fa25907f998"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-prepared-original-up/clippy.log",
+        "sha256": "3202f1d4031e755388837960a7c5b4dbeb2c04ae0e076755703772043dd8b6dd"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-prepared-original-up/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-prepared-original-up/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust guards and single queue Up refactor; no unsafe/FFI/dependency/ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changes and prior native validations pending previous automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "Exclusive prepared Up retains original queue identity/recipe/config/bindings; drop changes no scope/variables/delivery Up generation/queue/clock/up flags. Commit has no business rejection; allocation failure/panic excluded.",
+    "Timeline clocked append validates advancement in prepare, preserves original append-then-advance semantics and queued earliest times; no forced timestamp rebase to advanced now.",
+    "None retains no-op semantics including original validation order. Caller must coordinate batch identity and reject mismatched None/Some between independent components.",
+    "Terminal due work must still drain before Up; actual owner release and scope closure happen on poll. Full queues may delay already admitted Up behind their original FIFO tails.",
+    "Scope-only Up adds only Terminal ScopeUp; Generated can close scope with zero saved key events. Delivery retirement still requires actual caller binding/scope completion.",
+    "Full stage actor/output controller, delivery retirement coordination, scope propagation, old parent child admission, unified source subtree/context/branch/simultaneous/native duration/Windows adapter/hardware/UI and packaging remain unfinished.",
+    "No native OS acceptance or real keyboard/device/driver/install proof. Production UnsupportedActionTiming remains gated; full original objective active."
+  ]
+}

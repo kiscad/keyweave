@@ -393,3 +393,368 @@ fn full_terminal_queue_rejection_does_not_assign_prepared_generated_variable() {
     assert_eq!(terminal.pending_batches(), 8);
     assert_eq!(terminal.reserved_slots(), 3585);
 }
+
+fn active_main() -> (GeneratedStageQueue, TerminalActor, ScopedGeneration) {
+    let (mut generated, mut terminal) = pair();
+    shift(&mut generated, &mut terminal);
+    drain(&mut terminal, 0);
+    delivered(&mut generated, 0);
+    let planned = main(&rule(&generated), 2);
+    let g = generated.prepare_scoped(&planned).unwrap();
+    let t = terminal.prepare_scoped(planned).unwrap();
+    let saved = g.commit();
+    t.commit();
+    drain(&mut terminal, 100);
+    delivered(&mut generated, 100);
+    (generated, terminal, saved)
+}
+#[test]
+fn aborted_paired_up_keeps_scope_recipe_and_clock_then_retries_at_earlier_time() {
+    let (mut generated, mut terminal, mut saved) = active_main();
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(200))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(200))
+        .unwrap()
+        .unwrap();
+    g.abort();
+    t.abort();
+    assert_eq!(generated.hidden_modifier_references(), 1);
+    assert_eq!(terminal.hidden_modifier_references(), 1);
+    assert_eq!(generated.queued_events(), 0);
+    assert_eq!(terminal.queued_events(), 0);
+    assert_eq!(
+        generated
+            .delivery_progress(BatchId(2))
+            .unwrap()
+            .up_generated,
+        0
+    );
+    assert_eq!(terminal.live_slots(), 2);
+    // 150 remains valid after preparing and aborting 200.
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(150))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(150))
+        .unwrap()
+        .unwrap();
+    g.commit();
+    t.commit();
+    assert_eq!(generated.hidden_modifier_references(), 0);
+    assert_eq!(terminal.hidden_modifier_references(), 1);
+    assert_eq!(
+        drain(&mut terminal, 150),
+        [
+            ("right_control".into(), KeyEdge::Up),
+            ("left_shift".into(), KeyEdge::Down)
+        ]
+    );
+    delivered(&mut generated, 150);
+    generated.retire_batch(BatchId(2)).unwrap();
+    assert!(
+        generated
+            .prepare_input_up_scoped(&mut saved, MonoTime(150))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        terminal
+            .prepare_input_up(BatchId(2), MonoTime(150))
+            .unwrap()
+            .is_none()
+    );
+}
+#[test]
+fn terminal_due_rejection_does_not_close_prepared_generated_up_and_drain_allows_retry() {
+    let (mut generated, mut terminal) = pair();
+    shift(&mut generated, &mut terminal);
+    drain(&mut terminal, 0);
+    delivered(&mut generated, 0);
+    let planned = main(&rule(&generated), 2);
+    let g = generated.prepare_scoped(&planned).unwrap();
+    let t = terminal.prepare_scoped(planned).unwrap();
+    let mut saved = g.commit();
+    t.commit();
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(100))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        terminal.prepare_input_up(BatchId(2), MonoTime(100)),
+        Err(ActorError::Engine(EngineError::DeadlinePending))
+    ));
+    drop(g);
+    assert_eq!(generated.hidden_modifier_references(), 1);
+    assert_eq!(
+        generated
+            .delivery_progress(BatchId(2))
+            .unwrap()
+            .up_generated,
+        0
+    );
+    assert_eq!(terminal.live_slots(), 1);
+    drain(&mut terminal, 100);
+    delivered(&mut generated, 100);
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(100))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(100))
+        .unwrap()
+        .unwrap();
+    g.commit();
+    t.commit();
+    drain(&mut terminal, 100);
+    delivered(&mut generated, 100);
+    assert_eq!(terminal.hidden_modifier_references(), 0);
+    generated.retire_batch(BatchId(2)).unwrap();
+}
+#[test]
+fn terminal_full_up_rejection_preserves_generated_scope_and_saved_up_for_retry() {
+    let (mut generated, mut terminal, mut saved) = active_main();
+    let actions = vec![
+        Action {
+            hold_down_ns: 1,
+            ..key("b").into()
+        };
+        512
+    ];
+    for id in 3..=10 {
+        terminal
+            .enqueue(plain(
+                terminal.snapshot().clone(),
+                id,
+                200,
+                1,
+                &actions,
+                true,
+            ))
+            .unwrap();
+    }
+    assert_eq!(terminal.queued_events(), 8192);
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(110))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        terminal.prepare_input_up(BatchId(2), MonoTime(110)),
+        Err(ActorError::Timeline(timeline::TimelineError::Capacity))
+    ));
+    drop(g);
+    assert_eq!(generated.hidden_modifier_references(), 1);
+    assert_eq!(
+        generated
+            .delivery_progress(BatchId(2))
+            .unwrap()
+            .up_generated,
+        0
+    );
+    assert_eq!(terminal.hidden_modifier_references(), 1);
+    terminal.cancel_batch(BatchId(3), MonoTime(105)).unwrap();
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(110))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(110))
+        .unwrap()
+        .unwrap();
+    g.commit();
+    t.commit();
+    assert_eq!(generated.hidden_modifier_references(), 0);
+    // Actor FIFO puts this actual Up behind remaining future work.
+    assert_eq!(terminal.hidden_modifier_references(), 1);
+    assert!(drain(&mut terminal, 110).is_empty());
+    delivered(&mut generated, 110);
+    terminal.cancel_batch(BatchId(2), MonoTime(111)).unwrap();
+    assert_eq!(terminal.hidden_modifier_references(), 0);
+    generated.retire_batch(BatchId(2)).unwrap();
+}
+#[test]
+fn generated_full_up_rejection_aborts_terminal_up_marker_and_clock() {
+    let (mut generated, mut terminal, mut saved) = active_main();
+    let actions = vec![
+        Action {
+            hold_down_ns: 1,
+            ..key("b").into()
+        };
+        512
+    ];
+    for id in 3..=10 {
+        let plan = plain(generated.snapshot().clone(), id, 200, 1, &actions, true);
+        generated.enqueue(plan.events().to_vec()).unwrap();
+    }
+    assert_eq!(generated.queued_events(), 8192);
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(110))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        generated.prepare_input_up_scoped(&mut saved, MonoTime(110)),
+        Err(GeneratedError::Timeline(timeline::TimelineError::Capacity))
+    ));
+    drop(t);
+    assert_eq!(terminal.queued_events(), 0);
+    assert_eq!(terminal.hidden_modifier_references(), 1);
+    assert_eq!(generated.hidden_modifier_references(), 1);
+    generated.cancel_batch(BatchId(3));
+    // 105 confirms that aborted preparation at 110 advanced neither clock.
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(105))
+        .unwrap()
+        .unwrap();
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(105))
+        .unwrap()
+        .unwrap();
+    t.commit();
+    g.commit();
+    drain(&mut terminal, 105);
+    assert_eq!(terminal.hidden_modifier_references(), 0);
+    assert_eq!(generated.hidden_modifier_references(), 0);
+    assert_eq!(
+        generated
+            .delivery_progress(BatchId(2))
+            .unwrap()
+            .up_generated,
+        1
+    );
+    // Generation FIFO can still delay delivery; it is not actual execution proof.
+    assert_eq!(
+        generated
+            .delivery_progress(BatchId(2))
+            .unwrap()
+            .up_delivered,
+        0
+    );
+}
+#[test]
+fn old_arc_variable_up_preparation_abort_does_not_assign_then_commit_keeps_timed_execution() {
+    let mut configuration = (*config()).clone();
+    configuration.complex[0].to = vec![variable()];
+    configuration.complex[0].extras.from_modifiers = ModifierFilter::default();
+    let configuration = Arc::new(configuration);
+    let mut generated = GeneratedStageQueue::new(Stage::Output, configuration.clone()).unwrap();
+    let mut terminal = TerminalActor::new(configuration.clone()).unwrap();
+    generated.observe_device(device(1), false).unwrap();
+    terminal
+        .observe_device(device(1), false, MonoTime(0))
+        .unwrap();
+    let planned = main(&rule(&generated), 1);
+    let g = generated.prepare_scoped(&planned).unwrap();
+    let t = terminal.prepare_scoped(planned).unwrap();
+    let mut saved = g.commit();
+    t.commit();
+    drain(&mut terminal, 100);
+    delivered(&mut generated, 100);
+    let next = Arc::new(ConfigSnapshot::empty(ConfigGeneration(2)));
+    generated.activate(next.clone()).unwrap();
+    terminal.activate(next).unwrap();
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(200))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(1), MonoTime(200))
+        .unwrap()
+        .unwrap();
+    drop(g);
+    drop(t);
+    for values in [generated.variable_values(), terminal.variable_values()] {
+        assert_eq!(values["v"], VariableValue::Integer(1));
+    }
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(110))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(1), MonoTime(110))
+        .unwrap()
+        .unwrap();
+    g.commit();
+    t.commit();
+    assert_eq!(generated.variable_values()["v"], VariableValue::Integer(2));
+    assert_eq!(terminal.variable_values()["v"], VariableValue::Integer(1));
+    drain(&mut terminal, 110);
+    let event = generated.poll(MonoTime(110)).unwrap().unwrap();
+    assert!(Arc::ptr_eq(&event.event.config, &configuration));
+    assert_eq!(terminal.variable_values()["v"], VariableValue::Integer(2));
+    generated.retire_batch(BatchId(1)).unwrap();
+}
+#[test]
+fn tapped_last_modifier_prepares_only_actual_scope_marker_after_all_key_ups_delivered() {
+    let mut configuration = (*config()).clone();
+    configuration.complex[0].to[0].repeat = false;
+    configuration.complex[0].to[0].hold_down_ns = 50;
+    let configuration = Arc::new(configuration);
+    let mut generated = GeneratedStageQueue::new(Stage::Output, configuration.clone()).unwrap();
+    let mut terminal = TerminalActor::new(configuration).unwrap();
+    for id in [1, 2] {
+        generated.observe_device(device(id), false).unwrap();
+        terminal
+            .observe_device(device(id), false, MonoTime(0))
+            .unwrap();
+    }
+    shift(&mut generated, &mut terminal);
+    drain(&mut terminal, 0);
+    delivered(&mut generated, 0);
+    let planned = main(&rule(&generated), 2);
+    assert!(planned.actions().releases().is_empty());
+    let g = generated.prepare_scoped(&planned).unwrap();
+    let t = terminal.prepare_scoped(planned).unwrap();
+    let mut saved = g.commit();
+    t.commit();
+    drain(&mut terminal, 100);
+    delivered(&mut generated, 100);
+    drain(&mut terminal, 150);
+    delivered(&mut generated, 150);
+    assert_eq!(
+        generated
+            .delivery_progress(BatchId(2))
+            .unwrap()
+            .up_delivered,
+        1
+    );
+    assert_eq!(terminal.live_slots(), 1);
+    assert_eq!(terminal.hidden_modifier_references(), 1);
+    assert!(matches!(
+        generated.retire_batch(BatchId(2)),
+        Err(GeneratedError::Lifecycle)
+    ));
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(200))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(200))
+        .unwrap()
+        .unwrap();
+    drop(g);
+    drop(t);
+    assert_eq!(generated.hidden_modifier_references(), 1);
+    assert_eq!(terminal.queued_events(), 0);
+    let g = generated
+        .prepare_input_up_scoped(&mut saved, MonoTime(160))
+        .unwrap()
+        .unwrap();
+    let t = terminal
+        .prepare_input_up(BatchId(2), MonoTime(160))
+        .unwrap()
+        .unwrap();
+    g.commit();
+    t.commit();
+    assert_eq!(generated.queued_events(), 0);
+    assert_eq!(terminal.queued_events(), 1);
+    assert_eq!(
+        drain(&mut terminal, 160),
+        [("left_shift".into(), KeyEdge::Down)]
+    );
+    assert_eq!(terminal.hidden_modifier_references(), 0);
+    generated.retire_batch(BatchId(2)).unwrap();
+    assert_eq!(terminal.pending_batches(), 1);
+}

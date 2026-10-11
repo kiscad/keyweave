@@ -121,6 +121,30 @@ impl PreparedScopedGeneration<'_> {
         self.saved
     }
 }
+/// Saved original-Up admission. Drop leaves scope, variables, recipe and clock unchanged.
+#[must_use = "commit or discard the prepared original Up"]
+pub struct PreparedGeneratedUp<'a> {
+    append: Append<'a>,
+    delivery: stage_delivery::DeliveryAppend<'a>,
+    timeline: timeline::PreparedStageAppend<'a, PlannedAction>,
+    saved: &'a mut ScopedGeneration,
+    now: &'a mut MonoTime,
+    at: MonoTime,
+}
+impl PreparedGeneratedUp<'_> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.timeline.commit();
+        self.delivery.commit();
+        self.append
+            .commit()
+            .close_scope(self.saved.plan.origin.batch);
+        *self.now = self.at;
+        self.saved.up_generated = true;
+    }
+}
 fn variable_update(target: &ActionTarget, edge: KeyEdge) -> Option<(&str, Option<VariableValue>)> {
     let ActionTarget::SetVariable(variable) = target else {
         return None;
@@ -518,6 +542,18 @@ impl GeneratedStageQueue {
         saved: &mut ScopedGeneration,
         at: MonoTime,
     ) -> Result<bool, GeneratedError> {
+        let Some(prepared) = self.prepare_input_up_scoped(saved, at)? else {
+            return Ok(false);
+        };
+        prepared.commit();
+        Ok(true)
+    }
+    /// Preflight saved Up without closing its logical scope or consuming its recipe.
+    pub fn prepare_input_up_scoped<'a>(
+        &'a mut self,
+        saved: &'a mut ScopedGeneration,
+        at: MonoTime,
+    ) -> Result<Option<PreparedGeneratedUp<'a>>, GeneratedError> {
         if !Arc::ptr_eq(&saved.queue, &self.identity) {
             return Err(GeneratedError::Provenance);
         }
@@ -525,7 +561,7 @@ impl GeneratedStageQueue {
             return Err(TimelineError::TimeReversed.into());
         }
         if saved.up_generated {
-            return Ok(false);
+            return Ok(None);
         }
         if !self
             .environment
@@ -537,16 +573,18 @@ impl GeneratedStageQueue {
         let events = saved.plan.input_up_events(at);
         let append = self.environment.prepare(&events, 0)?;
         let delivery = self.delivery.prepare(&events, None)?;
-        self.timeline
-            .enqueue(events)
+        let timeline = self
+            .timeline
+            .prepare_enqueue_at(events, at)
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
-        append.commit();
-        delivery.commit();
-        self.environment.close_scope(saved.plan.origin.batch);
-        self.timeline.advance(at)?;
-        self.now = at;
-        saved.up_generated = true;
-        Ok(true)
+        Ok(Some(PreparedGeneratedUp {
+            append,
+            delivery,
+            timeline,
+            saved,
+            now: &mut self.now,
+            at,
+        }))
     }
     /// Delivery does not replay logical assignments or modifier edges.
     pub fn poll(

@@ -444,3 +444,54 @@ fn independent_admissions_commit_after_both_preflight_and_keep_causal_order() {
         3
     );
 }
+
+#[test]
+fn prepared_append_and_clock_abort_preserves_old_clock_and_commit_keeps_earliest_time() {
+    let mut queue = queue();
+    queue.advance(MonoTime(10)).unwrap();
+    queue
+        .prepare_enqueue_at(vec![event(Stage::Output, 20, 1)], MonoTime(100))
+        .unwrap()
+        .abort();
+    assert!(queue.is_empty());
+    queue.advance(MonoTime(11)).unwrap();
+    queue
+        .prepare_enqueue_at(vec![event(Stage::Output, 20, 1)], MonoTime(100))
+        .unwrap()
+        .commit();
+    assert_eq!(queue.next_deadline(), Some(MonoTime(20)));
+    assert_eq!(
+        queue.advance(MonoTime(99)),
+        Err(TimelineError::TimeReversed)
+    );
+    let due = queue.pop_due(MonoTime(100)).unwrap().unwrap();
+    assert_eq!(due.event.at_ns, MonoTime(20));
+    assert_eq!(due.delivered_at, MonoTime(100));
+}
+
+#[test]
+fn clocked_admission_rejects_reversal_and_overflow_without_advancing_or_appending() {
+    let mut queue = queue();
+    queue.advance(MonoTime(10)).unwrap();
+    let rejection = queue
+        .prepare_enqueue_at(vec![event(Stage::Output, 20, 1)], MonoTime(9))
+        .err()
+        .unwrap();
+    assert_eq!(rejection.error, TimelineError::TimeReversed);
+    assert_eq!(rejection.events[0].at_ns, MonoTime(20));
+    assert!(queue.is_empty());
+    queue
+        .enqueue(vec![event(Stage::Output, u64::MAX, 2)])
+        .unwrap();
+    let rejection = queue
+        .prepare_enqueue_at(
+            vec![event(Stage::Output, 0, 3), event(Stage::Output, 1, 4)],
+            MonoTime(100),
+        )
+        .err()
+        .unwrap();
+    assert_eq!(rejection.error, TimelineError::TimeOverflow);
+    assert_eq!(rejection.events[1].at_ns, MonoTime(1));
+    assert_eq!(queue.len(), 1);
+    queue.advance(MonoTime(11)).unwrap();
+}

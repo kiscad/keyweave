@@ -121,6 +121,24 @@ impl PreparedTerminalAppend<'_> {
         }
     }
 }
+/// Prepared saved Up, including a scope marker when the original recipe needs one.
+#[must_use = "commit or discard the prepared terminal original Up"]
+pub struct PreparedTerminalUp<'a> {
+    timeline: timeline::PreparedStageAppend<'a, TerminalWork>,
+    saved: &'a mut Batch,
+    now: &'a mut MonoTime,
+    at: MonoTime,
+}
+impl PreparedTerminalUp<'_> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.timeline.commit();
+        self.saved.up_queued = true;
+        *self.now = self.at;
+    }
+}
 impl TerminalActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ActorError> {
         Ok(Self {
@@ -376,6 +394,18 @@ impl TerminalActor {
     }
     /// Unknown/completed or duplicate original up is a no-op, not a new release.
     pub fn input_up(&mut self, batch: BatchId, at: MonoTime) -> Result<bool, ActorError> {
+        let Some(prepared) = self.prepare_input_up(batch, at)? else {
+            return Ok(false);
+        };
+        prepared.commit();
+        Ok(true)
+    }
+    /// Due work must drain first. Preparation leaves the saved Up and clock intact.
+    pub fn prepare_input_up(
+        &mut self,
+        batch: BatchId,
+        at: MonoTime,
+    ) -> Result<Option<PreparedTerminalUp<'_>>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
         }
@@ -387,11 +417,11 @@ impl TerminalActor {
         {
             return Err(EngineError::DeadlinePending.into());
         }
-        let Some(saved) = self.batches.get(&batch) else {
-            return Ok(false);
+        let Some(saved) = self.batches.get_mut(&batch) else {
+            return Ok(None);
         };
         if saved.up_queued {
-            return Ok(false);
+            return Ok(None);
         }
         let mut events: Vec<_> = saved
             .plan
@@ -414,14 +444,16 @@ impl TerminalActor {
                 payload: TerminalWork::ScopeUp(batch),
             });
         }
-        self.timeline
-            .enqueue(events)
+        let timeline = self
+            .timeline
+            .prepare_enqueue_at(events, at)
             .map_err(|rejected| ActorError::Timeline(rejected.error))?;
-        if let Some(saved) = self.batches.get_mut(&batch) {
-            saved.up_queued = true;
-        }
-        self.advance(at)?;
-        Ok(true)
+        Ok(Some(PreparedTerminalUp {
+            timeline,
+            saved,
+            now: &mut self.core.now,
+            at,
+        }))
     }
     /// Execute one due stage event. Late delivery uses actual actor time.
     pub fn poll(&mut self, at: MonoTime) -> Result<Option<ActorStep>, ActorError> {
