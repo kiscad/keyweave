@@ -1,5 +1,6 @@
 //! One owned Linux worker; injected control events never act as progress.
 mod drive;
+pub mod file_source;
 mod reload;
 mod startup;
 pub use drive::{DriveStatus, NativeReport, NativeSession};

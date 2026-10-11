@@ -8,6 +8,8 @@ mod clock_continuity;
 #[cfg(target_os = "linux")]
 pub mod config_artifact;
 #[cfg(target_os = "linux")]
+pub mod config_source;
+#[cfg(target_os = "linux")]
 pub mod console;
 #[cfg(target_os = "linux")]
 pub mod device;

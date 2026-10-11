@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0099 single bounded background Linux configuration file source",
+  "source_base_commit": "2c6116f696e72d84a0472d0f432aa617071757ca",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "bc41618cefb0dcaeca9e074c6918b15656ccb725d2ed1dcb33b0bb99ea13ce46",
+    "crates/keyweave-linux/src/config_source.rs": "da3ebd020ff2702a533a2f1a2a3cbefe1bca4c424aaeedf3918b1f22b61e617b",
+    "crates/keyweave-host/src/linux.rs": "4146c000536d4af77def70bf01b3fd123d93b95e4a7f3731705c911dd63072d5",
+    "crates/keyweave-host/src/linux/file_source.rs": "3b469dcc3a920482eab3a6845f6f47c19b59458383af5c85c161c3bd6730d012"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_libtests_passed": 938,
+    "workspace_tests_exit": 0,
+    "new_linux_only_tests": 7,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "existing_c_abi_exit": 0,
+    "logs": {
+      "abi": {
+        "path": "target/validation/linux-20261011-file-source/abi.log",
+        "sha256": "fc45354be99e4e918d4675b14c0a042d260ed13adf4ead5f1f069dd1987f258b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-file-source/clippy.log",
+        "sha256": "2a44e54a026bf30676a68b09b019b8265c6d5e9cc4b347969dcd0eac297c07e8"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-file-source/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-file-source/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-file-source/workspace-tests.log",
+        "sha256": "5d43563568ffd225de6c4cfa8418f3badd39ea3ed525f3bf842ca3901f33b3eb"
+      }
+    }
+  },
+  "abi": "No new unsafe/FFI/external dependency, std OpenOptions with existing libc O_NONBLOCK; existing C oracle rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only source not implemented on Windows; previous shared/native validations pending approval quota issue."
+  },
+  "limitations": [
+    "One running job or ready result per owner; not global bound on caller-created owners.",
+    "Regular filesystem IO/allocator/thread scheduling/completed join have no hard time bound. NONBLOCK avoids FIFO open waiting, not filesystem stalls.",
+    "before/after/path metadata rejects observable changes, not atomic/ABA/authenticated content; raw bytes need worker compile and actual ack.",
+    "Close cannot preempt IO; retain same owner to reap/discard late result. Drop may detach, not task/process/global recovery proof.",
+    "Errors/debug contain metadata only; global panic hook behavior not controlled.",
+    "Source threads must start after HostSignals installation and worker spawn; no file completion can renew progress/watchdog.",
+    "Own temporary files/dirs/symlink/FIFO and threads only in new tests; no input/VT/uinput/driver/install actions.",
+    "Watcher/debounce/host integration/user reload operation remain unfinished along with original cross-platform scope."
+  ]
+}
