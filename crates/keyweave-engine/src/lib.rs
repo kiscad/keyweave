@@ -744,6 +744,11 @@ impl Engine {
         Ok(())
     }
 
+    /// Current admitted snapshot, independent of generations of held bindings.
+    pub fn config_generation(&self) -> ConfigGeneration {
+        self.config.generation
+    }
+
     pub fn state(&self) -> EngineState {
         EngineState {
             bindings: self.active.len(),

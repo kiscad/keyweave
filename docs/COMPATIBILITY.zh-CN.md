@@ -6,6 +6,8 @@ Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 con
 
 两平台冷 PreparedConfig 可指定非零 generation 或从已观察活动代号准备下一代，旧默认入口仍为1。配置准备不确认 actor 切换；旧持键使用旧 binding，新的 down 才使用已激活候选。跨进程热配置交付、确认与文件监听仍待接入，见 [ADR-0089](ADR-0089-prepared-config-generations.md)。
 
+热配置独立请求/确认协议与actor当前代号查询已实现，确认不代表旧持键已释放；原生body交付、文件监听和reload命令仍未接通，见 [ADR-0090](ADR-0090-reload-control-protocol.md)。
+
 | 项目 | 当前行为 |
 | --- | --- |
 | JSONC | 接受 `//`、`/* */`，保留源行号；8 MiB、serde 默认递归限额；拒绝尾逗号、重复对象成员（含 Unicode 转义等价键） |

@@ -185,3 +185,52 @@ fn explicit_last_generation_retains_exact_bytes_without_wrapping() {
         ConfigGeneration(u64::MAX)
     );
 }
+
+#[test]
+fn reload_protocol_ack_follows_engine_commit_and_not_prepared_candidate() {
+    use keyweave_progress::reload::{Ack, Client, MAX_UPDATE_BYTES, Outcome, Request, Worker};
+    assert_eq!(MAX_UPDATE_BYTES as usize, keyweave_config::MAX_CONFIG_BYTES);
+    for platform in [Platform::Linux, Platform::Windows] {
+        let mut engine = Engine::new(initial(platform)).unwrap();
+        engine.handle(event(1, KeyEdge::Down)).unwrap();
+        let mut client = Client::new(7, engine.config_generation(), MonoTime(0), 100).unwrap();
+        let mut worker = Worker::new(7, engine.config_generation()).unwrap();
+        let request = Request::decode(
+            &client
+                .begin(NEW.len() as u64, MonoTime(1))
+                .unwrap()
+                .encode()
+                .unwrap(),
+        )
+        .unwrap();
+        worker.begin(request).unwrap();
+        let candidate = next(platform, NEW, request.base).unwrap();
+        assert_eq!(engine.config_generation(), ConfigGeneration(1));
+        assert_eq!(client.active(), ConfigGeneration(1));
+        engine.activate(candidate).unwrap();
+        assert_eq!(engine.config_generation(), ConfigGeneration(2));
+        assert_eq!(
+            engine.state().binding_generations,
+            vec![ConfigGeneration(1)]
+        );
+        let ack = Ack::decode(
+            &worker
+                .finish(Outcome::Accepted, engine.config_generation())
+                .unwrap()
+                .encode()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(client.active(), ConfigGeneration(1));
+        client.accept(ack, MonoTime(2)).unwrap();
+        assert_eq!(client.active(), ConfigGeneration(2));
+        assert_eq!(
+            engine.handle(event(2, KeyEdge::Up)).unwrap().outputs[0].key,
+            KeyId::new(KEYBOARD_PAGE, 5)
+        );
+        assert_eq!(
+            engine.handle(event(3, KeyEdge::Down)).unwrap().outputs[0].key,
+            KeyId::new(KEYBOARD_PAGE, 6)
+        );
+    }
+}

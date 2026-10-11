@@ -148,6 +148,11 @@ impl<B: SendBackend> SessionActor<B> {
         self.phase = ActorPhase::Active;
         Ok(())
     }
+    /// Active snapshot metadata, separate from retained old down bindings.
+    pub fn config_generation(&self) -> ConfigGeneration {
+        self.engine.config_generation()
+    }
+
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
         if !matches!(self.phase, ActorPhase::Standby | ActorPhase::Active) {
             return Err(RuntimeError::NotActive);

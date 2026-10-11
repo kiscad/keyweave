@@ -1949,3 +1949,45 @@ fn progress_io_is_rejected_in_callback_before_read_write_or_actor_borrow() {
     assert!(client.publish(&session).unwrap());
     session.shutdown();
 }
+
+#[test]
+fn config_control_rejects_callback_and_borrow_without_mutation_or_native_output() {
+    let (mut session, trace) = install();
+    session.poll().unwrap();
+    assert_eq!(session.config_generation().unwrap(), ConfigGeneration(1));
+    let mut next = (*config()).clone();
+    next.generation = ConfigGeneration(2);
+    let next = Arc::new(next);
+    let before = trace.borrow().calls.len();
+    super::super::hook_thread::with_callback_borrow(|| {
+        assert!(matches!(
+            session.config_generation(),
+            Err(SessionError::Probe(ProbeError::InCallback))
+        ));
+        assert!(matches!(
+            session.activate_config(next.clone()),
+            Err(SessionError::Probe(ProbeError::InCallback))
+        ));
+    });
+    let actor = session.actor.clone();
+    {
+        let _borrow = actor.borrow_mut();
+        assert!(matches!(
+            session.config_generation(),
+            Err(SessionError::ActorBorrow)
+        ));
+        assert!(matches!(
+            session.activate_config(next.clone()),
+            Err(SessionError::ActorBorrow)
+        ));
+    }
+    assert_eq!(session.config_generation().unwrap(), ConfigGeneration(1));
+    assert_eq!(trace.borrow().calls.len(), before);
+    session.activate_config(next).unwrap();
+    assert_eq!(session.config_generation().unwrap(), ConfigGeneration(2));
+    session.shutdown();
+    assert!(matches!(
+        session.config_generation(),
+        Err(SessionError::Closed)
+    ));
+}

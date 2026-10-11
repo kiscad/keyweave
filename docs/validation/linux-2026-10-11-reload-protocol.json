@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-11",
+  "validation_started_date": "2026-10-10",
+  "feature": "ADR-0090 independent reload protocol and observed actor generation",
+  "source_base_commit": "c0e03332c62c07075f6ff43823ed74b22f0bb6e6",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "65e0acb6f5c0324bbff24ede07643f84e199a8aa7624d77dd9aca8993fd2b44a",
+    "crates/keyweave-linux/src/runtime.rs": "15a6af67799a3bdf5ef2fab8a7dfa0303504c94ef128edb577cb8af4d8c1ea98",
+    "crates/keyweave-progress/src/lib.rs": "b401e4bfccb41f88836dc350c514089eefbd9737e9c97b7a3b963b2c0f495b14",
+    "crates/keyweave-windows/src/native/session.rs": "61353d82208bfb18d6c8cb7f2c0b6c6a449bf09836499914b62627d74738bce2",
+    "crates/keyweave-windows/src/native/session/tests.rs": "df1fb0a70c8a07275bef8f4475dd84b956e5dd920a95b4704c830373b11e69ee",
+    "crates/keyweave-windows/src/runtime.rs": "7a195b184e231ccdf77da73a5dc177be1eb61b871a14049b8c12b27be87c70a8",
+    "crates/keyweave-worker/tests/generations.rs": "1f1a8e455a402f8d2d1fa4b90fae79062bdc618d8c1202c87b88e43868112d52",
+    "crates/keyweave-progress/src/reload.rs": "d7cc5f3543861e6c9f56fd356f89a945e88a5a32cbb18a5fc81ada56655e05b4"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 886,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "new_tests": {
+      "protocol": 8,
+      "portable_actor_commit_flow": 1,
+      "native_mock_callback_borrow_gate": 1
+    },
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261010-reload-protocol/clippy.log",
+        "sha256": "361c375f2477ed3f51f22570839096bf33845c6bda0cb0eea460c288dba523d8"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261010-reload-protocol/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261010-reload-protocol/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261010-reload-protocol/workspace-tests.log",
+        "sha256": "8373dd842739ceb803bf50298d51d0022275d7a6410121940ce205eaaa9d2d2c"
+      }
+    }
+  },
+  "abi": "No new FFI/unsafe/native ABI/dependency; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "shared protocol/getters and native config callback/borrow gate need native Windows checks; prior checks pending after automatic approval quota failure"
+  },
+  "limitations": [
+    "Independent reload lane must not share progress/Stop streams; no native transport/header-body sender/parser yet.",
+    "Protocol validates identity/order/length/generation, not authentication, payload digest or actor commit truth. Trusted caller must finish only after actual activation.",
+    "Worker commit may precede ack transport; lost ack must close lane/stop session, not retry or assume rollback.",
+    "Active generation getters are metadata, not readiness, actor phase, poll epoch or old held-key release proof.",
+    "Native watcher, IPC handles/FDs, cold worker task and user-facing reload command remain unconnected.",
+    "No real input/output/capture, new files/subprocesses, OS suspend or driver action in new tests.",
+    "Full original cross-platform objective remains incomplete."
+  ]
+}

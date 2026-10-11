@@ -2,6 +2,7 @@
 use keyweave_types::MonoTime;
 use std::io::{self, Read, Write};
 mod control;
+pub mod reload;
 pub use control::{RequestEvent, StopRequest};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProgressPhase {

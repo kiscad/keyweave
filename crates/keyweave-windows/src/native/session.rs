@@ -48,6 +48,8 @@ pub enum SessionError {
     AccessLease(#[from] AccessError),
     #[error("runtime progress identity exhausted")]
     ProgressExhausted,
+    #[error("session actor is already borrowed")]
+    ActorBorrow,
     #[error("session is closed")]
     Closed,
 }
@@ -542,11 +544,27 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         self.enabled.set(true);
         Ok(SessionStep::Activated)
     }
+    /// Outside callback only; observed generation is not an input lease/epoch.
+    pub fn config_generation(&self) -> Result<keyweave_types::ConfigGeneration, SessionError> {
+        if self.shutdown.is_some() {
+            return Err(SessionError::Closed);
+        }
+        crate::startup::ensure_preparation_context()?;
+        Ok(self
+            .actor
+            .try_borrow()
+            .map_err(|_| SessionError::ActorBorrow)?
+            .config_generation())
+    }
     pub fn activate_config(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), SessionError> {
         if self.shutdown.is_some() {
             return Err(SessionError::Closed);
         }
-        self.actor.borrow_mut().activate(config)?;
+        crate::startup::ensure_preparation_context()?;
+        self.actor
+            .try_borrow_mut()
+            .map_err(|_| SessionError::ActorBorrow)?
+            .activate(config)?;
         Ok(())
     }
     /// Idempotent, bounded, Hook-close-first recovery. Unhook failure does not

@@ -290,6 +290,11 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
     pub fn progress_epoch(&self) -> u64 {
         self.progress_epoch
     }
+    /// Metadata only; does not constitute a completed poll or readiness grant.
+    pub fn config_generation(&self) -> ConfigGeneration {
+        self.engine.config_generation()
+    }
+
     pub fn engine_state(&self) -> EngineState {
         self.engine.state()
     }
@@ -2398,6 +2403,7 @@ mod tests {
             ]
         );
         assert_eq!(runtime.context_revision, 2);
+        assert_eq!(runtime.config_generation(), ConfigGeneration(2));
     }
     #[test]
     fn context_revision_and_sequence_exhaustion_close_capture_before_output() {
