@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0105 saved stage binding lifecycle and terminal actor integration",
+  "source_base_commit": "6294374dde802a229cc442153eb29b33fac57c01",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "be81443532e4179449257a623e71dd404c83508da688dc086b0a06d5a58c3693",
+    "crates/keyweave-engine/src/stage_bindings.rs": "eea7c52c1449794133779809022d32b3d3dca5f52511af0a37194951f11ed5cb",
+    "crates/keyweave-engine/src/terminal_actor.rs": "b9febafa2a689e6e5c153ee8080e5c08099cdf6ea5118d2fafeb090f8f4ada7e",
+    "crates/keyweave-engine/tests/stage_bindings.rs": "4e3f6f28dfe0ea1b5babc8c4d73d63940f2771e05835347d42d76c3c8209b6ed"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 976,
+    "new_tests": 3,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-stage-bindings/tests.log",
+        "sha256": "212b32b43c00ee9f5ae969da1a1a800f5fc3a38f97dde11d02a026032e424c78"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-stage-bindings/clippy.log",
+        "sha256": "7ec19faf9345636da6bbe48cfdf737f52407444fa78c459b833f6babbf75a852"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-stage-bindings/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-stage-bindings/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "First Clippy run rejected expect() calls; eliminated and reran all workspace tests and Clippy successfully."
+  ],
+  "abi": "Pure Rust binding arena and terminal actor changes; no unsafe/FFI/dependencies/ABI changes; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; native Windows build and previous native validations remain pending approval quota issue."
+  },
+  "limitations": [
+    "TerminalActor uses Output-stage root bindings only; complete deferred Simple/Complex actor and extra-branch orchestration remain unfinished.",
+    "Caller manages source reservation, nonreused batch identities and queue cancellation. Arena metadata is not native lease/activation or owner allocation proof.",
+    "Parents cannot retire or cancel while child work remains. Caller must drain or cancel in descendant-first order.",
+    "Drop of a standalone arena does not recover output; TerminalActor reset separately invokes actual Engine owner reset.",
+    "Old-snapshot variable namespace retention in queued actor batches and full source/cleanup budgets require further integration.",
+    "No actual input/device/native duration/driver operations; Windows checks remain pending; UnsupportedActionTiming gate retained."
+  ]
+}

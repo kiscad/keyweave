@@ -1,7 +1,7 @@
 //! Execute planned terminal work on one actor, saving real bindings per slot.
 //! This is not yet the simple/complex matching actor or a platform runtime.
 use crate::{
-    action_plan::{ActionPlan, ActionSlot, BatchId},
+    action_plan::{ActionPlan, BatchId},
     timeline::{Stage, StageTimeline, TimelineError},
     *,
 };
@@ -30,7 +30,6 @@ pub const MAX_ACTOR_KEYS: usize = MAX_OUTPUTS_PER_EVENT / 2;
 struct Batch {
     plan: ActionPlan,
     base_source: u64,
-    slots: usize,
     remaining: usize,
     up_queued: bool,
     keys: BTreeSet<KeyId>,
@@ -47,8 +46,7 @@ pub struct TerminalActor {
     core: Engine,
     timeline: StageTimeline<action_plan::PlannedAction>,
     batches: BTreeMap<BatchId, Batch>,
-    slots: BTreeMap<ActionSlot, Bound>,
-    reserved_slots: usize,
+    bindings: stage_bindings::BindingArena<Bound>,
     last_batch: Option<BatchId>,
 }
 impl TerminalActor {
@@ -57,8 +55,7 @@ impl TerminalActor {
             core: Engine::new_inner(config, true)?,
             timeline: StageTimeline::new(),
             batches: BTreeMap::new(),
-            slots: BTreeMap::new(),
-            reserved_slots: 0,
+            bindings: stage_bindings::BindingArena::default(),
             last_batch: None,
         })
     }
@@ -70,13 +67,13 @@ impl TerminalActor {
         Ok(())
     }
     pub fn live_slots(&self) -> usize {
-        self.slots.len()
+        self.bindings.live_slots()
     }
     pub fn pending_batches(&self) -> usize {
         self.batches.len()
     }
     pub fn reserved_slots(&self) -> usize {
-        self.reserved_slots
+        self.bindings.reserved_slots()
     }
     pub fn queued_events(&self) -> usize {
         self.timeline.len()
@@ -125,7 +122,7 @@ impl TerminalActor {
         let canceled = !ids.is_empty();
         let mut outputs = Vec::new();
         for id in ids {
-            self.cancel(id, &mut outputs);
+            self.cancel(id, &mut outputs)?;
         }
         if removed || canceled {
             self.core.sync_modifiers(&mut outputs);
@@ -149,7 +146,7 @@ impl TerminalActor {
             .filter(|e| e.payload.edge == KeyEdge::Down)
             .count();
         if self.batches.len() >= MAX_BINDINGS
-            || self.reserved_slots.saturating_add(slots) > MAX_OUTPUT_OWNERS
+            || self.bindings.reserved_slots().saturating_add(slots) > MAX_OUTPUT_OWNERS
         {
             return Err(ActorError::Capacity);
         }
@@ -197,19 +194,29 @@ impl TerminalActor {
         let remaining = plan.events.len() + plan.release_on_input_up.len();
         let up_queued = plan.release_on_input_up.is_empty();
         let events = std::mem::take(&mut plan.events);
+        let reservation = if remaining > 0 {
+            Some(
+                self.bindings
+                    .prepare(plan.origin.clone(), slots, None)
+                    .map_err(|_| ActorError::InvalidSlot)?,
+            )
+        } else {
+            None
+        };
         self.timeline
             .enqueue(events)
             .map_err(|rejected| ActorError::Timeline(rejected.error))?;
+        if let Some(reservation) = reservation {
+            reservation.commit();
+        }
         self.core.next_source = next_source;
         self.last_batch = Some(plan.origin.batch);
         if remaining > 0 {
-            self.reserved_slots += slots;
             self.batches.insert(
                 plan.origin.batch,
                 Batch {
                     plan,
                     base_source,
-                    slots,
                     remaining,
                     up_queued,
                     keys: batch_keys,
@@ -260,9 +267,9 @@ impl TerminalActor {
         let mut outputs = Vec::new();
         match action.edge {
             KeyEdge::Down => {
-                if self.slots.contains_key(&action.slot) {
-                    return Err(ActorError::InvalidSlot);
-                }
+                self.bindings
+                    .check_down(action.slot)
+                    .map_err(|_| ActorError::InvalidSlot)?;
                 let bound = match &action.target {
                     ActionTarget::Key(key) => self.core.press_stage(
                         KeyRequest {
@@ -299,13 +306,15 @@ impl TerminalActor {
                         }
                     }
                 };
-                self.slots.insert(action.slot, bound);
+                self.bindings
+                    .insert(action.slot, bound)
+                    .map_err(|_| ActorError::InvalidSlot)?;
             }
             KeyEdge::Up => {
                 let bound = self
-                    .slots
-                    .remove(&action.slot)
-                    .ok_or(ActorError::InvalidSlot)?;
+                    .bindings
+                    .take(action.slot)
+                    .map_err(|_| ActorError::InvalidSlot)?;
                 self.core
                     .release_bound(bound, &config, &mut cursor, false, &mut outputs);
             }
@@ -314,8 +323,10 @@ impl TerminalActor {
         let batch = self.batches.get_mut(&id).ok_or(ActorError::InvalidSlot)?;
         batch.remaining -= 1;
         let completed_batch = if batch.remaining == 0 {
-            let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
-            self.reserved_slots -= batch.slots;
+            self.bindings
+                .retire(id)
+                .map_err(|_| ActorError::InvalidSlot)?;
+            self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
             if !self
                 .batches
                 .values()
@@ -343,43 +354,38 @@ impl TerminalActor {
             return Ok(Vec::new());
         }
         let mut outputs = Vec::new();
-        self.cancel(id, &mut outputs);
+        self.cancel(id, &mut outputs)?;
         self.core.sync_modifiers(&mut outputs);
         Ok(outputs)
     }
-    fn cancel(&mut self, id: BatchId, outputs: &mut Vec<OutputIntent>) {
+    fn cancel(&mut self, id: BatchId, outputs: &mut Vec<OutputIntent>) -> Result<(), ActorError> {
+        if !self.batches.contains_key(&id) {
+            return Ok(());
+        }
+        let bounds = self
+            .bindings
+            .cancel(id)
+            .map_err(|_| ActorError::InvalidSlot)?;
         self.timeline
             .discard_where(|event| event.payload.slot.batch == id);
-        let Some(batch) = self.batches.remove(&id) else {
-            return;
-        };
-        let slots: Vec<_> = self
-            .slots
-            .keys()
-            .rev()
-            .filter(|slot| slot.batch == id)
-            .copied()
-            .collect();
-        for slot in slots {
-            if let Some(bound) = self.slots.remove(&slot) {
-                let mut cursor = batch.base_source;
-                self.core.release_bound(
-                    bound,
-                    &batch.plan.origin.config,
-                    &mut cursor,
-                    false,
-                    outputs,
-                );
-            }
+        let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
+        for bound in bounds {
+            let mut cursor = batch.base_source;
+            self.core.release_bound(
+                bound,
+                &batch.plan.origin.config,
+                &mut cursor,
+                false,
+                outputs,
+            );
         }
-        self.reserved_slots -= batch.slots;
+        Ok(())
     }
     pub fn reset(&mut self, at: MonoTime) -> Result<Vec<OutputIntent>, ActorError> {
         self.check_time(at)?;
         self.timeline.reset(at)?;
         self.batches.clear();
-        self.slots.clear();
-        self.reserved_slots = 0;
+        self.bindings = stage_bindings::BindingArena::default();
         Ok(self.core.reset(at)?)
     }
 }

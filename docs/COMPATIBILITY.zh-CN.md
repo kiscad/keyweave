@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+ADR-0105：共享 BindingArena 保存 Reserved/Live/Released 槽，prepare 独占 guard 在时间线成功后 commit，失败丢弃不改预留；父 Live 槽仅允许同旧 Arc/设备/source 的下一阶段子批次，孩子未退休时父 Up/取消拒绝。cancel 仅倒序返回真实 Live payload，retire 要求全部已释放；4096 批次/16384 槽有界。TerminalActor 已接实际 Bound/down/up/取消/reset，来源分配仍原 actor，空计划无幽灵批次。新增3测试，Linux976工作区用例/Clippy/fmt/source60通过，无unsafe/FFI/deps。完整 Simple/Complex 延迟 actor、额外分支、变量旧命名空间和来源预算仍待接，native duration gate 保留；Windows原生补验、硬件与全部原目标未完成。 见 [ADR-0105](ADR-0105-saved-stage-binding-lifecycle.md)、[验证记录](validation/linux-2026-10-11-stage-bindings.json)。
+
 Engine已共享不可变阶段规则选择，first-match/一次主动作过滤/实际modifier侧别/旧snapshot保留；另提供Simple→Complex→Output主动作计划接口，973测试通过。该接口仍需deferred actor的owner/slot/up/extra分支接入，原生duration gate保留，Windowsnative待验。见 [ADR-0104](ADR-0104-immutable-rule-selection.md)。
 
 阶段队列已修复受阻批次的持续时间压缩，整体平移保原跨度，overflow原子拒绝；966测试通过。该组件及TerminalActor不代表完整duration规则入口，Engine仍拒绝，simple/complex deferred actor/native接入和Windows补验继续待做。见 [ADR-0103](ADR-0103-preserve-causal-batch-duration.md)。

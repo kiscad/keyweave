@@ -1,5 +1,7 @@
 # KeyWeave 开发指导文档
 
+ADR-0105：共享 BindingArena 保存 Reserved/Live/Released 槽，prepare 独占 guard 在时间线成功后 commit，失败丢弃不改预留；父 Live 槽仅允许同旧 Arc/设备/source 的下一阶段子批次，孩子未退休时父 Up/取消拒绝。cancel 仅倒序返回真实 Live payload，retire 要求全部已释放；4096 批次/16384 槽有界。TerminalActor 已接实际 Bound/down/up/取消/reset，来源分配仍原 actor，空计划无幽灵批次。新增3测试，Linux976工作区用例/Clippy/fmt/source60通过，无unsafe/FFI/deps。完整 Simple/Complex 延迟 actor、额外分支、变量旧命名空间和来源预算仍待接，native duration gate 保留；Windows原生补验、硬件与全部原目标未完成。 见 [ADR-0105](ADR-0105-saved-stage-binding-lifecycle.md)、[验证记录](validation/linux-2026-10-11-stage-bindings.json)。
+
 版本：设计草案 1.1。初始分析：2026-10-08；开发环境补充：2026-10-10。读者：实现本项目的 Coding Agent、代码审查者和平台测试人员。
 
 本文件中的“必须”是项目实施约束，“建议”是可通过 ADR 修改的初始选择，“目标”是待验证指标。API 草图和建议目录树是设计规格；当前已经存在的模块、可执行入口及验证结果以 [STATUS](STATUS.md)、[兼容范围](COMPATIBILITY.zh-CN.md) 和对应 ADR 为准。源码证据见 [SOURCE_AUDIT](SOURCE_AUDIT.zh-CN.md)，实施工作单见 [IMPLEMENTATION_BACKLOG](IMPLEMENTATION_BACKLOG.zh-CN.md)。后续 Agent 应在现有实现上继续，避免根据早期设计重复创建模块。
