@@ -33,6 +33,9 @@ impl std::error::Error for WatchError {}
 trait Source {
     fn request(&mut self, seen: Arc<[u8]>, active: Arc<[u8]>) -> Result<(), SourceError>;
     fn take_ready(&mut self) -> Option<Result<Compared, SourceError>>;
+    fn notice(&mut self) -> bool {
+        false
+    }
     fn close(&mut self);
     fn reap(&mut self) -> Result<bool, SourceError>;
 }
@@ -46,6 +49,9 @@ impl Source for FileSource {
         } else {
             None
         }
+    }
+    fn notice(&mut self) -> bool {
+        self.poll_notice()
     }
     fn close(&mut self) {
         FileSource::close(self)
@@ -102,6 +108,8 @@ struct Scheduler<S: Source> {
     last: Option<MonoTime>,
     next: Option<MonoTime>,
     interval: u64,
+    dirty_since: Option<MonoTime>,
+    quiet_until: Option<MonoTime>,
     reading: bool,
     manual: bool,
     event: Option<WatchEvent>,
@@ -158,6 +166,12 @@ impl<S: Source> Scheduler<S> {
             return Err(WatchError::Clock);
         }
         self.last = Some(now);
+        if self.source.notice() {
+            if self.dirty_since.is_none() {
+                self.dirty_since = Some(now);
+            }
+            self.quiet_until = Some(now.checked_add(200_000_000).ok_or(WatchError::Clock)?);
+        }
         // Confirmation processing never waits behind a user status notification.
         if self.inflight.is_some()
             && let Some(outcome) = peer.outcome()
@@ -234,13 +248,22 @@ impl<S: Source> Scheduler<S> {
         if !self.reading
             && self.candidate.is_none()
             && peer.ready()
-            && (self.manual || self.next.is_none_or(|next| now >= next))
+            && (self.manual
+                || match (self.dirty_since, self.quiet_until) {
+                    (Some(first), Some(quiet)) => {
+                        now >= quiet
+                            || now >= first.checked_add(1_000_000_000).ok_or(WatchError::Clock)?
+                    }
+                    _ => self.next.is_none_or(|next| now >= next),
+                })
         {
             self.source
                 .request(self.seen.clone(), self.active.clone())
                 .map_err(WatchError::Source)?;
             self.reading = true;
             self.manual = false;
+            self.dirty_since = None;
+            self.quiet_until = None;
         }
         Ok(())
     }
@@ -262,7 +285,7 @@ impl ConfigWatcher {
         if initial.is_empty() || initial.len() > MAX_SOURCE_BYTES {
             return Err(WatchError::Baseline);
         }
-        let source = FileSource::new(path).map_err(WatchError::Source)?;
+        let source = FileSource::with_notifications(path).map_err(WatchError::Source)?;
         Ok(Self {
             inner: Scheduler {
                 source,
@@ -275,6 +298,8 @@ impl ConfigWatcher {
                 last: None,
                 next: None,
                 interval: interval_ns,
+                dirty_since: None,
+                quiet_until: None,
                 reading: false,
                 manual: false,
                 event: None,
@@ -292,6 +317,10 @@ impl ConfigWatcher {
         }
         self.inner.manual = true;
         Ok(())
+    }
+    /// Cached notification failure; periodic source reading still continues.
+    pub fn notification_error(&self) -> Option<SourceError> {
+        self.inner.source.notification_error()
     }
     pub fn take_event(&mut self) -> Option<WatchEvent> {
         self.inner.event.take()
@@ -319,6 +348,7 @@ mod tests {
         result: Option<Result<Compared, SourceError>>,
         closed: bool,
         reaped: bool,
+        hint: bool,
     }
     impl Source for FakeSource {
         fn request(&mut self, seen: Arc<[u8]>, active: Arc<[u8]>) -> Result<(), SourceError> {
@@ -328,6 +358,9 @@ mod tests {
         }
         fn take_ready(&mut self) -> Option<Result<Compared, SourceError>> {
             self.result.take()
+        }
+        fn notice(&mut self) -> bool {
+            std::mem::take(&mut self.hint)
         }
         fn close(&mut self) {
             self.closed = true;
@@ -391,6 +424,8 @@ mod tests {
                 last: None,
                 next: None,
                 interval: 100_000_000,
+                dirty_since: None,
+                quiet_until: None,
                 reading: false,
                 manual: false,
                 event: None,
@@ -632,5 +667,68 @@ mod tests {
         assert_eq!(s.seen.as_ref(), b"cancelled");
         assert!(s.inflight.is_none());
         assert_eq!(p.submissions.len(), 1);
+    }
+    #[test]
+    fn directory_hints_wait_for_quiet_and_cannot_postpone_checks_forever() {
+        let (mut s, mut p) = setup();
+        s.interval = 60_000_000_000;
+        s.poll(&mut p).unwrap();
+        s.source.result = Some(Ok(Compared::Seen));
+        s.poll(&mut p).unwrap();
+        s.event.take();
+        p.now = MonoTime(1);
+        s.source.hint = true;
+        s.poll(&mut p).unwrap();
+        p.now = MonoTime(200_000_000);
+        s.poll(&mut p).unwrap();
+        assert_eq!(s.source.requests.len(), 1);
+        p.now = MonoTime(200_000_001);
+        s.poll(&mut p).unwrap();
+        assert_eq!(s.source.requests.len(), 2);
+        s.source.result = Some(Ok(Compared::Seen));
+        s.poll(&mut p).unwrap();
+        s.event.take();
+        p.now = MonoTime(300_000_000);
+        s.source.hint = true;
+        s.poll(&mut p).unwrap();
+        for at in [
+            400_000_000,
+            600_000_000,
+            800_000_000,
+            1_000_000_000,
+            1_200_000_000,
+        ] {
+            p.now = MonoTime(at);
+            s.source.hint = true;
+            s.poll(&mut p).unwrap();
+            assert_eq!(s.source.requests.len(), 2);
+        }
+        p.now = MonoTime(1_300_000_000);
+        s.source.hint = true;
+        s.poll(&mut p).unwrap();
+        assert_eq!(s.source.requests.len(), 3);
+        assert!(s.dirty_since.is_none());
+    }
+    #[test]
+    fn hints_during_busy_ack_and_notifications_coalesce_without_renewing_transaction() {
+        let (mut s, mut p) = setup();
+        s.interval = 60_000_000_000;
+        s.poll(&mut p).unwrap();
+        changed(&mut s, b"candidate");
+        s.poll(&mut p).unwrap();
+        p.now = MonoTime(1);
+        s.source.hint = true;
+        s.poll(&mut p).unwrap();
+        assert_eq!(s.source.requests.len(), 1);
+        assert_eq!(s.base, Some(ConfigGeneration(1)));
+        p.now = MonoTime(200_000_001);
+        p.generation = ConfigGeneration(2);
+        p.outcome = Some(Outcome::Accepted);
+        p.ready = true;
+        s.poll(&mut p).unwrap();
+        assert_eq!(s.source.requests.len(), 1);
+        s.event.take();
+        s.poll(&mut p).unwrap();
+        assert_eq!(s.source.requests.len(), 2);
     }
 }

@@ -208,7 +208,8 @@ fn main() {
             std::io::Write::write_all(&mut file, OLD).unwrap();
             drop(file);
             let mut watch =
-                ConfigWatcher::new(path.clone(), std::sync::Arc::from(OLD), 100_000_000).unwrap();
+                ConfigWatcher::new(path.clone(), std::sync::Arc::from(OLD), 60_000_000_000)
+                    .unwrap();
             fn observe(watch: &mut ConfigWatcher, session: &mut NativeSession) -> WatchEvent {
                 let end = Instant::now() + Duration::from_secs(5);
                 loop {
@@ -225,14 +226,21 @@ fn main() {
                 }
             }
             assert_eq!(observe(&mut watch, &mut session), WatchEvent::Unchanged);
-            std::fs::write(&path, &body).unwrap();
-            watch.request_read().unwrap();
+            let replacement = path.with_extension("replacement");
+            let mut replacement_file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&replacement)
+                .unwrap();
+            std::io::Write::write_all(&mut replacement_file, &body).unwrap();
+            drop(replacement_file);
+            std::fs::rename(replacement, &path).unwrap();
             assert_eq!(
                 observe(&mut watch, &mut session),
                 WatchEvent::Accepted(ConfigGeneration(2))
             );
+            assert!(watch.notification_error().is_none());
             std::fs::write(&path, b"invalid private configuration").unwrap();
-            watch.request_read().unwrap();
             assert_eq!(
                 observe(&mut watch, &mut session),
                 WatchEvent::Rejected(ConfigGeneration(2))
@@ -242,10 +250,8 @@ fn main() {
             assert_eq!(observe(&mut watch, &mut session), WatchEvent::Unchanged);
             // Restore actual accepted bytes: no unnecessary generation3.
             std::fs::write(&path, &body).unwrap();
-            watch.request_read().unwrap();
             assert_eq!(observe(&mut watch, &mut session), WatchEvent::Unchanged);
             std::fs::remove_file(&path).unwrap();
-            watch.request_read().unwrap();
             assert!(matches!(
                 observe(&mut watch, &mut session),
                 WatchEvent::ReadFailed(_)
@@ -364,7 +370,7 @@ fn main() {
         assert!(matches!(session.poll_once(),DriveStatus::Exited(cached) if cached==report));
     }
     println!(
-        "linux_reload: owned actual-main accepted/rejected/lost-ack/watcher/Stop/progress passed; synthetic Engine only, no device/recovery claims"
+        "linux_reload: owned actual-main accepted/rejected/lost-ack/watcher-notifications-debounce/Stop/progress passed; synthetic Engine only, no device/recovery claims"
     );
 }
 #[cfg(not(target_os = "linux"))]

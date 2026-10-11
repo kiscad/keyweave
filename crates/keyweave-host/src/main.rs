@@ -356,7 +356,10 @@ fn run_linux(
             let source_reaped = watcher.as_mut().map(reap_linux_source);
             // Terminal metadata only, outside the active supervision loop.
             if watcher.is_some() {
-                println!("{stats}, config_source_reaped={source_reaped:?}");
+                println!(
+                    "{stats}, config_source_reaped={source_reaped:?}, config_notify_error={:?}",
+                    watcher.as_ref().and_then(|w| w.notification_error())
+                );
             }
             let watch_success = stats.fault.is_none() && source_reaped != Some(false);
             match status {

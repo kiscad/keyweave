@@ -53,11 +53,11 @@ worker 在设备操作前核验父死亡保护、独立组与 unblocked stop sig
 --watch-config --watch-interval-ms 1000
 ```
 
-检查间隔100～60000毫秒，启用时默认1000；指定间隔必须同时启用监听。源配置可使用相对路径或普通symlink，程序在冷准备时固定其绝对文件名，后台按该文件名读取完整变化正文。建议用同目录临时文件加rename保存，读取中检测到变化会保留旧配置后再检查。
+周期兜底检查间隔100～60000毫秒，启用时默认1000；指定间隔必须同时启用监听。源配置可使用相对路径或普通symlink，程序在冷准备时固定其绝对文件名，后台按该文件名读取完整变化正文。建议用同目录临时文件加rename保存，读取中检测到变化会保留旧配置后再检查。
 
-保存新配置触发下一次检查；同一已接受/已拒绝正文不会反复提交，恢复已接受正文无需新增代号。有效Accepted才更新配置基线，已按下键仍按原binding完成repeat/up。无效正文/权限/文件删除会保留旧配置，不改用默认配置。当前采用正文轮询，没有目录通知/去抖或独立手动reload命令。
+保存新配置触发下一次检查；同一已接受/已拒绝正文不会反复提交，恢复已接受正文无需新增代号。有效Accepted才更新配置基线，已按下键仍按原binding完成repeat/up。无效正文/权限/文件删除会保留旧配置，不改用默认配置。目录中的选定文件写入/替换/删除提示会在200ms安静期后开始检查，持续变化最多合并到1s调度；任务或事务忙时仍须等待。通知不可用或丢失时保留周期正文读取，原路径parent/symlink目标变化也依赖兜底；当前没有独立手动reload命令。见 [ADR-0102](ADR-0102-linux-directory-notice-debounce.md)。
 
-活动监督循环不打印状态；退出后显示 `reload_submitted/accepted/rejected/cancelled`、`config_read_failed`、最近确认的 `reload_confirmed_generation`、`config_watch_fault` 和 `config_source_reaped`。无确认时generation为None；Submitted不能当激活成功。文件任务未能在退出后的一次100ms窗口回收，host返回1并显示false；任务回收不能证明键盘恢复或worker退出。SIGHUP仍请求Stop。
+活动监督循环不打印状态；退出后显示 `reload_submitted/accepted/rejected/cancelled`、`config_read_failed`、最近确认的 `reload_confirmed_generation`、`config_watch_fault` 、`config_source_reaped` 和缓存 `config_notify_error`。无确认时generation为None；Submitted不能当激活成功。文件任务未能在退出后的一次100ms窗口回收，host返回1并显示false；任务回收不能证明键盘恢复或worker退出。SIGHUP仍请求Stop。
 
 ## 停机与报告
 

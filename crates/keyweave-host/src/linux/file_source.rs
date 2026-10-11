@@ -87,9 +87,17 @@ pub enum SourceStep {
     Ready,
     Closed,
 }
+struct JobResult {
+    snapshot: Result<Snapshot, SourceError>,
+    notice: Option<std::io::Result<keyweave_linux::config_notify::DirectoryNotice>>,
+}
 pub struct FileSource {
     path: PathBuf,
-    job: Option<JoinHandle<Result<Snapshot, SourceError>>>,
+    job: Option<JoinHandle<JobResult>>,
+    notice_attempt: bool,
+    notice_enabled: bool,
+    notice: Option<keyweave_linux::config_notify::DirectoryNotice>,
+    notice_error: Option<SourceError>,
     ready: Option<Result<Snapshot, SourceError>>,
     closed: bool,
 }
@@ -102,9 +110,46 @@ impl FileSource {
         Ok(Self {
             path,
             job: None,
+            notice_attempt: false,
+            notice_enabled: false,
+            notice: None,
+            notice_error: None,
             ready: None,
             closed: false,
         })
+    }
+    pub fn with_notifications(path: PathBuf) -> Result<Self, SourceError> {
+        let mut source = Self::new(path)?;
+        source.notice_enabled = true;
+        Ok(source)
+    }
+    pub fn notification_error(&self) -> Option<SourceError> {
+        self.notice_error
+    }
+    /// Poll original job nonblocking, then at most one bounded notice read.
+    /// Any unavailable/lost stream becomes polling-only, without re-registering.
+    pub fn poll_notice(&mut self) -> bool {
+        self.poll();
+        if self.closed {
+            return false;
+        }
+        let Some(notice) = self.notice.as_mut() else {
+            return false;
+        };
+        match notice.poll() {
+            Ok(hint) => {
+                if hint.lost {
+                    self.notice = None;
+                    self.notice_error = Some(SourceError::Changed);
+                }
+                hint.changed
+            }
+            Err(error) => {
+                self.notice = None;
+                self.notice_error = Some(error.into());
+                true
+            }
+        }
     }
     pub fn request(&mut self) -> Result<(), SourceError> {
         self.start(None)
@@ -127,23 +172,30 @@ impl FileSource {
             return Err(SourceError::Busy);
         }
         let path = self.path.clone();
+        let register = self.notice_enabled && !self.notice_attempt;
+        self.notice_attempt |= register;
         match std::thread::Builder::new()
             .name("keyweave-source".into())
             .spawn(move || {
-                let mut snapshot = read_snapshot(&path)?;
-                if let Some((seen, active)) = compare {
-                    snapshot.comparison = Some(if snapshot.bytes.as_ref() == seen.as_ref() {
-                        Match::Seen
-                    } else if snapshot.bytes.as_ref() == active.as_ref() {
-                        Match::Active
-                    } else {
-                        Match::Changed(std::sync::Arc::from(snapshot.bytes.as_ref()))
-                    });
-                    if !matches!(snapshot.comparison, Some(Match::Changed(_))) {
-                        snapshot.bytes = Box::new([]);
+                let notice =
+                    register.then(|| keyweave_linux::config_notify::DirectoryNotice::new(&path));
+                let snapshot = (|| {
+                    let mut snapshot = read_snapshot(&path)?;
+                    if let Some((seen, active)) = compare {
+                        snapshot.comparison = Some(if snapshot.bytes.as_ref() == seen.as_ref() {
+                            Match::Seen
+                        } else if snapshot.bytes.as_ref() == active.as_ref() {
+                            Match::Active
+                        } else {
+                            Match::Changed(std::sync::Arc::from(snapshot.bytes.as_ref()))
+                        });
+                        if !matches!(snapshot.comparison, Some(Match::Changed(_))) {
+                            snapshot.bytes = Box::new([]);
+                        }
                     }
-                }
-                Ok(snapshot)
+                    Ok(snapshot)
+                })();
+                JobResult { snapshot, notice }
             }) {
             Ok(job) => {
                 self.job = Some(job);
@@ -160,9 +212,18 @@ impl FileSource {
         if self.job.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(job) = self.job.take()
         {
-            let result = job.join().unwrap_or(Err(SourceError::Panicked));
-            if !self.closed {
-                self.ready = Some(result)
+            match job.join() {
+                Ok(result) if !self.closed => {
+                    if let Some(notice) = result.notice {
+                        match notice {
+                            Ok(notice) => self.notice = Some(notice),
+                            Err(error) => self.notice_error = Some(error.into()),
+                        }
+                    }
+                    self.ready = Some(result.snapshot);
+                }
+                Err(_) if !self.closed => self.ready = Some(Err(SourceError::Panicked)),
+                _ => {}
             }
         }
         if self.closed {
@@ -182,6 +243,7 @@ impl FileSource {
     }
     pub fn close(&mut self) {
         self.closed = true;
+        self.notice = None;
         self.ready = None;
     }
     pub fn job_pending(&self) -> bool {
@@ -400,13 +462,19 @@ mod tests {
     #[test]
     fn stop_retains_original_blocked_job_and_discards_late_result() {
         let (release, wait) = std::sync::mpsc::sync_channel(1);
-        let mut source = FileSource::new(PathBuf::from("/private-test-source")).unwrap();
+        let dir = Dir::new();
+        let path = dir.file();
+        let mut source = FileSource::with_notifications(path.clone()).unwrap();
         source.job = Some(std::thread::spawn(move || {
+            let notice = keyweave_linux::config_notify::DirectoryNotice::new(&path).unwrap();
             wait.recv().unwrap();
-            Ok(Snapshot {
-                bytes: Box::new(*b"late private body"),
-                comparison: None,
-            })
+            JobResult {
+                snapshot: Ok(Snapshot {
+                    bytes: Box::new(*b"late private body"),
+                    comparison: None,
+                }),
+                notice: Some(Ok(notice)),
+            }
         }));
         assert_eq!(source.request().unwrap_err(), SourceError::Busy);
         source.close();
@@ -420,6 +488,8 @@ mod tests {
             std::thread::yield_now()
         }
         assert!(source.take().is_none());
+        assert!(source.notice.is_none());
+        assert!(!source.poll_notice());
         assert_eq!(source.poll(), SourceStep::Closed);
     }
     #[test]
@@ -468,5 +538,37 @@ mod tests {
             source.take().unwrap().unwrap().into_comparison(),
             Err(SourceError::Comparison)
         ));
+    }
+    #[test]
+    fn unavailable_directory_registration_is_one_attempt_with_polling_fallback() {
+        let dir = Dir::new();
+        let parent = dir.0.join("missing");
+        let path = parent.join("config");
+        let mut source = FileSource::with_notifications(path.clone()).unwrap();
+        assert!(source.notice.is_none());
+        assert!(!source.job_pending());
+        source.request().unwrap();
+        ready(&mut source);
+        assert!(source.take().unwrap().is_err());
+        assert!(matches!(
+            source.notification_error(),
+            Some(SourceError::Io {
+                kind: io::ErrorKind::NotFound,
+                ..
+            })
+        ));
+        assert!(source.notice_attempt);
+        fs::create_dir(&parent).unwrap();
+        fs::write(path, b"usable via periodic read").unwrap();
+        source.request().unwrap();
+        ready(&mut source);
+        assert_eq!(
+            source.take().unwrap().unwrap().bytes(),
+            b"usable via periodic read"
+        );
+        assert!(source.notice.is_none());
+        assert!(!source.poll_notice());
+        source.close();
+        assert!(source.reap_closed().unwrap());
     }
 }

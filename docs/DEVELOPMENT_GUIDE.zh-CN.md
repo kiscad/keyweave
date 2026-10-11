@@ -574,3 +574,6 @@ ADR-0072实现进展：run_reporting_worker连接受控Runtime loop与第三pipe
 
 
 ADR-0101 实现进展：run-linux --watch-config已接入ADR-0100后台正文轮询，--watch-interval-ms范围100～60000/default1000，console专用/None准入前拒绝。prepare_watched冷配对absolute lexical源路径和同一次PreparedConfig的exact bytes baseline/seal；start之后才线程/监听，循环原监督优先/无stdio，终止后汇总计数与一次100ms原任务reap，不把source回收当Exit/恢复。953测试、旧3无输入reload场景和实际None host→worker验证通过，成功CLI console捕获仍未硬件验收。原规划的目录rename通知和100～300ms去抖继续待实现，实时状态/外部操作、Windows适配以及全部原目标保留。[设计](ADR-0101-linux-watch-command.md)。
+
+
+ADR-0102 实现进展：Linux watcher首次原文件后台job注册父目录inotify，control只单次4096-byte非阻塞read/按OS文件名过滤；相关变化200ms安静去抖/持续1s调度上限，原周期兜底保留，通知lost或注册失败只缓存错误/回退，不自动re-register。不把提示当epoch/代号/激活。960tests/Clippy/fmt/source60/扩展C ABI通过，60s周期的actual-main无输入harness在5s内自动响应rename/写入/恢复/删除，合成Engine/Active不能证明console输入。完整实时用户控制、Windows与硬件等原目标继续。[设计](ADR-0102-linux-directory-notice-debounce.md)。

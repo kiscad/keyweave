@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0102 Linux owned configuration directory notification and bounded debounce",
+  "source_base_commit": "724eda6d79140bf8775d88be02df180561f520fd",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "ff9568818bac9135527323fb88ebd21e89956d35635be69beaedd48f8ea09528",
+    "crates/keyweave-linux/src/ioctl.rs": "3e706361d5b79dc3b45ab80d2c70ee37f1600f6ee4b11d4858f491cfe39e67b6",
+    "crates/keyweave-linux/src/config_notify.rs": "1ed2b34667e66adf8e8393b4b8fc70df0ae6e4ad3aef1c8d853d79ddc2bfdd27",
+    "crates/keyweave-host/src/linux/file_source.rs": "dc120fe1364eac928b560700a001b308b3adb768f6c99a04434102995e19faa8",
+    "crates/keyweave-host/src/linux/watcher.rs": "441d2fa16be9a41535ed58145a7d4dbe2b684495b92b7fd89795f5001bd997fa",
+    "crates/keyweave-host/src/main.rs": "700e6c429c4ae3761ab0f47268c090b0017ce76888c68dff5ee14539289778a7",
+    "crates/keyweave-host/tests/linux_reload.rs": "2e0a2b0f6da48e08b2f3a51e4083e4cb82cc682b451acaa56159f0a78297365f",
+    "tools/verify_linux_abi.py": "f7cbda5707f4a3b96f1ab5fbf85b81eae088b9abe5fbcc86735a61f9fc88ae21"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 960,
+    "new_tests": 7,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "native_build_exit": 0,
+    "source_hashes_verified": 60,
+    "c_abi_exit": 0,
+    "actual_main_reload_scenarios": 3,
+    "watcher_scenario": "60s periodic interval / 5s observation, own create_new replacement+atomic rename automatic Accepted2, write automatic Rejected2, repeated invalid explicit request Unchanged, restored accepted bytes automatic Unchanged/no gen3, removal automatic ReadFailed, own parent PID SIGINT / actual0 Cooperative / same source reaped; synthetic Engine/session, Missing/recoveryfalse/successfalse",
+    "logs": {
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-directory-notice/workspace-tests.log",
+        "sha256": "cda0cdd5dd988b30d77cec4a0c383fd3e4624f6fb9e2c4c01bccee556e3c63f4"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-directory-notice/clippy.log",
+        "sha256": "ede72340d099314dc0623369af90ad10c20572935478a408c474f118b83e740a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-directory-notice/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "build": {
+        "path": "target/validation/linux-20261011-directory-notice/build.log",
+        "sha256": "02db5a66fa0c60ca8618bd08aac556eac4f3ec863e8630a0d353dba6a0f6e126"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-directory-notice/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261011-directory-notice/abi.log",
+        "sha256": "ec26fd2e400049f969d998c7edaf03fbd0695097277012bc484a90b209a5dc46"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial Clippy rejected manual_is_multiple_of and new FFI item following test module; replaced standard method and moved FFI before tests, production lints unchanged. Initial tool output remains in session, final full validation logs recorded."
+  ],
+  "abi": "Two fixed scalar/pathname inotify calls only in private ioctl.rs, owned CLOEXEC/NONBLOCK descriptor; C oracle adds header offsets/flags/masks/signatures; native tests operate own dirs/files and proc/self/fdinfo only. No dependencies added.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Linux-only backend/source/notification API; earlier shared CLI and native validation remain pending approval quota issue."
+  },
+  "limitations": [
+    "Hints are not content/authentication/consumer/progress/activation; only original timely valid Accepted advances baseline.",
+    "Register once on first existing background file job after signals and spawn, not on control thread. Any failure/loss falls back to original periodic reads without retry registration.",
+    "One notification read at most 4096 bytes per host tick; unrelated files filtered. Overflow rescan, directory loss disables.",
+    "Quiet period200ms with continuous-hint1s scheduling cap; busy job/transaction/unread notification may defer actual read. Manual flag bypasses debounce but cannot extend transaction.",
+    "Parent replacement or symlink target outside watched directory depends on periodic fallback; no controlled watch re-registration yet.",
+    "No hard filesystem/allocator/thread/join/close time bound. Close retains original running job, discards late snapshot and owned notice when reaped; Drop not Exit/cleanup proof.",
+    "Cached config_notify_error None is not notification completeness/liveness proof. No active-loop stdio; real-time notifications/manual command still unfinished.",
+    "Unit simulation and synthetic actual-main Engine/Active evidence do not validate real console/keyboard capture/recovery. No real VT/evdev/uinput/input/driver/install actions.",
+    "Windows adapter/native validation, real hardware and full original goal remain unfinished."
+  ]
+}

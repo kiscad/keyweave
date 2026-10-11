@@ -457,6 +457,37 @@ pub(crate) fn uinput_sysname(fd: BorrowedFd<'_>) -> io::Result<String> {
     }
     Ok(name.into())
 }
+/// Cold-only directory registration; pathname lookup can stall on filesystems.
+pub(crate) fn config_directory_notice(
+    directory: &std::ffi::CStr,
+    mask: u32,
+) -> io::Result<(std::os::fd::OwnedFd, i32)> {
+    use std::os::fd::{AsFd, FromRawFd, OwnedFd};
+    // SAFETY: scalar audited flags, no pointers. A successful result is a new
+    // descriptor which has no other Rust owner and is immediately owned below.
+    let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+    if raw < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: raw was returned successfully by init1; exactly one owner is
+    // constructed. It remains alive across add_watch and closes on any error.
+    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+    // SAFETY: fd stays borrowed during this synchronous call; directory is a
+    // live NUL-terminated CStr, no pointer is retained. ONLYDIR requires a
+    // directory. Caller only passes the fixed configuration-event mask.
+    let watch = unsafe {
+        libc::inotify_add_watch(
+            fd.as_fd().as_raw_fd(),
+            directory.as_ptr(),
+            mask | libc::IN_ONLYDIR,
+        )
+    };
+    if watch < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((fd, watch))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

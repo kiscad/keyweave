@@ -19,6 +19,12 @@ source = r'''
 #include <sys/random.h>
 #include <time.h>
 _Static_assert(CLOCK_MONOTONIC == 1 && CLOCK_BOOTTIME == 7, "continuity clock IDs");
+#include <sys/inotify.h>
+_Static_assert(sizeof(struct inotify_event) == 16, "notice record header");
+_Static_assert(offsetof(struct inotify_event, wd) == 0 && offsetof(struct inotify_event, mask) == 4 && offsetof(struct inotify_event, cookie) == 8 && offsetof(struct inotify_event, len) == 12, "notice offsets");
+_Static_assert(IN_CLOEXEC == O_CLOEXEC && IN_NONBLOCK == O_NONBLOCK, "notice flags");
+_Static_assert(IN_MODIFY == 2 && IN_ATTRIB == 4 && IN_CLOSE_WRITE == 8 && IN_MOVED_FROM == 0x40 && IN_MOVED_TO == 0x80 && IN_CREATE == 0x100 && IN_DELETE == 0x200, "notice change bits");
+_Static_assert(IN_DELETE_SELF == 0x400 && IN_MOVE_SELF == 0x800 && IN_UNMOUNT == 0x2000 && IN_Q_OVERFLOW == 0x4000 && IN_IGNORED == 0x8000 && IN_ONLYDIR == 0x1000000, "notice loss and directory bits");
 #include <sys/signalfd.h>
 #include <signal.h>
 #include <pthread.h>
@@ -41,6 +47,9 @@ _Static_assert(F_DUPFD_CLOEXEC == 1030 && F_GETFD == 1 && F_SETFD == 2, "descrip
 int main(void) {
     int (*read_clock)(clockid_t,struct timespec *) = clock_gettime;
     (void)read_clock;
+    int (*notice_init)(int) = inotify_init1;
+    int (*notice_watch)(int,const char *,uint32_t) = inotify_add_watch;
+    (void)notice_init; (void)notice_watch;
     int (*signals_fd)(int,const sigset_t *,int) = signalfd;
     int (*thread_mask)(int,const sigset_t *,sigset_t *) = pthread_sigmask;
     int (*process_mask)(int,const sigset_t *,sigset_t *) = sigprocmask;
@@ -97,4 +106,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control getrandom, signalfd and paired-clock ABI; no device access')
+print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control getrandom, signalfd, inotify and paired-clock ABI; no device access')
