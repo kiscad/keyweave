@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0117 atomic retained upstream parent registration and old snapshot output child admission",
+  "source_base_commit": "1dea96e92aa31835ba112f8550add02a6e4dd448",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/output_stage.rs": "d32673b9b33765e75876a963de374cefc84ef5978fce140bde6283c0c08b91c6",
+    "crates/keyweave-engine/src/generated_stage.rs": "777c71556d8be5e0e20f26d1aaa6f3a1230efe618a760075177368629942ddd7",
+    "crates/keyweave-engine/src/terminal_actor.rs": "2d6d084954f35cf85c8333268e230e44c1cf753dd020a02bc9f874275a8525cc",
+    "crates/keyweave-engine/src/stage_bindings.rs": "12d8798db102bff376321298f29218991a71aa33b586831f353f6a35a76b94a1",
+    "crates/keyweave-engine/tests/output_children.rs": "7f1499f4eaf8c4f873f5b320e9776e847921cd22a8e698454d2909741348b196"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1090,
+    "new_tests": 14,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-output-child-admission/tests.log",
+        "sha256": "ae00f8b5d6be1d9072908eb6a28a103b96afbec39f852cd648a89d20cb3c3fbb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-output-child-admission/clippy.log",
+        "sha256": "75147c1c9d631bd0aa8aefca63e6c146b7ec7c950278c92a961c4870197ba039"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-output-child-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-output-child-admission/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust child reservation witness and three-party prepared output transaction; no unsafe/FFI/dependency/native ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changes and prior native validations pending previous automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "PreparedOutputChild owns exclusive upstream Reservation and both output preparations; no state changes on rejection/drop/abort, commit has no business failure. Allocation failure/panic excluded.",
+    "Child witness matches exact batch/stage/start/device/source/config Arc/down-slot count and originates only from a prepared Live-parent next-stage edge. Only exact current Arc or older generation is allowed; ordinary old roots, parentless reservations, future or same-generation foreign Arc rejected.",
+    "Old schema still validates; actual/generated variable assignment must use retained registered names. Output Reset does not resurrect disappeared old namespaces, nor does it clear external upstream arena; full controller must reset its producer bindings too.",
+    "Upstream child slots remain Reserved registration metadata while real output owners live in private Terminal arena. Output completion/cancellation requires caller to clear same child registration before releasing parent; no fabricated Live payload or Up.",
+    "Rust caller is responsible for actual meaning of upstream Live producer payload; witness is binding consistency, not native/session/cross-user authentication or action policy authorization.",
+    "Snapshot extra sources still count only output budget; unified global source subtree budget and complete producer/controller integration remain unfinished.",
+    "Full Simple/Complex actor, crossstage scope propagation/context and branch/halt/simultaneous/native duration/Windows adapter/hardware/UI/packaging remain unfinished.",
+    "Pure/mock and existing no-input checks only; no real input/device/driver/install or Windows native build. Production UnsupportedActionTiming remains gated; full original objective active."
+  ]
+}

@@ -172,6 +172,7 @@ impl Environment {
         &mut self,
         events: &[StageEvent<PlannedAction>],
         temporary: usize,
+        child_config: Option<&Arc<ConfigSnapshot>>,
     ) -> Result<Append<'_>, GeneratedError> {
         if events.len() > MAX_STAGE_APPEND {
             return Err(TimelineError::Capacity.into());
@@ -200,7 +201,9 @@ impl Environment {
                     {
                         return Err(GeneratedError::Lifecycle);
                     }
-                    if !Arc::ptr_eq(&event.config, &self.config) {
+                    if !Arc::ptr_eq(&event.config, &self.config)
+                        && !child_config.is_some_and(|config| Arc::ptr_eq(config, &event.config))
+                    {
                         return Err(GeneratedError::Provenance);
                     }
                     if let ActionTarget::SetVariable(variable) = &action.target {
@@ -425,7 +428,7 @@ impl GeneratedStageQueue {
         &mut self,
         events: Vec<StageEvent<PlannedAction>>,
     ) -> Result<PreparedGeneratedAppend<'_>, RejectedGeneratedBatch> {
-        let append = match self.environment.prepare(&events, 0) {
+        let append = match self.environment.prepare(&events, 0, None) {
             Ok(append) => append,
             Err(error) => return Err(RejectedGeneratedBatch { error, events }),
         };
@@ -464,12 +467,40 @@ impl GeneratedStageQueue {
         &mut self,
         plan: &modifier_scope::ScopedActionPlan,
     ) -> Result<PreparedScopedGeneration<'_>, GeneratedError> {
+        self.prepare_scoped_inner(plan, None)
+    }
+    pub(crate) fn prepare_child_scoped(
+        &mut self,
+        plan: &modifier_scope::ScopedActionPlan,
+        child: &stage_bindings::ChildAdmission<'_>,
+    ) -> Result<PreparedScopedGeneration<'_>, GeneratedError> {
+        self.prepare_scoped_inner(plan, Some(child))
+    }
+    fn prepare_scoped_inner(
+        &mut self,
+        plan: &modifier_scope::ScopedActionPlan,
+        child: Option<&stage_bindings::ChildAdmission<'_>>,
+    ) -> Result<PreparedScopedGeneration<'_>, GeneratedError> {
         let actions = plan.actions();
         let spec = plan.scope();
         if actions.origin.stage != self.environment.stage {
             return Err(GeneratedError::Stage);
         }
-        if !Arc::ptr_eq(&actions.origin.config, &self.environment.config) {
+        let slots = actions
+            .events()
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+            .count();
+        if let Some(child) = child {
+            if !child.matches(&actions.origin, slots)
+                || (actions.origin.config.generation >= self.environment.config.generation
+                    && !Arc::ptr_eq(&actions.origin.config, &self.environment.config))
+            {
+                return Err(GeneratedError::Provenance);
+            }
+            actions.origin.config.validate_timed_stages(true)?;
+            actions.origin.config.variable_names()?;
+        } else if !Arc::ptr_eq(&actions.origin.config, &self.environment.config) {
             return Err(GeneratedError::Provenance);
         }
         let nonempty = !actions.events().is_empty();
@@ -506,7 +537,11 @@ impl GeneratedStageQueue {
             return Err(EngineError::ResourceLimit.into());
         }
         let temporary = if nonempty { spec.reservation() } else { 0 };
-        let append = self.environment.prepare(actions.events(), temporary)?;
+        let append = self.environment.prepare(
+            actions.events(),
+            temporary,
+            child.map(|_| &actions.origin.config),
+        )?;
         let delivery = self.delivery.prepare(
             actions.events(),
             if nonempty {
@@ -583,7 +618,7 @@ impl GeneratedStageQueue {
             return Err(GeneratedError::Lifecycle);
         }
         let events = saved.plan.input_up_events(at);
-        let append = self.environment.prepare(&events, 0)?;
+        let append = self.environment.prepare(&events, 0, None)?;
         let delivery = self.delivery.prepare(&events, None)?;
         let timeline = self
             .timeline

@@ -22,10 +22,13 @@ pub enum OutputStageError {
     Invariant,
     #[error("output stage failed; reset is required before ordinary work")]
     Failed,
+    #[error(transparent)]
+    Binding(#[from] stage_bindings::BindingError),
 }
 struct Recipe {
     saved: ScopedGeneration,
     device: DeviceInstanceId,
+    parent: Option<action_plan::ActionSlot>,
 }
 /// A single actor owns both queues. No mutable component or original-Up credential escapes.
 /// Batch IDs remain caller allocated and strictly increase, including across reset.
@@ -35,6 +38,52 @@ pub struct OutputStageActor {
     recipes: BTreeMap<BatchId, Recipe>,
     now: MonoTime,
     failed: bool,
+}
+/// Both output preparations are held until commit. Drop leaves both untouched.
+#[must_use = "commit or discard the prepared output batch"]
+pub struct PreparedOutputAppend<'a> {
+    generated: generated_stage::PreparedScopedGeneration<'a>,
+    terminal: terminal_actor::PreparedTerminalAppend<'a>,
+    recipes: &'a mut BTreeMap<BatchId, Recipe>,
+    id: BatchId,
+    device: DeviceInstanceId,
+    parent: Option<action_plan::ActionSlot>,
+    nonempty: bool,
+}
+impl PreparedOutputAppend<'_> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.terminal.commit();
+        let saved = self.generated.commit();
+        if self.nonempty {
+            self.recipes.insert(
+                self.id,
+                Recipe {
+                    saved,
+                    device: self.device,
+                    parent: self.parent,
+                },
+            );
+        }
+    }
+}
+/// Owns the exclusive upstream registration and both output preparations.
+/// Parent mutation is impossible until this complete transaction is committed or discarded.
+#[must_use = "commit or discard the parent registration and output batch together"]
+pub struct PreparedOutputChild<'a, T> {
+    output: PreparedOutputAppend<'a>,
+    registration: stage_bindings::Reservation<'a, T>,
+}
+impl<T> PreparedOutputChild<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.registration.commit();
+        self.output.commit();
+    }
 }
 impl OutputStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, OutputStageError> {
@@ -120,23 +169,76 @@ impl OutputStageActor {
     }
     /// Bare pass-through/tap work has no modifier suppression or snapshot scope.
     pub fn enqueue(&mut self, plan: ActionPlan) -> Result<(), OutputStageError> {
-        self.enqueue_scoped(ScopedActionPlan::plain(plan))
+        self.prepare(plan)?.commit();
+        Ok(())
     }
     pub fn enqueue_scoped(&mut self, plan: ScopedActionPlan) -> Result<(), OutputStageError> {
+        self.prepare_scoped(plan)?.commit();
+        Ok(())
+    }
+    pub fn prepare(
+        &mut self,
+        plan: ActionPlan,
+    ) -> Result<PreparedOutputAppend<'_>, OutputStageError> {
+        self.prepare_scoped(ScopedActionPlan::plain(plan))
+    }
+    pub fn prepare_scoped(
+        &mut self,
+        plan: ScopedActionPlan,
+    ) -> Result<PreparedOutputAppend<'_>, OutputStageError> {
+        self.prepare_inner(plan, None)
+    }
+    /// Consume the upstream child reservation so abort cannot orphan a committed output batch.
+    pub fn prepare_child<'a, T>(
+        &'a mut self,
+        plan: ActionPlan,
+        registration: stage_bindings::Reservation<'a, T>,
+    ) -> Result<PreparedOutputChild<'a, T>, OutputStageError> {
+        self.prepare_child_scoped(ScopedActionPlan::plain(plan), registration)
+    }
+    pub fn prepare_child_scoped<'a, T>(
+        &'a mut self,
+        plan: ScopedActionPlan,
+        registration: stage_bindings::Reservation<'a, T>,
+    ) -> Result<PreparedOutputChild<'a, T>, OutputStageError> {
+        self.running()?;
+        let child = registration.child_admission()?;
+        let output = self.prepare_inner(plan, Some(&child))?;
+        Ok(PreparedOutputChild {
+            output,
+            registration,
+        })
+    }
+    fn prepare_inner(
+        &mut self,
+        plan: ScopedActionPlan,
+        child: Option<&stage_bindings::ChildAdmission<'_>>,
+    ) -> Result<PreparedOutputAppend<'_>, OutputStageError> {
         self.running()?;
         let origin = &plan.actions().origin;
         let id = origin.batch;
         let device = origin.device;
         let nonempty = !plan.actions().events().is_empty();
-        let generated = self.generated.prepare_scoped(&plan)?;
-        let terminal = self.terminal.prepare_scoped(plan)?;
-        // Both preparations succeeded; neither committed state on a rejection.
-        terminal.commit();
-        let saved = generated.commit();
-        if nonempty {
-            self.recipes.insert(id, Recipe { saved, device });
-        }
-        Ok(())
+        let generated = match child {
+            Some(child) => self.generated.prepare_child_scoped(&plan, child)?,
+            None => self.generated.prepare_scoped(&plan)?,
+        };
+        let terminal = match child {
+            Some(child) => self.terminal.prepare_child_scoped(plan, child)?,
+            None => self.terminal.prepare_scoped(plan)?,
+        };
+        Ok(PreparedOutputAppend {
+            generated,
+            terminal,
+            recipes: &mut self.recipes,
+            id,
+            device,
+            parent: child.map(stage_bindings::ChildAdmission::parent),
+            nonempty,
+        })
+    }
+    pub fn parent_binding(&self, id: BatchId) -> Option<action_plan::ActionSlot> {
+        self.recipes.get(&id)?.parent
     }
     /// Caller drains due work first. Both recipes commit or neither does.
     pub fn input_up(&mut self, id: BatchId, at: MonoTime) -> Result<bool, OutputStageError> {

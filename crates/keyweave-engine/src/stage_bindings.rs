@@ -70,7 +70,35 @@ pub struct Reservation<'a, T> {
     arena: &'a mut BindingArena<T>,
     batch: Batch<T>,
 }
+/// Only an exclusively prepared child registration can create this witness.
+/// It is semantic binding provenance, not native/session authorization.
+pub(crate) struct ChildAdmission<'a> {
+    origin: &'a PlanOrigin,
+    parent: ActionSlot,
+    slots: usize,
+}
+impl ChildAdmission<'_> {
+    pub(crate) fn matches(&self, origin: &PlanOrigin, slots: usize) -> bool {
+        self.slots == slots
+            && self.origin.batch == origin.batch
+            && self.origin.stage == origin.stage
+            && self.origin.start == origin.start
+            && self.origin.device == origin.device
+            && self.origin.source == origin.source
+            && std::sync::Arc::ptr_eq(&self.origin.config, &origin.config)
+    }
+    pub(crate) fn parent(&self) -> ActionSlot {
+        self.parent
+    }
+}
 impl<T> Reservation<'_, T> {
+    pub(crate) fn child_admission(&self) -> Result<ChildAdmission<'_>, BindingError> {
+        Ok(ChildAdmission {
+            origin: &self.batch.origin,
+            parent: self.batch.parent.ok_or(BindingError::Provenance)?,
+            slots: self.batch.slots.len(),
+        })
+    }
     pub fn commit(self) {
         if let Some(parent) = self.batch.parent {
             self.arena

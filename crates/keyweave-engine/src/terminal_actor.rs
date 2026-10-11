@@ -270,7 +270,7 @@ impl TerminalActor {
         Ok(())
     }
     pub fn prepare(&mut self, plan: ActionPlan) -> Result<PreparedTerminalAppend<'_>, ActorError> {
-        self.prepare_inner(plan, None)
+        self.prepare_inner(plan, None, None)
     }
     /// Scope must describe this frozen plan. Scope owners are opened on its first
     /// delivered event, not on admission; empty plans never open a scope.
@@ -286,12 +286,21 @@ impl TerminalActor {
         plan: modifier_scope::ScopedActionPlan,
     ) -> Result<PreparedTerminalAppend<'_>, ActorError> {
         let (plan, scope) = plan.into_parts();
-        self.prepare_inner(plan, Some(scope))
+        self.prepare_inner(plan, Some(scope), None)
+    }
+    pub(crate) fn prepare_child_scoped(
+        &mut self,
+        plan: modifier_scope::ScopedActionPlan,
+        child: &stage_bindings::ChildAdmission<'_>,
+    ) -> Result<PreparedTerminalAppend<'_>, ActorError> {
+        let (plan, scope) = plan.into_parts();
+        self.prepare_inner(plan, Some(scope), Some(child))
     }
     fn prepare_inner(
         &mut self,
         mut plan: ActionPlan,
         scope: Option<modifier_scope::ModifierScope>,
+        child: Option<&stage_bindings::ChildAdmission<'_>>,
     ) -> Result<PreparedTerminalAppend<'_>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
@@ -299,17 +308,26 @@ impl TerminalActor {
         if plan.origin.stage != Stage::Output {
             return Err(ActorError::UnsupportedStage);
         }
-        if !Arc::ptr_eq(&plan.origin.config, &self.core.config) {
-            return Err(ActorError::InvalidSnapshot);
-        }
-        if self.last_batch.is_some_and(|id| plan.origin.batch <= id) {
-            return Err(ActorError::InvalidBatch);
-        }
         let slots = plan
             .events
             .iter()
             .filter(|e| e.payload.edge == KeyEdge::Down)
             .count();
+        if let Some(child) = child {
+            if !child.matches(&plan.origin, slots)
+                || (plan.origin.config.generation >= self.core.config.generation
+                    && !Arc::ptr_eq(&plan.origin.config, &self.core.config))
+            {
+                return Err(ActorError::InvalidSnapshot);
+            }
+            plan.origin.config.validate_timed_stages(true)?;
+            plan.origin.config.variable_names()?;
+        } else if !Arc::ptr_eq(&plan.origin.config, &self.core.config) {
+            return Err(ActorError::InvalidSnapshot);
+        }
+        if self.last_batch.is_some_and(|id| plan.origin.batch <= id) {
+            return Err(ActorError::InvalidBatch);
+        }
         let scope_up =
             !plan.events.is_empty() && scope.as_ref().is_some_and(|scope| scope.until_input_up());
         let remaining = plan.events.len() + plan.release_on_input_up.len() + usize::from(scope_up);
