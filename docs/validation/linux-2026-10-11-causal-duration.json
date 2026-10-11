@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0103 preserve causal batch action duration behind stage FIFO or actor time",
+  "source_base_commit": "640d825f36366bef7b9ddab359a0b39063773c7d",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/timeline.rs": "078e0344e478bcbd5bd445045691309bb86e20b065f86b31ba12f291438ad925",
+    "crates/keyweave-engine/tests/stage_timeline.rs": "3619ca5696e8020b458e4846b92b3d381156a2d7816c9fa8b32f741530e597c1",
+    "crates/keyweave-engine/tests/terminal_actor.rs": "c73d7c6f1900e40d982affec16d10cfc6f03cd0cdeef232cdccecd745a2511b2"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 966,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-causal-duration/workspace-tests.log",
+        "sha256": "0439ccf10a20720911433ae11f9d4183e79a07e431f025636f814ab0507c144f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-causal-duration/clippy.log",
+        "sha256": "8e571be64b27ecb913eadc225f8f2414f0d56c888a6806ccc1a3651f40eebadf"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-causal-duration/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-causal-duration/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "abi": "Pure Rust scheduler, no unsafe/FFI/dependency/ABI changes; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared timeline/actor behavior changed; native compilation and earlier shared validations pending approval quota issue."
+  },
+  "initial_failures": [],
+  "limitations": [
+    "Per-stage whole-batch shift for monotonic action sequences; independently staged queues preserve FIFO and causal order.",
+    "Overflow rejects original entire owned batch without queue/order mutation; no saturating addition. Actor source/batch/slot state advances only after successful timeline admission.",
+    "Logical earliest/delivered times, not hard real-time or actual OS submission interval. Old queued deadlines retained; newly admitted past batches shifted behind current actor time.",
+    "Native Engine duration gate remains; complete simple/complex deferred actor/runtime integration still unfinished. TerminalActor is output-stage only.",
+    "Tests are deterministic pure actors and existing no-input process harnesses; no actual keyboard/native duration/input/device/driver/install actions.",
+    "Full original advanced-engine/simultaneous/platform/context/hotplug/UI/packaging/driver scope remains unfinished."
+  ]
+}

@@ -258,3 +258,79 @@ fn reset_keeps_retired_generation_and_device_history_is_bounded() {
     work.device = device(2);
     queue.enqueue(vec![work]).unwrap();
 }
+
+#[test]
+fn a_blocked_batch_preserves_delays_and_shifts_each_stage_independently() {
+    let mut queue = queue();
+    queue
+        .enqueue(vec![
+            event(Stage::Simple, 100, 1),
+            event(Stage::Output, 20, 2),
+        ])
+        .unwrap();
+    queue
+        .enqueue(vec![
+            event(Stage::Simple, 0, 3),
+            event(Stage::Output, 0, 4),
+            event(Stage::Simple, 50, 5),
+            event(Stage::Output, 10, 6),
+        ])
+        .unwrap();
+    let mut seen = vec![];
+    for at in [20, 30, 100, 150] {
+        while let Some(due) = queue.pop_due(MonoTime(at)).unwrap() {
+            seen.push((due.event.at_ns.0, due.event.payload));
+        }
+    }
+    assert_eq!(
+        seen,
+        [(20, 2), (20, 4), (30, 6), (100, 1), (100, 3), (150, 5)]
+    );
+}
+#[test]
+fn late_batch_keeps_relative_duration_after_the_current_actor_clock() {
+    let mut queue = queue();
+    queue.advance(MonoTime(100)).unwrap();
+    queue
+        .enqueue(vec![
+            event(Stage::Complex, 0, 1),
+            event(Stage::Complex, 50, 2),
+        ])
+        .unwrap();
+    assert_eq!(
+        queue.pop_due(MonoTime(100)).unwrap().unwrap().event.at_ns,
+        MonoTime(100)
+    );
+    assert!(queue.pop_due(MonoTime(149)).unwrap().is_none());
+    assert_eq!(
+        queue.pop_due(MonoTime(150)).unwrap().unwrap().event.at_ns,
+        MonoTime(150)
+    );
+}
+#[test]
+fn shift_overflow_rejects_whole_original_batch_and_leaves_queue_unchanged() {
+    let mut queue = queue();
+    queue.enqueue(vec![event(Stage::Output, 100, 1)]).unwrap();
+    let rejected = queue
+        .enqueue(vec![
+            event(Stage::Output, 0, 2),
+            event(Stage::Output, u64::MAX, 3),
+        ])
+        .unwrap_err();
+    assert_eq!(rejected.error, TimelineError::TimeOverflow);
+    assert_eq!(
+        rejected
+            .events
+            .iter()
+            .map(|e| (e.at_ns.0, e.payload))
+            .collect::<Vec<_>>(),
+        [(0, 2), (u64::MAX, 3)]
+    );
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue.next_deadline(), Some(MonoTime(100)));
+    assert_eq!(
+        queue.pop_due(MonoTime(100)).unwrap().unwrap().event.payload,
+        1
+    );
+    assert!(queue.is_empty());
+}

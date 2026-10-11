@@ -57,6 +57,8 @@ pub enum TimelineError {
     DeviceHistoryFull,
     #[error("stage ordering identity space exhausted")]
     IdentityExhausted,
+    #[error("causal batch time shift would overflow monotonic time")]
+    TimeOverflow,
 }
 
 /// Rejection returns the original owned work so callers can reconcile lifetimes.
@@ -161,13 +163,33 @@ impl<T> StageTimeline<T> {
         if let Some(error) = error {
             return Err(RejectedBatch { error, events });
         }
-        for mut event in events {
+        // Compute the whole admission before mutating queues/order IDs. Each
+        // stage shifts this batch as a unit behind its existing FIFO tail.
+        // Clamping each event separately would collapse a delayed down/up pair.
+        let mut shifts: [Option<u64>; 3] = [None; 3];
+        let mut tails: [MonoTime; 3] = std::array::from_fn(|index| {
+            self.lanes[index]
+                .back()
+                .map_or(self.now, |entry| entry.event.at_ns.max(self.now))
+        });
+        let mut times = Vec::with_capacity(events.len());
+        for event in &events {
+            let index = event.stage.index();
+            let shift =
+                *shifts[index].get_or_insert_with(|| tails[index].0.saturating_sub(event.at_ns.0));
+            let Some(shifted) = event.at_ns.checked_add(shift) else {
+                return Err(RejectedBatch {
+                    error: TimelineError::TimeOverflow,
+                    events,
+                });
+            };
+            let at = shifted.max(tails[index]);
+            tails[index] = at;
+            times.push(at);
+        }
+        for (mut event, at) in events.into_iter().zip(times) {
+            event.at_ns = at;
             let lane = &mut self.lanes[event.stage.index()];
-            // Causality is FIFO within a stage. Independent stages may advance:
-            // complex down can produce output while its own future up waits.
-            event.at_ns = event
-                .at_ns
-                .max(lane.back().map_or(self.now, |entry| entry.event.at_ns));
             lane.push_back(Entry {
                 order: self.next_order,
                 event,

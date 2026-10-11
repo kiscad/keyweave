@@ -469,3 +469,132 @@ fn key_budget_includes_lazily_unreleased_emitted_keys_of_a_completed_batch() {
     assert_eq!(actor.queued_events(), 0);
     assert_eq!(actor.reserved_slots(), 1);
 }
+
+#[test]
+fn a_second_plan_keeps_its_hold_duration_behind_the_first_plans_future_up() {
+    let mut actor = actor();
+    actor
+        .enqueue(plan(
+            &actor,
+            1,
+            device(1),
+            &[Action {
+                hold_down_ns: 100,
+                ..key("b").into()
+            }],
+            true,
+        ))
+        .unwrap();
+    actor
+        .enqueue(plan(
+            &actor,
+            2,
+            device(1),
+            &[Action {
+                hold_down_ns: 50,
+                ..key("c").into()
+            }],
+            true,
+        ))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 0), [(0, "b".into(), KeyEdge::Down)]);
+    assert_eq!(
+        drain(&mut actor, 100),
+        [
+            (100, "b".into(), KeyEdge::Up),
+            (100, "c".into(), KeyEdge::Down)
+        ]
+    );
+    assert!(drain(&mut actor, 149).is_empty());
+    assert_eq!(drain(&mut actor, 150), [(150, "c".into(), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_slots(), 0);
+    assert_eq!(actor.pending_batches(), 0);
+}
+
+#[test]
+fn removing_device_releases_shifted_live_down_and_discards_its_future_up() {
+    let mut actor = actor();
+    actor.observe_device(device(2), false, MonoTime(0)).unwrap();
+    actor
+        .enqueue(plan(
+            &actor,
+            1,
+            device(1),
+            &[Action {
+                hold_down_ns: 100,
+                ..key("b").into()
+            }],
+            true,
+        ))
+        .unwrap();
+    actor
+        .enqueue(plan(
+            &actor,
+            2,
+            device(2),
+            &[Action {
+                hold_down_ns: 50,
+                ..key("c").into()
+            }],
+            true,
+        ))
+        .unwrap();
+    drain(&mut actor, 0);
+    drain(&mut actor, 100);
+    let cleanup = actor
+        .observe_device(device(2), true, MonoTime(125))
+        .unwrap();
+    assert_eq!(
+        cleanup
+            .iter()
+            .map(|o| (o.at_ns.0, o.key.name(), o.edge))
+            .collect::<Vec<_>>(),
+        [(125, "c".into(), KeyEdge::Up)]
+    );
+    assert!(drain(&mut actor, 150).is_empty());
+    assert_eq!(actor.reserved_slots(), 0);
+    assert_eq!(actor.pending_batches(), 0);
+    assert_eq!(actor.live_slots(), 0);
+}
+#[test]
+fn shifted_plan_overflow_keeps_batch_identity_and_source_reservations_available() {
+    let mut actor = actor();
+    let first = plan_actions(
+        &[key("b").into()],
+        PlanOrigin {
+            batch: BatchId(1),
+            stage: Stage::Output,
+            start: MonoTime(u64::MAX - 1),
+            device: device(1),
+            source: SourceToken(101),
+            config: actor.snapshot().clone(),
+        },
+        false,
+    )
+    .unwrap();
+    actor.enqueue(first).unwrap();
+    let rejected = plan(
+        &actor,
+        2,
+        device(1),
+        &[Action {
+            hold_down_ns: 50,
+            ..key("c").into()
+        }],
+        true,
+    );
+    assert_eq!(
+        actor.enqueue(rejected),
+        Err(ActorError::Timeline(timeline::TimelineError::TimeOverflow))
+    );
+    assert_eq!(actor.pending_batches(), 1);
+    assert_eq!(actor.reserved_slots(), 1);
+    assert_eq!(actor.queued_events(), 1);
+    actor
+        .enqueue(plan(&actor, 2, device(1), &[key("c").into()], true))
+        .unwrap();
+    assert_eq!(actor.pending_batches(), 2);
+    assert!(actor.reset(MonoTime(0)).unwrap().is_empty());
+    assert_eq!(actor.reserved_slots(), 0);
+    assert_eq!(actor.queued_events(), 0);
+}
