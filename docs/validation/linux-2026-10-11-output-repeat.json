@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0116 retained actual output batch physical repeat eligibility query",
+  "source_base_commit": "da1e6e7c3b41da7928d106811e2abe3be9f99b35",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "5af81914f33c050a2e265c4d522f01734d51691114e0f17d5ae8aa9c8b5c99bd",
+    "crates/keyweave-engine/src/output_stage.rs": "10a0e5d326f63a087596ac19b46689b37b4d2caa0a7011dda2e655befa9dd594",
+    "crates/keyweave-engine/src/terminal_actor.rs": "9dcc1bf4de23a01276dbba51a9b500420f99babb2c6742d6890ae4365f9ac4a2",
+    "crates/keyweave-engine/src/stage_bindings.rs": "841f3b86cc6987bdc0675ad090f2f8d4d92725d62dab5f146d5fa2569b370ef8",
+    "crates/keyweave-engine/tests/output_stage.rs": "d04c14c7d8cedb6b8a22fa8bcaabbe09cf8f6d4604ad01da0726ae142df4a05f",
+    "crates/keyweave-engine/tests/stage_bindings.rs": "1b7a60428345ebeccf1211889ed99290c115b5b6a1a05ce39c65ed2406186e2d"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1076,
+    "new_tests": 10,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-output-repeat/tests.log",
+        "sha256": "a6526981b9d40dc7740322ebf38845d6a802ea9d72c968c0d22e95a36371e44a"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-output-repeat/clippy.log",
+        "sha256": "8f16cb8f2cf2545d5f34649a8889ea45bd0a199629775e124ba3ce573b6b08e2"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-output-repeat/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-output-repeat/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust read-only actual binding lookup and shared retained-repeat helper; no unsafe/FFI/dependency/native ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changes and prior native validations pending previous automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "Query returns only retained main actual keyboard nonmodifier with exact live source ownership, emitted state and no hidden reference. Pending main slot, scheduled taps, non-repeat/nonkeyboard targets and admitted original Up are ineligible.",
+    "Query creates no source, owner, output intent, queue entry, clock advancement or modifier scope, and does not reevaluate mapping/actions/variables on reload.",
+    "Original Up admission immediately stops physical-repeat eligibility even when actual FIFO Up remains queued. Other same-key owners cannot authorize a released source.",
+    "Backend must additionally verify its existing desired/submitted/session evidence and use one repeat source; result is not OS acceptance proof. Linux Kernel repeat remains unchanged.",
+    "Only Output actor query is added; native runtime and full Simple/Complex parent binding repeat propagation are not yet wired.",
+    "Full stage actor/scope propagation/old parent child admission/source subtree budget/context and branch/halt/simultaneous/native duration/Windows adapter/hardware/UI/packaging remain unfinished.",
+    "Pure/mock and existing no-input checks only; no real input/device/driver/install or Windows native build. Production UnsupportedActionTiming remains gated; full original objective active."
+  ]
+}

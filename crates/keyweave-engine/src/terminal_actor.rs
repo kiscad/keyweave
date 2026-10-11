@@ -206,6 +206,19 @@ impl TerminalActor {
     pub fn pressed_outputs(&self) -> Vec<KeyId> {
         self.core.emitted.iter().copied().collect()
     }
+    /// No owners/intents are created. Only the retained main keyboard target may
+    /// repeat; an admitted original Up stops eligibility before its actual delivery.
+    pub fn physical_repeat_target(&self, batch: BatchId) -> Option<KeyId> {
+        if self.failed {
+            return None;
+        }
+        let saved = self.batches.get(&batch)?;
+        if saved.up_queued {
+            return None;
+        }
+        let slot = saved.plan.releases().first()?.slot;
+        self.core.retained_repeat_target(self.bindings.live(slot)?)
+    }
     pub fn variable_values(&self) -> BTreeMap<String, VariableValue> {
         self.core.variable_values()
     }
@@ -735,5 +748,68 @@ mod admission_tests {
         assert_eq!(actor.core.next_source, u64::MAX);
         assert_eq!(actor.last_batch, Some(BatchId(1)));
         assert_eq!(actor.reserved_slots(), 2);
+    }
+}
+
+#[cfg(test)]
+mod repeat_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn repeat_target_requires_its_exact_source_visible_and_actually_emitted() {
+        let config = Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)));
+        let mut actor = TerminalActor::new(config.clone()).unwrap();
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        actor.observe_device(device, false, MonoTime(0)).unwrap();
+        let key = KeyId::new(7, 4);
+        let plan = action_plan::plan_actions(
+            &[key.into()],
+            action_plan::PlanOrigin {
+                batch: BatchId(1),
+                stage: Stage::Output,
+                start: MonoTime(0),
+                device,
+                source: SourceToken(100),
+                config,
+            },
+            false,
+        )
+        .unwrap();
+        actor.enqueue(plan).unwrap();
+        actor.poll(MonoTime(0)).unwrap();
+        let Bound::Leaf(owned) = actor
+            .bindings
+            .live(action_plan::ActionSlot {
+                batch: BatchId(1),
+                index: 0,
+            })
+            .unwrap()
+        else {
+            panic!("terminal leaf")
+        };
+        let source = owned.source;
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key));
+        // Private synthetic evidence changes; every query remains read-only.
+        actor.core.owners.get_mut(&key).unwrap().remove(&source);
+        actor
+            .core
+            .owners
+            .get_mut(&key)
+            .unwrap()
+            .insert(SourceToken(source.0 + 1));
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+        actor.core.owners.get_mut(&key).unwrap().insert(source);
+        actor.core.hidden.insert((key, source), 1);
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+        actor.core.hidden.remove(&(key, source));
+        actor.core.emitted.remove(&key);
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+        actor.core.emitted.insert(key);
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key));
+        actor.failed = true;
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
     }
 }

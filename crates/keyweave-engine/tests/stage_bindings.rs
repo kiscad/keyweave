@@ -125,3 +125,28 @@ fn cancellation_returns_only_real_downs_in_reverse_order_and_reclaims_capacity()
         .commit();
     assert_eq!(arena.reserved_slots(), 1);
 }
+
+#[test]
+fn live_read_is_source_slot_specific_and_never_exposes_reserved_or_released_payloads() {
+    struct Payload(u64);
+    let config = Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)));
+    let mut arena = BindingArena::default();
+    arena
+        .prepare(origin(1, Stage::Output, &config), 2, None)
+        .unwrap()
+        .commit();
+    assert!(arena.live(slot(1, 0)).is_none());
+    assert!(arena.live(slot(1, 2)).is_none());
+    assert!(arena.live(slot(2, 0)).is_none());
+    arena.insert(slot(1, 0), Payload(42)).unwrap();
+    for _ in 0..1000 {
+        assert_eq!(arena.live(slot(1, 0)).unwrap().0, 42);
+    }
+    assert_eq!(arena.reserved_slots(), 2);
+    assert_eq!(arena.live_slots(), 1);
+    assert_eq!(arena.take(slot(1, 0)).unwrap().0, 42);
+    assert!(arena.live(slot(1, 0)).is_none());
+    arena.cancel(BatchId(1)).unwrap();
+    assert!(arena.live(slot(1, 1)).is_none());
+    assert_eq!(arena.reserved_slots(), 0);
+}

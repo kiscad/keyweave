@@ -557,7 +557,10 @@ impl Engine {
     /// Native repeats use the current output modifier state, just like a held
     /// keyboard key; this query does not recreate the original shortcut scope.
     pub fn physical_repeat_target(&self, device: DeviceInstanceId, key: KeyId) -> Option<KeyId> {
-        let mut bound = &self.active.get(&(device, key))?.bound;
+        self.retained_repeat_target(&self.active.get(&(device, key))?.bound)
+    }
+    /// Shared read-only proof for an executed binding, independent of config matching.
+    fn retained_repeat_target(&self, mut bound: &Bound) -> Option<KeyId> {
         loop {
             match bound {
                 Bound::Rule {

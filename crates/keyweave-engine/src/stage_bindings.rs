@@ -143,6 +143,19 @@ impl<T> BindingArena<T> {
             },
         })
     }
+    /// Read an executed payload without changing its lifecycle or cloning it.
+    /// Reserved/released/unknown slots have no actual payload.
+    pub fn live(&self, slot: ActionSlot) -> Option<&T> {
+        match self
+            .batches
+            .get(&slot.batch)?
+            .slots
+            .get(usize::from(slot.index))?
+        {
+            Slot::Live(payload) => Some(payload),
+            Slot::Reserved | Slot::Released => None,
+        }
+    }
     pub fn check_down(&self, slot: ActionSlot) -> Result<(), BindingError> {
         match self
             .batches

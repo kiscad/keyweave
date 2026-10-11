@@ -478,3 +478,208 @@ fn overlapping_same_key_owners_retire_independently_without_unowned_up() {
     assert_eq!(drain(&mut actor, 11).0, [("b".into(), KeyEdge::Up)]);
     assert_eq!(actor.pending_batches(), 0);
 }
+
+#[test]
+fn repeat_query_waits_for_last_main_down_and_never_repeats_a_timed_prefix() {
+    let mut actor = actor(config());
+    let actions = [
+        Action {
+            hold_down_ns: 50,
+            ..key("b").into()
+        },
+        key("c").into(),
+    ];
+    actor
+        .enqueue(plain(&actor, 1, 0, 1, &actions, false))
+        .unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    drain(&mut actor, 0);
+    assert_eq!(actor.pressed_outputs(), [key("b")]);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    drain(&mut actor, 50);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("c")));
+    let before = (
+        actor.pending_batches(),
+        actor.reserved_slots(),
+        actor.live_slots(),
+        actor.queued_events(),
+        actor.pressed_outputs(),
+    );
+    for _ in 0..10_000 {
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("c")));
+    }
+    assert_eq!(
+        before,
+        (
+            actor.pending_batches(),
+            actor.reserved_slots(),
+            actor.live_slots(),
+            actor.queued_events(),
+            actor.pressed_outputs()
+        )
+    );
+    actor.input_up(BatchId(1), MonoTime(60)).unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+}
+#[test]
+fn queued_original_up_stops_repeat_even_while_actual_key_waits_behind_future_work() {
+    let mut actor = actor(config());
+    actor
+        .enqueue(plain(&actor, 1, 0, 1, &[key("b").into()], false))
+        .unwrap();
+    drain(&mut actor, 0);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("b")));
+    let tap = [Action {
+        hold_down_ns: 50,
+        ..key("c").into()
+    }];
+    actor
+        .enqueue(plain(&actor, 2, 1000, 1, &tap, true))
+        .unwrap();
+    actor.input_up(BatchId(1), MonoTime(10)).unwrap();
+    assert_eq!(actor.pressed_outputs(), [key("b")]);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    drain(&mut actor, 1000);
+    assert!(actor.pressed_outputs().contains(&key("c")));
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), None); // scheduled tap only
+    drain(&mut actor, 1050);
+    assert_eq!(actor.pending_batches(), 0);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+}
+#[test]
+fn repeat_queries_are_independent_for_same_key_owners_and_released_source_is_ineligible() {
+    let mut actor = actor(config());
+    for id in [1, 2] {
+        actor
+            .enqueue(plain(&actor, id, 0, id, &[key("b").into()], false))
+            .unwrap();
+    }
+    drain(&mut actor, 0);
+    for id in [1, 2] {
+        assert_eq!(actor.physical_repeat_target(BatchId(id)), Some(key("b")));
+    }
+    actor.input_up(BatchId(1), MonoTime(10)).unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), Some(key("b")));
+    drain(&mut actor, 10);
+    assert_eq!(actor.pressed_outputs(), [key("b")]);
+    actor.cancel_batch(BatchId(2), MonoTime(11)).unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), None);
+}
+#[test]
+fn retained_repeat_target_uses_old_binding_after_reload_and_new_batch_uses_new_snapshot() {
+    let mut actor = actor(config());
+    actor
+        .enqueue(plain(&actor, 1, 0, 1, &[key("b").into()], false))
+        .unwrap();
+    drain(&mut actor, 0);
+    actor
+        .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+        .unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("b")));
+    actor
+        .enqueue(plain(&actor, 2, 10, 1, &[key("z").into()], false))
+        .unwrap();
+    drain(&mut actor, 10);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("b")));
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), Some(key("z")));
+    assert_eq!(actor.physical_repeat_target(BatchId(99)), None);
+}
+#[test]
+fn modifiers_variables_consumer_buttons_and_repeat_false_are_never_physical_repeat_targets() {
+    for action in [
+        key("left_shift").into(),
+        variable(),
+        KeyId::new(12, 0xe9).into(),
+        KeyId::new(9, 1).into(),
+        Action {
+            repeat: false,
+            hold_down_ns: 50,
+            ..key("b").into()
+        },
+    ] {
+        let mut actor = actor(config());
+        actor
+            .enqueue(plain(&actor, 1, 0, 1, &[action], false))
+            .unwrap();
+        drain(&mut actor, 0);
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    }
+}
+#[test]
+fn additional_modifiers_never_replace_the_main_repeat_slot_or_recreate_a_shortcut() {
+    let mut actor = actor(config());
+    let action = Action {
+        modifiers: vec![key("left_control")],
+        ..key("b").into()
+    };
+    actor
+        .enqueue(plain(&actor, 1, 0, 1, &[action], false))
+        .unwrap();
+    // Modifier Down precedes main Down; the main slot is still Reserved.
+    actor.poll(MonoTime(0)).unwrap().unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    actor.poll(MonoTime(0)).unwrap().unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("b")));
+    drain(&mut actor, 0);
+    let outputs = actor.pressed_outputs();
+    let queued = actor.queued_events();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key("b")));
+    assert_eq!(actor.pressed_outputs(), outputs);
+    assert_eq!(actor.queued_events(), queued);
+}
+#[test]
+fn device_generation_replacement_cancel_and_reset_remove_only_original_repeat_authority() {
+    let mut actor = actor(config());
+    actor
+        .enqueue(plain(&actor, 1, 0, 1, &[key("b").into()], false))
+        .unwrap();
+    drain(&mut actor, 0);
+    let newer = DeviceInstanceId {
+        id: 1,
+        generation: 2,
+    };
+    actor.observe_device(newer, false, MonoTime(10)).unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    let plan = plan_actions(
+        &[key("c").into()],
+        PlanOrigin {
+            batch: BatchId(2),
+            stage: Stage::Output,
+            start: MonoTime(10),
+            device: newer,
+            source: SourceToken(102),
+            config: actor.snapshot().clone(),
+        },
+        false,
+    )
+    .unwrap();
+    actor.enqueue(plan).unwrap();
+    drain(&mut actor, 10);
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), Some(key("c")));
+    actor.reset(MonoTime(20)).unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), None);
+}
+#[test]
+fn selected_consumed_scope_repeat_reads_actual_main_binding_without_restoring_modifiers() {
+    let mut configuration = (*config()).clone();
+    configuration.complex[0].to = vec![Action {
+        modifiers: vec![key("left_control")],
+        ..key("b").into()
+    }];
+    let mut actor = actor(Arc::new(configuration));
+    shift(&mut actor);
+    actor
+        .enqueue_scoped(main(&selected(&actor, 0), 2, 100))
+        .unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), None);
+    drain(&mut actor, 100);
+    assert_eq!(actor.physical_repeat_target(BatchId(1)), None); // physical modifier
+    let emitted = actor.pressed_outputs();
+    for _ in 0..100 {
+        assert_eq!(actor.physical_repeat_target(BatchId(2)), Some(key("b")));
+    }
+    assert_eq!(actor.pressed_outputs(), emitted);
+    actor.input_up(BatchId(2), MonoTime(110)).unwrap();
+    assert_eq!(actor.physical_repeat_target(BatchId(2)), None);
+}

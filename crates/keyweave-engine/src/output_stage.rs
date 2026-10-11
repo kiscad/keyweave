@@ -98,6 +98,14 @@ impl OutputStageActor {
     pub fn pressed_outputs(&self) -> Vec<KeyId> {
         self.terminal.pressed_outputs()
     }
+    /// Read the original batch's executed repeat target. A backend must still
+    /// prove its own desired/submitted state and use exactly one repeat source.
+    pub fn physical_repeat_target(&self, batch: BatchId) -> Option<KeyId> {
+        if self.failed || !self.recipes.contains_key(&batch) {
+            return None;
+        }
+        self.terminal.physical_repeat_target(batch)
+    }
     /// Uses the generation-time destination view, not delayed actual output owners.
     pub fn select(
         &self,
@@ -343,6 +351,7 @@ mod tests {
             Err(OutputStageError::Invariant)
         ));
         assert!(actor.is_failed());
+        assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
         assert_eq!(
             actor.poll(MonoTime(1)).unwrap_err(),
             OutputStageError::Failed
