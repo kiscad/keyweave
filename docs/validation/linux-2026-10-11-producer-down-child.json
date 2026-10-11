@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0120 atomic producer Down activation and child admission",
+  "source_base_commit": "3a84524eae0e80445c0918fb519698d6283c83f5",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/stage_bindings.rs": "7cc280507e4f4b6d25a1df93a8867ae212dbbaefc7e5b40d54458a9eb67c90d9",
+    "crates/keyweave-engine/src/generated_stage.rs": "d56fd4041de87c034f1397ed06562a894c65c35aef0a42711a824ce4f11adc02",
+    "crates/keyweave-engine/tests/producer_down.rs": "61081e7d49b632252ad2959f65fcfb3d46db21109c92fe2b6b2986b80dece889"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1120,
+    "new_tests": 11,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-producer-down-child/tests.log",
+        "sha256": "40508b60e5a47122bfe84cfb174e10bcf5c22b2152863664d436fd65f6fa97cb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-producer-down-child/clippy.log",
+        "sha256": "a152ab7ac5107e5e5aae1311890ca9227137a536a315e8ec4b13ca496fd35ee6"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-producer-down-child/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-producer-down-child/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "run": "first focused test compilation, exit 101",
+      "cause": "Test helper called nonexistent KeyId::consumer constructor.",
+      "resolution": "Replaced with existing KeyId::new(CONSUMER_PAGE, usage) and removed unused helper. Focused 11 tests then passed; no production behavior changed."
+    }
+  ],
+  "abi": "Pure Rust registration guard; no unsafe, FFI, dependencies or native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Prior automatic approval quota issue still prevents pending native validation; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "Only Reserved producer parent may use prepare_child_with_down; ordinary prepare still requires Live parent. Reservation owns pending payload; commit activates parent then attaches child and charges budget. All business preflights happen under exclusive arena borrow.",
+    "Receipt edge/slot/stage/device/source/Arc and causal time are checked. DueEvent public data remains caller-provided consistency evidence, not authentication or unforgeable proof of actual queue ownership.",
+    "Payload must have no executed side effects before commit. Drop of prepared payload must not perform native output; allocation failure/panic excluded from business atomic guarantee.",
+    "Queue pop/generation already happened and are not rolled back. Full controller must retain frozen decision for retry or fault recovery, not re-evaluate mapping conditions. This guards actual new producer binding and child/output admission only.",
+    "Parent slot already reserved, so activation does not double-charge source budget. Child snapshot extra remains charged until whole-batch registry cleanup. Live/Released replay, Up/Repeat, causally early receipt/child start and stage/provenance/capacity mismatch rejected.",
+    "One pure manual chain activates Simple parent jointly with Complex generation, obtains real Complex queue DueEvent delivered at 125, jointly activates Complex parent and Output child, then performs saved Up and cleans leaf first. This is not production controller, crossstage scope propagation or native acceptance proof.",
+    "Complete controller/source ID pool/context/extra branches/native duration/simultaneous/Windows native adapter/hardware/UI/packaging/driver remain unfinished. Production UnsupportedActionTiming gate retained.",
+    "No actual input, devices, driver, installation or Windows build. Documentation comments clarified after behavior checks; no executable change after successful workspace/Clippy checks."
+  ]
+}

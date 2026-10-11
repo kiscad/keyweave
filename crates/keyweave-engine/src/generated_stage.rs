@@ -487,7 +487,7 @@ impl GeneratedStageQueue {
     ) -> Result<PreparedScopedGeneration<'_>, GeneratedError> {
         self.prepare_scoped_inner(plan, None)
     }
-    /// Generate a Complex child from an exclusively retained Live Simple parent.
+    /// Generate a Complex child from an exclusively retained or jointly activated Simple parent.
     /// This preserves the parent's old Arc without relaxing ordinary root admission.
     /// Snapshot extra sources are charged here; do not also charge the same scope.
     /// Actual child/scopes must finish before the caller clears external registration.

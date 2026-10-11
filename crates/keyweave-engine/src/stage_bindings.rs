@@ -1,8 +1,8 @@
 //! Bounded saved bindings, independent of platform output and source allocation.
 use crate::{
     MAX_BINDINGS, MAX_OUTPUT_OWNERS,
-    action_plan::{ActionSlot, BatchId, PlanOrigin},
-    timeline::Stage,
+    action_plan::{ActionSlot, BatchId, PlanOrigin, PlannedAction},
+    timeline::{DueEvent, Stage},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -70,12 +70,15 @@ impl<T> Default for BindingArena<T> {
         }
     }
 }
-/// Admission holds the arena borrow until commit. Aborting leaves it unchanged.
+/// Admission holds the arena borrow until commit, including optional parent Down activation.
+/// Aborting leaves it unchanged; pending payloads must have no executed effects.
 pub struct Reservation<'a, T> {
     arena: &'a mut BindingArena<T>,
     batch: Batch<T>,
+    activation: Option<(ActionSlot, T)>,
 }
 /// Only an exclusively prepared child registration can create this witness.
+/// Parent is Live or its validated Down activation is owned by the same reservation.
 /// It is semantic binding provenance, not native/session authorization.
 pub(crate) struct ChildAdmission<'a> {
     origin: &'a PlanOrigin,
@@ -118,6 +121,14 @@ impl<T> Reservation<'_, T> {
         })
     }
     pub fn commit(self) {
+        if let Some((slot, payload)) = self.activation {
+            self.arena
+                .batches
+                .get_mut(&slot.batch)
+                .unwrap_or_else(|| unreachable!("exclusive reservation retains reserved parent"))
+                .slots[usize::from(slot.index)] = Slot::Live(payload);
+            self.arena.live += 1;
+        }
         if let Some(parent) = self.batch.parent {
             self.arena
                 .batches
@@ -153,6 +164,48 @@ impl<T> BindingArena<T> {
         slots: usize,
         parent: Option<ActionSlot>,
     ) -> Result<Reservation<'_, T>, BindingError> {
+        self.prepare_inner(origin, slots, parent, None)
+    }
+    /// Atomically activate an already-delivered Reserved producer Down and admit its child.
+    /// Payload must have no executed effects yet. Drop/rejection never creates a Live parent.
+    /// Receipt consistency is not native authentication or proof of queue ownership.
+    pub fn prepare_child_with_down(
+        &mut self,
+        origin: PlanOrigin,
+        slots: usize,
+        down: DueEvent<PlannedAction>,
+        payload: T,
+    ) -> Result<Reservation<'_, T>, BindingError> {
+        let event = down.event;
+        let parent = event.payload.slot;
+        self.check_down(parent)?;
+        let saved = &self
+            .batches
+            .get(&parent.batch)
+            .ok_or(BindingError::Lifecycle)?
+            .origin;
+        if event.payload.edge != keyweave_types::KeyEdge::Down {
+            return Err(BindingError::Lifecycle);
+        }
+        if event.stage != saved.stage
+            || event.device != saved.device
+            || event.source != saved.source
+            || !std::sync::Arc::ptr_eq(&event.config, &saved.config)
+            || event.at_ns < saved.start
+            || down.delivered_at < event.at_ns
+            || origin.start < down.delivered_at
+        {
+            return Err(BindingError::Provenance);
+        }
+        self.prepare_inner(origin, slots, Some(parent), Some((parent, payload)))
+    }
+    fn prepare_inner(
+        &mut self,
+        origin: PlanOrigin,
+        slots: usize,
+        parent: Option<ActionSlot>,
+        activation: Option<(ActionSlot, T)>,
+    ) -> Result<Reservation<'_, T>, BindingError> {
         if self.batches.contains_key(&origin.batch) {
             return Err(BindingError::Lifecycle);
         }
@@ -168,10 +221,14 @@ impl<T> BindingArena<T> {
                 .batches
                 .get(&parent.batch)
                 .ok_or(BindingError::Lifecycle)?;
-            if !matches!(
-                batch.slots.get(usize::from(parent.index)),
-                Some(Slot::Live(_))
-            ) {
+            let valid_parent = match batch.slots.get(usize::from(parent.index)) {
+                Some(Slot::Live(_)) => activation.is_none(),
+                Some(Slot::Reserved) => {
+                    activation.as_ref().is_some_and(|(slot, _)| *slot == parent)
+                }
+                _ => false,
+            };
+            if !valid_parent {
                 return Err(BindingError::Lifecycle);
             }
             let next = match batch.origin.stage {
@@ -196,6 +253,7 @@ impl<T> BindingArena<T> {
                 children: (0..slots).map(|_| BTreeSet::new()).collect(),
                 extra_sources: 0,
             },
+            activation,
         })
     }
     /// Read an executed payload without changing its lifecycle or cloning it.
