@@ -4,6 +4,7 @@ mod conditions;
 pub mod generated_stage;
 pub mod modifier_scope;
 mod modifiers;
+pub mod output_stage;
 pub mod rule_selection;
 pub mod stage_bindings;
 mod stage_delivery;
@@ -725,6 +726,15 @@ impl Engine {
         config: Arc<ConfigSnapshot>,
         allow_action_timing: bool,
     ) -> Result<(), EngineError> {
+        let names = self.check_activation(&config, allow_action_timing)?;
+        self.commit_activation(config, names);
+        Ok(())
+    }
+    fn check_activation(
+        &self,
+        config: &Arc<ConfigSnapshot>,
+        allow_action_timing: bool,
+    ) -> Result<BTreeSet<String>, EngineError> {
         if config.generation <= self.config.generation {
             return Err(EngineError::InvalidGeneration);
         }
@@ -741,6 +751,9 @@ impl Engine {
         {
             return Err(EngineError::ResourceLimit);
         }
+        Ok(names)
+    }
+    fn commit_activation(&mut self, config: Arc<ConfigSnapshot>, names: BTreeSet<String>) {
         for name in names {
             self.variables.entry(name).or_insert(None);
         }
@@ -752,7 +765,6 @@ impl Engine {
             .chain(&config.complex)
             .any(|mapping| !mapping.extras.from_modifiers.mandatory.is_empty());
         self.config = config;
-        Ok(())
     }
 
     /// Current admitted snapshot, independent of generations of held bindings.

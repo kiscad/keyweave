@@ -53,6 +53,10 @@ pub struct ActorStep {
     pub completed_batch: Option<BatchId>,
 }
 
+pub(crate) struct TerminalDelivery {
+    pub(crate) step: ActorStep,
+    pub(crate) action: Option<timeline::StageEvent<action_plan::PlannedAction>>,
+}
 enum TerminalWork {
     Action(action_plan::PlannedAction),
     ScopeUp(BatchId),
@@ -157,6 +161,29 @@ impl TerminalActor {
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), ActorError> {
         self.core.activate_inner(config, true)?;
         Ok(())
+    }
+    pub(crate) fn check_device(
+        &self,
+        device: DeviceInstanceId,
+        removed: bool,
+        at: MonoTime,
+    ) -> Result<(), ActorError> {
+        self.check_time(at)?;
+        self.timeline.check_device(device, removed)?;
+        Ok(())
+    }
+    pub(crate) fn check_activation(
+        &self,
+        config: &Arc<ConfigSnapshot>,
+    ) -> Result<BTreeSet<String>, ActorError> {
+        Ok(self.core.check_activation(config, true)?)
+    }
+    pub(crate) fn commit_activation(
+        &mut self,
+        config: Arc<ConfigSnapshot>,
+        names: BTreeSet<String>,
+    ) {
+        self.core.commit_activation(config, names);
     }
     pub fn live_slots(&self) -> usize {
         self.bindings.live_slots()
@@ -457,6 +484,13 @@ impl TerminalActor {
     }
     /// Execute one due stage event. Late delivery uses actual actor time.
     pub fn poll(&mut self, at: MonoTime) -> Result<Option<ActorStep>, ActorError> {
+        Ok(self.poll_delivered(at)?.map(|delivery| delivery.step))
+    }
+    /// Receipt describes successful engine delivery, never OS acceptance.
+    pub(crate) fn poll_delivered(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Option<TerminalDelivery>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
         }
@@ -572,10 +606,21 @@ impl TerminalActor {
         } else {
             None
         };
-        Ok(Some(ActorStep {
-            outputs,
-            halt_requested: action.is_some_and(|action| action.halt),
-            completed_batch,
+        let receipt = action.as_ref().map(|action| timeline::StageEvent {
+            stage: due.event.stage,
+            at_ns: due.event.at_ns,
+            device: due.event.device,
+            source: due.event.source,
+            config: due.event.config,
+            payload: action.clone(),
+        });
+        Ok(Some(TerminalDelivery {
+            step: ActorStep {
+                outputs,
+                halt_requested: action.is_some_and(|action| action.halt),
+                completed_batch,
+            },
+            action: receipt,
         }))
     }
     pub fn cancel_batch(

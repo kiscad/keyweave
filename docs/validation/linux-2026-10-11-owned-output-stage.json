@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0115 owned output destination actor with atomic pair admission and actual completion retirement",
+  "source_base_commit": "192c50f1856734ad0b7baf8df07edcde2d93732c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "bc4747f4a4253ddee88b316cc0e5e6bce596f4d1dfd1c21327ea396165446fd7",
+    "crates/keyweave-engine/src/output_stage.rs": "6a0a061baa45d9af0def585431b84620975cf08511af981f24c33c2e6fe705a8",
+    "crates/keyweave-engine/src/generated_stage.rs": "69627622c0e4ccad0dcf5f5ed1542a47c995258e1c194b9ce1cf47aefeeb0196",
+    "crates/keyweave-engine/src/modifier_scope.rs": "f49dc5bde778c999713d59910c37e9c9f73d8cc60e2eb7fd4be46bc7764302b4",
+    "crates/keyweave-engine/src/terminal_actor.rs": "158f71c8ff1d7f84dc888f06620774f5c37b9126970594d2e7cf5fd8333c45f3",
+    "crates/keyweave-engine/src/timeline.rs": "ea7028690c41f59e766d9cbb97a865c6cebe4d0301be9f893feee1db66feea63",
+    "crates/keyweave-engine/tests/output_stage.rs": "49db2d84e90a8c1c3f81e6d2fa2e439375b80063e2105ae8393ac1a3b07c04ac"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1066,
+    "new_tests": 16,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-owned-output-stage/tests.log",
+        "sha256": "f9ce732b0d6297e1ad525afa8483d97230776204e233364fba1d275a0c6844cb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-owned-output-stage/clippy.log",
+        "sha256": "75147c1c9d631bd0aa8aefca63e6c146b7ec7c950278c92a961c4870197ba039"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-owned-output-stage/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-owned-output-stage/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New reload test incorrectly treated a variable name containing spaces as invalid. Existing semantics allow spaces; changed fixture to empty name, preserving compiler/IR rules. Focused/full tests then passed."
+  ],
+  "abi": "Pure Rust owned actor plus shared activation/device preflight and private receipt refactors; no unsafe/FFI/dependency/native ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changes and prior native validations pending previous automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "OutputStageActor privately owns both queues and scoped recipes; raw neutral scope has no consumed/snapshot modifier policy. External caller still allocates strictly increasing BatchId/source and already-filtered plans.",
+    "Both initial and saved Up admissions preflight before commit; business rejection changes neither side. Ordinary allocation failure/panic is excluded.",
+    "Only one actual event executes per poll. Complete metadata receipt checks generation delivery, scope markers advance clock without consuming another action; only actual terminal binding/scope completion retires generated reservations.",
+    "Generated modifiers/variables are distinct from actual pressed outputs/executed variables. Queue receipts and Reset intents are not native OS acceptance or complete recovery proof.",
+    "Internal mismatch/actual execution failure freezes ordinary operations until Reset. Error may follow actual engine mutations and withhold produced intents; platform runtime must recover using its existing desired/submitted ledger.",
+    "Control/activation preflight coordinates both components; actual owner cleanup remains saved Terminal bindings. Device tombstones and monotonic IDs persist across Reset.",
+    "Only Output destination stage is combined. Full Simple/Complex deferred actors, scope propagation, old parent child admission, source subtree budget, context/branch/halt integration, simultaneous/native duration/Windows adapter/hardware/UI/packaging remain unfinished.",
+    "No native OS/hardware/driver/install validation. Production UnsupportedActionTiming remains gated; full original objective active."
+  ]
+}

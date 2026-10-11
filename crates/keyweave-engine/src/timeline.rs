@@ -145,20 +145,7 @@ impl<T> StageTimeline<T> {
         device: DeviceInstanceId,
         removed: bool,
     ) -> Result<Vec<StageEvent<T>>, TimelineError> {
-        if let Some(current) = self.devices.get(&device.id) {
-            if device.generation < current.generation {
-                return Err(TimelineError::RetiredDevice);
-            }
-            if device.generation == current.generation && current.removed {
-                return if removed {
-                    Ok(Vec::new())
-                } else {
-                    Err(TimelineError::RetiredDevice)
-                };
-            }
-        } else if self.devices.len() >= MAX_DEVICE_IDENTITIES {
-            return Err(TimelineError::DeviceHistoryFull);
-        }
+        self.check_device(device, removed)?;
         self.devices.insert(
             device.id,
             Device {
@@ -171,6 +158,27 @@ impl<T> StageTimeline<T> {
                 && (event.device.generation < device.generation
                     || (removed && event.device.generation == device.generation))
         }))
+    }
+    pub(crate) fn check_device(
+        &self,
+        device: DeviceInstanceId,
+        removed: bool,
+    ) -> Result<(), TimelineError> {
+        if let Some(current) = self.devices.get(&device.id) {
+            if device.generation < current.generation {
+                return Err(TimelineError::RetiredDevice);
+            }
+            if device.generation == current.generation && current.removed {
+                return if removed {
+                    Ok(())
+                } else {
+                    Err(TimelineError::RetiredDevice)
+                };
+            }
+        } else if self.devices.len() >= MAX_DEVICE_IDENTITIES {
+            return Err(TimelineError::DeviceHistoryFull);
+        }
+        Ok(())
     }
     fn live(&self, device: DeviceInstanceId) -> bool {
         self.devices

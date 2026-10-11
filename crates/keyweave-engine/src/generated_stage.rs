@@ -322,6 +322,18 @@ impl GeneratedStageQueue {
             delivery: crate::stage_delivery::DeliveryLedger::default(),
         })
     }
+    pub(crate) fn advance(&mut self, at: MonoTime) -> Result<(), GeneratedError> {
+        self.timeline.advance(at)?;
+        self.now = at;
+        Ok(())
+    }
+    pub(crate) fn check_device(
+        &self,
+        device: DeviceInstanceId,
+        removed: bool,
+    ) -> Result<(), GeneratedError> {
+        Ok(self.timeline.check_device(device, removed)?)
+    }
     pub fn reserved_slots(&self) -> usize {
         self.delivery.reserved()
     }
@@ -640,6 +652,14 @@ impl GeneratedStageQueue {
         (slots, events)
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), GeneratedError> {
+        let names = self.check_activation(&config)?;
+        self.commit_activation(config, names);
+        Ok(())
+    }
+    pub(crate) fn check_activation(
+        &self,
+        config: &Arc<ConfigSnapshot>,
+    ) -> Result<BTreeSet<String>, GeneratedError> {
         if config.generation <= self.environment.config.generation {
             return Err(EngineError::InvalidGeneration.into());
         }
@@ -656,11 +676,17 @@ impl GeneratedStageQueue {
         {
             return Err(EngineError::ResourceLimit.into());
         }
+        Ok(names)
+    }
+    pub(crate) fn commit_activation(
+        &mut self,
+        config: Arc<ConfigSnapshot>,
+        names: BTreeSet<String>,
+    ) {
         for name in names {
             self.environment.variables.entry(name).or_insert(None);
         }
         self.environment.config = config;
-        Ok(())
     }
     pub fn reset(
         &mut self,

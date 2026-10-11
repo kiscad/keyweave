@@ -136,6 +136,18 @@ pub struct ScopedActionPlan {
     scope: ModifierScope,
 }
 impl ScopedActionPlan {
+    /// Internal pass-through batches have no consumed or snapshot modifiers.
+    pub(crate) fn plain(plan: crate::action_plan::ActionPlan) -> Self {
+        Self {
+            plan,
+            scope: ModifierScope {
+                policy: BranchModifierPolicy::CurrentMinusConsumed,
+                snapshot: BTreeSet::new(),
+                consumed: BTreeSet::new(),
+                until_input_up: false,
+            },
+        }
+    }
     pub fn main(
         selection: &RuleSelection,
         batch: crate::action_plan::BatchId,
