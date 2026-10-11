@@ -8,6 +8,7 @@ use std::{ffi::OsString, io::Read, path::PathBuf, sync::Arc};
 pub mod linux_arguments;
 pub mod linux_preparation;
 pub mod preparation;
+pub mod reload_control;
 pub mod reload_preparation;
 
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";

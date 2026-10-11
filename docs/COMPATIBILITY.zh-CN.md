@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+组合 reload Controller 已实现独立前后证据检查、固定事务超时、后台准备、实际激活、部分确认和原端点复用；916项测试通过。实际原生worker/host循环与用户watcher/reload命令仍未接入，模拟Evidence/纯Engine或owned pipe测试不证明输入会话就绪。见 [ADR-0094](ADR-0094-reload-control-transaction.md)。
+
 Linux 独立reload pipe端点/监督继承/真实main单次认领已实现，907项测试及无输入父子进程传输harness通过。当前真实worker/host尚未采用新模式，活动reload、watcher/CLI仍未连接；不宣称实际捕获热更新或Windows端点支持。见 [ADR-0093](ADR-0093-linux-reload-pipe-handoff.md)。
 
 热配置冷任务与sealed actor交付桥已实现，9项新增portable测试通过（全套904）；每owner最多一job/Ready，Stop不重开/不抢占，actual activation先于ack，失效保持已激活代号不rollback。原生IPC、worker控制循环、CaptureSession借用adapter、watcher/reload仍待连接；Windows原生补验未执行。见 [ADR-0092](ADR-0092-cold-reload-preparation.md)。

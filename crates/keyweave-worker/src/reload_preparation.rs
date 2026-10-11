@@ -9,6 +9,7 @@ use keyweave_progress::reload::{
 use keyweave_types::ConfigGeneration;
 use std::{io::Read, sync::Arc, thread::JoinHandle};
 
+#[derive(Clone)]
 pub enum Target {
     Linux(keyweave_linux::output::DeviceSpec),
     Windows,
@@ -61,6 +62,10 @@ pub struct PreparationSlot {
 impl PreparationSlot {
     pub fn new() -> Self {
         Self::default()
+    }
+    /// Metadata only; closed control owners retain this job until reaped.
+    pub fn job_pending(&self) -> bool {
+        self.job.is_some()
     }
     pub fn close(&mut self) {
         self.closed = true;

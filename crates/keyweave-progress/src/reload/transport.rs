@@ -327,6 +327,10 @@ impl<R: Read> Receiver<R> {
             ReceiveStep::Pending
         })
     }
+    /// Whether any header byte/transaction is retained; pure control metadata.
+    pub fn receiving(&self) -> bool {
+        !self.closed && (self.header_read > 0 || self.request.is_some())
+    }
     pub fn take(&mut self) -> Option<Received> {
         if self.closed || !self.ready || self.taken {
             return None;
@@ -396,6 +400,17 @@ pub struct AckWriter<W: Write> {
     issued: bool,
 }
 impl<W: Write> AckWriter<W> {
+    /// Reuse the same owned endpoint only after its unique completion token was
+    /// issued. Consuming an incomplete/closed sender drops its writer instead.
+    /// This is not a peer receipt; Receiver.ack_sent remains independently required.
+    pub fn into_completed_writer(self) -> Option<W> {
+        if self.issued && !self.closed {
+            Some(self.writer)
+        } else {
+            None
+        }
+    }
+
     pub fn new(writer: W, ack: Ack) -> Result<Self, TransferError> {
         Ok(Self {
             writer,

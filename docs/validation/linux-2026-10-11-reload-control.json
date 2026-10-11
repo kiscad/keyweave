@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0094 bounded reload transaction controller",
+  "source_base_commit": "5cecad20b1c84c86395b40b5ae547ff434148df8",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-progress/src/reload/transport.rs": "2008f3ded82c08258c991cebd8801875936a70d2e8b821798518c4332d1e24c1",
+    "crates/keyweave-worker/src/lib.rs": "da9598798708c34ebcd028a3324c01f9ee08abe154bf540605f49536572b6724",
+    "crates/keyweave-worker/src/reload_preparation.rs": "23d071e09fdc78cf79cd52040938b98afec9ded18d0a96cdc4c35ede50cbe1e5",
+    "crates/keyweave-worker/src/reload_control.rs": "c026ee5aab3b04166ced5e7e80c36b4439a1f3a70294f20b056d60a57acf644d",
+    "crates/keyweave-worker/tests/reload_control.rs": "5d39ca3d123c317d3275e50bd721b0baa709e7b845dbff23d133bf9d6971899b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 916,
+    "workspace_tests_exit": 0,
+    "new_portable_tests": 8,
+    "new_owned_linux_pipe_tests": 1,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-reload-control/clippy.log",
+        "sha256": "dd453c0b051e7450ec1d654be2d9cb2bbd72e5e754ea58986932696f1d794fe1"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-reload-control/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-reload-control/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-reload-control/workspace-tests.log",
+        "sha256": "1abd16394661f2e324885e0c4088975f6b3daf15834f47ebb06f49a1ade18d6f"
+      }
+    }
+  },
+  "abi": "No new unsafe/FFI/dependency; existing C oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Eight new portable tests and prior shared/native changes still need pinned native checks; previous approval quota issue remains."
+  },
+  "limitations": [
+    "Trusted Evidence is explicit caller data, not authorization minted by controller; actual parent/session/Stop/clock provider integration not implemented.",
+    "Generic IO must be nonblocking/owned; allocator, thread spawn and completed join have no hard time bound.",
+    "Idle WouldBlock has no transaction deadline; first header byte PRE-time anchors strict budget. No prefix/job/ack renewals.",
+    "Close drops owned copies but original inherited FDs remain until exit; running job retained and reaped, never preempted or restarted. Drop may detach unreaped thread.",
+    "Actual activate may precede post-check failure; no rollback/new ack. Written ack bytes cannot be retracted, parent must post-read check independently.",
+    "Owned pipe test uses pure Engine and simulated Evidence, not native input/provider/session readiness proof.",
+    "Real main/host/Windows CaptureSession loop, watcher and reload CLI remain unconnected.",
+    "No new input/output device, VT, suspend, global Hook/SendInput or driver actions.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}
