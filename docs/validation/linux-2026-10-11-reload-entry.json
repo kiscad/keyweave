@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0096 actual Linux reload worker startup/bootstrap/cleanup and host mode selection",
+  "source_base_commit": "16895d6a32c0317a0f43e77d27085ecffc7b40cf",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/worker.rs": "138a952848f67d45d91195d98ed8db394351e98ac4387f0e86a4cf530e951d41",
+    "crates/keyweave-worker/src/main.rs": "0a2ad35783ad3a0e9681defcfc717cdaa7a9b22c891dd162471fb926d43ed9dc",
+    "crates/keyweave-worker/src/reload_control.rs": "ce36b72991eadf958a3514df87c5b8ffa218bee421b00d4632d274b2a81178c4",
+    "crates/keyweave-worker/tests/entry.rs": "85707f96db960859ae4c0e96f5af8114cf05546d8ee78776dc3f7dd06d551cad",
+    "crates/keyweave-worker/tests/reload_control.rs": "cd110c46dfb8b9c11e6b1bced19a26e25fcc6f51789100cbd268d84db81521bb",
+    "crates/keyweave-host/src/linux/startup.rs": "edbbf6e32e17f61ea82efd26e4e5445565565750f6c474ee3bc4b4bd713c00e2"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 923,
+    "workspace_tests_exit": 0,
+    "new_tests": 3,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-reload-entry/clippy.log",
+        "sha256": "8e1bc285abb8253e5b719f88b02c2c0845864739cc074e9a2fb05347f436bed9"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-reload-entry/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-reload-entry/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-reload-entry/workspace-tests.log",
+        "sha256": "404553256c7cf1e51a6d17ae47505b5be0e0f757ebe4784d3ea9db9c03663e76"
+      }
+    }
+  },
+  "abi": "No new unsafe/FFI/dependency; C oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "New portable cold shutdown test and prior shared/native changes pending native checks; previous automatic approval quota issue remains."
+  },
+  "limitations": [
+    "Actual console main/bootstrap/extended loop/host mode compiled only; no successful capture/provider hardware test.",
+    "All valid-config executable tests permanently None: new pair 78, bad/partial selectors 65, actual owned child exit/epoch0/missing terminal.",
+    "Parent endpoints remain in same Supervisor; host transaction management/file watcher/reload CLI not yet provided.",
+    "Closed job observation holds same owner with original first 100ms window/1ms waits; actual reaped completion may be acknowledged later, timeout alone no exit proof.",
+    "Cold cleanup failure is scalar69 independent of previously sent recovery facts; host success requires actual code0.",
+    "No real VT/input/uinput/Hook/SendInput/suspend/driver/install actions.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}

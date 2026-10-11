@@ -81,6 +81,7 @@ pub struct PreparedLaunch {
     argv: Vec<OsString>,
     artifact: ConfigArtifact,
     identity: RunIdentity,
+    reload: bool,
 }
 #[derive(Debug)]
 pub struct Cancelled {
@@ -125,6 +126,7 @@ impl PreparedLaunch {
             .map_err(|_| StartupError::plain(StartupStage::Configuration))?;
         let identity = RunIdentity::generate()
             .map_err(|e| StartupError::system(StartupStage::RunIdentity, e))?;
+        let reload = matches!(options.session_provider, SessionProvider::Console { .. });
         let argv = LinuxArguments {
             parent: std::process::id(),
             run_id: identity.run_id(),
@@ -142,6 +144,7 @@ impl PreparedLaunch {
             argv,
             artifact,
             identity,
+            reload,
         })
     }
     /// Actual main thread only. Installs control before spawn, restores child
@@ -152,6 +155,7 @@ impl PreparedLaunch {
             argv,
             artifact,
             identity,
+            reload,
         } = self;
         let mut signals =
             HostSignals::install().map_err(|e| StartupError::system(StartupStage::Signals, e))?;
@@ -176,13 +180,14 @@ impl PreparedLaunch {
             Ok(now) => now,
             Err(e) => return Err(StartupError::system(StartupStage::Clock, e).close(signals)),
         };
-        let supervisor = match Supervisor::spawn_reporting_config_isolated(
-            command,
-            identity.run_id(),
-            Policy::default(),
-            now,
-            artifact,
-        ) {
+        // Console mode uses the default <2s challenge policy and retains the
+        // independent reload endpoints inside the same Supervisor owner.
+        let spawn = if reload {
+            Supervisor::spawn_reporting_config_reload
+        } else {
+            Supervisor::spawn_reporting_config_isolated
+        };
+        let supervisor = match spawn(command, identity.run_id(), Policy::default(), now, artifact) {
             Ok(supervisor) => supervisor,
             Err(e) => return Err(StartupError::system(StartupStage::Spawn, e).close(signals)),
         };

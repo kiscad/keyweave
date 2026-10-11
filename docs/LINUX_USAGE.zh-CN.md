@@ -1,5 +1,7 @@
 # Linux 当前使用与验收边界
 
+当前 console host 会建立独立 reload 管道，worker 在设备初始化前认领并使用后台配置准备/实际激活控制组件；用户文件监听与 reload 命令尚未连接，启动管道不代表已完成用户热更新。新模式仍未进行成功硬件验收；None 继续永久拒绝设备操作。见 [ADR-0096](ADR-0096-linux-reload-worker-entry.md)。
+
 Linux 已提供实际 `keyweave-host run-linux` 入口，连接冷配置校验、密封字节、独立 worker 进程组、父死亡保护、信号/进度监督与 KWLT 终止报告。当前原生消费者只支持显式文本 VT；图形桌面、Wayland/X11 与普通 WSL2 终端尚不能获得该消费者授权。
 
 ## 构建与离线校验

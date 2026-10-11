@@ -427,3 +427,76 @@ fn supervised_file_object_config_failure_keeps_writer_until_actual_exit() {
         }
     }
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn real_none_entry_claims_reload_pair_and_rejects_bad_or_partial_selectors_without_devices() {
+    use keyweave_linux::{
+        config_artifact::ConfigArtifact,
+        progress::Policy,
+        supervisor::{Supervisor, SupervisorStatus},
+        termination::ReadStatus,
+    };
+    use keyweave_types::MonoTime;
+    use keyweave_worker::linux_arguments::LINUX_WORKER_ARGUMENT;
+    use std::time::{Duration, Instant};
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    let body = br#"{"profiles":[{"selected":true,"simple_modifications":[]}]}"#;
+    for (script, expected) in [
+        (None, WorkerExit::UnsupportedPlatform),
+        (
+            Some("KEYWEAVE_RELOAD_REQUEST_FD=0; export KEYWEAVE_RELOAD_REQUEST_FD; exec \"$@\""),
+            WorkerExit::Admission,
+        ),
+        (
+            Some("unset KEYWEAVE_RELOAD_ACK_FD; exec \"$@\""),
+            WorkerExit::Admission,
+        ),
+    ] {
+        let mut command = if let Some(script) = script {
+            let mut c = Command::new("/bin/sh");
+            c.args(["-c", script, "keyweave-owned-test"]);
+            c.arg(env!("CARGO_BIN_EXE_keyweave-worker"));
+            c
+        } else {
+            Command::new(env!("CARGO_BIN_EXE_keyweave-worker"))
+        };
+        command.args([
+            LINUX_WORKER_ARGUMENT,
+            &std::process::id().to_string(),
+            "57",
+            "--uinput",
+            "/keyweave-absent-output",
+            "--session-provider",
+            "none",
+            "--input",
+            "/keyweave-absent-input",
+        ]);
+        // None forever: even a valid group/config/reload pair cannot open devices.
+        let started = Instant::now();
+        let mut owner = Supervisor::spawn_reporting_config_reload(
+            command,
+            57,
+            Policy::default(),
+            MonoTime(0),
+            ConfigArtifact::create(body).unwrap(),
+        )
+        .unwrap();
+        let endpoints = owner.take_reload_endpoints().unwrap();
+        assert!(owner.take_reload_endpoints().is_none());
+        loop {
+            if let SupervisorStatus::Exited { status, .. } = owner
+                .poll(MonoTime(started.elapsed().as_nanos() as u64))
+                .unwrap()
+            {
+                assert_eq!(status.code(), Some(expected as i32));
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(3));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(owner.progress_epoch(), 0);
+        assert_eq!(owner.collect_terminal().status, ReadStatus::Missing);
+        drop(endpoints);
+    }
+}

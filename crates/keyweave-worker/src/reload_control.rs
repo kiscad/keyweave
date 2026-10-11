@@ -50,6 +50,30 @@ pub struct Controller<R: Read, W: Write> {
     timeout: u64,
     deadline: Option<MonoTime>,
     last: Option<MonoTime>,
+    reap_started: Option<std::time::Instant>,
+}
+/// Process-main shutdown only, after capture/output recovery. Same retained
+/// cold job, at most 100ms observation and 1ms waits; no compile/activation/IO.
+/// Repeated calls retain the same window. Actual reaped completion is accepted
+/// even on a later observation; timeout alone never proves job exit. Caller
+/// fails its scalar cleanup outcome if it cannot observe completion.
+pub fn reap_after_shutdown<R: Read, W: Write>(controller: &mut Controller<R, W>) -> io::Result<()> {
+    controller.close();
+    let started = *controller
+        .reap_started
+        .get_or_insert_with(std::time::Instant::now);
+    loop {
+        if controller.reap_closed().map_err(io::Error::other)? {
+            return Ok(());
+        }
+        if started.elapsed() >= std::time::Duration::from_millis(100) {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "cold job shutdown observation expired",
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 impl<R: Read, W: Write> Controller<R, W> {
     pub fn new(
@@ -73,6 +97,7 @@ impl<R: Read, W: Write> Controller<R, W> {
             timeout,
             deadline: None,
             last: None,
+            reap_started: None,
         })
     }
     /// Closes physical owned copies; original inherited FDs stay until exit.

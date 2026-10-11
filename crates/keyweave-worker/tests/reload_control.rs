@@ -293,3 +293,17 @@ fn owned_linux_pipes_drive_cold_preparation_actual_engine_and_ack() {
     c.close();
     assert!(c.reap_closed().unwrap());
 }
+
+#[test]
+fn shutdown_helper_reaps_preparing_owner_without_late_activation_or_io() {
+    let (mut controller, _, written) = fixture(frame(1, 1, BODY), 48, 48, false);
+    let mut engine = actor();
+    while controller.step() != Step::Preparing {
+        controller.tick(&mut engine, || evidence(10)).unwrap();
+    }
+    keyweave_worker::reload_control::reap_after_shutdown(&mut controller).unwrap();
+    assert_eq!(controller.step(), Step::Closed);
+    assert!(controller.reap_closed().unwrap());
+    assert_eq!(engine.config_generation(), ConfigGeneration(1));
+    assert!(written.borrow().is_empty());
+}

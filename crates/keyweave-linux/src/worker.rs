@@ -176,6 +176,14 @@ impl ReportingStartup {
     pub fn claim_config(&mut self) -> io::Result<crate::config_artifact::ConfigArtifact> {
         self.startup.claim_config()
     }
+    /// Presence selects the explicit reload mode, never a fallback. A partial
+    /// pair is invalid; descriptor syntax/type is checked by claim_reload.
+    pub fn reload_requested(&self) -> io::Result<bool> {
+        reload_presence(
+            std::env::var_os(crate::reload_channel::REQUEST_ENV).is_some(),
+            std::env::var_os(crate::reload_channel::ACK_ENV).is_some(),
+        )
+    }
     /// One cold main-thread attempt, including failure. Original inherited
     /// descriptors stay reserved until exit; returned copies are owned CLOEXEC.
     pub fn claim_reload(&mut self) -> io::Result<crate::reload_channel::WorkerEndpoints> {
@@ -219,6 +227,16 @@ impl ReportingStartup {
         let (guard, client) = self.startup.into_parts();
         (guard, client, self.terminal)
     }
+}
+
+fn reload_presence(read: bool, write: bool) -> io::Result<bool> {
+    if read != write {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "incomplete reload descriptor pair",
+        ));
+    }
+    Ok(read)
 }
 
 /// Evidence that the worker main thread currently has SIGKILL parent-death
@@ -704,6 +722,67 @@ pub fn run_reporting_console_session(
     config: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
     spec: crate::output::DeviceSpec,
 ) -> Result<ConsoleSessionResult, ConsoleSessionError> {
+    run_reporting_console_session_using(
+        startup,
+        vt,
+        uinput,
+        inputs,
+        config,
+        spec,
+        |runtime, client, guard, provider, clock, ready| {
+            run_console_worker_controlled_report(runtime, client, guard, provider, clock, ready)
+        },
+    )
+}
+/// Same guarded bootstrap/terminal transaction with an independently retained
+/// extension owner. All early returns close its lane; no Runtime is fabricated.
+pub fn run_reporting_console_session_with_extension<E>(
+    startup: ReportingStartup,
+    vt: &std::path::Path,
+    uinput: &std::path::Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, std::path::PathBuf)>,
+    config: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
+    spec: crate::output::DeviceSpec,
+    extension: &mut E,
+) -> Result<ConsoleSessionResult, ConsoleSessionError>
+where
+    E: WorkerExtension<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+{
+    let result = run_reporting_console_session_using(
+        startup,
+        vt,
+        uinput,
+        inputs,
+        config,
+        spec,
+        |runtime, client, guard, provider, clock, ready| {
+            run_console_worker_with_extension(
+                runtime, client, guard, provider, clock, ready, extension,
+            )
+        },
+    );
+    extension.close();
+    result
+}
+fn run_reporting_console_session_using<F>(
+    startup: ReportingStartup,
+    vt: &std::path::Path,
+    uinput: &std::path::Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, std::path::PathBuf)>,
+    config: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
+    spec: crate::output::DeviceSpec,
+    run: F,
+) -> Result<ConsoleSessionResult, ConsoleSessionError>
+where
+    F: FnOnce(
+        Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+        ProgressClient<std::fs::File, std::fs::File>,
+        &WorkerParentGuard,
+        crate::console::ConsoleProvider,
+        MonotonicClock,
+        crate::console::ConsoleReady,
+    ) -> Result<WorkerReport, WorkerError>,
+{
     let (guard, mut client, mut terminal) = startup.into_parts();
     guard.verify_isolated_group().map_err(WorkerError::from)?;
     for request in client.wait_requests_with_control(true) {
@@ -728,8 +807,7 @@ pub fn run_reporting_console_session(
     else {
         return Ok(ConsoleSessionResult::StartupStopped);
     };
-    let worker =
-        run_console_worker_controlled_report(runtime, client, &guard, provider, clock, ready)?;
+    let worker = run(runtime, client, &guard, provider, clock, ready)?;
     Ok(ConsoleSessionResult::Worker(finalize_worker_report(
         worker,
         &mut terminal,
@@ -739,6 +817,18 @@ pub fn run_reporting_console_session(
 mod tests {
     use super::config_descriptor;
     use super::positive_u64;
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn explicit_reload_mode_requires_both_selectors_without_partial_fallback() {
+        assert!(!super::reload_presence(false, false).unwrap());
+        assert!(super::reload_presence(true, true).unwrap());
+        for (read, write) in [(true, false), (false, true)] {
+            assert_eq!(
+                super::reload_presence(read, write).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+    }
     #[test]
     fn startup_identity_is_positive_bounded_ascii_without_signs_or_whitespace() {
         for value in [

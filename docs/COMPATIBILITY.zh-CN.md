@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+Linux真实worker main已按独立FD模式接reload Controller与guarded console bootstrap/活动loop/terminal收尾，host console默认选该spawn；None永久无设备/78。923项测试通过，成功console新模式未硬件实测。parent事务管理、watcher和用户reload命令仍未提供。见 [ADR-0096](ADR-0096-linux-reload-worker-entry.md)。
+
 Linux console活动循环提供WorkerExtension入口与reload Controller adapter，新增独立2s父请求活动预算、cached console TTL、5ms推进与capture-first停止/故障恢复。920项测试通过；真实main/host仍使用旧模式，成功console扩展与硬件未验，watcher/reload命令仍待连接。见 [ADR-0095](ADR-0095-linux-worker-control-extension.md)。
 
 组合 reload Controller 已实现独立前后证据检查、固定事务超时、后台准备、实际激活、部分确认和原端点复用；916项测试通过。实际原生worker/host循环与用户watcher/reload命令仍未接入，模拟Evidence/纯Engine或owned pipe测试不证明输入会话就绪。见 [ADR-0094](ADR-0094-reload-control-transaction.md)。

@@ -47,6 +47,19 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
     {
         return WorkerExit::Admission.into();
     }
+    let reload = match startup.reload_requested() {
+        Ok(false) => None,
+        Ok(true) => {
+            if startup.guard().verify_isolated_group().is_err() {
+                return WorkerExit::Admission.into();
+            }
+            match startup.claim_reload() {
+                Ok(endpoints) => Some(endpoints),
+                Err(_) => return WorkerExit::Admission.into(),
+            }
+        }
+        Err(_) => return WorkerExit::Admission.into(),
+    };
     let config = match startup.claim_config() {
         Ok(config) => config,
         Err(_) => return WorkerExit::Admission.into(),
@@ -84,14 +97,47 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
                     )
                 })
                 .collect();
-            match keyweave_linux::worker::run_reporting_console_session(
-                startup,
-                &vt,
-                &args.uinput,
-                inputs,
-                prepared.snapshot().clone(),
-                prepared.output_spec().clone(),
-            ) {
+            let result = if let Some(endpoints) = reload {
+                let (reader, writer) = endpoints.into_parts();
+                let mut controller = match keyweave_worker::reload_control::Controller::new(
+                    reader,
+                    writer,
+                    args.run_id,
+                    prepared.snapshot().generation,
+                    5_000_000_000,
+                    keyweave_worker::reload_preparation::Target::Linux(
+                        prepared.output_spec().clone(),
+                    ),
+                ) {
+                    Ok(controller) => controller,
+                    Err(_) => return WorkerExit::Admission.into(),
+                };
+                let result = keyweave_linux::worker::run_reporting_console_session_with_extension(
+                    startup,
+                    &vt,
+                    &args.uinput,
+                    inputs,
+                    prepared.snapshot().clone(),
+                    prepared.output_spec().clone(),
+                    &mut controller,
+                );
+                // Original owner retained through input recovery/terminal send.
+                // A bounded closed-job observation never restarts or activates it.
+                if keyweave_worker::reload_control::reap_after_shutdown(&mut controller).is_err() {
+                    return WorkerExit::Cleanup.into();
+                }
+                result
+            } else {
+                keyweave_linux::worker::run_reporting_console_session(
+                    startup,
+                    &vt,
+                    &args.uinput,
+                    inputs,
+                    prepared.snapshot().clone(),
+                    prepared.output_spec().clone(),
+                )
+            };
+            match result {
                 Ok(keyweave_linux::worker::ConsoleSessionResult::StartupStopped) => {
                     WorkerExit::Clean.into()
                 }
