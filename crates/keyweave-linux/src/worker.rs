@@ -10,6 +10,9 @@ use keyweave_types::MonoTime;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, marker::PhantomData, rc::Rc};
 
+mod extension;
+pub use extension::{ControlObservation, WorkerExtension, run_console_worker_with_extension};
+
 pub(crate) const PARENT_ENV: &str = "KEYWEAVE_SUPERVISOR_PID";
 pub(crate) const REPORT_ENV: &str = "KEYWEAVE_TERMINAL_REPORT";
 pub(crate) const RUN_ENV: &str = "KEYWEAVE_PROGRESS_RUN_ID";
@@ -274,6 +277,8 @@ pub enum WorkerError {
     Progress(#[from] ClientError),
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
+    #[error("worker control extension failed: {0}")]
+    Extension(#[source] io::Error),
     #[error("worker wait endpoint failed: {0:?}")]
     Endpoint(StopReason),
 }
@@ -493,6 +498,16 @@ where
     )
 }
 pub(crate) trait PollControl<S: CaptureSource, B: FrameBackend> {
+    fn after_poll<R: io::Read, W: io::Write>(
+        &mut self,
+        _: &mut Runtime<S, B>,
+        _: &mut ProgressClient<R, W>,
+        _: &mut MonotonicClock,
+    ) -> Result<bool, WorkerError> {
+        Ok(false)
+    }
+    fn close(&mut self) {}
+
     fn before_poll(
         &mut self,
         runtime: &Runtime<S, B>,
@@ -555,6 +570,13 @@ where
             }
             now = poll_control.before_poll(&runtime, &mut clock, now)?;
             runtime.poll(now)?;
+            if runtime.phase() == RuntimePhase::Active
+                && poll_control.after_poll(&mut runtime, &mut client, &mut clock)?
+            {
+                runtime.pause(now)?;
+                runtime.finish_recovery();
+                return Ok(runtime.stop_reason().unwrap_or(StopReason::ControlFault));
+            }
             client.publish(&runtime)?;
             if runtime.phase() == RuntimePhase::Stopped {
                 return Ok(runtime.stop_reason().unwrap_or(StopReason::ControlFault));
@@ -573,6 +595,7 @@ where
         runtime.external_fault(StopReason::ControlFault);
         runtime.finish_recovery();
     }
+    poll_control.close();
     let termination = runtime.termination_report();
     drop(runtime); // all capture/output owners precede the read-only provider
     drop(poll_control);

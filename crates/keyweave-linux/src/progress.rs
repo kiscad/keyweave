@@ -14,6 +14,15 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
     pub(crate) fn receive_startup_command(&mut self) -> Result<RequestEvent, ClientError> {
         self.inner.receive_command(0)
     }
+    pub(crate) fn receive_control_epoch(
+        &mut self,
+        epoch: u64,
+    ) -> Result<RequestEvent, ClientError> {
+        self.inner.receive_command(epoch)
+    }
+    pub(crate) fn last_request_id(&self) -> u64 {
+        self.inner.last_request_id()
+    }
     pub fn new(reader: R, writer: W, run_id: u64) -> Result<Self, ClientError> {
         Ok(Self {
             inner: keyweave_progress::ProgressClient::new(reader, writer, run_id)?,

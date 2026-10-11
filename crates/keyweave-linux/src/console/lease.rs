@@ -82,6 +82,9 @@ impl Lease {
         self.ready = None;
         ConsoleLeaseError::Provider(error)
     }
+    pub(crate) fn valid_until(&self) -> Option<MonoTime> {
+        self.ready.as_ref().map(ConsoleReady::valid_until)
+    }
     pub(crate) fn next_wakeup(&self) -> Option<MonoTime> {
         self.ready
             .as_ref()

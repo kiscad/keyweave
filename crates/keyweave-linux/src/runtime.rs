@@ -857,6 +857,10 @@ mod tests {
         ConsumerCheck,
         #[cfg(target_os = "linux")]
         ConsumerClose,
+        #[cfg(target_os = "linux")]
+        ExtensionTick,
+        #[cfg(target_os = "linux")]
+        ExtensionClose,
         InputClose(u64),
         #[cfg(target_os = "linux")]
         TerminalWrite,
@@ -3355,5 +3359,88 @@ mod tests {
     }
     fn node_for_removal_test(backend: &Backend) -> Probe {
         probe(backend.path.to_str().unwrap())
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn extension_runs_after_actual_poll_and_stop_or_fault_recovers_before_close() {
+        use crate::{
+            progress::ProgressClient,
+            reactor::MonotonicClock,
+            worker::{PollControl, WorkerError, run_with_poll_control},
+        };
+        struct Hook {
+            gate: ConsumerGate,
+            stop: bool,
+        }
+        impl PollControl<Source, Backend> for Hook {
+            fn before_poll(
+                &mut self,
+                r: &Runtime<Source, Backend>,
+                c: &mut MonotonicClock,
+                n: MonoTime,
+            ) -> Result<MonoTime, WorkerError> {
+                self.gate.before_poll(r, c, n)
+            }
+            fn after_poll<R: io::Read, W: io::Write>(
+                &mut self,
+                runtime: &mut Runtime<Source, Backend>,
+                _: &mut ProgressClient<R, W>,
+                _: &mut MonotonicClock,
+            ) -> Result<bool, WorkerError> {
+                self.gate.trace.borrow_mut().push(Call::ExtensionTick);
+                assert_eq!(runtime.progress_epoch(), 1);
+                runtime.activate(config(2, "c")).unwrap();
+                if self.stop {
+                    Ok(true)
+                } else {
+                    Err(WorkerError::Extension(io::Error::other(
+                        "owned test extension fault",
+                    )))
+                }
+            }
+            fn next_wakeup(&self) -> Option<MonoTime> {
+                None
+            }
+            fn close(&mut self) {
+                self.gate.trace.borrow_mut().push(Call::ExtensionClose);
+            }
+        }
+        for stop in [true, false] {
+            let (runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+            let hook = Hook {
+                gate: ConsumerGate {
+                    remaining: 1,
+                    trace: trace.clone(),
+                },
+                stop,
+            };
+            let report = run_with_poll_control(
+                runtime,
+                ProgressClient::new(BlockedReader, io::sink(), 7).unwrap(),
+                true,
+                MonotonicClock::new(),
+                hook,
+                |_, _, _, _| panic!("extension stop/fault must not wait"),
+            );
+            if stop {
+                assert!(matches!(report.outcome, Ok(StopReason::Pause)));
+            } else {
+                assert!(matches!(report.outcome, Err(WorkerError::Extension(_))));
+            }
+            assert_eq!(
+                *trace.borrow(),
+                vec![
+                    Call::ConsumerCheck,
+                    Call::Submit(vec![NativeKey { code: 48, value: 1 }], false),
+                    Call::ExtensionTick,
+                    Call::InputClose(1),
+                    Call::Submit(vec![NativeKey { code: 48, value: 0 }], true),
+                    Call::OutputClose,
+                    Call::ExtensionClose,
+                    Call::ConsumerClose
+                ]
+            );
+            assert!(report.termination.unwrap().output_recovery_confirmed);
+        }
     }
 }

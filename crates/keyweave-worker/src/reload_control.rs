@@ -200,3 +200,32 @@ impl<R: Read, W: Write> Controller<R, W> {
         Ok(self.step)
     }
 }
+
+#[cfg(target_os = "linux")]
+impl<
+    R: Read,
+    W: Write,
+    S: keyweave_linux::capture::CaptureSource,
+    B: keyweave_linux::pump::FrameBackend,
+> keyweave_linux::worker::WorkerExtension<S, B> for Controller<R, W>
+{
+    fn tick(
+        &mut self,
+        runtime: &mut keyweave_linux::runtime::Runtime<S, B>,
+        observe: &mut dyn FnMut() -> io::Result<keyweave_linux::worker::ControlObservation>,
+    ) -> io::Result<()> {
+        Controller::tick(self, runtime, || {
+            observe().map(|value| Evidence {
+                at: value.at,
+                parent_until: value.parent_until,
+                session_until: value.session_until,
+                stop: value.stop,
+            })
+        })
+        .map(|_| ())
+        .map_err(io::Error::other)
+    }
+    fn close(&mut self) {
+        Controller::close(self);
+    }
+}

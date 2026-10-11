@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0095 Linux native worker control extension boundary and reload adapter",
+  "source_base_commit": "f4002db306e4d572e2b52b3ca605524f71d72980",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-progress/src/lib.rs": "d84158262715ee9dfb8a7b71876377f228c6177c706a06c83d707fa19b9256ef",
+    "crates/keyweave-linux/src/console/lease.rs": "7e0c75c825470c7920a8906b34e27fa478f4c6831a7e1795b346aebf6ea2d7a5",
+    "crates/keyweave-linux/src/progress.rs": "4badb8cc99165daa56af78f0f4b64b61a6e7f06bf3e9274c38c89a0b42af9cf1",
+    "crates/keyweave-linux/src/runtime.rs": "f73687528c94097a9350dba72b4540b9c511d8ad487efe575d68ab4d8d361e78",
+    "crates/keyweave-linux/src/worker.rs": "88652ef88774bdedcd27d5e26da1b6a2f604ab43d67765800955ea842f3f56da",
+    "crates/keyweave-linux/src/worker/extension.rs": "a06795bf6462b6ef6e77fc820874a02a1eea086c177bc8ab1074e3b2f1a5ac06",
+    "crates/keyweave-worker/src/reload_control.rs": "2c9b50eaded690b485ca3f46fad06c8910afb382aba8f923ae8e1cb6e11e1807"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 920,
+    "workspace_tests_exit": 0,
+    "new_linux_only_tests": 4,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-worker-extension/clippy.log",
+        "sha256": "6296fab9fb517ec9a23eab181741a561abcfa9425127680d828c8c05b23ea45f"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-worker-extension/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-worker-extension/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-worker-extension/workspace-tests.log",
+        "sha256": "5079bc72a1478db5b5c75fbb25a9c3da7711cc45d76bc69be219d24de7a794cc"
+      }
+    }
+  },
+  "abi": "No new unsafe/FFI/dependency; C oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "New shared client getter and prior shared/native changes need native validation; previous approval quota issue remains."
+  },
+  "limitations": [
+    "Actual main/host do not invoke new entry yet; bootstrap/reporting composition and watcher/reload CLI remain.",
+    "Native ExtendedControl guard/provider callback and five-ms wait compiled only, not real console/input/hardware acceptance.",
+    "Three activity lease tests pure; worker-loop test uses shared Runtime and fake PollControl with mock backend, includes Stop/fault traces and original held binding recovery.",
+    "Independent local two-second Active parent activity budget is not inherited bootstrap/host watchdog deadline; trusted host must send fresh requests within it.",
+    "Only strict accepted request identity renews at PRE-control IO time; old expiry cannot be bridged. Reload/compile/ack/epoch cannot renew.",
+    "Mutable borrowed extension owner retained by caller for reaping same closed job; close/Drop do not prove process/global recovery.",
+    "Trusted trait implementation must bracket and avoid blocking; not malicious in-process isolation.",
+    "No devices, VT query, evdev/uinput, Windows Hook/SendInput, suspend or driver actions in new tests.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}

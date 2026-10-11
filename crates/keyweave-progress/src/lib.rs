@@ -274,6 +274,10 @@ pub struct ProgressClient<R: Read, W: Write> {
     stop_received: bool,
 }
 impl<R: Read, W: Write> ProgressClient<R, W> {
+    /// Last strictly admitted challenge/Stop identity, not a receipt or lease.
+    pub fn last_request_id(&self) -> u64 {
+        self.last_challenge
+    }
     pub fn reader(&self) -> &R {
         &self.reader
     }
