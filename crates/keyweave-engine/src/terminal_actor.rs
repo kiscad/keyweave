@@ -86,6 +86,41 @@ pub struct TerminalActor {
     scope_slots: usize,
     failed: bool,
 }
+/// Exclusive preflight of timeline, bindings, source IDs and scope reservations.
+/// Drop/abort leaves the actor unchanged; actual owners are opened only by poll.
+#[must_use = "commit or discard the prepared terminal admission"]
+pub struct PreparedTerminalAppend<'a> {
+    timeline: timeline::PreparedStageAppend<'a, TerminalWork>,
+    reservation: Option<stage_bindings::Reservation<'a, Bound>>,
+    batches: &'a mut BTreeMap<BatchId, Batch>,
+    next_source: &'a mut u64,
+    last_batch: &'a mut Option<BatchId>,
+    scope_slots: &'a mut usize,
+    batch: Option<Batch>,
+    id: BatchId,
+    next_source_value: u64,
+    scope_reserved: usize,
+}
+impl PreparedTerminalAppend<'_> {
+    /// The consumed plan is discarded, as for a rejected enqueue; retain a
+    /// caller-owned recipe when a retry is required.
+    pub fn abort(self) {
+        drop(self);
+    }
+    /// No business checks remain. Allocation failure/panic is outside this guarantee.
+    pub fn commit(self) {
+        self.timeline.commit();
+        if let Some(reservation) = self.reservation {
+            reservation.commit();
+        }
+        *self.next_source = self.next_source_value;
+        *self.last_batch = Some(self.id);
+        *self.scope_slots += self.scope_reserved;
+        if let Some(batch) = self.batch {
+            self.batches.insert(self.id, batch);
+        }
+    }
+}
 impl TerminalActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ActorError> {
         Ok(Self {
@@ -173,7 +208,11 @@ impl TerminalActor {
     }
     /// Atomic admission; source ranges are reserved before any planned down runs.
     pub fn enqueue(&mut self, plan: ActionPlan) -> Result<(), ActorError> {
-        self.enqueue_inner(plan, None)
+        self.prepare(plan)?.commit();
+        Ok(())
+    }
+    pub fn prepare(&mut self, plan: ActionPlan) -> Result<PreparedTerminalAppend<'_>, ActorError> {
+        self.prepare_inner(plan, None)
     }
     /// Scope must describe this frozen plan. Scope owners are opened on its first
     /// delivered event, not on admission; empty plans never open a scope.
@@ -181,14 +220,21 @@ impl TerminalActor {
         &mut self,
         plan: modifier_scope::ScopedActionPlan,
     ) -> Result<(), ActorError> {
-        let (plan, scope) = plan.into_parts();
-        self.enqueue_inner(plan, Some(scope))
+        self.prepare_scoped(plan)?.commit();
+        Ok(())
     }
-    fn enqueue_inner(
+    pub fn prepare_scoped(
+        &mut self,
+        plan: modifier_scope::ScopedActionPlan,
+    ) -> Result<PreparedTerminalAppend<'_>, ActorError> {
+        let (plan, scope) = plan.into_parts();
+        self.prepare_inner(plan, Some(scope))
+    }
+    fn prepare_inner(
         &mut self,
         mut plan: ActionPlan,
         scope: Option<modifier_scope::ModifierScope>,
-    ) -> Result<(), ActorError> {
+    ) -> Result<PreparedTerminalAppend<'_>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
         }
@@ -290,16 +336,12 @@ impl TerminalActor {
         } else {
             None
         };
-        self.timeline
-            .enqueue(events)
+        let timeline = self
+            .timeline
+            .prepare_enqueue(events)
             .map_err(|rejected| ActorError::Timeline(rejected.error))?;
-        if let Some(reservation) = reservation {
-            reservation.commit();
-        }
-        self.core.next_source = next_source;
-        self.last_batch = Some(plan.origin.batch);
-        if remaining > 0 {
-            self.scope_slots += scope_reserved;
+        let id = plan.origin.batch;
+        let batch = if remaining > 0 {
             let scope = scope.map(|spec| BatchScope {
                 until_input_up: spec.until_input_up(),
                 pending: Some(spec),
@@ -308,19 +350,29 @@ impl TerminalActor {
                 source: scope_source,
                 reserved: scope_reserved,
             });
-            self.batches.insert(
-                plan.origin.batch,
-                Batch {
-                    plan,
-                    base_source,
-                    remaining,
-                    up_queued,
-                    keys: batch_keys,
-                    scope,
-                },
-            );
-        }
-        Ok(())
+            Some(Batch {
+                plan,
+                base_source,
+                remaining,
+                up_queued,
+                keys: batch_keys,
+                scope,
+            })
+        } else {
+            None
+        };
+        Ok(PreparedTerminalAppend {
+            timeline,
+            reservation,
+            batches: &mut self.batches,
+            next_source: &mut self.core.next_source,
+            last_batch: &mut self.last_batch,
+            scope_slots: &mut self.scope_slots,
+            batch,
+            id,
+            next_source_value: next_source,
+            scope_reserved,
+        })
     }
     /// Unknown/completed or duplicate original up is a no-op, not a new release.
     pub fn input_up(&mut self, batch: BatchId, at: MonoTime) -> Result<bool, ActorError> {
@@ -547,5 +599,64 @@ impl TerminalActor {
         self.scope_slots = 0;
         self.failed = false;
         Ok(self.core.reset(at)?)
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn aborted_source_reservation_preserves_exact_cursor_and_last_identity() {
+        let config = Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)));
+        let mut actor = TerminalActor::new(config.clone()).unwrap();
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        actor.observe_device(device, false, MonoTime(0)).unwrap();
+        actor.core.next_source = u64::MAX - 2;
+        let origin = action_plan::PlanOrigin {
+            batch: BatchId(100),
+            stage: Stage::Output,
+            start: MonoTime(100),
+            device,
+            source: SourceToken(100),
+            config: config.clone(),
+        };
+        let actions = [KeyId::new(7, 4).into(), KeyId::new(7, 5).into()];
+        let plan = action_plan::plan_actions(&actions, origin, false).unwrap();
+        actor.prepare(plan).unwrap().abort();
+        assert_eq!(actor.core.next_source, u64::MAX - 2);
+        assert_eq!(actor.last_batch, None);
+        assert_eq!(actor.bindings.reserved_slots(), 0);
+        let origin = action_plan::PlanOrigin {
+            batch: BatchId(1),
+            stage: Stage::Output,
+            start: MonoTime(100),
+            device,
+            source: SourceToken(100),
+            config,
+        };
+        let plan = action_plan::plan_actions(&actions, origin.clone(), false).unwrap();
+        actor.prepare(plan).unwrap().commit();
+        assert_eq!(actor.core.next_source, u64::MAX);
+        assert_eq!(actor.last_batch, Some(BatchId(1)));
+        let plan = action_plan::plan_actions(
+            &actions[..1],
+            action_plan::PlanOrigin {
+                batch: BatchId(2),
+                ..origin
+            },
+            false,
+        )
+        .unwrap();
+        assert!(matches!(
+            actor.prepare(plan),
+            Err(ActorError::Engine(EngineError::ResourceLimit))
+        ));
+        assert_eq!(actor.core.next_source, u64::MAX);
+        assert_eq!(actor.last_batch, Some(BatchId(1)));
+        assert_eq!(actor.reserved_slots(), 2);
     }
 }

@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0113 terminal admission guard composable with generated queue preflight",
+  "source_base_commit": "566b29c73e62e10633753338ead505ee007bedf8",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/terminal_actor.rs": "e658c09fe3e017deb697adab3ddbf3b950bd8b0c161e5051ea327f85ed1eb046",
+    "crates/keyweave-engine/tests/prepared_terminal.rs": "49300c1321f025a06820a9242436fd09c0ebd0530807cc68121f45ce137808d1"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1042,
+    "new_tests": 9,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-prepared-terminal-admission/tests.log",
+        "sha256": "1e428ab6b656a9eccf03ec568d015c5ac0f0299904e5dd697429516f82e25363"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-prepared-terminal-admission/clippy.log",
+        "sha256": "35306c329c57d931de38c38f4cb4cb2fe92da4ace116297c20baed9046ce2ff4"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-prepared-terminal-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-prepared-terminal-admission/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New private source-cursor test called nonexistent KeyId::keyboard; replaced with existing KeyId::new(7, usage), then focused/full tests passed."
+  ],
+  "abi": "Pure Rust terminal guard refactor; no unsafe/FFI/dependency/ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changes and prior native validations pending previous automatic approval quota issue; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "Commit publishes validated timeline/binding reservations/Batch/source cursor/lastBatch/scope budget with no new business check; Rust allocation failure or panic is not covered.",
+    "Drop/abort has no actor mutations; consumed plan is discarded as on prior enqueue rejection, caller must keep recipe for retries.",
+    "Generated and terminal queues can both prepare before commit; actual scope/Down begins only on poll, with saved actual Up and caller-coordinated generated ledger retirement.",
+    "Separate clocks/FIFO tails and budgets are not automatically unified. Saved original-Up joint preparation, full stage actor and delivery/retirement controller remain unfinished.",
+    "Scope propagation/retained old parent child admission/unified source subtree/context and branch integration/simultaneous/Windows native/hardware/UI and packaging remain unfinished.",
+    "No native OS acceptance proof or real keyboard/device/driver/installation validation. Production UnsupportedActionTiming remains gated; full objective active."
+  ]
+}
