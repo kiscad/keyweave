@@ -313,8 +313,8 @@ fn live_generated_slot_budget_checks_peak_and_rejection_does_not_commit_variable
                 config: queue.snapshot().clone(),
                 payload: PlannedAction {
                     slot: ActionSlot {
-                        batch: BatchId(index as u64),
-                        index: 0,
+                        batch: BatchId((index / 8) as u64),
+                        index: (index % 8) as u16,
                     },
                     target: ActionTarget::Key(key("left_shift")),
                     edge: KeyEdge::Down,

@@ -337,9 +337,14 @@ fn saved_old_arc_up_rejection_preserves_scope_and_clock_until_capacity_is_availa
     raw(&mut queue, 1, 2, "left_shift");
     let rule = select(&queue);
     let mut saved = queue.enqueue_scoped(&main(&rule, 2)).unwrap();
-    for id in 1000..5095 {
+    for id in 1000..5094 {
+        let actions = if id == 1000 {
+            vec![key("b").into(), key("b").into()]
+        } else {
+            vec![key("b").into()]
+        };
         let plan = plan_actions(
-            &[key("b").into()],
+            &actions,
             PlanOrigin {
                 batch: BatchId(id),
                 stage: Stage::Output,

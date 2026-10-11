@@ -7,6 +7,7 @@ use crate::{
     *,
 };
 
+pub use crate::stage_delivery::DeliveryProgress;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum GeneratedError {
     #[error(transparent)]
@@ -230,6 +231,7 @@ pub struct GeneratedStageQueue {
     timeline: StageTimeline<PlannedAction>,
     identity: Arc<()>,
     now: MonoTime,
+    delivery: crate::stage_delivery::DeliveryLedger,
 }
 impl GeneratedStageQueue {
     pub fn new(stage: Stage, config: Arc<ConfigSnapshot>) -> Result<Self, GeneratedError> {
@@ -252,7 +254,25 @@ impl GeneratedStageQueue {
             timeline: StageTimeline::new(),
             identity: Arc::new(()),
             now: MonoTime(0),
+            delivery: crate::stage_delivery::DeliveryLedger::default(),
         })
+    }
+    pub fn reserved_slots(&self) -> usize {
+        self.delivery.reserved()
+    }
+    pub fn pending_batches(&self) -> usize {
+        self.delivery.batches()
+    }
+    pub fn delivery_progress(&self, batch: action_plan::BatchId) -> Option<DeliveryProgress> {
+        self.delivery.progress(batch)
+    }
+    /// Call only after downstream bindings/actual scopes are complete. This
+    /// checks queue delivery, not platform acceptance or downstream recovery.
+    pub fn retire_batch(&mut self, batch: action_plan::BatchId) -> Result<(), GeneratedError> {
+        if self.environment.scopes.contains_key(&batch) {
+            return Err(GeneratedError::Lifecycle);
+        }
+        self.delivery.retire(batch)
     }
     pub fn queued_events(&self) -> usize {
         self.timeline.len()
@@ -324,9 +344,14 @@ impl GeneratedStageQueue {
             Ok(append) => append,
             Err(error) => return Err(RejectedGeneratedBatch { error, events }),
         };
+        let delivery = match self.delivery.prepare(&events, None) {
+            Ok(delivery) => delivery,
+            Err(error) => return Err(RejectedGeneratedBatch { error, events }),
+        };
         match self.timeline.enqueue(events) {
             Ok(()) => {
                 append.commit();
+                delivery.commit();
                 Ok(())
             }
             Err(rejected) => Err(RejectedGeneratedBatch {
@@ -387,10 +412,19 @@ impl GeneratedStageQueue {
         }
         let temporary = if nonempty { spec.reservation() } else { 0 };
         let append = self.environment.prepare(actions.events(), temporary)?;
+        let delivery = self.delivery.prepare(
+            actions.events(),
+            if nonempty {
+                Some((actions.origin.batch, temporary))
+            } else {
+                None
+            },
+        )?;
         self.timeline
             .enqueue(actions.events().to_vec())
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
         append.commit();
+        delivery.commit();
         if persistent {
             if !spec.until_input_up() {
                 hidden.clear();
@@ -438,10 +472,12 @@ impl GeneratedStageQueue {
         }
         let events = saved.plan.input_up_events(at);
         let append = self.environment.prepare(&events, 0)?;
+        let delivery = self.delivery.prepare(&events, None)?;
         self.timeline
             .enqueue(events)
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
         append.commit();
+        delivery.commit();
         self.environment.close_scope(saved.plan.origin.batch);
         self.timeline.advance(at)?;
         self.now = at;
@@ -454,6 +490,9 @@ impl GeneratedStageQueue {
         at: MonoTime,
     ) -> Result<Option<DueEvent<PlannedAction>>, GeneratedError> {
         let due = self.timeline.pop_due(at)?;
+        if let Some(due) = &due {
+            self.delivery.delivered(&due.event);
+        }
         self.now = at;
         Ok(due)
     }
@@ -464,6 +503,7 @@ impl GeneratedStageQueue {
         removed: bool,
     ) -> Result<(Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>), GeneratedError> {
         let events = self.timeline.observe_device(device, removed)?;
+        self.delivery.remove_device(device, removed);
         let slots = self.environment.remove(|down, _| {
             down.device.id == device.id
                 && (down.device.generation < device.generation
@@ -494,6 +534,7 @@ impl GeneratedStageQueue {
             .discard_where(|event| event.payload.slot.batch == batch);
         let slots = self.environment.remove(|_, slot| slot.batch == batch);
         self.environment.close_scope(batch);
+        self.delivery.cancel(batch);
         (slots, events)
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), GeneratedError> {
@@ -525,6 +566,7 @@ impl GeneratedStageQueue {
     ) -> Result<Vec<StageEvent<PlannedAction>>, GeneratedError> {
         let events = self.timeline.reset(at)?;
         self.now = at;
+        self.delivery = crate::stage_delivery::DeliveryLedger::default();
         self.environment.down.clear();
         self.environment.scopes.clear();
         self.environment.hidden.clear();

@@ -6,6 +6,7 @@ pub mod modifier_scope;
 mod modifiers;
 pub mod rule_selection;
 pub mod stage_bindings;
+mod stage_delivery;
 pub mod terminal_actor;
 pub mod timeline;
 pub use conditions::{Condition, InputSourceFilter, Pattern, Truth};

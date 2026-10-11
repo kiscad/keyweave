@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0111 generated queue delivery reservations preventing future tap identity aliasing",
+  "source_base_commit": "5bc29fe48101af5323911ab8419f13e54d8a375f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "2ad428c3722abe8f1ccc4357b461e19e0be7a746f4ee387e91109a721509fed7",
+    "crates/keyweave-engine/src/stage_delivery.rs": "a2739341839809880f856e1585b9a69554646b8f9647413fc966292709aa5af4",
+    "crates/keyweave-engine/src/generated_stage.rs": "75ad92125ae6021fdbad86c87024324bc6884169c58820477722763481fa927d",
+    "crates/keyweave-engine/tests/stage_delivery.rs": "42c58597ff01c3b7ece48606b11404a10d840e273984bee4dbd4d5d2ec722a13",
+    "crates/keyweave-engine/tests/generated_stage.rs": "00a4127fd3dc1650d4e639e03a6d422bac11accbb22c7ba9768043acb7caa84b",
+    "crates/keyweave-engine/tests/generated_scopes.rs": "784b86efda49d76ab454dbd75d0b53b134ac3f51005fededef0b95a0b57679a6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1025,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-delivery-reservations/tests.log",
+        "sha256": "d01d242a3e7b75403952ac9b928f333541a5f1088e97c4dff9fd5272fa994a6f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-delivery-reservations/clippy.log",
+        "sha256": "47ac5ddc5dbc80ce46709f6a05275169ac69f65a5a46b908cad188a5e3b83c7b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-delivery-reservations/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-delivery-reservations/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Existing 16384 single-slot single-batch pressure fixture hit new 4096-batch limit; regrouped 8 unique slots per batch to preserve isolated slot limit coverage. Full-queue fixture uses 4094 tap batches with one 2-action batch, preserving exact 4096 total batches and 8192 queued events."
+  ],
+  "abi": "Pure Rust private delivery ledger/generated queue API; no unsafe/FFI/dependency/ABI change; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; Windows native build and previous validations pending prior approval quota issue."
+  },
+  "limitations": [
+    "Delivery means removed from the stage queue, not actual binding execution or OS accepted output. Explicit retirement additionally requires caller to finish actual downstream bindings/scopes.",
+    "Active batch identities cannot accept new Down even when generated logical view is empty. Initial Down arrays share one saved device/source/Arc per batch; original saved Up retains old provenance.",
+    "At most 4096 unretired batches and 16384 delivery slots plus scoped snapshot reservations per queue; unified whole source subtree budget remains unfinished.",
+    "Control returns retain original logical slots/events semantics, not a complete actual owner cleanup inventory; actor must independently reconcile actual bindings and ledger.",
+    "Canceled/retired batch IDs must not be reused while external descendants/tasks remain; global batch allocator ownership remains caller responsibility.",
+    "Scope propagation, complete stage actor, branch/context and retained-old-parent child admission remain unfinished.",
+    "Pure shared tests and existing no-input process checks only; no real keyboard/devices/native duration/driver. UnsupportedActionTiming retained."
+  ]
+}
