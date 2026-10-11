@@ -202,6 +202,12 @@ impl OutputStageActor {
         registration: stage_bindings::Reservation<'a, T>,
     ) -> Result<PreparedOutputChild<'a, T>, OutputStageError> {
         self.running()?;
+        let extra = if plan.actions().events().is_empty() {
+            0
+        } else {
+            plan.scope().reservation()
+        };
+        let registration = registration.with_extra_sources(extra)?;
         let child = registration.child_admission()?;
         let output = self.prepare_inner(plan, Some(&child))?;
         Ok(PreparedOutputChild {

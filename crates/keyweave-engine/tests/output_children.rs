@@ -607,3 +607,223 @@ fn child_from_exact_current_arc_uses_same_registered_parent_and_empty_extra_budg
     assert!(cleanup[0].payloads.is_empty());
     assert_eq!(tree_size(&arena), 1);
 }
+
+fn snapshot_two(config: Arc<ConfigSnapshot>) -> ScopedActionPlan {
+    let selection = select_rule(
+        config,
+        MappingStage::Complex,
+        key("a"),
+        [key("left_shift"), key("left_control")]
+            .into_iter()
+            .collect(),
+        |_| Truth::True,
+    )
+    .unwrap();
+    let branch = selection
+        .select_branch(RuleBranch::Alone, false, |_| Truth::True)
+        .unwrap();
+    ScopedActionPlan::branch(
+        &branch,
+        BatchId(20),
+        MonoTime(100),
+        device(1),
+        SourceToken(100),
+    )
+    .unwrap()
+}
+#[test]
+fn snapshot_extra_source_overflow_rejects_child_even_when_down_slot_alone_fits() {
+    let old = config();
+    let mut arena = arena(old.clone());
+    let mut output = output(old.clone());
+    arena
+        .prepare(
+            origin(old.clone(), 30, Stage::Simple, 0),
+            MAX_OUTPUT_OWNERS - 3,
+            None,
+        )
+        .unwrap()
+        .commit();
+    assert_eq!(arena.reserved_sources(), MAX_OUTPUT_OWNERS - 2);
+    let registration = arena
+        .prepare(
+            origin(old.clone(), 20, Stage::Output, 100),
+            1,
+            Some(parent()),
+        )
+        .unwrap();
+    assert!(matches!(
+        output.prepare_child_scoped(snapshot_two(old.clone()), registration),
+        Err(OutputStageError::Binding(BindingError::Capacity))
+    ));
+    assert_eq!(tree_size(&arena), 1);
+    assert_eq!(arena.reserved_sources(), MAX_OUTPUT_OWNERS - 2);
+    assert_eq!(arena.extra_source_reservations(), 0);
+    assert!(output.generated_variables().is_empty());
+    assert_eq!(output.pending_batches(), 0);
+    arena.cancel_subtree(BatchId(30)).unwrap();
+    let registration = arena
+        .prepare(
+            origin(old.clone(), 20, Stage::Output, 100),
+            1,
+            Some(parent()),
+        )
+        .unwrap();
+    output
+        .prepare_child_scoped(snapshot_two(old), registration)
+        .unwrap()
+        .commit();
+    assert_eq!(arena.reserved_sources(), 4);
+    assert_eq!(arena.reserved_slots(), 2);
+    assert_eq!(arena.extra_source_reservations(), 2);
+    assert_eq!(output.reserved_slots(), 3);
+}
+#[test]
+fn snapshot_child_reaches_exact_tree_source_limit_and_keeps_budget_until_registry_cleanup() {
+    let old = config();
+    let mut arena = arena(old.clone());
+    let mut output = output(old.clone());
+    arena
+        .prepare(
+            origin(old.clone(), 30, Stage::Simple, 0),
+            MAX_OUTPUT_OWNERS - 4,
+            None,
+        )
+        .unwrap()
+        .commit();
+    let registration = arena
+        .prepare(
+            origin(old.clone(), 20, Stage::Output, 100),
+            1,
+            Some(parent()),
+        )
+        .unwrap();
+    output
+        .prepare_child_scoped(snapshot_two(old.clone()), registration)
+        .unwrap()
+        .commit();
+    assert_eq!(arena.reserved_sources(), MAX_OUTPUT_OWNERS);
+    assert!(matches!(
+        arena.prepare(origin(old, 31, Stage::Simple, 0), 1, None),
+        Err(BindingError::Capacity)
+    ));
+    assert_eq!(drain(&mut output, 150).1, [BatchId(20)]);
+    assert_eq!(output.reserved_slots(), 0);
+    assert_eq!(arena.reserved_sources(), MAX_OUTPUT_OWNERS); // actual completion is not registry retirement
+    let cleanup = arena.cancel_subtree(BatchId(20)).unwrap();
+    assert_eq!(cleanup[0].extra_sources, 2);
+    assert!(cleanup[0].payloads.is_empty());
+    assert_eq!(arena.reserved_sources(), MAX_OUTPUT_OWNERS - 3);
+}
+#[test]
+fn snapshot_budget_is_uncommitted_when_output_abort_or_terminal_key_capacity_rejects() {
+    let old = config();
+    let mut arena = arena(old.clone());
+    let mut output = output(old.clone());
+    let registration = arena
+        .prepare(
+            origin(old.clone(), 20, Stage::Output, 100),
+            1,
+            Some(parent()),
+        )
+        .unwrap();
+    output
+        .prepare_child_scoped(snapshot_two(old.clone()), registration)
+        .unwrap()
+        .abort();
+    assert_eq!(arena.reserved_sources(), 1);
+    assert_eq!(arena.extra_source_reservations(), 0);
+    assert!(output.generated_variables().is_empty());
+    let actions: Vec<Action> = (1..=512)
+        .map(|usage| KeyId::new(12, usage).into())
+        .collect();
+    output
+        .enqueue(plan_actions(&actions, origin(old.clone(), 1, Stage::Output, 0), false).unwrap())
+        .unwrap();
+    let registration = arena
+        .prepare(
+            origin(old.clone(), 20, Stage::Output, 100),
+            1,
+            Some(parent()),
+        )
+        .unwrap();
+    assert!(matches!(
+        output.prepare_child_scoped(snapshot_two(old), registration),
+        Err(OutputStageError::Terminal(ActorError::Capacity))
+    ));
+    assert_eq!(arena.reserved_sources(), 1);
+    assert_eq!(tree_size(&arena), 1);
+    assert!(output.generated_variables().is_empty());
+}
+#[test]
+fn actual_device_cleanup_retains_external_source_budget_until_whole_subtree_is_acknowledged() {
+    let old = config();
+    let mut arena = arena(old.clone());
+    let mut output = output(old.clone());
+    let registration = arena
+        .prepare(
+            origin(old.clone(), 20, Stage::Output, 100),
+            1,
+            Some(parent()),
+        )
+        .unwrap();
+    output
+        .prepare_child_scoped(snapshot_two(old), registration)
+        .unwrap()
+        .commit();
+    drain(&mut output, 100);
+    assert_eq!(arena.reserved_sources(), 4);
+    let outputs = output
+        .observe_device(device(1), true, MonoTime(110))
+        .unwrap();
+    assert!(
+        outputs
+            .iter()
+            .any(|o| o.key == key("left_control") && o.edge == KeyEdge::Up)
+    );
+    assert_eq!(output.reserved_slots(), 0);
+    assert_eq!(arena.reserved_sources(), 4);
+    let cleanup = arena.cancel_subtree(BatchId(10)).unwrap();
+    assert_eq!(
+        cleanup
+            .iter()
+            .map(|entry| entry.extra_sources)
+            .collect::<Vec<_>>(),
+        [2, 0]
+    );
+    assert_eq!(arena.reserved_sources(), 0);
+}
+#[test]
+fn main_current_modifier_scope_does_not_charge_snapshot_flags_as_extra_sources() {
+    let old = config();
+    let mut arena = arena(old.clone());
+    let mut output = output(old.clone());
+    let selection = select_rule(
+        old.clone(),
+        MappingStage::Complex,
+        key("a"),
+        [key("left_shift"), key("left_control")]
+            .into_iter()
+            .collect(),
+        |_| Truth::True,
+    )
+    .unwrap();
+    let plan = ScopedActionPlan::main(
+        &selection,
+        BatchId(20),
+        MonoTime(100),
+        device(1),
+        SourceToken(100),
+    )
+    .unwrap();
+    let registration = arena
+        .prepare(origin(old, 20, Stage::Output, 100), 1, Some(parent()))
+        .unwrap();
+    output
+        .prepare_child_scoped(plan, registration)
+        .unwrap()
+        .commit();
+    assert_eq!(arena.reserved_sources(), 2);
+    assert_eq!(arena.extra_source_reservations(), 0);
+    assert_eq!(output.reserved_slots(), 1);
+}

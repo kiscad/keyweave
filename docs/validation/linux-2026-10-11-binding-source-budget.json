@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0118 retained binding tree slots and snapshot extra source budget",
+  "source_base_commit": "c84798b00ecbbae7272025ff56465cea68dc4876",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/stage_bindings.rs": "d6b8a71888e490b370ddda945f2970d3994cfe459137a8ff8184cb85e6ae07a0",
+    "crates/keyweave-engine/src/output_stage.rs": "52d7e39af5ddf0522bbbd2072b432a834973ef440aae3f7f4bd9f7cf55ace24a",
+    "crates/keyweave-engine/tests/source_budget.rs": "0b2db285cc694f4741793c8243029c6108a68c79a981c2bd2e2182e660660832",
+    "crates/keyweave-engine/tests/output_children.rs": "694b1b80a44923c7d604094fbc75fb2f2da518b700a653249424a809f73486fe"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1099,
+    "new_tests": 9,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-binding-source-budget/tests.log",
+        "sha256": "39b450d8423fffda6affcc5c8a90243888000851ca7d59621f8fe61efb36db49"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-binding-source-budget/clippy.log",
+        "sha256": "f18ffc2e34f5eaf084eefc3a68cd00c22586327fb3a455ebc4f6dcec1c990dd9"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-binding-source-budget/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-binding-source-budget/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust accounting and prepared transaction changes only; no unsafe, FFI, dependency or native ABI change. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Previous automatic approval quota issue prevents pending native validations; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "reserved_sources counts identity slots plus explicit extra sources across all batches in one BindingArena, bounded at 16384. No actual source ID allocation or global multi-arena pooling is claimed.",
+    "Output child snapshot budget is automatically charged during three-party prepare; callers must not charge the same scope twice. Rejection/drop/abort changes no arena budget or parent edges.",
+    "Individual slot Up does not release batch reserve. Output completion or device cleanup does not free external registration: caller must complete actual children/scopes and then remove the registration. Returned cancellation counts are accounting metadata, not actual owner/OS recovery proof.",
+    "Complete Simple/Complex producers must charge their own extra sources and retain all roots and children in the same arena. Bare output roots, source ID allocator, controller and crossstage scope propagation remain unfinished.",
+    "No native capture, device, driver, install, hardware test or Windows build executed. Native duration gate and full original objective remain pending."
+  ]
+}

@@ -27,6 +27,7 @@ struct Batch<T> {
     parent: Option<ActionSlot>,
     slots: Vec<Slot<T>>,
     children: Vec<BTreeSet<BatchId>>,
+    extra_sources: usize,
 }
 pub enum BindingState<'a, T> {
     Reserved,
@@ -49,12 +50,15 @@ pub struct CanceledBatch<T> {
     pub origin: PlanOrigin,
     pub parent: Option<ActionSlot>,
     pub payloads: Vec<CanceledSlot<T>>,
+    /// Released accounting units, not evidence of actual owner/OS cleanup.
+    pub extra_sources: usize,
 }
 /// Payloads represent executed downs only. Dropping this arena is not OS recovery.
 pub struct BindingArena<T> {
     batches: BTreeMap<BatchId, Batch<T>>,
     reserved: usize,
     live: usize,
+    extra_sources: usize,
 }
 impl<T> Default for BindingArena<T> {
     fn default() -> Self {
@@ -62,6 +66,7 @@ impl<T> Default for BindingArena<T> {
             batches: BTreeMap::new(),
             reserved: 0,
             live: 0,
+            extra_sources: 0,
         }
     }
 }
@@ -92,6 +97,19 @@ impl ChildAdmission<'_> {
     }
 }
 impl<T> Reservation<'_, T> {
+    /// Add source units to this uncommitted batch. Failure/drop changes no arena state.
+    /// Retain them until whole-batch retirement/cancellation, not individual slot Up.
+    pub fn with_extra_sources(mut self, additional: usize) -> Result<Self, BindingError> {
+        let available = MAX_OUTPUT_OWNERS
+            .saturating_sub(self.arena.reserved_sources())
+            .saturating_sub(self.batch.slots.len())
+            .saturating_sub(self.batch.extra_sources);
+        if additional > available {
+            return Err(BindingError::Capacity);
+        }
+        self.batch.extra_sources += additional;
+        Ok(self)
+    }
     pub(crate) fn child_admission(&self) -> Result<ChildAdmission<'_>, BindingError> {
         Ok(ChildAdmission {
             origin: &self.batch.origin,
@@ -109,6 +127,7 @@ impl<T> Reservation<'_, T> {
             .insert(self.batch.origin.batch);
         }
         self.arena.reserved += self.batch.slots.len();
+        self.arena.extra_sources += self.batch.extra_sources;
         self.arena
             .batches
             .insert(self.batch.origin.batch, self.batch);
@@ -120,6 +139,13 @@ impl<T> BindingArena<T> {
     }
     pub fn reserved_slots(&self) -> usize {
         self.reserved
+    }
+    pub fn extra_source_reservations(&self) -> usize {
+        self.extra_sources
+    }
+    /// Per-arena tree budget: identity slots and explicit extra source units.
+    pub fn reserved_sources(&self) -> usize {
+        self.reserved + self.extra_sources
     }
     pub fn prepare(
         &mut self,
@@ -133,7 +159,7 @@ impl<T> BindingArena<T> {
         if slots == 0
             || slots > usize::from(u16::MAX) + 1
             || self.batches.len() >= MAX_BINDINGS
-            || slots > MAX_OUTPUT_OWNERS.saturating_sub(self.reserved)
+            || slots > MAX_OUTPUT_OWNERS.saturating_sub(self.reserved_sources())
         {
             return Err(BindingError::Capacity);
         }
@@ -168,6 +194,7 @@ impl<T> BindingArena<T> {
                 parent,
                 slots: (0..slots).map(|_| Slot::Reserved).collect(),
                 children: (0..slots).map(|_| BTreeSet::new()).collect(),
+                extra_sources: 0,
             },
         })
     }
@@ -252,6 +279,7 @@ impl<T> BindingArena<T> {
             .remove(&id);
         }
         self.reserved -= batch.slots.len();
+        self.extra_sources -= batch.extra_sources;
         let payloads: Vec<_> = batch
             .slots
             .into_iter()
@@ -273,6 +301,7 @@ impl<T> BindingArena<T> {
             origin: batch.origin,
             parent: batch.parent,
             payloads,
+            extra_sources: batch.extra_sources,
         })
     }
     /// Inspect one saved subtree without cloning payloads or changing lifecycle.
