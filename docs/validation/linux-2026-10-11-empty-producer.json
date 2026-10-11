@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0122 consumed empty producer Down joint activation",
+  "source_base_commit": "46c05c51b9229f303aad03d4eef71b3dd8569b5d",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/stage_bindings.rs": "b97619ee8d6ef566fc0ff668aa52e8603154a1568e558c9e36a815005d684107",
+    "crates/keyweave-engine/src/generated_stage.rs": "e809e35743eb28d42e39d31b6ec3e1cb7ebfec0a0ae638611f8968860f15c7c6",
+    "crates/keyweave-engine/src/output_stage.rs": "ea690337286340b20ca2ae10eaa7e5ebd1b25b679866292befbdd1d10d91128d",
+    "crates/keyweave-engine/tests/empty_producer.rs": "54b7c033431badc40cd1c6a732301367827caecb398ebc4f5515b1d48845c766"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1141,
+    "new_tests": 9,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-empty-producer/tests.log",
+        "sha256": "d6e732f64f5d3a029646918f2cd545ec287b9d3d1f41a4382c8708f9d0881549"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-empty-producer/clippy.log",
+        "sha256": "354fb37347ae673fdc88ecdbb1616a2764eca43cd9ef845227f980053e4e8c38"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-empty-producer/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-empty-producer/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust prepared parent activation and empty generation/output transactions. No unsafe, FFI, dependency or native ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Earlier automatic approval quota issue remains for pending native checks; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "PreparedConsumedDown validates Reserved original Down and exact adjacent-stage destination provenance/time; no child batch, edge, identity slot or extra source budget created. Commit activates original parent only.",
+    "Empty destination transactions hold parent activation plus generated preparation and, for Output, actual terminal preparation. All checks before commit; drop/abort/rejection leave parent Reserved. Allocation failure/panic excluded.",
+    "Events and saved releases must both be empty. Nonempty input is ordinary admission rejection and does not latch output failure. Ordinary old roots still rejected; old empty plans need retained/activating parent evidence.",
+    "Output keeps original strict ID/schema/batch-capacity rules: empty commit advances output last_batch but creates no recipe/source/queue event/owner; capacity rejection does not activate parent or consume ID. Complex empty generation returns no-op Up credential without a delivery batch or clock mutation on no-op Up.",
+    "Down receipt and generic payload remain caller consistency responsibilities, not native authentication. Payload must have no prior executed effects. Empty plan alone is not proof of original selection; controller must keep it paired with frozen ProducerDecision.",
+    "One replay retains old empty rule across reload, manually generates AfterKeyUp tap child at 150 with Up at 170, waits child completion and clears registration before original parent take. This is not automatic branch scheduling, producer-Up validation or full controller.",
+    "Full controller/frozen retry and failure state, child original-Up/completion barrier, crossstage scope/source IDs/context/branches/native duration/simultaneous/Windows adapter/hardware/UI/packaging/driver remain pending. Production duration gate retained.",
+    "No real input, devices, driver, installation or Windows native compilation executed."
+  ]
+}

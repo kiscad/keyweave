@@ -77,7 +77,30 @@ pub struct Reservation<'a, T> {
     batch: Batch<T>,
     activation: Option<(ActionSlot, T)>,
 }
-/// Only an exclusively prepared child registration can create this witness.
+/// Activate a consumed producer Down without creating any downstream identity slot.
+#[must_use = "commit or discard the consumed producer Down"]
+pub struct PreparedConsumedDown<'a, T> {
+    arena: &'a mut BindingArena<T>,
+    slot: ActionSlot,
+    payload: T,
+    destination: PlanOrigin,
+}
+impl<T> PreparedConsumedDown<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.arena.activate_down(self.slot, self.payload);
+    }
+    pub(crate) fn admission(&self) -> ChildAdmission<'_> {
+        ChildAdmission {
+            origin: &self.destination,
+            parent: self.slot,
+            slots: 0,
+        }
+    }
+}
+/// Only an exclusive child registration or consumed-Down activation creates this witness.
 /// Parent is Live or its validated Down activation is owned by the same reservation.
 /// It is semantic binding provenance, not native/session authorization.
 pub(crate) struct ChildAdmission<'a> {
@@ -122,12 +145,7 @@ impl<T> Reservation<'_, T> {
     }
     pub fn commit(self) {
         if let Some((slot, payload)) = self.activation {
-            self.arena
-                .batches
-                .get_mut(&slot.batch)
-                .unwrap_or_else(|| unreachable!("exclusive reservation retains reserved parent"))
-                .slots[usize::from(slot.index)] = Slot::Live(payload);
-            self.arena.live += 1;
+            self.arena.activate_down(slot, payload);
         }
         if let Some(parent) = self.batch.parent {
             self.arena
@@ -176,12 +194,42 @@ impl<T> BindingArena<T> {
         down: DueEvent<PlannedAction>,
         payload: T,
     ) -> Result<Reservation<'_, T>, BindingError> {
-        let event = down.event;
-        let parent = event.payload.slot;
-        self.check_down(parent)?;
+        let parent = self.validate_down(&down)?;
+        if origin.start < down.delivered_at {
+            return Err(BindingError::Provenance);
+        }
+        self.prepare_inner(origin, slots, Some(parent), Some((parent, payload)))
+    }
+    /// Prepare a consumed Down whose downstream main plan has no actions or releases.
+    /// No child batch/edge/source reservation is created. Combine with empty destination admission.
+    pub fn prepare_consumed_down(
+        &mut self,
+        destination: PlanOrigin,
+        down: DueEvent<PlannedAction>,
+        payload: T,
+    ) -> Result<PreparedConsumedDown<'_, T>, BindingError> {
+        let slot = self.validate_down(&down)?;
+        if self.batches.contains_key(&destination.batch) {
+            return Err(BindingError::Lifecycle);
+        }
+        if destination.start < down.delivered_at {
+            return Err(BindingError::Provenance);
+        }
+        self.check_child_origin(slot, &destination)?;
+        Ok(PreparedConsumedDown {
+            arena: self,
+            slot,
+            payload,
+            destination,
+        })
+    }
+    fn validate_down(&self, down: &DueEvent<PlannedAction>) -> Result<ActionSlot, BindingError> {
+        let event = &down.event;
+        let slot = event.payload.slot;
+        self.check_down(slot)?;
         let saved = &self
             .batches
-            .get(&parent.batch)
+            .get(&slot.batch)
             .ok_or(BindingError::Lifecycle)?
             .origin;
         if event.payload.edge != keyweave_types::KeyEdge::Down {
@@ -193,11 +241,41 @@ impl<T> BindingArena<T> {
             || !std::sync::Arc::ptr_eq(&event.config, &saved.config)
             || event.at_ns < saved.start
             || down.delivered_at < event.at_ns
-            || origin.start < down.delivered_at
         {
             return Err(BindingError::Provenance);
         }
-        self.prepare_inner(origin, slots, Some(parent), Some((parent, payload)))
+        Ok(slot)
+    }
+    fn check_child_origin(
+        &self,
+        parent: ActionSlot,
+        origin: &PlanOrigin,
+    ) -> Result<(), BindingError> {
+        let saved = &self
+            .batches
+            .get(&parent.batch)
+            .ok_or(BindingError::Lifecycle)?
+            .origin;
+        let next = match saved.stage {
+            Stage::Simple => Stage::Complex,
+            Stage::Complex => Stage::Output,
+            Stage::Output => return Err(BindingError::Provenance),
+        };
+        if next != origin.stage
+            || saved.device != origin.device
+            || saved.source != origin.source
+            || !std::sync::Arc::ptr_eq(&saved.config, &origin.config)
+        {
+            return Err(BindingError::Provenance);
+        }
+        Ok(())
+    }
+    fn activate_down(&mut self, slot: ActionSlot, payload: T) {
+        self.batches
+            .get_mut(&slot.batch)
+            .unwrap_or_else(|| unreachable!("exclusive preparation retains reserved parent"))
+            .slots[usize::from(slot.index)] = Slot::Live(payload);
+        self.live += 1;
     }
     fn prepare_inner(
         &mut self,
@@ -231,18 +309,7 @@ impl<T> BindingArena<T> {
             if !valid_parent {
                 return Err(BindingError::Lifecycle);
             }
-            let next = match batch.origin.stage {
-                Stage::Simple => Stage::Complex,
-                Stage::Complex => Stage::Output,
-                Stage::Output => return Err(BindingError::Provenance),
-            };
-            if next != origin.stage
-                || batch.origin.device != origin.device
-                || batch.origin.source != origin.source
-                || !std::sync::Arc::ptr_eq(&batch.origin.config, &origin.config)
-            {
-                return Err(BindingError::Provenance);
-            }
+            self.check_child_origin(parent, &origin)?;
         }
         Ok(Reservation {
             arena: self,

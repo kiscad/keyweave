@@ -139,6 +139,21 @@ impl<T> PreparedGeneratedChild<'_, T> {
         self.generated.commit()
     }
 }
+/// Joint consumed producer activation and empty Complex generation; no child registration.
+#[must_use = "commit or discard the consumed producer and empty generation together"]
+pub struct PreparedEmptyGeneratedChild<'a, T> {
+    generated: PreparedScopedGeneration<'a>,
+    activation: stage_bindings::PreparedConsumedDown<'a, T>,
+}
+impl<T> PreparedEmptyGeneratedChild<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) -> ScopedGeneration {
+        self.activation.commit();
+        self.generated.commit()
+    }
+}
 /// Saved original-Up admission. Drop leaves scope, variables, recipe and clock unchanged.
 #[must_use = "commit or discard the prepared original Up"]
 pub struct PreparedGeneratedUp<'a> {
@@ -560,6 +575,25 @@ impl GeneratedStageQueue {
         Ok(PreparedGeneratedChild {
             generated,
             registration,
+        })
+    }
+    /// Consume an empty matched main while preserving its actual Simple producer binding.
+    pub fn prepare_empty_complex_child_scoped<'a, T>(
+        &'a mut self,
+        plan: &modifier_scope::ScopedActionPlan,
+        activation: stage_bindings::PreparedConsumedDown<'a, T>,
+    ) -> Result<PreparedEmptyGeneratedChild<'a, T>, GeneratedError> {
+        if self.environment.stage != Stage::Complex {
+            return Err(GeneratedError::Stage);
+        }
+        if !plan.actions().events().is_empty() || !plan.actions().releases().is_empty() {
+            return Err(GeneratedError::Lifecycle);
+        }
+        let admission = activation.admission();
+        let generated = self.prepare_child_scoped(plan, &admission)?;
+        Ok(PreparedEmptyGeneratedChild {
+            generated,
+            activation,
         })
     }
     pub(crate) fn prepare_child_scoped(

@@ -85,6 +85,21 @@ impl<T> PreparedOutputChild<'_, T> {
         self.output.commit();
     }
 }
+/// Empty main consumes the output ID and activates only the saved producer parent.
+#[must_use = "commit or discard the consumed producer and empty output together"]
+pub struct PreparedEmptyOutputChild<'a, T> {
+    output: PreparedOutputAppend<'a>,
+    activation: stage_bindings::PreparedConsumedDown<'a, T>,
+}
+impl<T> PreparedEmptyOutputChild<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) {
+        self.activation.commit();
+        self.output.commit();
+    }
+}
 impl OutputStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, OutputStageError> {
         Ok(Self {
@@ -223,6 +238,20 @@ impl OutputStageActor {
             output,
             registration,
         })
+    }
+    /// Empty main must not allocate a fictitious child or lose the original producer binding.
+    pub fn prepare_empty_child_scoped<'a, T>(
+        &'a mut self,
+        plan: ScopedActionPlan,
+        activation: stage_bindings::PreparedConsumedDown<'a, T>,
+    ) -> Result<PreparedEmptyOutputChild<'a, T>, OutputStageError> {
+        self.running()?;
+        if !plan.actions().events().is_empty() || !plan.actions().releases().is_empty() {
+            return Err(GeneratedError::Lifecycle.into());
+        }
+        let admission = activation.admission();
+        let output = self.prepare_inner(plan, Some(&admission))?;
+        Ok(PreparedEmptyOutputChild { output, activation })
     }
     fn prepare_inner(
         &mut self,
