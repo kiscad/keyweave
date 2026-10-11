@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0109 generated modifier scope visibility and queue-bound original-up recipes",
+  "source_base_commit": "8ca6928bd6297a34f737e2f03f98e2a8b218528e",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/generated_stage.rs": "2ff7c5dafc33bdc0b0535085f37d72f7df0434acad2264bed8728fd1d476a357",
+    "crates/keyweave-engine/src/modifier_scope.rs": "2769e7c1075b4cd052a7cbd3f7310b5893ba1a19af753775a4c48e5f11332ebb",
+    "crates/keyweave-engine/tests/generated_scopes.rs": "f31402f9992d884638d245a0bcc4b10ecd762cddeed37a43aa1590f487f9b518"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1011,
+    "new_tests": 10,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261011-generated-scopes/tests.log",
+        "sha256": "1186c7bad6524dd7402b4ed10fe8c67cf3fc86eef7d548886677b165584bd554"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261011-generated-scopes/clippy.log",
+        "sha256": "4d6ca3a9a5ba9ec849e4bebcadb000467644d89770b00a9a924c937ff2e14e4b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-generated-scopes/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-generated-scopes/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust generated logical scope and private immutable scope accessors; no unsafe/FFI/dependency/ABI change; oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Shared engine changed; Windows native build and earlier validations pending prior approval quota issue."
+  },
+  "limitations": [
+    "Scope participates in the current destination generated view; modifier difference event propagation into the next destination stage is not implemented.",
+    "ScopedGeneration is an internal queue identity and original-up recipe, not native run/epoch/session authority or actual owner recovery proof.",
+    "Caller retains ScopedActionPlan for independent actual scoped execution; logical generation restoration occurs before timed output delivery and poll does not replay it.",
+    "Exact logical reference/temporary owner budgets do not replace actual actor execution budgets; source subtree and complete parent-child stage actor remain unfinished.",
+    "Queue failure leaves recipe/scope/variables/modifiers/time unchanged; admitted old Arc Up survives activate; reset invalidates original queue credentials.",
+    "Snapshot transient scope restores final logical view after generation; context events, branch orchestration and retained old rule new-child admission remain future integration work.",
+    "Pure shared tests and existing no-input process harnesses only; no actual keyboard/devices/native duration/driver. UnsupportedActionTiming retained."
+  ]
+}

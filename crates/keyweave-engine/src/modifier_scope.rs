@@ -35,6 +35,15 @@ impl ModifierScope {
                     .is_some_and(|action| action.key().is_some_and(KeyId::is_modifier)),
         }
     }
+    pub(crate) fn consumed(&self) -> &BTreeSet<KeyId> {
+        &self.consumed
+    }
+    pub(crate) fn snapshot(&self) -> &BTreeSet<KeyId> {
+        &self.snapshot
+    }
+    pub(crate) fn policy(&self) -> BranchModifierPolicy {
+        self.policy
+    }
     pub(crate) fn until_input_up(&self) -> bool {
         self.until_input_up
     }
@@ -159,6 +168,9 @@ impl ScopedActionPlan {
     }
     pub fn actions(&self) -> &crate::action_plan::ActionPlan {
         &self.plan
+    }
+    pub(crate) fn scope(&self) -> &ModifierScope {
+        &self.scope
     }
     pub(crate) fn into_parts(self) -> (crate::action_plan::ActionPlan, ModifierScope) {
         (self.plan, self.scope)

@@ -38,11 +38,24 @@ struct Down {
     config: Arc<ConfigSnapshot>,
     target: ActionTarget,
 }
+struct LogicalScope {
+    hidden: Vec<ActionSlot>,
+    device: DeviceInstanceId,
+}
+/// A single queue's admitted original-up recipe. Not a native permission or owner.
+pub struct ScopedGeneration {
+    queue: Arc<()>,
+    plan: action_plan::ActionPlan,
+    up_generated: bool,
+}
 struct Environment {
     stage: Stage,
     config: Arc<ConfigSnapshot>,
     down: BTreeMap<ActionSlot, Down>,
     variables: BTreeMap<String, Option<VariableValue>>,
+    hidden: BTreeMap<ActionSlot, usize>,
+    scopes: BTreeMap<action_plan::BatchId, LogicalScope>,
+    references: usize,
 }
 struct Append<'a> {
     environment: &'a mut Environment,
@@ -92,6 +105,7 @@ impl Environment {
     fn prepare(
         &mut self,
         events: &[StageEvent<PlannedAction>],
+        temporary: usize,
     ) -> Result<Append<'_>, GeneratedError> {
         if events.len() > MAX_STAGE_APPEND {
             return Err(TimelineError::Capacity.into());
@@ -99,6 +113,9 @@ impl Environment {
         let mut down = BTreeMap::<ActionSlot, Option<Down>>::new();
         let mut variables = BTreeMap::new();
         let mut count = self.down.len();
+        if count.saturating_add(temporary) > MAX_OUTPUT_OWNERS {
+            return Err(EngineError::ResourceLimit.into());
+        }
         for event in events {
             if event.stage != self.stage {
                 return Err(GeneratedError::Stage);
@@ -110,7 +127,11 @@ impl Environment {
             };
             match action.edge {
                 KeyEdge::Down => {
-                    if previous.is_some() || down.contains_key(&action.slot) {
+                    if previous.is_some()
+                        || down.contains_key(&action.slot)
+                        || self.hidden.contains_key(&action.slot)
+                        || self.scopes.contains_key(&action.slot.batch)
+                    {
                         return Err(GeneratedError::Lifecycle);
                     }
                     if !Arc::ptr_eq(&event.config, &self.config) {
@@ -135,7 +156,7 @@ impl Environment {
                         }
                     }
                     count += 1;
-                    if count > MAX_OUTPUT_OWNERS {
+                    if count.saturating_add(temporary) > MAX_OUTPUT_OWNERS {
                         return Err(EngineError::ResourceLimit.into());
                     }
                     down.insert(
@@ -172,6 +193,19 @@ impl Environment {
             variables,
         })
     }
+    fn close_scope(&mut self, batch: action_plan::BatchId) {
+        if let Some(scope) = self.scopes.remove(&batch) {
+            self.references -= scope.hidden.len();
+            for slot in scope.hidden {
+                if let Some(count) = self.hidden.get_mut(&slot) {
+                    *count -= 1;
+                    if *count == 0 {
+                        self.hidden.remove(&slot);
+                    }
+                }
+            }
+        }
+    }
     fn remove(&mut self, predicate: impl Fn(&Down, ActionSlot) -> bool) -> Vec<ActionSlot> {
         let slots: Vec<_> = self
             .down
@@ -194,6 +228,8 @@ impl Environment {
 pub struct GeneratedStageQueue {
     environment: Environment,
     timeline: StageTimeline<PlannedAction>,
+    identity: Arc<()>,
+    now: MonoTime,
 }
 impl GeneratedStageQueue {
     pub fn new(stage: Stage, config: Arc<ConfigSnapshot>) -> Result<Self, GeneratedError> {
@@ -209,8 +245,13 @@ impl GeneratedStageQueue {
                 config,
                 down: BTreeMap::new(),
                 variables,
+                hidden: BTreeMap::new(),
+                scopes: BTreeMap::new(),
+                references: 0,
             },
             timeline: StageTimeline::new(),
+            identity: Arc::new(()),
+            now: MonoTime(0),
         })
     }
     pub fn queued_events(&self) -> usize {
@@ -228,8 +269,9 @@ impl GeneratedStageQueue {
     pub fn modifiers(&self) -> BTreeSet<KeyId> {
         self.environment
             .down
-            .values()
-            .filter_map(|down| match down.target {
+            .iter()
+            .filter(|(slot, _)| !self.environment.hidden.contains_key(slot))
+            .filter_map(|(_, down)| match down.target {
                 ActionTarget::Key(key) if key.is_modifier() => Some(key),
                 _ => None,
             })
@@ -278,7 +320,7 @@ impl GeneratedStageQueue {
         &mut self,
         events: Vec<StageEvent<PlannedAction>>,
     ) -> Result<(), RejectedGeneratedBatch> {
-        let append = match self.environment.prepare(&events) {
+        let append = match self.environment.prepare(&events, 0) {
             Ok(append) => append,
             Err(error) => return Err(RejectedGeneratedBatch { error, events }),
         };
@@ -293,12 +335,127 @@ impl GeneratedStageQueue {
             }),
         }
     }
+    pub fn hidden_modifier_references(&self) -> usize {
+        self.environment.references
+    }
+    /// Frozen scopes change logical visibility at generation. The original plan
+    /// remains caller-owned for execution with its separate actual scope.
+    pub fn enqueue_scoped(
+        &mut self,
+        plan: &modifier_scope::ScopedActionPlan,
+    ) -> Result<ScopedGeneration, GeneratedError> {
+        let actions = plan.actions();
+        let spec = plan.scope();
+        if actions.origin.stage != self.environment.stage {
+            return Err(GeneratedError::Stage);
+        }
+        if !Arc::ptr_eq(&actions.origin.config, &self.environment.config) {
+            return Err(GeneratedError::Provenance);
+        }
+        let nonempty = !actions.events().is_empty();
+        if self.environment.scopes.contains_key(&actions.origin.batch) {
+            return Err(GeneratedError::Lifecycle);
+        }
+        let persistent = nonempty && (spec.until_input_up() || !actions.releases().is_empty());
+        if persistent && self.environment.scopes.len() >= MAX_BINDINGS {
+            return Err(EngineError::ResourceLimit.into());
+        }
+        let mut hidden = Vec::new();
+        let mut transient = 0usize;
+        if nonempty {
+            for (slot, down) in &self.environment.down {
+                if let ActionTarget::Key(key) = down.target {
+                    if spec.consumed().contains(&key) {
+                        hidden.push(*slot);
+                    } else if key.is_modifier()
+                        && spec.policy()
+                            == rule_selection::BranchModifierPolicy::DownSnapshotMinusConsumed
+                        && !spec.snapshot().contains(&key)
+                    {
+                        transient += 1;
+                    }
+                }
+            }
+            if spec.policy() == rule_selection::BranchModifierPolicy::DownSnapshotMinusConsumed {
+                transient += spec.consumed().len();
+            }
+        }
+        if hidden.len().saturating_add(transient)
+            > MAX_PERSISTENT_SUPPRESSION_REFERENCES.saturating_sub(self.environment.references)
+        {
+            return Err(EngineError::ResourceLimit.into());
+        }
+        let temporary = if nonempty { spec.reservation() } else { 0 };
+        let append = self.environment.prepare(actions.events(), temporary)?;
+        self.timeline
+            .enqueue(actions.events().to_vec())
+            .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
+        append.commit();
+        if persistent {
+            if !spec.until_input_up() {
+                hidden.clear();
+            }
+            for slot in &hidden {
+                *self.environment.hidden.entry(*slot).or_default() += 1;
+            }
+            self.environment.references += hidden.len();
+            self.environment.scopes.insert(
+                actions.origin.batch,
+                LogicalScope {
+                    hidden,
+                    device: actions.origin.device,
+                },
+            );
+        }
+        Ok(ScopedGeneration {
+            queue: Arc::clone(&self.identity),
+            plan: actions.clone(),
+            up_generated: !persistent,
+        })
+    }
+    /// Append saved Up once, then restore logical scope even if timed delivery
+    /// is still pending. Failure leaves recipe, scope, environment and queue unchanged.
+    pub fn input_up_scoped(
+        &mut self,
+        saved: &mut ScopedGeneration,
+        at: MonoTime,
+    ) -> Result<bool, GeneratedError> {
+        if !Arc::ptr_eq(&saved.queue, &self.identity) {
+            return Err(GeneratedError::Provenance);
+        }
+        if at < self.now {
+            return Err(TimelineError::TimeReversed.into());
+        }
+        if saved.up_generated {
+            return Ok(false);
+        }
+        if !self
+            .environment
+            .scopes
+            .contains_key(&saved.plan.origin.batch)
+        {
+            return Err(GeneratedError::Lifecycle);
+        }
+        let events = saved.plan.input_up_events(at);
+        let append = self.environment.prepare(&events, 0)?;
+        self.timeline
+            .enqueue(events)
+            .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
+        append.commit();
+        self.environment.close_scope(saved.plan.origin.batch);
+        self.timeline.advance(at)?;
+        self.now = at;
+        saved.up_generated = true;
+        Ok(true)
+    }
     /// Delivery does not replay logical assignments or modifier edges.
     pub fn poll(
         &mut self,
         at: MonoTime,
     ) -> Result<Option<DueEvent<PlannedAction>>, GeneratedError> {
-        Ok(self.timeline.pop_due(at)?)
+        let due = self.timeline.pop_due(at)?;
+        self.now = at;
+        Ok(due)
     }
     /// Timeline validates device history first. Returned slots/events require caller cleanup.
     pub fn observe_device(
@@ -312,6 +469,20 @@ impl GeneratedStageQueue {
                 && (down.device.generation < device.generation
                     || (removed && down.device.generation == device.generation))
         });
+        let scopes: Vec<_> = self
+            .environment
+            .scopes
+            .iter()
+            .filter(|(_, scope)| {
+                scope.device.id == device.id
+                    && (scope.device.generation < device.generation
+                        || (removed && scope.device.generation == device.generation))
+            })
+            .map(|(batch, _)| *batch)
+            .collect();
+        for batch in scopes {
+            self.environment.close_scope(batch);
+        }
         Ok((slots, events))
     }
     pub fn cancel_batch(
@@ -322,6 +493,7 @@ impl GeneratedStageQueue {
             .timeline
             .discard_where(|event| event.payload.slot.batch == batch);
         let slots = self.environment.remove(|_, slot| slot.batch == batch);
+        self.environment.close_scope(batch);
         (slots, events)
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), GeneratedError> {
@@ -352,7 +524,12 @@ impl GeneratedStageQueue {
         at: MonoTime,
     ) -> Result<Vec<StageEvent<PlannedAction>>, GeneratedError> {
         let events = self.timeline.reset(at)?;
+        self.now = at;
         self.environment.down.clear();
+        self.environment.scopes.clear();
+        self.environment.hidden.clear();
+        self.environment.references = 0;
+        self.identity = Arc::new(());
         self.environment
             .variables
             .retain(|name, _| self.environment.config.references_variable(name));
