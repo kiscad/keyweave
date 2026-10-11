@@ -138,6 +138,10 @@ impl Supervisor {
     pub fn take_reload_endpoints(&mut self) -> Option<crate::reload_channel::ParentEndpoints> {
         self.reload.take()
     }
+    /// Same single handoff, bound to this supervisor's actual run identity.
+    pub fn take_reload_channel(&mut self) -> Option<(u64, crate::reload_channel::ParentEndpoints)> {
+        self.reload.take().map(|endpoints| (self.run_id, endpoints))
+    }
     fn spawn_mode(
         mut command: Command,
         run_id: u64,
@@ -275,6 +279,9 @@ impl Supervisor {
         let report = observe_bounded(reader, &mut schedule);
         self.terminal_observation = Some(report);
         report
+    }
+    pub fn progress_phase(&self) -> Option<RuntimePhase> {
+        self.watchdog.phase()
     }
     pub fn progress_epoch(&self) -> u64 {
         self.watchdog.epoch()

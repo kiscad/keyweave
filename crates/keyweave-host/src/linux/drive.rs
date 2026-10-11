@@ -110,6 +110,7 @@ struct Pump<O: Owner, S: Schedule> {
     last: MonoTime,
     observation_start: Option<Duration>,
     finished: Option<NativeReport>,
+    reload: Option<super::reload::NativeReload>,
 }
 impl<O: Owner, S: Schedule> Pump<O, S> {
     fn tick(&mut self) -> DriveStatus {
@@ -141,9 +142,12 @@ impl<O: Owner, S: Schedule> Pump<O, S> {
                 None
             }
         };
-        let status = match self.controller.poll(now, signal) {
-            super::State::Pending(status) => status,
+        match self.controller.poll(now, signal) {
+            super::State::Pending(_) => {}
             super::State::Exited(worker) => {
+                if let Some(lane) = self.reload.as_mut() {
+                    lane.close();
+                }
                 let report = NativeReport {
                     worker,
                     signal_close_failure: self.schedule.close().err().map(Into::into),
@@ -152,7 +156,55 @@ impl<O: Owner, S: Schedule> Pump<O, S> {
                 return DriveStatus::Exited(report);
             }
         };
-        if self.controller.fault.is_some() || !matches!(status, SupervisorStatus::Running) {
+        if self.controller.fault.is_none()
+            && matches!(self.controller.owner.status(), SupervisorStatus::Running)
+            && let Some(lane) = self.reload.as_mut()
+        {
+            let lease_until = self.controller.owner.lease_until();
+            let mut stop = None;
+            let result = lane.poll(|| {
+                if let Some(signal) = self.schedule.receive()? {
+                    stop = Some(signal);
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "reload interrupted by host Stop",
+                    ));
+                }
+                let now = self.schedule.now()?;
+                if now < self.last || now >= lease_until {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "reload exceeded original host lease",
+                    ));
+                }
+                self.last = now;
+                Ok(now)
+            });
+            if let Some(signal) = stop {
+                // Same owner/same cooperative deadline, no false reload fault.
+                self.controller.poll(self.last, Some(signal));
+            } else if let Err(error) = result {
+                self.controller
+                    .fail(FaultSource::Reload, super::reload::system_error(error));
+            }
+        }
+        if (self.controller.fault.is_some()
+            || !matches!(self.controller.owner.status(), SupervisorStatus::Running))
+            && let Some(lane) = self.reload.as_mut()
+        {
+            lane.close();
+        }
+        if let Some(worker) = self.controller.report {
+            let report = NativeReport {
+                worker,
+                signal_close_failure: self.schedule.close().err().map(Into::into),
+            };
+            self.finished = Some(report);
+            return DriveStatus::Exited(report);
+        }
+        if self.controller.fault.is_some()
+            || !matches!(self.controller.owner.status(), SupervisorStatus::Running)
+        {
             let start = *self.observation_start.get_or_insert(elapsed);
             if elapsed
                 .checked_sub(start)
@@ -165,6 +217,9 @@ impl<O: Owner, S: Schedule> Pump<O, S> {
         }
         if let Err(e) = self.schedule.wait(self.controller.fault.is_some()) {
             self.controller.fail(FaultSource::Control, e);
+            if let Some(lane) = self.reload.as_mut() {
+                lane.close();
+            }
             self.observation_start.get_or_insert(elapsed);
         }
         DriveStatus::Pending(self.controller.owner.status())
@@ -181,6 +236,7 @@ pub struct NativeSession {
 impl NativeSession {
     pub fn new(session: Session, signals: HostSignals, clock: MonotonicClock) -> Self {
         let mut controller = session.controller;
+        let reload = session.reload;
         let last = if let Some(last) = clock.last() {
             last
         } else {
@@ -204,6 +260,7 @@ impl NativeSession {
                 last,
                 observation_start: None,
                 finished: None,
+                reload,
             },
         }
     }
@@ -219,6 +276,54 @@ impl NativeSession {
                 done => return done,
             }
         }
+    }
+    /// Queue one bounded raw candidate after an actual Active progress receipt.
+    /// Queue admission is not preparation/activation/confirmation.
+    pub fn request_reload(&mut self, body: Box<[u8]>) -> io::Result<()> {
+        if self.pump.finished.is_some()
+            || self.pump.controller.fault.is_some()
+            || !matches!(self.status(), SupervisorStatus::Running)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "worker session not running",
+            ));
+        }
+        if self.pump.controller.owner.progress_phase()
+            != Some(keyweave_linux::runtime::RuntimePhase::Active)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "worker has no observed Active progress",
+            ));
+        }
+        self.pump
+            .reload
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "reload mode unavailable"))?
+            .submit(body)
+            .map_err(|error| {
+                io::Error::new(
+                    if error == keyweave_progress::reload::ReloadError::Busy {
+                        io::ErrorKind::WouldBlock
+                    } else {
+                        io::ErrorKind::InvalidInput
+                    },
+                    error,
+                )
+            })
+    }
+    pub fn reload_state(&self) -> Option<super::ReloadState> {
+        self.pump.reload.as_ref().map(|lane| lane.state())
+    }
+    pub fn observed_config_generation(&self) -> Option<keyweave_types::ConfigGeneration> {
+        self.pump.reload.as_ref().map(|lane| lane.generation())
+    }
+    pub fn take_reload_outcome(&mut self) -> Option<keyweave_progress::reload::Outcome> {
+        self.pump
+            .reload
+            .as_mut()
+            .and_then(|lane| lane.take_completion())
     }
     pub fn status(&self) -> SupervisorStatus {
         self.pump.controller.owner.status()
@@ -280,6 +385,8 @@ mod tests {
         now: MonoTime,
         elapsed: Duration,
         signal: Option<StopSignal>,
+        signal_after: Option<usize>,
+        receives: usize,
         clock_error: bool,
         receive_error: bool,
         wait_error: bool,
@@ -303,6 +410,10 @@ mod tests {
             if self.receive_error {
                 Err(io::ErrorKind::BrokenPipe.into())
             } else {
+                self.receives += 1;
+                if self.signal_after.is_some_and(|n| self.receives < n) {
+                    return Ok(None);
+                }
                 Ok(self.signal.take())
             }
         }
@@ -337,6 +448,8 @@ mod tests {
                 now: MonoTime(1),
                 elapsed: Duration::ZERO,
                 signal: None,
+                signal_after: None,
+                receives: 0,
                 clock_error: false,
                 receive_error: false,
                 wait_error: false,
@@ -348,6 +461,7 @@ mod tests {
             last: MonoTime(0),
             observation_start: None,
             finished: None,
+            reload: None,
         }
     }
     #[test]
@@ -483,5 +597,68 @@ mod tests {
         assert!(text.contains("ControlFault"));
         assert!(!text.contains(&u64::MAX.to_string()));
         assert!(!text.contains("run_id"));
+    }
+    #[test]
+    fn native_reload_files_close_before_send_when_stop_arrives() {
+        use std::io::Read;
+        let (parent, worker) = keyweave_linux::reload_channel::channel().unwrap();
+        let (reader, writer) = parent.into_parts();
+        let (mut incoming, _outgoing) = worker.into_parts();
+        let mut p = pump();
+        let mut lane = super::super::reload::NativeReload::new(reader, writer, 42).unwrap();
+        lane.submit(Box::new(*b"one")).unwrap();
+        p.reload = Some(lane);
+        p.schedule.signal = Some(StopSignal::Interrupt);
+        p.tick();
+        assert_eq!(p.controller.owner.shutdowns, 1);
+        assert_eq!(p.controller.owner.stops, 0);
+        assert_eq!(
+            p.reload.as_ref().unwrap().state(),
+            super::super::ReloadState::Closed
+        );
+        assert_eq!(incoming.read(&mut [0; 48]).unwrap(), 0);
+    }
+    #[test]
+    fn reload_eof_fault_stops_same_owner_once_and_never_collects_early_terminal() {
+        let (parent, worker) = keyweave_linux::reload_channel::channel().unwrap();
+        let (reader, writer) = parent.into_parts();
+        let (_incoming, outgoing) = worker.into_parts();
+        drop(outgoing);
+        let mut p = pump();
+        let mut lane = super::super::reload::NativeReload::new(reader, writer, 42).unwrap();
+        lane.submit(Box::new(*b"one")).unwrap();
+        p.reload = Some(lane);
+        for _ in 0..4 {
+            p.tick();
+        }
+        assert_eq!(p.controller.fault.unwrap().source, FaultSource::Reload);
+        assert_eq!(p.controller.owner.stops, 1);
+        assert_eq!(p.controller.owner.terminal_reads, 0);
+        assert_eq!(
+            p.reload.as_ref().unwrap().generation(),
+            keyweave_types::ConfigGeneration(1)
+        );
+        p.tick();
+        assert_eq!(p.controller.owner.stops, 1);
+    }
+    #[test]
+    fn stop_in_post_queue_guard_keeps_cooperative_owner_and_original_observation_window() {
+        use std::io::Read;
+        let (parent, worker) = keyweave_linux::reload_channel::channel().unwrap();
+        let (reader, writer) = parent.into_parts();
+        let (mut incoming, _outgoing) = worker.into_parts();
+        let mut p = pump();
+        let mut lane = super::super::reload::NativeReload::new(reader, writer, 42).unwrap();
+        lane.submit(Box::new(*b"one")).unwrap();
+        p.reload = Some(lane);
+        p.schedule.signal = Some(StopSignal::Interrupt);
+        p.schedule.signal_after = Some(3);
+        p.tick();
+        assert!(p.controller.fault.is_none());
+        assert_eq!(p.controller.owner.shutdowns, 1);
+        assert_eq!(p.observation_start, Some(Duration::ZERO));
+        assert_eq!(incoming.read(&mut [0; 48]).unwrap(), 0);
+        p.tick();
+        assert_eq!(p.controller.owner.shutdowns, 1);
     }
 }

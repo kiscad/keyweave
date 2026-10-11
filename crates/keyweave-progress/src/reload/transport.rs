@@ -59,6 +59,19 @@ pub struct RequestWriter<W: Write> {
     closed: bool,
 }
 impl<W: Write> RequestWriter<W> {
+    /// Reuse the exact owned endpoint after complete local body acceptance.
+    /// Incomplete/closed senders drop it; this is not an activation ack.
+    pub fn into_completed_writer(self) -> Option<W> {
+        if !self.closed
+            && self.header_written == FRAME_BYTES
+            && self.body_written == self.body.len()
+        {
+            Some(self.writer)
+        } else {
+            None
+        }
+    }
+
     pub fn new(writer: W, request: Request, body: Box<[u8]>) -> Result<Self, TransferError> {
         let header = request.encode()?;
         if request.byte_length != body.len() as u64 {
@@ -141,6 +154,17 @@ impl<R: Read> Parent<R> {
                 Err(error)
             }
         }
+    }
+    /// Verify only original transaction time, without ack IO or renewal.
+    pub fn verify_clock(
+        &mut self,
+        mut clock: impl FnMut() -> io::Result<MonoTime>,
+    ) -> Result<MonoTime, TransferError> {
+        let result = self.check(&mut clock);
+        if result.is_err() {
+            self.close();
+        }
+        result
     }
     pub fn active(&self) -> ConfigGeneration {
         self.client.active()

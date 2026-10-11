@@ -1,5 +1,6 @@
 //! One owned Linux worker; injected control events never act as progress.
 mod drive;
+mod reload;
 mod startup;
 pub use drive::{DriveStatus, NativeReport, NativeSession};
 use keyweave_linux::{
@@ -12,6 +13,7 @@ use keyweave_linux::{
     },
 };
 use keyweave_types::MonoTime;
+pub use reload::ReloadState;
 pub use startup::{
     Cancelled, LaunchOptions, PreparedLaunch, StartOutcome, StartupError, StartupStage,
 };
@@ -20,6 +22,7 @@ use std::{io, process::ExitStatus};
 pub enum FaultSource {
     Control,
     Supervision,
+    Reload,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fault {
@@ -84,8 +87,14 @@ trait Owner {
     fn status(&self) -> SupervisorStatus;
     fn terminal(&mut self) -> ObservationReport;
     fn epoch(&self) -> u64;
+    fn lease_until(&self) -> MonoTime {
+        MonoTime(u64::MAX)
+    }
 }
 impl Owner for Supervisor {
+    fn lease_until(&self) -> MonoTime {
+        self.deadline()
+    }
     fn shutdown(&mut self, now: MonoTime) -> io::Result<SupervisorStatus> {
         self.request_shutdown(now)
     }
@@ -173,18 +182,39 @@ impl<O: Owner> Controller<O> {
 /// same owner until actual exit; Drop alone does not prove exit or recovery.
 pub struct Session {
     controller: Controller<Supervisor>,
+    reload: Option<reload::NativeReload>,
 }
 impl Session {
-    pub fn new(supervisor: Supervisor) -> Self {
-        Self {
-            controller: Controller::new(supervisor),
-        }
+    pub fn new(mut supervisor: Supervisor) -> Self {
+        let channel = supervisor.take_reload_channel();
+        let mut controller = Controller::new(supervisor);
+        let reload = channel.and_then(|(run, endpoints)| {
+            let (reader, writer) = endpoints.into_parts();
+            match reload::NativeReload::new(reader, writer, run) {
+                Ok(lane) => Some(lane),
+                Err(error) => {
+                    controller.fail(FaultSource::Reload, reload::system_error(error));
+                    None
+                }
+            }
+        });
+        Self { controller, reload }
     }
     pub fn poll(&mut self, now: MonoTime, signal: Option<StopSignal>) -> State {
-        self.controller.poll(now, signal)
+        let state = self.controller.poll(now, signal);
+        if (!matches!(state, State::Pending(SupervisorStatus::Running))
+            || self.controller.fault.is_some())
+            && let Some(lane) = self.reload.as_mut()
+        {
+            lane.close();
+        }
+        state
     }
     pub fn fail(&mut self, error: io::Error) {
-        self.controller.fail(FaultSource::Control, error)
+        self.controller.fail(FaultSource::Control, error);
+        if let Some(lane) = self.reload.as_mut() {
+            lane.close();
+        }
     }
     pub fn fault(&self) -> Option<Fault> {
         self.controller.fault

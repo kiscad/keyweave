@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-11",
+  "feature": "ADR-0097 original Linux host session reload lane and pump integration",
+  "source_base_commit": "e99ba9a322539dc974ddbc0b5984f37320026f5c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-progress/src/reload/transport.rs": "ed82cfeb32ccc88af42209109d3969a8914a79e766a307e6a374450b21e5cd37",
+    "crates/keyweave-linux/src/supervisor.rs": "6edb098dc9ad69ad2c5a65a9a3932c5a4127e4a999e531014f1411011f665666",
+    "crates/keyweave-host/src/linux.rs": "01eafac56e6c2cbf334632ab222a4af46da13fd2fbf3a1a50f891814a5857fe9",
+    "crates/keyweave-host/src/linux/drive.rs": "ef7286567c9c97e2b20bbd0ad7f898b102b7d84de48342190f7d79456967108e",
+    "crates/keyweave-host/src/linux/reload.rs": "5fdc7da3191fd793ab8b4e28bebed06adb61a74356d3f54763354fc4165ea585"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_tests_passed": 931,
+    "workspace_tests_exit": 0,
+    "new_linux_only_tests": 8,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "clippy": {
+        "path": "target/validation/linux-20261011-host-reload/clippy.log",
+        "sha256": "eae7dc42c8a2e46a85689a70b344f9f4623b6967db7dc804160763cee90a38b6"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261011-host-reload/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261011-host-reload/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "workspace-tests": {
+        "path": "target/validation/linux-20261011-host-reload/workspace-tests.log",
+        "sha256": "b9df3de4cdabd93cf9232216666650071920137ace50a08baa8125a62a9ca050"
+      }
+    }
+  },
+  "abi": "No new unsafe/FFI/dependency; C oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "New shared transport helpers and prior shared/native changes need native validation; previous automatic approval quota issue remains."
+  },
+  "limitations": [
+    "NativeSession Active admission and true parent-console worker reload API compiled only; tests use scripted lane or mock owner/schedule with owned pipes.",
+    "Original session clock/progress/Stop/owner preserved, reload never renews watchdog or creates epoch. Each IO checks fixed reload deadline and original current watchdog deadline.",
+    "Observed generation is parent confirmed state, not necessarily actual worker generation after commit/lost ack; no rollback or retry.",
+    "Queue1 and untaken completion1 bounded. Raw body not parsed at parent admission; worker cold compiler remains authority.",
+    "Stop callback uses same cooperative owner/deadline; errors preserve separate Reload fault and owned stop, actual terminal read only after true Exit.",
+    "Watcher/user reload CLI/native combination no-input harness remain.",
+    "No VT/input/uinput/Hook/SendInput/suspend/driver/install actions.",
+    "Full original cross-platform objective remains unfinished."
+  ]
+}

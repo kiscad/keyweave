@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+Linux NativeSession提供单在途raw reload队列/有效确认/observed代号API，原pump同时监督并按Stop/故障关闭通道；931项测试通过。真实Active admission/console热更新与硬件未验，watcher和用户reload命令仍未提供。见 [ADR-0097](ADR-0097-linux-host-reload-transactions.md)。
+
 Linux真实worker main已按独立FD模式接reload Controller与guarded console bootstrap/活动loop/terminal收尾，host console默认选该spawn；None永久无设备/78。923项测试通过，成功console新模式未硬件实测。parent事务管理、watcher和用户reload命令仍未提供。见 [ADR-0096](ADR-0096-linux-reload-worker-entry.md)。
 
 Linux console活动循环提供WorkerExtension入口与reload Controller adapter，新增独立2s父请求活动预算、cached console TTL、5ms推进与capture-first停止/故障恢复。920项测试通过；真实main/host仍使用旧模式，成功console扩展与硬件未验，watcher/reload命令仍待连接。见 [ADR-0095](ADR-0095-linux-worker-control-extension.md)。
