@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0125 Complex after_key_up generation and sibling completion barrier",
+  "source_base_commit": "8383cf437d69dcee3806a2bdf35950daa70b7078",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "a950c350ff14bcb7df039acde20a1e5ffc5df8ea3b542410202802da0d1f8d54",
+    "crates/keyweave-engine/src/output_stage.rs": "d6167e9bd09169d62c128001612810d3476720b6f4d115142da9f6b3e291f32b",
+    "crates/keyweave-engine/tests/complex_actor.rs": "8c30ae5bceeb6cf45df88899ff9de4183bdcdd90a3bf5e7a685e2106402b12bc"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1169,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-after-up/tests.log",
+        "sha256": "032854bd78fe78fb802fffcff479c284456a041f4fdc23e8fdce6bf1bb270b90"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-after-up/clippy.log",
+        "sha256": "b06f827b35bc1028139688ec7f6eb2633ff81e48128b8009784db1423e038be7"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-after-up/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-after-up/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust branch scheduling and private generated-condition view. No unsafe/FFI/dependencies/native ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "after_key_up is accepted at construction/activation. Held/alone/delayed still explicitly rejected; full goal remains active.",
+    "Main saved Up/logical scope/key_up_value is committed first, then original rule branch conditions are filtered once using current destination generated view and original Up delivery context. FIFO places actual branch events after main Up/scope markers and preserves tap duration.",
+    "Nonempty branch becomes another child on same Live parent; empty filtered or halt-skipped branch allocates no source/edge/batch ID. Parent cannot finish until all actual children complete and registry edges detach.",
+    "Own filtered main/branch halt is recorded at generation, including future actions; incoming halt remains upstream metadata. Actual output receipt association still retained.",
+    "Branch admission may reject after main Up and parent marker already commit; Failed stops ordinary poll/input until reset. No entire-event rollback/atomicity claim. Reset returns real-owner cleanup intents and discarded upstream IDs, not OS acceptance or recovery proof.",
+    "Simple/allstage controller, crossstage scopes/physical EOF/global source IDs, held/alone/delayed/context scheduling/native duration integration/Windows native/hardware/UI/packaging/driver remain unfinished. Native runtime and UnsupportedActionTiming gate retained.",
+    "No actual input, device, driver, install or Windows compilation executed."
+  ]
+}

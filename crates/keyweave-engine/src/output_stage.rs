@@ -215,6 +215,16 @@ impl OutputStageActor {
     ) -> Result<PreparedOutputChild<'a, T>, OutputStageError> {
         self.prepare_child_scoped(ScopedActionPlan::plain(plan), registration)
     }
+    pub(crate) fn condition_truth(
+        &self,
+        condition: &Condition,
+        context: &ContextSnapshot,
+        device: DeviceInstanceId,
+        at: MonoTime,
+    ) -> Truth {
+        self.generated
+            .condition_truth(condition, context, device, at)
+    }
     /// Save the delivered Complex producer's original decision before binding admission.
     pub fn decide_producer_down(
         &self,

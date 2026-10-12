@@ -509,3 +509,374 @@ fn complex_consumed_modifier_scope_restores_generated_visibility_and_actual_lazy
     actor.reset(MonoTime(200)).unwrap();
     assert_eq!(actor.reserved_sources(), 0);
 }
+fn after_config(main: Vec<Action>, after: Vec<Action>) -> Arc<ConfigSnapshot> {
+    let mut cfg = (*config(main)).clone();
+    cfg.complex[0].extras.after_key_up = after;
+    Arc::new(cfg)
+}
+#[test]
+fn empty_main_after_up_branch_keeps_parent_until_its_actual_tap_finishes() {
+    let mut actor = actor(after_config(
+        vec![],
+        vec![Action {
+            hold_down_ns: 20,
+            ..key("d").into()
+        }],
+    ));
+    let plan = input(&mut actor, &[key("a").into()], 1, 100);
+    let slot = down(&plan, 0, 100).event.payload.slot;
+    actor
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert!(drain(&mut actor, 100).0.is_empty());
+    actor
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert!(actor.producer(slot).is_some());
+    assert_eq!(drain(&mut actor, 110).0, [("d".into(), KeyEdge::Down)]);
+    assert!(actor.poll(MonoTime(129)).unwrap().is_none());
+    let (outputs, released) = drain(&mut actor, 130);
+    assert_eq!(outputs, [("d".into(), KeyEdge::Up)]);
+    assert_eq!(released, [slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn after_up_filters_context_at_generation_and_fifo_waits_main_duration_and_scope_completion() {
+    let condition = Condition::Application {
+        bundle_identifiers: vec![],
+        file_paths: vec![Pattern::compile("editor").unwrap()],
+        unless: false,
+    };
+    let cfg = after_config(
+        vec![
+            Action {
+                hold_down_ns: 50,
+                ..key("b").into()
+            },
+            key("c").into(),
+        ],
+        vec![Action {
+            hold_down_ns: 20,
+            conditions: vec![condition],
+            ..key("d").into()
+        }],
+    );
+    let mut actor = actor(cfg);
+    let plan = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    let context = ContextSnapshot {
+        revision: 1,
+        provider: "test".into(),
+        observed_at_ns: MonoTime(100),
+        valid_until_ns: MonoTime(130),
+        application: Some(ApplicationContext {
+            bundle_identifier: None,
+            file_path: Some("editor".into()),
+        }),
+        ..Default::default()
+    };
+    actor.admit(&up(&plan, 0, 110), &context).unwrap();
+    assert!(actor.poll(MonoTime(149)).unwrap().is_none());
+    assert_eq!(
+        drain(&mut actor, 150).0,
+        [
+            ("b".into(), KeyEdge::Up),
+            ("c".into(), KeyEdge::Down),
+            ("c".into(), KeyEdge::Up),
+            ("d".into(), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(actor.pending_inputs(), 1);
+    assert_eq!(drain(&mut actor, 170).0, [("d".into(), KeyEdge::Up)]);
+    assert_eq!(actor.pending_inputs(), 0);
+}
+#[test]
+fn after_up_reads_main_key_up_variable_and_filters_whole_array_before_its_own_assignments() {
+    let var = |value, up_value| Action {
+        target: ActionTarget::SetVariable(VariableAction {
+            name: "v".into(),
+            operation: VariableOperation::Set {
+                value: Some(VariableValue::Integer(value)),
+                key_up_value: Some(VariableValue::Integer(up_value)),
+            },
+        }),
+        ..key("vk_none").into()
+    };
+    let cfg = after_config(
+        vec![var(1, 2)],
+        vec![
+            var(3, 4),
+            Action {
+                hold_down_ns: 20,
+                conditions: vec![Condition::Variable {
+                    name: "v".into(),
+                    value: VariableValue::Integer(2),
+                    unless: false,
+                }],
+                ..key("d").into()
+            },
+        ],
+    );
+    let mut actor = actor(cfg);
+    let plan = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        actor.generated_variables().get("v"),
+        Some(&VariableValue::Integer(4))
+    );
+    assert_eq!(drain(&mut actor, 110).0, [("d".into(), KeyEdge::Down)]);
+    assert_eq!(drain(&mut actor, 130).0, [("d".into(), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn generated_future_halt_suppresses_after_up_but_incoming_halt_does_not_suppress_new_rule() {
+    let cfg = after_config(
+        vec![
+            Action {
+                hold_down_ns: 50,
+                ..key("b").into()
+            },
+            Action {
+                halt: true,
+                ..key("c").into()
+            },
+        ],
+        vec![key("d").into()],
+    );
+    let mut halted = actor(cfg);
+    let plan = input(&mut halted, &[key("a").into()], 1, 100);
+    let slot = down(&plan, 0, 100).event.payload.slot;
+    halted
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert!(halted.producer_halted(slot));
+    drain(&mut halted, 100);
+    halted
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut halted, 150).0,
+        [
+            ("b".into(), KeyEdge::Up),
+            ("c".into(), KeyEdge::Down),
+            ("c".into(), KeyEdge::Up)
+        ]
+    );
+    assert_eq!(halted.reserved_sources(), 0);
+    let mut normal = actor(after_config(vec![], vec![key("d").into()]));
+    let plan = input(
+        &mut normal,
+        &[Action {
+            halt: true,
+            ..key("a").into()
+        }],
+        1,
+        100,
+    );
+    let step = normal
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert!(step.originating_halt.is_some());
+    normal
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut normal, 110).0,
+        [("d".into(), KeyEdge::Down), ("d".into(), KeyEdge::Up)]
+    );
+}
+#[test]
+fn after_up_uses_retained_rule_after_reload_and_device_control_cleans_executed_branch() {
+    let old = after_config(
+        vec![key("b").into()],
+        vec![Action {
+            hold_down_ns: 20,
+            ..key("d").into()
+        }],
+    );
+    let mut actor = actor(old.clone());
+    let plan = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    let mut new = (*old).clone();
+    new.generation = ConfigGeneration(2);
+    new.complex[0].extras.after_key_up = vec![key("e").into()];
+    actor.activate(Arc::new(new)).unwrap();
+    actor
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 110).0,
+        [("b".into(), KeyEdge::Up), ("d".into(), KeyEdge::Down)]
+    );
+    let cleanup = actor
+        .observe_device(device(1), true, MonoTime(120))
+        .unwrap();
+    assert_eq!(
+        cleanup
+            .outputs
+            .iter()
+            .map(|o| (o.key, o.edge))
+            .collect::<Vec<_>>(),
+        [(key("d"), KeyEdge::Up)]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(actor.poll(MonoTime(130)).unwrap().is_none());
+}
+#[test]
+fn after_up_queue_rejection_after_main_up_commit_faults_without_reselecting_and_reset_recovers_real_keys()
+ {
+    let mut cfg = (*after_config(
+        vec![key("b").into()],
+        vec![
+            Action {
+                hold_down_ns: 1,
+                ..key("d").into()
+            };
+            512
+        ],
+    ))
+    .clone();
+    cfg.complex.push(mapping(
+        "x",
+        vec![
+            Action {
+                repeat: false,
+                hold_down_ns: 1,
+                ..key("c").into()
+            };
+            512
+        ],
+    ));
+    let mut actor = actor(Arc::new(cfg));
+    let first = input(&mut actor, &[key("a").into()], 1, 100);
+    let slot = down(&first, 0, 100).event.payload.slot;
+    actor
+        .admit(&down(&first, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    for i in 0..8 {
+        let plan = input(&mut actor, &[key("x").into()], 1, 110);
+        actor
+            .admit(&down(&plan, 0, 110), &ContextSnapshot::default())
+            .unwrap();
+        if i == 0 {
+            drain(&mut actor, 110);
+        }
+    }
+    assert!(
+        actor
+            .admit(&up(&first, 0, 110), &ContextSnapshot::default())
+            .is_err()
+    );
+    assert!(actor.is_failed());
+    assert_eq!(
+        actor.producer(slot).unwrap().up_delivered_at(),
+        Some(MonoTime(110))
+    );
+    assert!(matches!(
+        actor.poll(MonoTime(5000)),
+        Err(ComplexActorError::Failed)
+    ));
+    let cleanup = actor.reset(MonoTime(110)).unwrap();
+    assert_eq!(
+        cleanup
+            .outputs
+            .iter()
+            .map(|o| (o.key, o.edge))
+            .collect::<Vec<_>>(),
+        [(key("b"), KeyEdge::Up), (key("c"), KeyEdge::Up)]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(!actor.is_failed());
+}
+#[test]
+fn reset_before_future_after_up_down_releases_only_real_main_and_discards_unexecuted_branch() {
+    let cfg = after_config(
+        vec![
+            Action {
+                hold_down_ns: 50,
+                ..key("b").into()
+            },
+            key("c").into(),
+        ],
+        vec![Action {
+            hold_down_ns: 20,
+            ..key("d").into()
+        }],
+    );
+    let mut actor = actor(cfg);
+    let plan = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(drain(&mut actor, 100).0, [("b".into(), KeyEdge::Down)]);
+    actor
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    let cleanup = actor.reset(MonoTime(120)).unwrap();
+    assert_eq!(
+        cleanup
+            .outputs
+            .iter()
+            .map(|o| (o.key, o.edge))
+            .collect::<Vec<_>>(),
+        [(key("b"), KeyEdge::Up)]
+    );
+    assert_eq!(
+        cleanup.discarded_input_batches,
+        [plan.events()[0].payload.slot.batch]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(actor.poll(MonoTime(170)).unwrap().is_none());
+}
+#[test]
+fn filtered_empty_after_up_needs_no_batch_id_even_when_identity_counter_is_exhausted() {
+    let mut actor = actor(after_config(
+        vec![],
+        vec![Action {
+            conditions: vec![Condition::Variable {
+                name: "v".into(),
+                value: VariableValue::Integer(1),
+                unless: false,
+            }],
+            ..key("d").into()
+        }],
+    ));
+    let first = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&first, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    let empty = plan_actions(
+        &[],
+        PlanOrigin {
+            batch: BatchId(u64::MAX),
+            stage: Stage::Complex,
+            start: MonoTime(100),
+            device: device(1),
+            source: SourceToken(1),
+            config: actor.snapshot().clone(),
+        },
+        false,
+    )
+    .unwrap();
+    actor.register_input(empty).unwrap();
+    let step = actor
+        .admit(&up(&first, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(step.released_producers, [first.events()[0].payload.slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(!actor.is_failed());
+    assert!(actor.poll(MonoTime(110)).unwrap().is_none());
+}

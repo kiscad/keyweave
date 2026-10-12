@@ -1,4 +1,4 @@
-//! Owned Complex main producer execution. Advanced branches and Simple-stage controller pending.
+//! Owned Complex producer execution. Held/alone/delayed and Simple controller pending.
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
     output_stage::{OutputStageActor, OutputStageError},
@@ -17,7 +17,7 @@ pub enum ComplexActorError {
     Up(#[from] ProducerUpError),
     #[error(transparent)]
     Plan(#[from] PlanError),
-    #[error("Complex advanced branch scheduling is not connected")]
+    #[error("Complex held/alone/delayed branch scheduling is not connected")]
     UnsupportedBranches,
     #[error("invalid registered Complex input receipt")]
     Input,
@@ -60,7 +60,6 @@ fn check_branches(config: &ConfigSnapshot) -> Result<(), ComplexActorError> {
         let extras = &mapping.extras;
         !extras.if_held_down.is_empty()
             || !extras.if_alone.is_empty()
-            || !extras.after_key_up.is_empty()
             || extras
                 .delayed
                 .as_ref()
@@ -240,6 +239,11 @@ impl ComplexStageActor {
                     .iter()
                     .filter(|e| e.payload.edge == KeyEdge::Down)
                     .count();
+                let generated_halt = plan
+                    .actions()
+                    .events()
+                    .iter()
+                    .any(|event| event.payload.halt);
                 let halt = decision.originating_halt();
                 let receipt = DueEvent {
                     event: due.event.clone(),
@@ -264,6 +268,9 @@ impl ComplexStageActor {
                     self.children.insert(id, slot);
                 }
                 self.last_batch = id.0;
+                if generated_halt {
+                    self.halted.insert(slot);
+                }
                 if halt {
                     step.originating_halt = Some(slot);
                 }
@@ -294,12 +301,73 @@ impl ComplexStageActor {
                     self.output.input_up(child, due.delivered_at)?;
                 }
                 parent_up.commit();
+                self.after_key_up(slot, context, due.delivered_at)?;
                 self.finish(slot, &mut step)?;
             }
             KeyEdge::Repeat => return Err(ComplexActorError::Input),
         }
         self.now = due.delivered_at;
         Ok(step)
+    }
+    fn after_key_up(
+        &mut self,
+        slot: ActionSlot,
+        context: &ContextSnapshot,
+        at: MonoTime,
+    ) -> Result<(), ComplexActorError> {
+        let decision = self
+            .producers
+            .live(slot)
+            .ok_or(ComplexActorError::Invariant)?;
+        let Some(selection) = decision.selection() else {
+            return Ok(());
+        };
+        if selection.mapping().extras.after_key_up.is_empty() {
+            return Ok(());
+        }
+        let branch = selection
+            .select_branch(
+                rule_selection::RuleBranch::AfterKeyUp,
+                self.halted.contains(&slot),
+                |condition| {
+                    self.output
+                        .condition_truth(condition, context, decision.down().device, at)
+                },
+            )
+            .ok_or(ComplexActorError::Invariant)?;
+        if branch.actions().len() == 0 {
+            return Ok(());
+        }
+        let id = self.next_batch_id()?;
+        let plan = modifier_scope::ScopedActionPlan::branch(
+            &branch,
+            id,
+            at,
+            decision.down().device,
+            decision.down().source,
+        )?;
+        let slots = plan
+            .actions()
+            .events()
+            .iter()
+            .filter(|e| e.payload.edge == KeyEdge::Down)
+            .count();
+        if slots == 0 {
+            return Ok(());
+        }
+        let generated_halt = plan.actions().events().iter().any(|e| e.payload.halt);
+        let registration =
+            self.producers
+                .prepare(plan.actions().origin.clone(), slots, Some(slot))?;
+        self.output
+            .prepare_child_scoped(plan, registration)?
+            .commit();
+        self.children.insert(id, slot);
+        self.last_batch = id.0;
+        if generated_halt {
+            self.halted.insert(slot);
+        }
+        Ok(())
     }
     fn finish(
         &mut self,
@@ -369,10 +437,13 @@ impl ComplexStageActor {
             if canceled.len() != 1 || !canceled[0].payloads.is_empty() {
                 return Err(ComplexActorError::Invariant);
             }
-            *self
+            let main = self
                 .bindings
                 .get_mut(&parent)
-                .ok_or(ComplexActorError::Invariant)? = None;
+                .ok_or(ComplexActorError::Invariant)?;
+            if *main == Some(id) {
+                *main = None;
+            }
             self.finish(parent, &mut step)?;
         }
         Ok(Some(step))
