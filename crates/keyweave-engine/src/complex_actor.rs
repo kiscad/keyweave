@@ -58,6 +58,38 @@ pub struct ComplexStageActor {
     now: MonoTime,
     failed: bool,
 }
+/// Exclusive root registration preflight; compose with upstream generation before committing either.
+#[must_use = "commit or abort the prepared Complex input registration"]
+pub struct PreparedComplexInput<'a> {
+    reservation: Option<stage_bindings::Reservation<'a, ProducerDecision>>,
+    inputs: &'a mut BTreeMap<BatchId, InputBatch>,
+    last_batch: &'a mut u64,
+    plan: ActionPlan,
+    slots: usize,
+}
+impl PreparedComplexInput<'_> {
+    /// Return the original owned plan without reserving sources, input metadata or ID.
+    pub fn abort(self) -> ActionPlan {
+        self.plan
+    }
+    pub fn commit(self) -> BatchId {
+        let id = self.plan.origin.batch;
+        if let Some(reservation) = self.reservation {
+            reservation.commit();
+        }
+        if self.slots != 0 {
+            self.inputs.insert(
+                id,
+                InputBatch {
+                    plan: self.plan,
+                    remaining: self.slots,
+                },
+            );
+        }
+        *self.last_batch = id.0;
+        id
+    }
+}
 impl ComplexStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ComplexActorError> {
         Ok(Self {
@@ -130,6 +162,12 @@ impl ComplexStageActor {
     }
     /// Register an upstream generated Complex batch before any of its receipts arrive.
     pub fn register_input(&mut self, plan: ActionPlan) -> Result<BatchId, ComplexActorError> {
+        Ok(self.prepare_input(plan)?.commit())
+    }
+    pub fn prepare_input(
+        &mut self,
+        plan: ActionPlan,
+    ) -> Result<PreparedComplexInput<'_>, ComplexActorError> {
         self.running()?;
         if plan.origin.stage != Stage::Complex || !Arc::ptr_eq(&plan.origin.config, self.snapshot())
         {
@@ -145,20 +183,18 @@ impl ComplexStageActor {
             .iter()
             .filter(|event| event.payload.edge == KeyEdge::Down)
             .count();
-        if slots != 0 {
-            self.producers
-                .prepare(plan.origin.clone(), slots, None)?
-                .commit();
-            self.inputs.insert(
-                id,
-                InputBatch {
-                    plan,
-                    remaining: slots,
-                },
-            );
-        }
-        self.last_batch = id.0;
-        Ok(id)
+        let reservation = if slots != 0 {
+            Some(self.producers.prepare(plan.origin.clone(), slots, None)?)
+        } else {
+            None
+        };
+        Ok(PreparedComplexInput {
+            reservation,
+            inputs: &mut self.inputs,
+            last_batch: &mut self.last_batch,
+            plan,
+            slots,
+        })
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), ComplexActorError> {
         self.running()?;

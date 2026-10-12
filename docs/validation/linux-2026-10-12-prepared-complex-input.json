@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0130 prepared Complex input registration composable with upstream generation",
+  "source_base_commit": "89179cbfda2929c0544d5355a5c4a79e6010d251",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "e1ac3148c418e5f1d80aecbbe4c6025e312980d93bc80ec244da3f1d61539bdb",
+    "crates/keyweave-engine/tests/prepared_complex_input.rs": "1d988211c7914eefcbd820de6dba7a50b543b21b161ea6573b34e50df6e3b259"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1203,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-prepared-complex-input/tests.log",
+        "sha256": "141b7d25bf1267f742ee77b2fd1886e6871d46ef613d5bee43000daddaba9870"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-prepared-complex-input/clippy.log",
+        "sha256": "fddb02a43dc1f58ed7c498ee6fa9ebc5cc71d6c0289ae25cb52b45db1c46e522"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-prepared-complex-input/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-prepared-complex-input/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust prepared registration guard; no unsafe/FFI/dependencies/native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "PreparedComplexInput exclusively holds root arena reservation, input map and last ID. Stage/current Arc/live device/ID/capacity all checked before commit. Abort returns original owned plan; drop changes no ID/source/input state.",
+    "Caller combines with separate upstream PreparedScopedGeneration: both preflight before either commits. No business rejection at commit, allocation failure/panic excluded. This is not a native transaction or complete single-owner Simple actor.",
+    "register_input wraps new path with same semantics; empty input consumes ID only on commit, creates no fake root. Current Arc root gate unchanged.",
+    "One integration commits two queue/registry preparations, obtains real Complex DueEvent, drives output variable Down/Up and waits actual descendant completion before source queue retirement. It is deterministic manual wiring, not allstage scope propagation/native acceptance proof.",
+    "Old Simple parent creating new child after reload needs retained parent/shared-arena admission, not this current-only root registration API. Full source ID pool/allstage controller/scope/physical EOF/context/simultaneous/native duration/Windows/hardware/UI/packaging/driver remain pending; native gate retained.",
+    "No actual input, device, driver, installation or Windows native compilation executed."
+  ]
+}
