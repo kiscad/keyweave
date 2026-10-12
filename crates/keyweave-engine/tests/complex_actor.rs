@@ -1919,3 +1919,143 @@ fn variable_down_cancels_delayed_but_nonzero_wheel_does_not() {
         assert_eq!(actor.reserved_sources(), 0);
     }
 }
+#[test]
+fn unknown_removed_stale_and_future_devices_cannot_register_empty_or_nonempty_input() {
+    for empty in [false, true] {
+        let mut actor = actor(config(vec![]));
+        actor.observe_device(device(1), true, MonoTime(0)).unwrap();
+        let id = actor.next_batch_id().unwrap();
+        for source_device in [
+            device(1),
+            DeviceInstanceId {
+                id: 1,
+                generation: 0,
+            },
+            DeviceInstanceId {
+                id: 1,
+                generation: 2,
+            },
+            device(9),
+        ] {
+            let actions = if empty { vec![] } else { vec![key("a").into()] };
+            let plan = plan_actions(
+                &actions,
+                PlanOrigin {
+                    batch: id,
+                    stage: Stage::Complex,
+                    start: MonoTime(100),
+                    device: source_device,
+                    source: SourceToken(1),
+                    config: actor.snapshot().clone(),
+                },
+                false,
+            )
+            .unwrap();
+            assert!(matches!(
+                actor.register_input(plan),
+                Err(ComplexActorError::Output(
+                    keyweave_engine::output_stage::OutputStageError::Generated(
+                        keyweave_engine::generated_stage::GeneratedError::Timeline(
+                            TimelineError::RetiredDevice
+                        )
+                    )
+                ))
+            ));
+            assert_eq!(actor.next_batch_id().unwrap(), id);
+            assert_eq!(actor.reserved_sources(), 0);
+            assert_eq!(actor.pending_inputs(), 0);
+            assert!(!actor.is_failed());
+        }
+    }
+}
+#[test]
+fn rejected_empty_input_does_not_consume_identity_and_observed_next_generation_can_consume_empty_main()
+ {
+    let mut actor = actor(config(vec![]));
+    actor.observe_device(device(1), true, MonoTime(0)).unwrap();
+    let next_device = DeviceInstanceId {
+        id: 1,
+        generation: 2,
+    };
+    let id = actor.next_batch_id().unwrap();
+    let make = |actor: &ComplexStageActor| {
+        plan_actions(
+            &[key("a").into()],
+            PlanOrigin {
+                batch: id,
+                stage: Stage::Complex,
+                start: MonoTime(100),
+                device: next_device,
+                source: SourceToken(1),
+                config: actor.snapshot().clone(),
+            },
+            false,
+        )
+        .unwrap()
+    };
+    assert!(actor.register_input(make(&actor)).is_err());
+    actor
+        .observe_device(next_device, false, MonoTime(0))
+        .unwrap();
+    let plan = make(&actor);
+    actor.register_input(plan.clone()).unwrap();
+    actor
+        .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 1);
+    let step = actor
+        .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(step.released_producers, [plan.events()[0].payload.slot]);
+    assert!(actor.poll(MonoTime(110)).unwrap().is_none());
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn reset_keeps_removed_device_tombstone_and_requires_explicit_new_generation_observation() {
+    let mut actor = actor(config(vec![]));
+    actor.observe_device(device(1), true, MonoTime(10)).unwrap();
+    actor.reset(MonoTime(20)).unwrap();
+    let id = actor.next_batch_id().unwrap();
+    let empty = plan_actions(
+        &[],
+        PlanOrigin {
+            batch: id,
+            stage: Stage::Complex,
+            start: MonoTime(100),
+            device: device(1),
+            source: SourceToken(1),
+            config: actor.snapshot().clone(),
+        },
+        false,
+    )
+    .unwrap();
+    assert!(actor.register_input(empty).is_err());
+    assert_eq!(actor.next_batch_id().unwrap(), id);
+    assert!(
+        actor
+            .observe_device(device(1), false, MonoTime(20))
+            .is_err()
+    );
+    actor.reset(MonoTime(20)).unwrap();
+    let next = DeviceInstanceId {
+        id: 1,
+        generation: 2,
+    };
+    actor.observe_device(next, false, MonoTime(20)).unwrap();
+    let empty = plan_actions(
+        &[],
+        PlanOrigin {
+            batch: id,
+            stage: Stage::Complex,
+            start: MonoTime(100),
+            device: next,
+            source: SourceToken(1),
+            config: actor.snapshot().clone(),
+        },
+        false,
+    )
+    .unwrap();
+    actor.register_input(empty).unwrap();
+    assert_eq!(actor.next_batch_id().unwrap().0, id.0 + 1);
+    assert_eq!(actor.pending_inputs(), 0);
+}

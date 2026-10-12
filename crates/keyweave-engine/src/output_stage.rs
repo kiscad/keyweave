@@ -381,6 +381,14 @@ impl OutputStageActor {
             batch,
         }))
     }
+    pub(crate) fn check_live_device(
+        &self,
+        device: DeviceInstanceId,
+    ) -> Result<(), OutputStageError> {
+        self.generated.check_live_device(device)?;
+        self.terminal.check_live_device(device)?;
+        Ok(())
+    }
     /// Both device histories preflight before controls; cleanup uses actual saved bindings.
     pub fn observe_device(
         &mut self,

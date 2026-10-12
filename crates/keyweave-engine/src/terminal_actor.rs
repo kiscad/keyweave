@@ -162,6 +162,9 @@ impl TerminalActor {
         self.core.activate_inner(config, true)?;
         Ok(())
     }
+    pub(crate) fn check_live_device(&self, device: DeviceInstanceId) -> Result<(), ActorError> {
+        Ok(self.timeline.check_live_device(device)?)
+    }
     pub(crate) fn check_device(
         &self,
         device: DeviceInstanceId,

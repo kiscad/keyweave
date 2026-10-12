@@ -135,6 +135,7 @@ impl ComplexStageActor {
         {
             return Err(ComplexActorError::Input);
         }
+        self.output.check_live_device(plan.origin.device)?;
         let id = plan.origin.batch;
         if id.0 <= self.last_batch {
             return Err(ComplexActorError::Batch);

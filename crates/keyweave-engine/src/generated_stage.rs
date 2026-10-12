@@ -363,6 +363,9 @@ impl GeneratedStageQueue {
         self.now = at;
         Ok(())
     }
+    pub(crate) fn check_live_device(&self, device: DeviceInstanceId) -> Result<(), GeneratedError> {
+        Ok(self.timeline.check_live_device(device)?)
+    }
     pub(crate) fn check_device(
         &self,
         device: DeviceInstanceId,

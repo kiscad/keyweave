@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0129 exact observed live device generation for all Complex input registration",
+  "source_base_commit": "041a86be8bb89095f0f6f54f0c55ddb3fcd55a6c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/timeline.rs": "bda8d1d6207627d9759985ad8ff73ef215682d41fa1fe840ee245ba66a48d8ba",
+    "crates/keyweave-engine/src/generated_stage.rs": "fd74d80affef3557dc3ea8d7d8caf6650a1b6337d1f2c0ef71948f651352cde6",
+    "crates/keyweave-engine/src/terminal_actor.rs": "8197148d33abcb1a61b4380042621a5d7333b4d20a57051d5ef8f79bdfbb76bd",
+    "crates/keyweave-engine/src/output_stage.rs": "71a177b4747c8725768a74644b3faf89547994bf9a6568dd584a9164ee9b946a",
+    "crates/keyweave-engine/src/complex_actor.rs": "b7e52833619b8761c3c91cc3ccec19a8bfb6ca38592b7be59f889cd4fb4f5910",
+    "crates/keyweave-engine/tests/complex_actor.rs": "38cea50789ea322e646c2119612a2f07c60d2e920b2f465b3827690cde40ce1a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1197,
+    "new_tests": 3,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-device-admission/tests.log",
+        "sha256": "8b0c4dbbd2288398e234311b998162a6a62b873a8e7a36a628093cfe7d0a8e26"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-device-admission/clippy.log",
+        "sha256": "263bb7441b8fd2502a3cb4bb4fd0c14ac261532e63daf8ec7129746697cd0b50"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-device-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-device-admission/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust device-history admission wrappers; no unsafe/FFI/dependencies/native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Complex register_input validates exact observed, unremoved device generation in both generated and terminal histories before ID/source/input changes. Includes empty input and nonempty producer with empty matched main.",
+    "Unknown, removed, stale and not-yet-observed future generations reject without fault latch or consuming ID/source budget. Reset retains device tombstones; explicit new generation observation is required.",
+    "This is internal history consistency, not actual FD/HID identity, desktop lease or hardware liveness validation. Low-level pure selection/empty planning APIs retain their old semantics.",
+    "Full Simple/allstage controller/scope propagation/physical EOF/source ID pool/context scheduler/simultaneous/native duration/Windows/hardware/UI/packaging/driver remain incomplete. Native runtime and duration gate unchanged.",
+    "No actual input, device, driver, installation or Windows native compilation executed."
+  ]
+}

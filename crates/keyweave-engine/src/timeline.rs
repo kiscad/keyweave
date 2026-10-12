@@ -180,6 +180,13 @@ impl<T> StageTimeline<T> {
         }
         Ok(())
     }
+    pub(crate) fn check_live_device(&self, device: DeviceInstanceId) -> Result<(), TimelineError> {
+        if self.live(device) {
+            Ok(())
+        } else {
+            Err(TimelineError::RetiredDevice)
+        }
+    }
     fn live(&self, device: DeviceInstanceId) -> bool {
         self.devices
             .get(&device.id)
