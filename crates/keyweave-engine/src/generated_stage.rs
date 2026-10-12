@@ -50,13 +50,40 @@ impl std::fmt::Debug for RejectedGeneratedBatch {
     }
 }
 #[derive(Clone, Debug)]
+pub(crate) struct ScopeCommand {
+    pub(crate) batch: action_plan::BatchId,
+    pub(crate) opening: bool,
+    pub(crate) slots: Vec<ActionSlot>,
+}
+fn scope_work(
+    plan: &action_plan::ActionPlan,
+    slots: &[ActionSlot],
+    opening: bool,
+    at: MonoTime,
+) -> StageEvent<GeneratedWork> {
+    StageEvent {
+        stage: plan.origin.stage,
+        at_ns: at,
+        device: plan.origin.device,
+        source: plan.origin.source,
+        config: plan.origin.config.clone(),
+        payload: GeneratedWork::Scope(ScopeCommand {
+            batch: plan.origin.batch,
+            opening,
+            slots: slots.to_vec(),
+        }),
+    }
+}
+#[derive(Clone, Debug)]
 pub(crate) enum GeneratedWork {
     Action(PlannedAction),
+    Scope(ScopeCommand),
     Pointer(crate::pointer_work::PointerMotion),
     Projection(crate::terminal_actor::ProjectionCommand),
 }
 pub(crate) enum GeneratedDelivery {
     Action(DueEvent<PlannedAction>),
+    Scope(DueEvent<ScopeCommand>),
     Pointer(DueEvent<crate::pointer_work::PointerMotion>),
     Projection(DueEvent<crate::terminal_actor::ProjectionCommand>),
 }
@@ -102,6 +129,7 @@ pub struct ScopedGeneration {
     queue: Arc<()>,
     plan: action_plan::ActionPlan,
     up_generated: bool,
+    propagated_slots: Vec<ActionSlot>,
 }
 struct Environment {
     stage: Stage,
@@ -396,6 +424,7 @@ pub struct GeneratedStageQueue {
     identity: Arc<()>,
     now: MonoTime,
     delivery: crate::stage_delivery::DeliveryLedger,
+    propagate_consumed: bool,
 }
 impl GeneratedStageQueue {
     pub fn new(stage: Stage, config: Arc<ConfigSnapshot>) -> Result<Self, GeneratedError> {
@@ -420,7 +449,18 @@ impl GeneratedStageQueue {
             identity: Arc::new(()),
             now: MonoTime(0),
             delivery: crate::stage_delivery::DeliveryLedger::default(),
+            propagate_consumed: false,
         })
+    }
+    pub(crate) fn new_complex_propagating(
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, GeneratedError> {
+        let mut queue = Self::new(Stage::Complex, config)?;
+        queue.propagate_consumed = true;
+        Ok(queue)
+    }
+    pub(crate) fn scope_delivery_complete(&self, batch: action_plan::BatchId) -> bool {
+        self.delivery.scope_complete(batch)
     }
     pub(crate) fn advance(&mut self, at: MonoTime) -> Result<(), GeneratedError> {
         self.timeline.advance(at)?;
@@ -745,9 +785,35 @@ impl GeneratedStageQueue {
                 None
             },
         )?;
+        let propagated_slots = if self.propagate_consumed {
+            hidden.clone()
+        } else {
+            Vec::new()
+        };
+        let delivery = if propagated_slots.is_empty() {
+            delivery
+        } else {
+            delivery.with_scope(actions.origin.batch, propagated_slots.clone())?
+        };
+        let mut work: Vec<_> = actions.events().iter().cloned().map(action_work).collect();
+        if !propagated_slots.is_empty() {
+            work.insert(
+                0,
+                scope_work(actions, &propagated_slots, true, actions.origin.start),
+            );
+            if !spec.until_input_up() {
+                work.push(scope_work(
+                    actions,
+                    &propagated_slots,
+                    false,
+                    actions.ends_at(),
+                ));
+            }
+        }
+        let markers = work.len() - actions.events().len();
         let timeline = self
             .timeline
-            .prepare_enqueue(actions.events().iter().cloned().map(action_work).collect())
+            .prepare_enqueue_scoped(work, markers)
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
         let scope = if persistent {
             if !spec.until_input_up() {
@@ -775,6 +841,11 @@ impl GeneratedStageQueue {
                 queue: Arc::clone(&self.identity),
                 plan: actions.clone(),
                 up_generated: !persistent,
+                propagated_slots: if spec.until_input_up() {
+                    propagated_slots
+                } else {
+                    Vec::new()
+                },
             },
         })
     }
@@ -816,9 +887,19 @@ impl GeneratedStageQueue {
         let events = saved.plan.input_up_events(at);
         let append = self.environment.prepare(&events, 0, None)?;
         let delivery = self.delivery.prepare(&events, None)?;
+        let close_at = events.last().map_or(at, |event| event.at_ns.max(at));
+        let mut work: Vec<_> = events.into_iter().map(action_work).collect();
+        if !saved.propagated_slots.is_empty() {
+            work.push(scope_work(
+                &saved.plan,
+                &saved.propagated_slots,
+                false,
+                close_at,
+            ));
+        }
         let timeline = self
             .timeline
-            .prepare_enqueue_at(events.into_iter().map(action_work).collect(), at)
+            .prepare_enqueue_at(work, at)
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
         Ok(Some(PreparedGeneratedUp {
             append,
@@ -836,9 +917,11 @@ impl GeneratedStageQueue {
     ) -> Result<Option<DueEvent<PlannedAction>>, GeneratedError> {
         match self.poll_mixed(at)? {
             Some(GeneratedDelivery::Action(due)) => Ok(Some(due)),
-            Some(GeneratedDelivery::Pointer(_) | GeneratedDelivery::Projection(_)) => {
-                Err(GeneratedError::Stage)
-            }
+            Some(
+                GeneratedDelivery::Pointer(_)
+                | GeneratedDelivery::Projection(_)
+                | GeneratedDelivery::Scope(_),
+            ) => Err(GeneratedError::Stage),
             None => Ok(None),
         }
     }
@@ -882,6 +965,14 @@ impl GeneratedStageQueue {
                 let event = map_event(due.event.clone(), action.clone());
                 self.delivery.delivered(&event);
                 GeneratedDelivery::Action(DueEvent {
+                    event,
+                    delivered_at: at,
+                })
+            }
+            GeneratedWork::Scope(command) => {
+                let event = map_event(due.event.clone(), command.clone());
+                self.delivery.delivered_scope(&event)?;
+                GeneratedDelivery::Scope(DueEvent {
                     event,
                     delivered_at: at,
                 })
@@ -943,6 +1034,7 @@ impl GeneratedStageQueue {
         let events = self.timeline.discard_where(|event| match &event.payload {
             GeneratedWork::Action(action) => action.slot.batch == batch,
             GeneratedWork::Projection(command) => command.batch == batch,
+            GeneratedWork::Scope(command) => command.batch == batch,
             GeneratedWork::Pointer(_) => false,
         });
         let slots = self.environment.remove(|_, slot| slot.batch == batch);
@@ -1049,3 +1141,6 @@ mod pointer_tests {
         assert_eq!(queue.queued_events(), 0);
     }
 }
+
+#[cfg(test)]
+mod scope_dispatch_tests;

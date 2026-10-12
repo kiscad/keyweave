@@ -202,17 +202,38 @@ impl<T> StageTimeline<T> {
         &mut self,
         events: Vec<StageEvent<T>>,
     ) -> Result<PreparedStageAppend<'_, T>, RejectedBatch<T>> {
-        let error = if events.len() > MAX_STAGE_APPEND
-            || self.len.saturating_add(events.len()) > MAX_STAGE_EVENTS
-        {
-            Some(TimelineError::Capacity)
-        } else if events.iter().any(|event| !self.live(event.device)) {
-            Some(TimelineError::RetiredDevice)
-        } else if self.next_order.checked_add(events.len() as u64).is_none() {
-            Some(TimelineError::IdentityExhausted)
-        } else {
-            None
-        };
+        self.prepare_enqueue_bounded(events, MAX_STAGE_APPEND)
+    }
+    /// Internal scope protocol allows at most two controls around the original
+    /// action append. Controls still occupy the shared total queue budget.
+    pub(crate) fn prepare_enqueue_scoped(
+        &mut self,
+        events: Vec<StageEvent<T>>,
+        markers: usize,
+    ) -> Result<PreparedStageAppend<'_, T>, RejectedBatch<T>> {
+        if markers > 2 {
+            return Err(RejectedBatch {
+                error: TimelineError::Capacity,
+                events,
+            });
+        }
+        self.prepare_enqueue_bounded(events, MAX_STAGE_APPEND + markers)
+    }
+    fn prepare_enqueue_bounded(
+        &mut self,
+        events: Vec<StageEvent<T>>,
+        limit: usize,
+    ) -> Result<PreparedStageAppend<'_, T>, RejectedBatch<T>> {
+        let error =
+            if events.len() > limit || self.len.saturating_add(events.len()) > MAX_STAGE_EVENTS {
+                Some(TimelineError::Capacity)
+            } else if events.iter().any(|event| !self.live(event.device)) {
+                Some(TimelineError::RetiredDevice)
+            } else if self.next_order.checked_add(events.len() as u64).is_none() {
+                Some(TimelineError::IdentityExhausted)
+            } else {
+                None
+            };
         if let Some(error) = error {
             return Err(RejectedBatch { error, events });
         }

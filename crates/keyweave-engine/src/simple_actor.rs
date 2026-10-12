@@ -95,7 +95,7 @@ impl SimpleStageActor {
     ) -> Result<Self, SimpleActorError> {
         Self::check_simple(&config)?;
         Ok(Self {
-            generated: GeneratedStageQueue::new(Stage::Complex, config.clone())?,
+            generated: GeneratedStageQueue::new_complex_propagating(config.clone())?,
             complex: ComplexStageActor::new_with_source_limit(config, max_source_end)?,
             producers: BindingArena::default(),
             inputs: BTreeMap::new(),
@@ -447,7 +447,7 @@ impl SimpleStageActor {
     }
     fn finish_child(&mut self, id: BatchId, step: &mut SimpleStep) -> Result<(), SimpleActorError> {
         let child = self.children.get(&id).ok_or(SimpleActorError::Invariant)?;
-        if child.remaining != 0 || !child.up_seen {
+        if child.remaining != 0 || !child.up_seen || !self.generated.scope_delivery_complete(id) {
             return Ok(());
         }
         let parent = child.parent;
@@ -545,6 +545,13 @@ impl SimpleStageActor {
                 }
                 crate::generated_stage::GeneratedDelivery::Projection(_) => {
                     return Err(SimpleActorError::Invariant);
+                }
+                crate::generated_stage::GeneratedDelivery::Scope(due) => {
+                    return Err(if due.event.stage == Stage::Complex {
+                        SimpleActorError::UnsupportedSimpleSemantics
+                    } else {
+                        SimpleActorError::Invariant
+                    });
                 }
                 crate::generated_stage::GeneratedDelivery::Pointer(due) => {
                     self.complex.admit_pointer(&due)?;

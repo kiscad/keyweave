@@ -17,6 +17,12 @@ struct BatchDelivery {
     config: Arc<ConfigSnapshot>,
     slots: BTreeMap<u16, SlotDelivery>,
     extra: usize,
+    scope: Option<ScopeDelivery>,
+}
+struct ScopeDelivery {
+    slots: Vec<ActionSlot>,
+    opened: bool,
+    closed: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeliveryProgress {
@@ -38,6 +44,30 @@ pub(crate) struct DeliveryAppend<'a> {
     reserved: usize,
 }
 impl DeliveryAppend<'_> {
+    pub(crate) fn with_scope(
+        mut self,
+        id: BatchId,
+        slots: Vec<ActionSlot>,
+    ) -> Result<Self, GeneratedError> {
+        let retained: usize = self
+            .ledger
+            .batches
+            .values()
+            .filter_map(|b| b.scope.as_ref())
+            .map(|scope| scope.slots.len())
+            .sum();
+        if slots.len() > MAX_PERSISTENT_SUPPRESSION_REFERENCES.saturating_sub(retained) {
+            return Err(EngineError::ResourceLimit.into());
+        }
+        let batch = self.new.get_mut(&id).ok_or(GeneratedError::Lifecycle)?;
+        batch.scope = Some(ScopeDelivery {
+            slots,
+            opened: false,
+            closed: false,
+        });
+        Ok(self)
+    }
+
     pub(crate) fn commit(self) {
         for (id, batch) in self.new {
             self.ledger.batches.insert(id, batch);
@@ -105,6 +135,7 @@ impl DeliveryLedger {
                         source: event.source,
                         config: Arc::clone(&event.config),
                         slots: BTreeMap::new(),
+                        scope: None,
                         extra: extra
                             .filter(|(id, _)| *id == slot.batch)
                             .map_or(0, |(_, count)| count),
@@ -177,12 +208,45 @@ impl DeliveryLedger {
             KeyEdge::Repeat => unreachable!("admission rejects repeat"),
         }
     }
+    pub(crate) fn scope_complete(&self, id: BatchId) -> bool {
+        self.batches
+            .get(&id)
+            .is_some_and(|batch| batch.scope.as_ref().is_none_or(|scope| scope.closed))
+    }
+    pub(crate) fn delivered_scope(
+        &mut self,
+        event: &StageEvent<crate::generated_stage::ScopeCommand>,
+    ) -> Result<(), GeneratedError> {
+        let command = &event.payload;
+        let batch = self
+            .batches
+            .get_mut(&command.batch)
+            .ok_or(GeneratedError::Lifecycle)?;
+        if event.stage != crate::timeline::Stage::Complex
+            || batch.device != event.device
+            || batch.source != event.source
+            || !Arc::ptr_eq(&batch.config, &event.config)
+        {
+            return Err(GeneratedError::Provenance);
+        }
+        let scope = batch.scope.as_mut().ok_or(GeneratedError::Lifecycle)?;
+        if scope.slots != command.slots || scope.closed || (command.opening == scope.opened) {
+            return Err(GeneratedError::Lifecycle);
+        }
+        if command.opening {
+            scope.opened = true;
+        } else {
+            scope.closed = true;
+        }
+        Ok(())
+    }
     pub(crate) fn retire(&mut self, id: BatchId) -> Result<(), GeneratedError> {
         let batch = self.batches.get(&id).ok_or(GeneratedError::Lifecycle)?;
-        if batch
-            .slots
-            .values()
-            .any(|slot| !slot.down || !slot.up_generated || !slot.up)
+        if batch.scope.as_ref().is_some_and(|scope| !scope.closed)
+            || batch
+                .slots
+                .values()
+                .any(|slot| !slot.down || !slot.up_generated || !slot.up)
         {
             return Err(GeneratedError::Lifecycle);
         }

@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0144 generated Complex input consumed-scope FIFO protocol",
+  "source_base_commit": "a611c7b12aba2c07971a630a9f3bc3cefb2c5814",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/generated_stage.rs": "10019011deaad2573a5248a07cf4d86027cf31f959ddcb35b15ded1f80813138",
+    "crates/keyweave-engine/src/generated_stage/scope_dispatch_tests.rs": "3e5bb076b50091bc607a0d62923ec2c6cbe3b58575502433e2bd1b21d9b1ecab",
+    "crates/keyweave-engine/src/stage_delivery.rs": "c8d2a78679cc82f282543d688e79ddb8adb868d2e13d2691a2e5a69b83214f8b",
+    "crates/keyweave-engine/src/simple_actor.rs": "4f7513367e4f0ea002d2ea2ba560e1c3a267fe6a75e126f18d5a91fedcbde14c",
+    "crates/keyweave-engine/src/timeline.rs": "d5e33fe4cf8371ca3bf45a5412aa8c131329611916515116700265b82920ade1"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1313,
+    "new_unit_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-input-scope-fifo/tests.log",
+        "sha256": "c204600e043dcb1c2b5aa77d09cdb2249b704db60ff781b3662583ec32df6bbf"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-input-scope-fifo/clippy.log",
+        "sha256": "ce80a70604fc9398adf99ce386c33987ce94a027aeda9ca10729fa93627f05fe"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-input-scope-fifo/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-input-scope-fifo/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Test fixture assumed ActionSlot carries a stage field; removed nonexistent field.",
+    "Early-Up fixture used hold_down on final repeating action, which planner correctly ignores. Corrected to leading tap with 50ns duration followed by repeating modifier; verified exact saved Up then close order."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Simple private Complex generation mode adds scope open before actions and close after transient array/saved original Up. Legacy public queues preserve old action-only protocol. All markers share original FIFO shifting, total 8192 queue budget, and metadata.",
+    "Delivery ledger retains exact consumed slots and strict batch/device/source/old Arc/open/close receipt progress; scope close blocks retirement until delivered. Scope refs have separate 16384 admission budget, not owner SourceTokens.",
+    "Private StageTimeline scope append permits at most two controls above original 1024 actions; total queue limit unchanged. Maximum 1024 action array plus two markers tested. Early original Up close follows max(saved Up event time, trigger time).",
+    "Abort/full/ref-cap rejection leaves queue/views/recipes/delivery unchanged. Original repeat/variable/planning semantics unchanged. Cancel/device/reset reuse ledger and timeline cleanup.",
+    "Simple legal Scope delivery still returns UnsupportedSimpleSemantics, invalid stage Invariant. Mandatory modifier gate remains; downstream template application and cross-device control cleanup must be completed before enabling. Full native timing gate also retained.",
+    "Full Simple scope/simultaneous/native/Windows/hardware/UI/packaging/driver objective remains active; no live capture, hardware or Windows native checks."
+  ],
+  "abi": "Pure Rust queue work/ledger fields and bounded internal timeline method. No unsafe/FFI/dependency/native ABI changes."
+}
