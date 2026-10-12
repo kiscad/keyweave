@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0132 retained Simple parent to Complex generation and input joint transaction",
+  "source_base_commit": "261cd1971b3ea2cbaaadc09efefaae017cf03d5c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "b91b083d33139c1b2bc4645b9b9dc8183c99a39dbfc31d34ee788edf5bc4df24",
+    "crates/keyweave-engine/tests/retained_complex_input.rs": "387ce3fee9c0b4ebd73a0e38668020166bb90be872183bdf56e75dcdb4a186f3"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1214,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-retained-complex-input/tests.log",
+        "sha256": "f69df3462eac13a4ff002df2463add0631f2da510d382aff6f20244df7110d5c"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-retained-complex-input/clippy.log",
+        "sha256": "9457f2d8a5e72086911ee1e86e4113cea206ae10a96f3ffcd280b4a4743ddd6d"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-retained-complex-input/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-retained-complex-input/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Test fixture compile errors: DueEvent is not Clone, function was shadowed, input_up_scoped returns bool. Fixed fixture without adding production Clone or changing API.",
+    "Initial focused run 4 passed / 2 failed: fixture constructed new empty-config owners instead of activating them from old variable namespace. InvalidVariable rejection was correct; fixed fixture to model real reload."
+  ],
+  "abi": "Pure Rust transaction composition; no unsafe/FFI/dependency/native ABI change. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "PreparedComplexGeneratedInput owns external Simple registration/activation, Complex generation and actual Complex input registration. Commit returns only the saved original-Up credential; abort/drop commits none.",
+    "ChildAdmission is crate-private and guard-owned. Both current destination Arcs must be identical; old child exact provenance/device/strict ID/capacity checks remain. Ordinary roots still require current Arc.",
+    "Empty matched main uses consumed activation, consumes Complex input ID on commit and creates no child root, queue event or output owner.",
+    "Controller must keep saved Up, drain actual descendants, retire source delivery and clear external registration before finishing Simple parent. No automatic allstage retirement or rollback after delivery is claimed.",
+    "External Simple arena and private Complex arena are still distinct budgets/graphs. Full Simple/allstage/scope/physical EOF/global source IDs/context/simultaneous/native/Windows/hardware/UI/packaging/driver remain incomplete.",
+    "Native duration gate retained; no actual input/device/driver/install/Windows build executed."
+  ]
+}

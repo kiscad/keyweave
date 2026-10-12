@@ -1,6 +1,10 @@
 //! Owned Complex producer generation/execution. Simple and allstage controller pending.
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
+    generated_stage::{
+        GeneratedError, GeneratedStageQueue, PreparedEmptyGeneratedChild, PreparedGeneratedChild,
+        ScopedGeneration,
+    },
     output_stage::{OutputStageActor, OutputStageError},
     producer_decision::{ProducerDecision, ProducerUpError},
     stage_bindings::{BindingArena, BindingError},
@@ -11,6 +15,8 @@ use crate::{
 pub enum ComplexActorError {
     #[error(transparent)]
     Output(#[from] OutputStageError),
+    #[error(transparent)]
+    Generated(#[from] GeneratedError),
     #[error(transparent)]
     Binding(#[from] BindingError),
     #[error(transparent)]
@@ -92,6 +98,29 @@ impl PreparedComplexInput<'_> {
         id
     }
 }
+enum PreparedInputGeneration<'a, T> {
+    Child(PreparedGeneratedChild<'a, T>),
+    Empty(PreparedEmptyGeneratedChild<'a, T>),
+}
+/// Owns parent activation/registration, destination generation and actual input registration.
+/// Only commit may expose the generated original-Up credential.
+#[must_use = "commit or abort all three parts of the Complex input transaction"]
+pub struct PreparedComplexGeneratedInput<'a, T> {
+    input: PreparedComplexInput<'a>,
+    generated: PreparedInputGeneration<'a, T>,
+}
+impl<T> PreparedComplexGeneratedInput<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) -> ScopedGeneration {
+        self.input.commit();
+        match self.generated {
+            PreparedInputGeneration::Child(generated) => generated.commit(),
+            PreparedInputGeneration::Empty(generated) => generated.commit(),
+        }
+    }
+}
 impl ComplexStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ComplexActorError> {
         Ok(Self {
@@ -170,9 +199,65 @@ impl ComplexStageActor {
         &mut self,
         plan: ActionPlan,
     ) -> Result<PreparedComplexInput<'_>, ComplexActorError> {
+        self.prepare_input_inner(plan, None)
+    }
+    /// Joint admission from a retained or jointly activated Simple parent.
+    /// Snapshot extra reservations are charged by generation; do not charge them twice.
+    pub fn prepare_generated_child_input<'a, T>(
+        &'a mut self,
+        source: &'a mut GeneratedStageQueue,
+        plan: &modifier_scope::ScopedActionPlan,
+        registration: stage_bindings::Reservation<'a, T>,
+    ) -> Result<PreparedComplexGeneratedInput<'a, T>, ComplexActorError> {
+        if !Arc::ptr_eq(source.snapshot(), self.snapshot()) {
+            return Err(ComplexActorError::Input);
+        }
+        let admission = registration.child_admission()?;
+        let input = self.prepare_input_inner(plan.actions().clone(), Some(&admission))?;
+        let generated = source.prepare_complex_child_scoped(plan, registration)?;
+        Ok(PreparedComplexGeneratedInput {
+            input,
+            generated: PreparedInputGeneration::Child(generated),
+        })
+    }
+    /// An empty matched main consumes the original Down without creating a child root.
+    pub fn prepare_generated_empty_input<'a, T>(
+        &'a mut self,
+        source: &'a mut GeneratedStageQueue,
+        plan: &modifier_scope::ScopedActionPlan,
+        activation: stage_bindings::PreparedConsumedDown<'a, T>,
+    ) -> Result<PreparedComplexGeneratedInput<'a, T>, ComplexActorError> {
+        if !Arc::ptr_eq(source.snapshot(), self.snapshot()) {
+            return Err(ComplexActorError::Input);
+        }
+        let admission = activation.admission();
+        let input = self.prepare_input_inner(plan.actions().clone(), Some(&admission))?;
+        let generated = source.prepare_empty_complex_child_scoped(plan, activation)?;
+        Ok(PreparedComplexGeneratedInput {
+            input,
+            generated: PreparedInputGeneration::Empty(generated),
+        })
+    }
+    fn prepare_input_inner(
+        &mut self,
+        plan: ActionPlan,
+        child: Option<&stage_bindings::ChildAdmission<'_>>,
+    ) -> Result<PreparedComplexInput<'_>, ComplexActorError> {
         self.running()?;
-        if plan.origin.stage != Stage::Complex || !Arc::ptr_eq(&plan.origin.config, self.snapshot())
-        {
+        let slots = plan
+            .events()
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+            .count();
+        let authorized = match child {
+            Some(child) => {
+                child.matches(&plan.origin, slots)
+                    && (plan.origin.config.generation < self.snapshot().generation
+                        || Arc::ptr_eq(&plan.origin.config, self.snapshot()))
+            }
+            None => Arc::ptr_eq(&plan.origin.config, self.snapshot()),
+        };
+        if plan.origin.stage != Stage::Complex || !authorized {
             return Err(ComplexActorError::Input);
         }
         self.output.check_live_device(plan.origin.device)?;
@@ -180,11 +265,6 @@ impl ComplexStageActor {
         if id.0 <= self.last_batch {
             return Err(ComplexActorError::Batch);
         }
-        let slots = plan
-            .events()
-            .iter()
-            .filter(|event| event.payload.edge == KeyEdge::Down)
-            .count();
         let reservation = if slots != 0 {
             Some(self.producers.prepare(plan.origin.clone(), slots, None)?)
         } else {
