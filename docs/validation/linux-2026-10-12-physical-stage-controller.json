@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0134 pure physical InputEnvelope stage controller",
+  "source_base_commit": "9843e93aa0c42261234cce3b4ae91324d344a2ce",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/physical_controller.rs": "219f1646ef044019237768ff552d4a5fc680ba5dc6bdadf79f47576530f99ea9",
+    "crates/keyweave-engine/src/simple_actor.rs": "94f25a324fc0084a7605110efd574046e69bbe94c1f61714d04dda057cafc75d",
+    "crates/keyweave-engine/src/complex_actor.rs": "1dc7fcfe93d96024099227c687591a670e3ad87959f0b63b6b62adad4ac69d43",
+    "crates/keyweave-engine/src/output_stage.rs": "9fd64bcb645b49cf106063fe90c1572d315cd971d2b54b004b769e84a582c07b",
+    "crates/keyweave-engine/src/lib.rs": "7955c6d82223057d90f15f7513c5b4a22d44d1148dda1952b34353ba507603ed",
+    "crates/keyweave-engine/tests/physical_controller.rs": "67814c8e4136d8025bfad088a7b054113ff55c5d6b33a9c2b8c667af607437d6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1241,
+    "new_tests": 16,
+    "integration_tests": 15,
+    "source_cursor_unit_tests": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-physical-stage-controller/tests.log",
+        "sha256": "930058d0debfb3fb1257abb6babd8e5568c30b278b8191fcea9626938f5be387"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-physical-stage-controller/clippy.log",
+        "sha256": "47b3a81929a0c6b65e3eb48af5ccab98e9e2b05483d33d45d0f4f70e8da90ad2"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-physical-stage-controller/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-physical-stage-controller/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial fmt command preceded creation of new physical_controller module; after file creation fmt succeeded.",
+    "Fixture compile referenced nonexistent Condition::FrontmostApplication; corrected to existing Condition::Application. Initial 12 focused tests then passed.",
+    "Clippy collapsible_if in physical Down preflight corrected with let-chain.",
+    "Review found immediate wheel/pointer could overtake queued future stage actions. Added explicit cold UnsupportedPointerScheduling and regression; mixed pointer/action FIFO remains pending.",
+    "Gate-edit script assertion stopped before saving physical controller change; transient unused helper warnings and missing error variant were resolved by completing the intended gate. Final 15 focused tests and workspace checks passed."
+  ],
+  "abi": "Pure Rust controller/retained-repeat queries/private modifier sync/shared context validation. No unsafe/FFI/dependency/native ABI change; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Controller owns physical (device generation,key) root plans, active/pending identities, monotonic logical source cursor, device history and context. Saved Up follows old Arc and exact source/slot; no wall-clock/threads/OS APIs.",
+    "Ordinary due work must be polled before input; DeadlinePending does not consume seq or select/observe input. Cold sequence/time/device/context/unsupported-control/source-exhaustion rejects also preserve admission state. Operational failures latch Failed and require reset.",
+    "Repeat follows saved Simple primary slot/current Complex main including held replacement and actual Terminal emitted/visible ownership. Only query target is returned; no repeat intent/array replay/new owner. Native desired/submitted/one-repeat-policy proof remains required.",
+    "Wheel/pointer support immediate idle-queue forwarding/modifier sync and alone eligibility; queued future generated/actual stage actions explicitly reject UnsupportedPointerScheduling before seq consumption. Mixed pointer/action FIFO remains unimplemented.",
+    "Context bounded/revision/TTL/history validation shared with legacy Engine; latest context is passed into generated decisions/timers. Old external TimerFired/CancelDelayed tokens explicitly rejected; own next_deadline/poll only.",
+    "Device removal/new-generation cleanup and Reset emit actual recovery intents only, cancel future work and clear active/pending roots. Reset retains tombstones, seq and monotonic IDs/source cursor. No OS acceptance or global release proof claimed.",
+    "Physical SourceToken is logical lineage, not a unified actual Terminal source allocator/budget. Simple mandatory modifier scope/advanced branches, simultaneous and full native/Windows/hardware/UI/packaging/driver integration remain incomplete. Native duration gate retained; no capture/input/device/driver/install/native Windows operation executed."
+  ]
+}

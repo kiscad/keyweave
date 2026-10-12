@@ -388,6 +388,26 @@ impl OutputStageActor {
             batch,
         }))
     }
+    pub(crate) fn synchronize_modifiers(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, OutputStageError> {
+        self.running()?;
+        self.check_time(at)?;
+        let result = self
+            .terminal
+            .synchronize_modifiers(at)
+            .map_err(OutputStageError::from)
+            .and_then(|outputs| {
+                self.generated.advance(at)?;
+                Ok(outputs)
+            });
+        self.now = at;
+        match result {
+            Ok(outputs) => Ok(outputs),
+            Err(error) => self.fault(error),
+        }
+    }
     pub(crate) fn synchronize_if_device_idle(
         &mut self,
         device: DeviceInstanceId,

@@ -6,6 +6,7 @@ pub mod generated_stage;
 pub mod modifier_scope;
 mod modifiers;
 pub mod output_stage;
+pub mod physical_controller;
 pub mod producer_decision;
 pub mod rule_selection;
 pub mod simple_actor;
@@ -678,50 +679,12 @@ impl Engine {
         context: &ContextSnapshot,
         now: MonoTime,
     ) -> Result<(), EngineError> {
-        let mut identities = BTreeSet::new();
-        let mut strings = Vec::new();
-        if let Some(application) = &context.application {
-            strings.extend([&application.bundle_identifier, &application.file_path]);
-        }
-        if let Some(source) = &context.input_source {
-            strings.extend([
-                &source.language,
-                &source.input_source_id,
-                &source.input_mode_id,
-            ]);
-        }
-        if strings
-            .iter()
-            .any(|value| value.as_ref().is_some_and(|value| value.len() > 4096))
-        {
-            return Err(EngineError::InvalidContext);
-        }
-        if context.revision <= self.context.revision
-            || context.provider.is_empty()
-            || context.provider.len() > 128
-            || context.observed_at_ns > now
-            || context.valid_until_ns < context.observed_at_ns
-            || context.valid_until_ns.0 - context.observed_at_ns.0 > MAX_CONTEXT_LIFETIME_NS
-            || context.devices.as_ref().is_some_and(|devices| {
-                devices.len() > MAX_CONTEXT_DEVICES
-                    || devices.iter().any(|entry| {
-                        !identities.insert(entry.device.id)
-                            || entry
-                                .properties
-                                .device_address
-                                .as_ref()
-                                .is_some_and(|address| address.len() > 256)
-                            || self.devices.get(&entry.device.id).is_some_and(|state| {
-                                state.generation > entry.device.generation
-                                    || (state.generation == entry.device.generation
-                                        && state.removed)
-                            })
-                    })
+        validate_context_update(context, self.context.revision, now, |device| {
+            self.devices.get(&device.id).is_some_and(|state| {
+                state.generation > device.generation
+                    || (state.generation == device.generation && state.removed)
             })
-        {
-            return Err(EngineError::InvalidContext);
-        }
-        Ok(())
+        })
     }
 
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), EngineError> {
@@ -1903,4 +1866,52 @@ impl Engine {
             });
         }
     }
+}
+
+pub(crate) fn validate_context_update(
+    context: &ContextSnapshot,
+    previous_revision: u64,
+    now: MonoTime,
+    retired: impl Fn(DeviceInstanceId) -> bool,
+) -> Result<(), EngineError> {
+    let mut identities = BTreeSet::new();
+    let mut strings = Vec::new();
+    if let Some(application) = &context.application {
+        strings.extend([&application.bundle_identifier, &application.file_path]);
+    }
+    if let Some(source) = &context.input_source {
+        strings.extend([
+            &source.language,
+            &source.input_source_id,
+            &source.input_mode_id,
+        ]);
+    }
+    if strings
+        .iter()
+        .any(|value| value.as_ref().is_some_and(|value| value.len() > 4096))
+    {
+        return Err(EngineError::InvalidContext);
+    }
+    if context.revision <= previous_revision
+        || context.provider.is_empty()
+        || context.provider.len() > 128
+        || context.observed_at_ns > now
+        || context.valid_until_ns < context.observed_at_ns
+        || context.valid_until_ns.0 - context.observed_at_ns.0 > MAX_CONTEXT_LIFETIME_NS
+        || context.devices.as_ref().is_some_and(|devices| {
+            devices.len() > MAX_CONTEXT_DEVICES
+                || devices.iter().any(|entry| {
+                    !identities.insert(entry.device.id)
+                        || entry
+                            .properties
+                            .device_address
+                            .as_ref()
+                            .is_some_and(|address| address.len() > 256)
+                        || retired(entry.device)
+                })
+        })
+    {
+        return Err(EngineError::InvalidContext);
+    }
+    Ok(())
 }

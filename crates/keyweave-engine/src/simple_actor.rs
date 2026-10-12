@@ -54,6 +54,7 @@ struct Child {
     parent: ActionSlot,
     remaining: usize,
     up_seen: bool,
+    repeat_slot: Option<ActionSlot>,
 }
 pub struct SimpleStageActor {
     generated: GeneratedStageQueue,
@@ -131,6 +132,41 @@ impl SimpleStageActor {
     }
     pub fn producer(&self, slot: ActionSlot) -> Option<&ProducerDecision> {
         self.producers.live(slot)
+    }
+    /// Read the current retained primary leaf without selection, generation or ownership changes.
+    pub fn physical_repeat_target(&self, slot: ActionSlot) -> Option<KeyId> {
+        if self.failed || self.producers.live(slot)?.up_delivered_at().is_some() {
+            return None;
+        }
+        let id = self.bindings.get(&slot).copied().flatten()?;
+        let child = self.children.get(&id)?;
+        if child.up_seen {
+            return None;
+        }
+        self.complex.physical_repeat_target(child.repeat_slot?)
+    }
+    pub(crate) fn pointer_ordering_ready(&self) -> bool {
+        self.generated.queued_events() == 0 && !self.complex.has_queued_output_work()
+    }
+    pub(crate) fn synchronize_modifiers(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, SimpleActorError> {
+        self.running()?;
+        self.check_time(at)?;
+        let result = self
+            .complex
+            .synchronize_modifiers(at)
+            .map_err(SimpleActorError::from)
+            .and_then(|outputs| {
+                self.generated.advance(at)?;
+                Ok(outputs)
+            });
+        self.now = at;
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
     }
     pub fn producer_halted(&self, slot: ActionSlot) -> bool {
         self.halted.contains(&slot)
@@ -302,6 +338,11 @@ impl SimpleStageActor {
                             parent: slot,
                             remaining: slots,
                             up_seen: false,
+                            repeat_slot: plan
+                                .actions()
+                                .releases()
+                                .first()
+                                .map(|action| action.slot),
                         },
                     );
                 }

@@ -182,6 +182,34 @@ impl ComplexStageActor {
     pub fn producer(&self, slot: ActionSlot) -> Option<&ProducerDecision> {
         self.producers.live(slot)
     }
+    /// Follow this retained Complex producer's current actual main child, including held replacement.
+    /// This is a query only; native desired/submitted state and repeat policy remain separate.
+    pub fn physical_repeat_target(&self, slot: ActionSlot) -> Option<KeyId> {
+        if self.failed || self.producers.live(slot)?.up_delivered_at().is_some() {
+            return None;
+        }
+        let child = self.bindings.get(&slot).copied().flatten()?;
+        self.output.physical_repeat_target(child)
+    }
+    pub(crate) fn has_queued_output_work(&self) -> bool {
+        self.output.queued_events() != 0
+    }
+    pub(crate) fn synchronize_modifiers(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, ComplexActorError> {
+        self.running()?;
+        self.check_time(at)?;
+        let result = self
+            .output
+            .synchronize_modifiers(at)
+            .map_err(ComplexActorError::from);
+        self.now = at;
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
     pub fn producer_halted(&self, slot: ActionSlot) -> bool {
         self.halted.contains(&slot)
     }
