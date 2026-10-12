@@ -32,31 +32,37 @@ pub(crate) struct PreparedGeneratedKeyProjectionClose<'a> {
 impl PreparedGeneratedKeyProjectionClose<'_> {
     pub(crate) fn commit(self) {
         self.timeline.commit();
-        if let Some(projection) = self.environment.key_projections.get_mut(&self.id) {
-            for slot in &projection.slots {
-                if let Some(count) = self.environment.hidden.get_mut(slot) {
-                    if *count > 1 {
-                        *count -= 1;
-                    } else {
-                        self.environment.hidden.remove(slot);
-                    }
-                }
-            }
-            for (slot, target) in &projection.variables {
-                if !self.environment.hidden.contains_key(slot)
-                    && self.environment.down.contains_key(slot)
-                    && let Some((name, value)) = variable_update(target, KeyEdge::Down)
-                {
-                    self.environment.variables.insert(name.to_owned(), value);
-                }
-            }
-            self.environment.references -= projection.slots.len();
-            projection.logical_open = false;
-        }
+        self.environment.restore_projection_value(self.id);
         *self.now = self.at;
     }
 }
 impl Environment {
+    fn restore_projection_value(&mut self, id: KeyProjectionId) {
+        if let Some(projection) = self.key_projections.get_mut(&id)
+            && projection.logical_open
+        {
+            for slot in &projection.slots {
+                if let Some(count) = self.hidden.get_mut(slot) {
+                    if *count > 1 {
+                        *count -= 1;
+                    } else {
+                        self.hidden.remove(slot);
+                    }
+                }
+            }
+            for (slot, target) in &projection.variables {
+                if !self.hidden.contains_key(slot)
+                    && self.down.contains_key(slot)
+                    && let Some((name, value)) = variable_update(target, KeyEdge::Down)
+                {
+                    self.variables.insert(name.to_owned(), value);
+                }
+            }
+            self.references -= projection.slots.len();
+            projection.logical_open = false;
+        }
+    }
+
     pub(super) fn install_key_projection(
         &mut self,
         id: KeyProjectionId,
@@ -106,6 +112,46 @@ impl Environment {
     }
 }
 impl GeneratedStageQueue {
+    pub(crate) fn check_projection_control(
+        &self,
+        id: KeyProjectionId,
+        at: MonoTime,
+    ) -> Result<&action_plan::PlanOrigin, GeneratedError> {
+        if at < self.now {
+            return Err(TimelineError::TimeReversed.into());
+        }
+        let projection = self
+            .environment
+            .key_projections
+            .get(&id)
+            .ok_or(GeneratedError::Lifecycle)?;
+        if projection.logical_open
+            && (projection.slots.len() > self.environment.references
+                || projection.slots.iter().any(|slot| {
+                    !self
+                        .environment
+                        .hidden
+                        .get(slot)
+                        .is_some_and(|count| *count > 0)
+                }))
+        {
+            return Err(GeneratedError::Lifecycle);
+        }
+        Ok(&projection.origin)
+    }
+    pub(crate) fn restore_projection_control(
+        &mut self,
+        id: KeyProjectionId,
+        at: MonoTime,
+    ) -> Result<(), GeneratedError> {
+        self.check_projection_control(id, at)?;
+        self.environment.restore_projection_value(id);
+        self.environment.key_projections.remove(&id);
+        self.timeline.discard_where(|event| matches!(&event.payload, GeneratedWork::Projection(command) if command.id == id));
+        self.advance(at)?;
+        Ok(())
+    }
+
     pub(crate) fn prepare_key_projection(
         &mut self,
         saved: &ScopedGeneration,

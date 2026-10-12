@@ -9,6 +9,44 @@ pub(super) struct DescendantProjection {
     references: usize,
 }
 impl ComplexStageActor {
+    /// Lifecycle cancellation bypasses FIFO admission while preserving original
+    /// child work and other template references. Retain every returned intent.
+    pub fn restore_descendant_projection_control(
+        &mut self,
+        id: ComplexProjectionId,
+        at: MonoTime,
+    ) -> Result<ComplexStep, ComplexActorError> {
+        self.running()?;
+        self.check_time(at)?;
+        let slot = *self
+            .projection_handles
+            .get(&id)
+            .ok_or(ComplexActorError::Input)?;
+        let group = self
+            .projection_groups
+            .get_mut(&slot)
+            .ok_or(ComplexActorError::Invariant)?;
+        let mut step = ComplexStep::default();
+        if group.references == 1 {
+            for &projection in &group.outputs {
+                match self.output.restore_key_projection_control(projection, at) {
+                    Ok(outputs) => step.outputs.extend(outputs),
+                    Err(error) => {
+                        self.failed = true;
+                        self.now = at;
+                        return Err(error.into());
+                    }
+                }
+            }
+            self.projection_groups.remove(&slot);
+        } else {
+            group.references -= 1;
+        }
+        self.projection_handles.remove(&id);
+        self.now = at;
+        Ok(step)
+    }
+
     /// Hide this retained producer's current and future Output children.
     /// Output admission errors latch Failed; only reset may recover a partial group transaction.
     pub fn begin_descendant_projection(

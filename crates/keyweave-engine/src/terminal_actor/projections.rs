@@ -58,6 +58,62 @@ impl PreparedKeyProjectionClose<'_> {
     }
 }
 impl TerminalActor {
+    pub(crate) fn check_projection_control(
+        &self,
+        id: KeyProjectionId,
+        at: MonoTime,
+    ) -> Result<&action_plan::PlanOrigin, ActorError> {
+        if self.failed {
+            return Err(ActorError::Failed);
+        }
+        self.check_time(at)?;
+        let projection = self
+            .projections
+            .get(&id)
+            .ok_or(ActorError::InvalidProjection)?;
+        if projection.owners.len() + projection.variables.len() > self.core.suppression_references
+            || (projection.active
+                && (projection.owners.iter().any(|owner| {
+                    self.core
+                        .owners
+                        .get(&owner.0)
+                        .is_some_and(|owners| owners.contains(&owner.1))
+                        && !self.core.hidden.get(owner).is_some_and(|count| *count > 0)
+                }) || projection.variables.iter().any(|(slot, _)| {
+                    !self
+                        .variable_projection_refs
+                        .get(slot)
+                        .is_some_and(|count| *count > 0)
+                })))
+        {
+            return Err(ActorError::InvalidProjection);
+        }
+        Ok(&projection.origin)
+    }
+    pub(crate) fn restore_projection_control(
+        &mut self,
+        id: KeyProjectionId,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, ActorError> {
+        let batch = self.check_projection_control(id, at)?.batch;
+        let keys = self.finish_key_projection(id, true)?;
+        self.timeline.discard_where(|event| matches!(event.payload, TerminalWork::ProjectionDown(current, _) | TerminalWork::ProjectionUp(current, _) if current == id));
+        if let Some(batch) = self.batches.get_mut(&batch)
+            && batch.birth_projection == Some(id)
+        {
+            batch.birth_projection = None;
+        }
+        self.timeline.advance(at)?;
+        self.core.now = at;
+        let mut outputs = Vec::new();
+        for key in keys.into_iter().collect::<BTreeSet<_>>() {
+            if !key.is_modifier() {
+                self.core.sync_key(key, &mut outputs);
+            }
+        }
+        Ok(outputs)
+    }
+
     pub fn suppression_references(&self) -> usize {
         self.core.suppression_references
     }

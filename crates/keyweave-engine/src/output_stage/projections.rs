@@ -51,6 +51,54 @@ impl PreparedOutputKeyProjectionClose<'_> {
     }
 }
 impl OutputStageActor {
+    /// Lifecycle control: restore original surviving sources immediately and
+    /// discard only this projection's future markers. Caller must retain intents.
+    pub fn restore_key_projection_control(
+        &mut self,
+        id: KeyProjectionId,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, OutputStageError> {
+        self.running()?;
+        self.check_time(at)?;
+        let recipe = self
+            .projections
+            .get(&id)
+            .ok_or(terminal_actor::ActorError::InvalidProjection)?;
+        let terminal = match self.terminal.check_projection_control(id, at) {
+            Ok(origin) => origin,
+            Err(error) => return self.fault(error.into()),
+        };
+        let generated = match self.generated.check_projection_control(id, at) {
+            Ok(origin) => origin,
+            Err(error) => return self.fault(error.into()),
+        };
+        if recipe.batch != terminal.batch
+            || recipe.device != terminal.device
+            || terminal.batch != generated.batch
+            || terminal.stage != generated.stage
+            || terminal.start != generated.start
+            || terminal.device != generated.device
+            || terminal.source != generated.source
+            || !Arc::ptr_eq(&terminal.config, &generated.config)
+        {
+            return self.fault(OutputStageError::Invariant);
+        }
+        let outputs = match self.terminal.restore_projection_control(id, at) {
+            Ok(outputs) => outputs,
+            Err(error) => {
+                self.now = at;
+                return self.fault(error.into());
+            }
+        };
+        if let Err(error) = self.generated.restore_projection_control(id, at) {
+            self.now = at;
+            return self.fault(error.into());
+        }
+        self.projections.remove(&id);
+        self.now = at;
+        Ok(outputs)
+    }
+
     pub fn prepare_key_projection(
         &mut self,
         batch: BatchId,
@@ -277,6 +325,35 @@ mod tests {
             true,
         )
         .unwrap()
+    }
+    #[test]
+    fn missing_actual_projection_fails_before_generated_control_mutation() {
+        let mut actor = actor();
+        let id = actor
+            .begin_key_projection(BatchId(1), MonoTime(10))
+            .unwrap()
+            .unwrap();
+        actor.terminal.reset(MonoTime(10)).unwrap(); // deliberate private fixture corruption
+        let queued = actor.generated.queued_events();
+        assert!(
+            actor
+                .restore_key_projection_control(id, MonoTime(10))
+                .is_err()
+        );
+        assert!(actor.is_failed());
+        assert_eq!(actor.generated.queued_events(), queued);
+        assert!(
+            !actor
+                .generated_modifiers()
+                .contains(&"left_shift".parse().unwrap())
+        );
+        assert!(matches!(
+            actor.poll(MonoTime(10)),
+            Err(OutputStageError::Failed)
+        ));
+        actor.reset(MonoTime(10)).unwrap();
+        assert!(!actor.is_failed());
+        assert_eq!(actor.next_deadline(), None);
     }
     #[test]
     fn generated_fifo_rejection_aborts_prepared_terminal_mask_budget_identity_and_clock() {

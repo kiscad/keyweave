@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0145 lifecycle projection immediate restoration control",
+  "source_base_commit": "6068e5a65700701c1ce904deee7d9949f67de845",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/terminal_actor/projections.rs": "dd8b127586bce17ef2cc31d73b4ad244790d487a7dc13a7e05ba0402719de150",
+    "crates/keyweave-engine/src/generated_stage/projections.rs": "c41b064e86f8fa8a0178aa69906900bf41c73c9a0df830f779f3815b9cb46576",
+    "crates/keyweave-engine/src/output_stage/projections.rs": "83e6c2c8e9ab0811d886e558daa06626c1276c4b0ec203fe4bb8e23d70b38fff",
+    "crates/keyweave-engine/src/complex_actor/projections.rs": "2a80fa4fe25309672623e0c9803edb2ff241a190b09029f131002a9da76071c1",
+    "crates/keyweave-engine/tests/projection_control_restore.rs": "ab83accfea46b7b59117949c0e964d453dece6345de92e2a4d004279785c3c7a",
+    "crates/keyweave-engine/tests/complex_projection_control.rs": "766701815b87b14b9d07d492102290a495be9821ee2cd86b1ece9cd819bbe2ae"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1326,
+    "new_integration_tests": 12,
+    "new_fault_tests": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-projection-control-restoration/tests.log",
+        "sha256": "bc5eb9c2da332ddbc11886013db6421ec51f2ed3e6023eec18ccb2c50e8e74ca"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-projection-control-restoration/clippy.log",
+        "sha256": "174ed671a07936be1d16669846d6388badde35df4762135465ef86a73f0a5155"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-projection-control-restoration/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-projection-control-restoration/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Preflight incorrectly required hidden owner entries after actual original Up. Released sources legitimately have no owner/mask entry while projection token remains. Corrected validation to require hidden entry only for surviving original owners; retirement case now passes.",
+    "Removed unused stage_bindings import from copied fixture helper imports.",
+    "An exact replacement script did not match rustfmt layout and stopped without saving; inspected source and corrected insertion."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Output restore_key_projection_control validates both saved origins and refs before mutation, removes only target projection markers, clears pending birth flag, restores surviving original key/variable sources, and advances control time. No FIFO admission or deadline drain required.",
+    "Generation restore is factored with normal close; logically closed projection does not reassign its saved Down over newer variable assignment. Actual close can still restore its surviving old source. Same-name variables retain last-assignment-wins semantics.",
+    "Other active projection refs remain hidden, released sources remain released. Ordinary keys emit restoration intents immediately; standard modifiers retain lazy synchronization. Original array/Up/other projections remain queued without reselection or retiming.",
+    "Complex control removes one template reference, restoring saved Output projections only on last reference. It can execute ahead of due held timer while leaving that timer untouched. Any group failure latches Failed; reset required rather than claiming group rollback or accepted platform output.",
+    "Unknown token cold rejection does not fail actor. Missing actual counterpart under existing Output recipe latches Failed before generated mutation; private injected-corruption test verifies recovery.",
+    "Simple cross-device scope lifecycle still requires receiver/cleanup wiring and mandatory gate remains. Native timing gate retained; full simultaneous/native/Windows/hardware/UI/packaging/driver goal remains active. No live input or Windows native operation executed."
+  ],
+  "abi": "Pure Rust projection controls and shared generated restore helper. No unsafe/FFI/dependency/native ABI changes."
+}
