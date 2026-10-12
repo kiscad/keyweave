@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0128 Complex delayed invocation/cancellation and post-Up parent retention",
+  "source_base_commit": "9e689bf0d5e95596645510cb03415322a5f7e663",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "730a343523480abbc82fbd63b564e63f65dc6165650ca76c153551fd21f09cee",
+    "crates/keyweave-engine/tests/complex_actor.rs": "1eb4db6f8b0acf9dfa173f0f8f26b0532874c643793ae82aea7811b33d4a925b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1194,
+    "new_tests": 9,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-delayed/tests.log",
+        "sha256": "5248693a749e57894ef3843761435c9602c93224daf46382536f88f1a32bfbb8"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-delayed/clippy.log",
+        "sha256": "6d6701a0a6dcc988153a1eba4a162916ba93a9841b8e565c536804a722e0cf6d"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-delayed/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-delayed/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "initial_warnings": [
+    "First existing actor run emitted unreachable wildcard pattern after all RuleBranch variants became handled. Removed redundant wildcard; no test failure, final Clippy clean."
+  ],
+  "abi": "Pure Rust delayed lifecycle and scheduling; no unsafe/FFI/dependencies/native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "All modeled Complex basic branches now accepted; obsolete UnsupportedBranches cold gate removed. This is not complete Simple/allstage/native implementation or all Karabiner features.",
+    "One delayed task keeps old producer Live after original Up and main completion. New Down first generates Canceled from old snapshot/current view/context, then selects new input. Timeout generates Invoked; task taken exactly once. Variable Down cancels, wheel does not.",
+    "Deadline checked before new producer/output commit; next_deadline includes held/delayed/output. Due output drains first, earliest timer next, ties held before delayed. poll_with_context supplies actual generation context.",
+    "finish waits pending delayed plus actual children; snapshot extra budget stays charged through child registry cleanup. Device/reset discard task without running canceled/invoked user actions.",
+    "Earlier branch generation may have committed before later operation rejects; Failed stops ordinary execution until capture-stop/reset. No whole-event rollback/OS acceptance or recovery proof.",
+    "Simple/fullstage scope/physical EOF/global source IDs/context scheduler/simultaneous/native duration/Windows/hardware/UI/packaging/driver incomplete. Native runtime and duration gate unchanged.",
+    "No actual input, device, driver, installation or Windows compilation executed."
+  ]
+}

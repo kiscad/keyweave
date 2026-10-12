@@ -1,4 +1,4 @@
-//! Owned Complex producer execution. Delayed and Simple controller pending.
+//! Owned Complex producer generation/execution. Simple and allstage controller pending.
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
     output_stage::{OutputStageActor, OutputStageError},
@@ -17,15 +17,13 @@ pub enum ComplexActorError {
     Up(#[from] ProducerUpError),
     #[error(transparent)]
     Plan(#[from] PlanError),
-    #[error("Complex delayed branch scheduling is not connected")]
-    UnsupportedBranches,
     #[error("invalid registered Complex input receipt")]
     Input,
     #[error("batch identity must increase and must not overflow")]
     Batch,
     #[error("Complex actor clock moved backwards")]
     TimeReversed,
-    #[error("held deadline would overflow monotonic time")]
+    #[error("branch deadline would overflow monotonic time")]
     TimeOverflow,
     #[error("poll due output before admitting input")]
     DeadlinePending,
@@ -55,25 +53,13 @@ pub struct ComplexStageActor {
     halted: BTreeSet<ActionSlot>,
     alone_candidate: Option<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
+    delayed: Option<(MonoTime, ActionSlot)>,
     last_batch: u64,
     now: MonoTime,
     failed: bool,
 }
-fn check_branches(config: &ConfigSnapshot) -> Result<(), ComplexActorError> {
-    if config.complex.iter().any(|mapping| {
-        let extras = &mapping.extras;
-        extras
-            .delayed
-            .as_ref()
-            .is_some_and(|d| !d.if_invoked.is_empty() || !d.if_canceled.is_empty())
-    }) {
-        return Err(ComplexActorError::UnsupportedBranches);
-    }
-    Ok(())
-}
 impl ComplexStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ComplexActorError> {
-        check_branches(&config)?;
         Ok(Self {
             output: OutputStageActor::new(config)?,
             producers: BindingArena::default(),
@@ -83,6 +69,7 @@ impl ComplexStageActor {
             halted: BTreeSet::new(),
             alone_candidate: None,
             held: None,
+            delayed: None,
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
@@ -120,6 +107,7 @@ impl ComplexStageActor {
             .next_deadline()
             .into_iter()
             .chain(self.held.map(|(at, _)| at))
+            .chain(self.delayed.map(|(at, _)| at))
             .min()
     }
     pub fn reserved_sources(&self) -> usize {
@@ -173,7 +161,6 @@ impl ComplexStageActor {
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), ComplexActorError> {
         self.running()?;
-        check_branches(&config)?;
         self.output.activate(config)?;
         Ok(())
     }
@@ -233,11 +220,23 @@ impl ComplexStageActor {
                             .iter()
                             .find(|action| action.slot == slot)
                     })
+                    .cloned()
                     .ok_or(ComplexActorError::Input)?;
+                self.producers.check_down(slot)?;
+                self.held = None;
+                if let Some((_, previous)) = self.delayed.take() {
+                    let _ = self.branch(
+                        previous,
+                        rule_selection::RuleBranch::DelayedCanceled,
+                        context,
+                        due.delivered_at,
+                    )?;
+                    self.finish(previous, &mut step)?;
+                }
                 let decision = self
                     .output
                     .decide_producer_down(due, context)?
-                    .with_original_up(up)?;
+                    .with_original_up(&up)?;
                 let id = self.next_batch_id()?;
                 let plan = decision.plan_main(id)?;
                 let origin = plan.actions().origin.clone();
@@ -261,6 +260,23 @@ impl ComplexStageActor {
                             due.delivered_at
                                 .0
                                 .checked_add(rule.mapping().extras.held_threshold_ns)
+                                .ok_or(ComplexActorError::TimeOverflow)?,
+                        ),
+                        slot,
+                    ))
+                } else {
+                    None
+                };
+                let delayed = if let Some(action) = decision
+                    .selection()
+                    .and_then(|rule| rule.mapping().extras.delayed.as_ref())
+                    .filter(|d| !d.if_invoked.is_empty() || !d.if_canceled.is_empty())
+                {
+                    Some((
+                        MonoTime(
+                            due.delivered_at
+                                .0
+                                .checked_add(action.delay_ns)
                                 .ok_or(ComplexActorError::TimeOverflow)?,
                         ),
                         slot,
@@ -298,6 +314,7 @@ impl ComplexStageActor {
                 }
                 self.last_batch = id.0;
                 self.held = held;
+                self.delayed = delayed;
                 if momentary {
                     self.alone_candidate = if candidate { Some(slot) } else { None };
                 }
@@ -389,10 +406,21 @@ impl ComplexStageActor {
         let empty = match kind {
             rule_selection::RuleBranch::Held => selection.mapping().extras.if_held_down.is_empty(),
             rule_selection::RuleBranch::Alone => selection.mapping().extras.if_alone.is_empty(),
+            rule_selection::RuleBranch::DelayedInvoked => selection
+                .mapping()
+                .extras
+                .delayed
+                .as_ref()
+                .is_none_or(|d| d.if_invoked.is_empty()),
+            rule_selection::RuleBranch::DelayedCanceled => selection
+                .mapping()
+                .extras
+                .delayed
+                .as_ref()
+                .is_none_or(|d| d.if_canceled.is_empty()),
             rule_selection::RuleBranch::AfterKeyUp => {
                 selection.mapping().extras.after_key_up.is_empty()
             }
-            _ => return Err(ComplexActorError::Invariant),
         };
         if empty {
             return Ok(None);
@@ -442,6 +470,9 @@ impl ComplexStageActor {
         slot: ActionSlot,
         step: &mut ComplexStep,
     ) -> Result<(), ComplexActorError> {
+        if self.delayed.is_some_and(|(_, candidate)| candidate == slot) {
+            return Ok(());
+        }
         if self
             .producers
             .live(slot)
@@ -485,16 +516,38 @@ impl ComplexStageActor {
         self.check_time(at)?;
         let result = if self.output.next_deadline().is_some_and(|due| due <= at) {
             self.poll_inner(at)
-        } else if self.held.is_some_and(|(due, _)| due <= at) {
-            self.fire_held(at, context).map(Some)
         } else {
-            self.poll_inner(at)
+            let held = self.held.filter(|(due, _)| *due <= at);
+            let delayed = self.delayed.filter(|(due, _)| *due <= at);
+            if held.is_some_and(|(due, _)| delayed.is_none_or(|(other, _)| due <= other)) {
+                self.fire_held(at, context).map(Some)
+            } else if delayed.is_some() {
+                self.fire_delayed(at, context).map(Some)
+            } else {
+                self.poll_inner(at)
+            }
         };
         if result.is_err() {
             self.failed = true;
         }
         self.now = at;
         result
+    }
+    fn fire_delayed(
+        &mut self,
+        at: MonoTime,
+        context: &ContextSnapshot,
+    ) -> Result<ComplexStep, ComplexActorError> {
+        let (_, slot) = self.delayed.take().ok_or(ComplexActorError::Invariant)?;
+        let _ = self.branch(
+            slot,
+            rule_selection::RuleBranch::DelayedInvoked,
+            context,
+            at,
+        )?;
+        let mut step = ComplexStep::default();
+        self.finish(slot, &mut step)?;
+        Ok(step)
     }
     fn fire_held(
         &mut self,
@@ -603,6 +656,9 @@ impl ComplexStageActor {
     }
     fn discard_inputs(&mut self, ids: &[BatchId]) -> Result<(), ComplexActorError> {
         for &id in ids {
+            if self.delayed.is_some_and(|(_, slot)| slot.batch == id) {
+                self.delayed = None;
+            }
             if self.held.is_some_and(|(_, slot)| slot.batch == id) {
                 self.held = None;
             }
