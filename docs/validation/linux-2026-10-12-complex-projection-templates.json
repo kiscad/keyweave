@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0143 Complex retained-parent descendant projection templates",
+  "source_base_commit": "4cf7f0fc4436be7d63852fd4daad1c6edaf71bc2",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "63cfa914a217b5688c7a13e4bb282b2ae96fbbc92dfd882873c17b38ddc70bd7",
+    "crates/keyweave-engine/src/complex_actor/projections.rs": "3e6b4d1b9738cf1de389a3e4ce1d05151c478f41e65ee8253086787215f512e0",
+    "crates/keyweave-engine/tests/complex_descendant_projections.rs": "365df0f2b97e515388206ebd472f01d1148d03902be45713b57bd952caf5c846"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1305,
+    "new_integration_tests": 9,
+    "new_fault_tests": 2,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-projection-templates/tests.log",
+        "sha256": "ad2a8868921fccb92b0be8016690adc22963690daf8950dedbdf5566754da285"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-projection-templates/clippy.log",
+        "sha256": "7cb0578af825bb38e792be2172302a2d36a38ebe7278b7fc8af73811226f6fc3"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-projection-templates/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-projection-templates/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Templates bind registered Reserved/Live Complex ActionSlots and saved device identity. Existing Output descendants receive paired projections; future main/held/alone/afterUp/delayed invoked/canceled children use born-projected joint admission. Empty main supported.",
+    "Nested references share one group of child Output projections, closing only on last reference. Original parent/child actual retirement does not invalidate close; original released sources are not revived. Saved Arc/targets remain authoritative after reload.",
+    "Max 4096 template references, checked monotonically increasing IDs not reset; existing Output 4096 projections and 16384 refs gates bound retained child projection records. Cold identity/time/due/capacity rejection does not latch Failed.",
+    "Group begin/last close consists of sequential single-Output joint transactions. A later Output rejection latches Complex Failed and advances failure-time recovery floor. Partial transactions cannot be polled/admitted; reset is required. No claim of graph-wide abort atomicity. Fault tests cover first admission rejection and partial last-close queue exhaustion.",
+    "Device removal/new generation cleans templates even after input retirement; unrelated device preserved. Reset clears templates/handles and Output queues/ref state without reusing IDs.",
+    "Template protocol does not change Complex input matching visibility. Full Simple consumed scope generation/actual markers and native pipeline remain incomplete. Simultaneous/Windows/hardware/UI/packaging/driver goal remains active. Native timing gate retained; no live capture or native Windows checks."
+  ],
+  "abi": "Pure Rust Complex template state, public actor-local scalar token and downstream guards. No unsafe/FFI/dependency/native ABI changes."
+}

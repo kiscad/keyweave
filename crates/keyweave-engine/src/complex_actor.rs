@@ -1,4 +1,5 @@
-//! Owned Complex producer generation/execution. Simple and allstage controller pending.
+//! Owned Complex producer generation/execution.
+mod projections;
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
     generated_stage::{
@@ -11,6 +12,8 @@ use crate::{
     timeline::{DueEvent, Stage},
     *,
 };
+pub use projections::ComplexProjectionId;
+use projections::DescendantProjection;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ComplexActorError {
     #[error(transparent)]
@@ -59,6 +62,9 @@ pub struct ComplexStageActor {
     bindings: BTreeMap<ActionSlot, Option<BatchId>>,
     children: BTreeMap<BatchId, ActionSlot>,
     halted: BTreeSet<ActionSlot>,
+    projection_groups: BTreeMap<ActionSlot, DescendantProjection>,
+    projection_handles: BTreeMap<ComplexProjectionId, ActionSlot>,
+    next_projection: u64,
     alone_candidate: Option<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
     delayed: Option<(MonoTime, ActionSlot)>,
@@ -137,6 +143,9 @@ impl ComplexStageActor {
             bindings: BTreeMap::new(),
             children: BTreeMap::new(),
             halted: BTreeSet::new(),
+            projection_groups: BTreeMap::new(),
+            projection_handles: BTreeMap::new(),
+            next_projection: 0,
             alone_candidate: None,
             held: None,
             delayed: None,
@@ -489,9 +498,17 @@ impl ComplexStageActor {
                     let registration = self
                         .producers
                         .prepare_child_with_down(origin, slots, receipt, decision)?;
-                    self.output
-                        .prepare_child_scoped(plan, registration)?
-                        .commit();
+                    if let Some(group) = self.projection_groups.get_mut(&slot) {
+                        let projection = self
+                            .output
+                            .prepare_projected_child_scoped(plan, registration)?
+                            .commit();
+                        group.outputs.push(projection);
+                    } else {
+                        self.output
+                            .prepare_child_scoped(plan, registration)?
+                            .commit();
+                    }
                     self.bindings.insert(slot, Some(id));
                     self.children.insert(id, slot);
                 }
@@ -656,9 +673,17 @@ impl ComplexStageActor {
         let registration =
             self.producers
                 .prepare(plan.actions().origin.clone(), slots, Some(slot))?;
-        self.output
-            .prepare_child_scoped(plan, registration)?
-            .commit();
+        if let Some(group) = self.projection_groups.get_mut(&slot) {
+            let projection = self
+                .output
+                .prepare_projected_child_scoped(plan, registration)?
+                .commit();
+            group.outputs.push(projection);
+        } else {
+            self.output
+                .prepare_child_scoped(plan, registration)?
+                .commit();
+        }
         self.children.insert(id, slot);
         self.last_batch = id.0;
         if generated_halt {
@@ -886,6 +911,20 @@ impl ComplexStageActor {
             .map(|(&id, _)| id)
             .collect();
         self.discard_inputs(&ids)?;
+        let removed_slots: BTreeSet<_> = self
+            .projection_groups
+            .iter()
+            .filter(|(_, group)| {
+                group.device.id == device.id
+                    && (group.device.generation < device.generation
+                        || (removed && group.device.generation == device.generation))
+            })
+            .map(|(&slot, _)| slot)
+            .collect();
+        self.projection_groups
+            .retain(|slot, _| !removed_slots.contains(slot));
+        self.projection_handles
+            .retain(|_, slot| !removed_slots.contains(slot));
         self.now = at;
         Ok(ComplexStep {
             outputs,
@@ -925,6 +964,8 @@ impl ComplexStageActor {
         let outputs = self.output.reset(at)?;
         let ids: Vec<_> = self.inputs.keys().copied().collect();
         self.discard_inputs(&ids)?;
+        self.projection_groups.clear();
+        self.projection_handles.clear();
         self.now = at;
         self.failed = false;
         Ok(ComplexStep {
