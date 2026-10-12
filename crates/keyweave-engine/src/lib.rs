@@ -7,6 +7,7 @@ pub mod modifier_scope;
 mod modifiers;
 pub mod output_stage;
 pub mod physical_controller;
+pub mod pointer_work;
 pub mod producer_decision;
 pub mod rule_selection;
 pub mod simple_actor;

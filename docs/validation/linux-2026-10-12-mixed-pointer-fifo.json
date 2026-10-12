@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0135 mixed action/pointer causal stage FIFO",
+  "source_base_commit": "c509330b232cb0dfcc08ec494a4665e7aaf11f4d",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/pointer_work.rs": "db17f39d97214a9d363f5e0eddb10d46cde82c891a9d0c6d2637605ab47fd81b",
+    "crates/keyweave-engine/src/generated_stage.rs": "3f57116c79c4386b00ab63125bc876cf27a87594783da21199944755f16eb7b6",
+    "crates/keyweave-engine/src/terminal_actor.rs": "fe746e64132744de16e736b8f6a14615e77cd695af184dc7467e71efb26a968c",
+    "crates/keyweave-engine/src/output_stage.rs": "9fc8ade3f1f671f85bb82ac4a3677c0e44d914f077e4917644710f13a4a3e1fc",
+    "crates/keyweave-engine/src/complex_actor.rs": "c05239825c39354995c8a8273cd92138a172ed201d3323a18a488b4af5e6b109",
+    "crates/keyweave-engine/src/simple_actor.rs": "26a3c1e1dc22a710b708bb69bcf74702afdb87d8faef5b232364473a091a45cc",
+    "crates/keyweave-engine/src/physical_controller.rs": "10c619a180ea1fa5cb76f9d8583ba3b20ec35ead11d578e7cb228152c5d07331",
+    "crates/keyweave-engine/src/lib.rs": "4a5597cd527322e60217b87771bcf3fbf148a690bd4afcc2d43fae2b4dafd9af",
+    "crates/keyweave-engine/tests/physical_controller.rs": "a1cae8461e8769ec46451bb178f94fd3ba18d41f8297f91e36368b9d8fe77f93"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1247,
+    "new_tests": 6,
+    "updated_existing_pointer_cases": 2,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-mixed-pointer-fifo/tests.log",
+        "sha256": "dcb34f5e133a56a29acd916b3fe1fb08b890b30ce36c8338ce29babce05b3693"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-mixed-pointer-fifo/clippy.log",
+        "sha256": "1daf04d7862d1f0d06996f497dacecab4e118f119387bd100e8e54d36f8e16f4"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-mixed-pointer-fifo/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-mixed-pointer-fifo/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "intermediate_checks": "First cargo check after queue conversion succeeded with 6 expected unused warnings before actor/controller wiring. Wiring removed them; focused 19 integration / 2 queue unit tests and final workspace/Clippy/fmt/source verification passed. Test-only clock getter removed in favor of existing advance(0) causal proof before workspace verification.",
+  "abi": "Pure Rust pointer payload, internal mixed timelines/guards/receipt propagation. No unsafe/FFI/dependency/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "GeneratedStageQueue internally uses Action/Pointer payload in one StageTimeline; passive pointers share event capacity/FIFO/clock/device checks, create no producer slot/action-delivery ledger reservation/variable owner. Ordinary public action API unchanged; pointer admission/mixed poll remain private to owning pipeline.",
+    "Simple queues captured pointer to Complex input; Complex applies nonzero wheel alone cancellation at actual generating delivery and jointly queues pointer into Output generation/actual execution. Terminal syncs modifiers before returning pointer; both receipts must match payload/earliest/source/device/stage/config.",
+    "PhysicalStep captures queued pointer and carries forwarded_pointers on bounded poll. Keyboard outputs in the same step must be submitted before pointer; no pointer is forwarded from canceled future work. Native adapter must inject captured pointers and implement desired/submitted/acceptance/own-output markers; Pass on poll is not permission to replay raw physical input independently.",
+    "Pointer hot reload retains exact old Arc without remapping; identity/source cursor not reused. Reset/device removal discard passive queued work, release only actual key owners, preserve device history. No native/global release proof.",
+    "UnsupportedPointerScheduling removed for pure controller only. Full Simple consumed modifier scope projection/advanced branches, unified actual source pool/budget, simultaneous, native pipeline/pointer capture/injection, Windows/hardware/UI/packaging/driver remain incomplete. Native duration gate retained; no real input/device/driver/install/native Windows operations executed."
+  ]
+}

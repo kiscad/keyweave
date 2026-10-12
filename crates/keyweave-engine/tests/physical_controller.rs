@@ -48,18 +48,35 @@ fn keyboard(seq: u64, at: u64, dev: DeviceInstanceId, name: &str, edge: KeyEdge)
 fn edges(outputs: Vec<OutputIntent>) -> Vec<(KeyId, KeyEdge)> {
     outputs.into_iter().map(|o| (o.key, o.edge)).collect()
 }
-fn drain(actor: &mut PhysicalStageController, at: u64) -> Vec<(KeyId, KeyEdge)> {
+fn drain_mixed(
+    actor: &mut PhysicalStageController,
+    at: u64,
+) -> (
+    Vec<(KeyId, KeyEdge)>,
+    Vec<keyweave_engine::timeline::DueEvent<keyweave_engine::pointer_work::PointerMotion>>,
+) {
     let mut outputs = vec![];
+    let mut pointers = vec![];
     for _ in 0..10000 {
         let Some(step) = actor.poll(MonoTime(at)).unwrap() else {
-            return outputs;
+            return (outputs, pointers);
         };
         assert_eq!(step.capture, CaptureDecision::Pass);
         assert_eq!(step.repeat_target, None);
         outputs.extend(edges(step.outputs));
+        pointers.extend(step.forwarded_pointers);
     }
     panic!("bounded fixture failed to finish");
 }
+fn drain(actor: &mut PhysicalStageController, at: u64) -> Vec<(KeyId, KeyEdge)> {
+    let (outputs, pointers) = drain_mixed(actor, at);
+    assert!(
+        pointers.is_empty(),
+        "fixture must inspect captured pointer receipts"
+    );
+    outputs
+}
+
 #[test]
 fn physical_binding_follows_two_saved_mappings_repeat_and_up_across_reload() {
     let mut actor = PhysicalStageController::new(config(
@@ -472,8 +489,9 @@ fn wheel_cancels_alone_pointer_move_does_not_and_pointer_flushes_lazy_modifier()
             ))
             .unwrap()
             .capture,
-        CaptureDecision::Pass
+        CaptureDecision::Capture
     );
+    assert_eq!(drain_mixed(&mut actor, 110).1.len(), 1);
     actor
         .handle(keyboard(3, 120, dev, "a", KeyEdge::Up))
         .unwrap();
@@ -496,6 +514,7 @@ fn wheel_cancels_alone_pointer_move_does_not_and_pointer_flushes_lazy_modifier()
             },
         ))
         .unwrap();
+    assert_eq!(drain_mixed(&mut actor, 140).1.len(), 1);
     actor
         .handle(keyboard(6, 150, dev, "a", KeyEdge::Up))
         .unwrap();
@@ -519,10 +538,11 @@ fn wheel_cancels_alone_pointer_move_does_not_and_pointer_flushes_lazy_modifier()
             InputEvent::PointerMove { x: 1, y: 2 },
         ))
         .unwrap();
-    assert_eq!(
-        edges(pointer.outputs),
-        vec![(key("left_shift"), KeyEdge::Down)]
-    );
+    assert!(pointer.outputs.is_empty());
+    let (outputs, pointers) = drain_mixed(&mut actor, 110);
+    assert_eq!(outputs, vec![(key("left_shift"), KeyEdge::Down)]);
+    assert_eq!(pointers.len(), 1);
+    assert_eq!(pointers[0].delivered_at, MonoTime(110));
 }
 #[test]
 fn external_tokens_are_rejected_without_consuming_sequence_or_cancelling_internal_work() {
@@ -621,8 +641,7 @@ fn causal_plan_overflow_after_registered_root_latches_failure_and_reset_recovers
     );
 }
 #[test]
-fn wheel_and_pointer_cannot_overtake_future_stage_actions_and_rejection_does_not_consume_sequence()
-{
+fn wheel_and_pointer_queue_behind_future_actions_and_before_subsequent_key_down() {
     let mut actor = PhysicalStageController::new(config(
         vec![mapping(
             "a",
@@ -642,43 +661,262 @@ fn wheel_and_pointer_cannot_overtake_future_stage_actions_and_rejection_does_not
     actor
         .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
         .unwrap();
-    drain(&mut actor, 100);
-    for event in [
-        InputEvent::Wheel {
-            horizontal: 1,
-            vertical: 0,
-        },
-        InputEvent::PointerMove { x: 1, y: 1 },
-    ] {
-        assert!(matches!(
-            actor.handle(envelope(2, 120, dev, event)),
-            Err(PhysicalControllerError::UnsupportedPointerScheduling)
-        ));
+    assert_eq!(drain(&mut actor, 100), vec![(key("b"), KeyEdge::Down)]);
+    let pointer = actor
+        .handle(envelope(
+            2,
+            120,
+            dev,
+            InputEvent::Wheel {
+                horizontal: 1,
+                vertical: 0,
+            },
+        ))
+        .unwrap();
+    assert_eq!(pointer.capture, CaptureDecision::Capture);
+    assert!(pointer.forwarded_pointers.is_empty());
+    actor
+        .handle(keyboard(3, 130, dev, "z", KeyEdge::Down))
+        .unwrap();
+    assert!(drain_mixed(&mut actor, 149).1.is_empty());
+    let mut order = vec![];
+    while let Some(step) = actor.poll(MonoTime(150)).unwrap() {
+        for output in step.outputs {
+            order.push(output.key.name());
+        }
+        for pointer in step.forwarded_pointers {
+            assert_eq!(pointer.event.at_ns, MonoTime(150));
+            assert_eq!(pointer.delivered_at, MonoTime(150));
+            assert_eq!(
+                pointer.event.payload,
+                keyweave_engine::pointer_work::PointerMotion::Wheel {
+                    horizontal: 1,
+                    vertical: 0
+                }
+            );
+            order.push("pointer".into());
+        }
     }
-    assert!(!actor.is_failed());
-    assert_eq!(actor.active_bindings(), 1);
-    assert_eq!(
-        edges(
-            actor
-                .handle(envelope(2, 120, dev, InputEvent::Reset))
-                .unwrap()
-                .outputs
-        ),
-        vec![(key("b"), KeyEdge::Up)]
-    );
-    assert_eq!(
+    assert_eq!(order, vec!["b", "c", "pointer", "z"]);
+}
+#[test]
+fn queued_wheel_cancels_future_complex_alone_before_saved_up_but_move_preserves_it() {
+    use keyweave_engine::pointer_work::PointerMotion;
+    for wheel in [true, false] {
+        let mut complex = mapping("c", vec![]);
+        complex.extras.if_alone.push(key("h").into());
+        let mut actor = PhysicalStageController::new(config(
+            vec![mapping(
+                "a",
+                vec![
+                    Action {
+                        repeat: false,
+                        hold_down_ns: 50,
+                        ..key("b").into()
+                    },
+                    key("c").into(),
+                ],
+            )],
+            vec![complex],
+        ))
+        .unwrap();
+        let dev = device(1, 1);
         actor
+            .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+            .unwrap();
+        drain(&mut actor, 100);
+        actor
+            .handle(envelope(
+                2,
+                120,
+                dev,
+                if wheel {
+                    InputEvent::Wheel {
+                        horizontal: 1,
+                        vertical: 0,
+                    }
+                } else {
+                    InputEvent::PointerMove { x: 1, y: 1 }
+                },
+            ))
+            .unwrap();
+        actor
+            .handle(keyboard(3, 130, dev, "a", KeyEdge::Up))
+            .unwrap();
+        let (outputs, pointers) = drain_mixed(&mut actor, 150);
+        assert_eq!(pointers.len(), 1);
+        assert_eq!(pointers[0].delivered_at, MonoTime(150));
+        assert_eq!(
+            pointers[0].event.payload,
+            if wheel {
+                PointerMotion::Wheel {
+                    horizontal: 1,
+                    vertical: 0,
+                }
+            } else {
+                PointerMotion::Move { x: 1, y: 1 }
+            }
+        );
+        assert_eq!(
+            outputs,
+            if wheel {
+                vec![(key("b"), KeyEdge::Up)]
+            } else {
+                vec![
+                    (key("b"), KeyEdge::Up),
+                    (key("h"), KeyEdge::Down),
+                    (key("h"), KeyEdge::Up),
+                ]
+            }
+        );
+        assert_eq!(actor.pending_bindings(), 0);
+    }
+}
+#[test]
+fn queued_pointer_retains_old_config_and_payload_across_reload_without_creating_binding() {
+    use keyweave_engine::pointer_work::PointerMotion;
+    let cfg = config(
+        vec![mapping(
+            "a",
+            vec![
+                Action {
+                    repeat: false,
+                    hold_down_ns: 50,
+                    ..key("b").into()
+                },
+                key("c").into(),
+            ],
+        )],
+        vec![],
+    );
+    let mut actor = PhysicalStageController::new(cfg.clone()).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .handle(envelope(
+            2,
+            120,
+            dev,
+            InputEvent::PointerMove { x: -7, y: 9 },
+        ))
+        .unwrap();
+    assert_eq!(actor.active_bindings(), 1);
+    actor
+        .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+        .unwrap();
+    let (_, pointers) = drain_mixed(&mut actor, 150);
+    assert_eq!(pointers.len(), 1);
+    assert!(Arc::ptr_eq(&pointers[0].event.config, &cfg));
+    assert_eq!(
+        pointers[0].event.payload,
+        PointerMotion::Move { x: -7, y: 9 }
+    );
+    assert_eq!(pointers[0].event.source, SourceToken(2));
+    assert_eq!(actor.active_bindings(), 1);
+}
+#[test]
+fn device_remove_and_reset_discard_captured_future_pointer_without_forwarding_or_fake_up() {
+    for remove in [true, false] {
+        let mut actor = PhysicalStageController::new(config(
+            vec![mapping(
+                "a",
+                vec![
+                    Action {
+                        repeat: false,
+                        hold_down_ns: 50,
+                        ..key("b").into()
+                    },
+                    key("c").into(),
+                ],
+            )],
+            vec![],
+        ))
+        .unwrap();
+        let dev = device(1, 1);
+        actor
+            .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+            .unwrap();
+        drain(&mut actor, 100);
+        actor
+            .handle(envelope(
+                2,
+                120,
+                dev,
+                InputEvent::Wheel {
+                    horizontal: 0,
+                    vertical: 1,
+                },
+            ))
+            .unwrap();
+        let control = actor
             .handle(envelope(
                 3,
                 130,
                 dev,
-                InputEvent::Wheel {
-                    horizontal: 1,
-                    vertical: 0
-                }
+                if remove {
+                    InputEvent::DeviceRemoved
+                } else {
+                    InputEvent::Reset
+                },
             ))
-            .unwrap()
-            .capture,
-        CaptureDecision::Pass
-    );
+            .unwrap();
+        assert_eq!(edges(control.outputs), vec![(key("b"), KeyEdge::Up)]);
+        assert!(control.forwarded_pointers.is_empty());
+        assert_eq!(actor.next_deadline(), None);
+        let (outputs, pointers) = drain_mixed(&mut actor, 200);
+        assert!(outputs.is_empty());
+        assert!(pointers.is_empty());
+    }
+}
+#[test]
+fn pointer_also_waits_behind_future_terminal_actions_after_complex_input_queue_is_empty() {
+    let mut actor = PhysicalStageController::new(config(
+        vec![],
+        vec![mapping(
+            "a",
+            vec![
+                Action {
+                    repeat: false,
+                    hold_down_ns: 50,
+                    ..key("b").into()
+                },
+                key("c").into(),
+            ],
+        )],
+    ))
+    .unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .handle(envelope(
+            2,
+            120,
+            dev,
+            InputEvent::PointerMove { x: 3, y: 4 },
+        ))
+        .unwrap();
+    let (outputs, pointers) = drain_mixed(&mut actor, 120);
+    assert!(outputs.is_empty());
+    assert!(pointers.is_empty());
+    actor
+        .handle(keyboard(3, 130, dev, "z", KeyEdge::Down))
+        .unwrap();
+    let mut order = vec![];
+    while let Some(step) = actor.poll(MonoTime(150)).unwrap() {
+        for output in step.outputs {
+            order.push(output.key.name());
+        }
+        for pointer in step.forwarded_pointers {
+            assert_eq!(pointer.event.at_ns, MonoTime(150));
+            assert_eq!(pointer.delivered_at, MonoTime(150));
+            order.push("pointer".into());
+        }
+    }
+    assert_eq!(order, vec!["b", "c", "pointer", "z"]);
 }

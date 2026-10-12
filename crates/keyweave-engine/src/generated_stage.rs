@@ -23,6 +23,17 @@ pub enum GeneratedError {
     #[error(transparent)]
     Binding(#[from] stage_bindings::BindingError),
 }
+pub(crate) struct PreparedGeneratedPointer<'a> {
+    timeline: timeline::PreparedStageAppend<'a, GeneratedWork>,
+    now: &'a mut MonoTime,
+    at: MonoTime,
+}
+impl PreparedGeneratedPointer<'_> {
+    pub(crate) fn commit(self) {
+        self.timeline.commit();
+        *self.now = self.at;
+    }
+}
 pub struct RejectedGeneratedBatch {
     pub error: GeneratedError,
     pub events: Vec<StageEvent<PlannedAction>>,
@@ -34,6 +45,42 @@ impl std::fmt::Debug for RejectedGeneratedBatch {
             .field("event_count", &self.events.len())
             .finish()
     }
+}
+#[derive(Clone, Debug)]
+pub(crate) enum GeneratedWork {
+    Action(PlannedAction),
+    Pointer(crate::pointer_work::PointerMotion),
+}
+pub(crate) enum GeneratedDelivery {
+    Action(DueEvent<PlannedAction>),
+    Pointer(DueEvent<crate::pointer_work::PointerMotion>),
+}
+fn map_event<A, B>(event: StageEvent<A>, payload: B) -> StageEvent<B> {
+    StageEvent {
+        stage: event.stage,
+        at_ns: event.at_ns,
+        device: event.device,
+        source: event.source,
+        config: event.config,
+        payload,
+    }
+}
+fn action_work(event: StageEvent<PlannedAction>) -> StageEvent<GeneratedWork> {
+    let payload = GeneratedWork::Action(event.payload.clone());
+    map_event(event, payload)
+}
+fn actions_only(events: Vec<StageEvent<GeneratedWork>>) -> Vec<StageEvent<PlannedAction>> {
+    events
+        .into_iter()
+        .filter_map(|event| {
+            if let GeneratedWork::Action(action) = &event.payload {
+                let action = action.clone();
+                Some(map_event(event, action))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 struct Down {
     device: DeviceInstanceId,
@@ -88,12 +135,12 @@ impl<'a> Append<'a> {
 pub struct PreparedGeneratedAppend<'a> {
     append: Append<'a>,
     delivery: stage_delivery::DeliveryAppend<'a>,
-    timeline: timeline::PreparedStageAppend<'a, PlannedAction>,
+    timeline: timeline::PreparedStageAppend<'a, GeneratedWork>,
     scope: Option<(action_plan::BatchId, LogicalScope)>,
 }
 impl PreparedGeneratedAppend<'_> {
     pub fn abort(self) -> Vec<StageEvent<PlannedAction>> {
-        self.timeline.abort()
+        actions_only(self.timeline.abort())
     }
     pub fn commit(self) {
         self.timeline.commit();
@@ -159,7 +206,7 @@ impl<T> PreparedEmptyGeneratedChild<'_, T> {
 pub struct PreparedGeneratedUp<'a> {
     append: Append<'a>,
     delivery: stage_delivery::DeliveryAppend<'a>,
-    timeline: timeline::PreparedStageAppend<'a, PlannedAction>,
+    timeline: timeline::PreparedStageAppend<'a, GeneratedWork>,
     saved: &'a mut ScopedGeneration,
     now: &'a mut MonoTime,
     at: MonoTime,
@@ -329,7 +376,7 @@ impl Environment {
 /// Input/OS execution, scopes, source allocation and original-up recipes remain caller-owned.
 pub struct GeneratedStageQueue {
     environment: Environment,
-    timeline: StageTimeline<PlannedAction>,
+    timeline: StageTimeline<GeneratedWork>,
     identity: Arc<()>,
     now: MonoTime,
     delivery: crate::stage_delivery::DeliveryLedger,
@@ -522,13 +569,13 @@ impl GeneratedStageQueue {
             Ok(delivery) => delivery,
             Err(error) => return Err(RejectedGeneratedBatch { error, events }),
         };
-        let timeline =
-            self.timeline
-                .prepare_enqueue(events)
-                .map_err(|rejected| RejectedGeneratedBatch {
-                    error: rejected.error.into(),
-                    events: rejected.events,
-                })?;
+        let timeline = self
+            .timeline
+            .prepare_enqueue(events.into_iter().map(action_work).collect())
+            .map_err(|rejected| RejectedGeneratedBatch {
+                error: rejected.error.into(),
+                events: actions_only(rejected.events),
+            })?;
         Ok(PreparedGeneratedAppend {
             append,
             delivery,
@@ -682,7 +729,7 @@ impl GeneratedStageQueue {
         )?;
         let timeline = self
             .timeline
-            .prepare_enqueue(actions.events().to_vec())
+            .prepare_enqueue(actions.events().iter().cloned().map(action_work).collect())
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
         let scope = if persistent {
             if !spec.until_input_up() {
@@ -752,7 +799,7 @@ impl GeneratedStageQueue {
         let delivery = self.delivery.prepare(&events, None)?;
         let timeline = self
             .timeline
-            .prepare_enqueue_at(events, at)
+            .prepare_enqueue_at(events.into_iter().map(action_work).collect(), at)
             .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
         Ok(Some(PreparedGeneratedUp {
             append,
@@ -768,12 +815,60 @@ impl GeneratedStageQueue {
         &mut self,
         at: MonoTime,
     ) -> Result<Option<DueEvent<PlannedAction>>, GeneratedError> {
-        let due = self.timeline.pop_due(at)?;
-        if let Some(due) = &due {
-            self.delivery.delivered(&due.event);
+        match self.poll_mixed(at)? {
+            Some(GeneratedDelivery::Action(due)) => Ok(Some(due)),
+            Some(GeneratedDelivery::Pointer(_)) => Err(GeneratedError::Stage),
+            None => Ok(None),
         }
+    }
+    pub(crate) fn prepare_pointer(
+        &mut self,
+        event: StageEvent<crate::pointer_work::PointerMotion>,
+    ) -> Result<PreparedGeneratedPointer<'_>, GeneratedError> {
+        if event.stage != self.environment.stage {
+            return Err(GeneratedError::Stage);
+        }
+        if !Arc::ptr_eq(&event.config, &self.environment.config)
+            && event.config.generation >= self.environment.config.generation
+        {
+            return Err(GeneratedError::Provenance);
+        }
+        self.timeline.check_live_device(event.device)?;
+        let payload = GeneratedWork::Pointer(event.payload.clone());
+        let at = event.at_ns;
+        let timeline = self
+            .timeline
+            .prepare_enqueue_at(vec![map_event(event, payload)], at)
+            .map_err(|rejected| GeneratedError::Timeline(rejected.error))?;
+        Ok(PreparedGeneratedPointer {
+            timeline,
+            now: &mut self.now,
+            at,
+        })
+    }
+    pub(crate) fn poll_mixed(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Option<GeneratedDelivery>, GeneratedError> {
+        let due = self.timeline.pop_due(at)?;
         self.now = at;
-        Ok(due)
+        Ok(due.map(|due| {
+            let at = due.delivered_at;
+            match &due.event.payload {
+                GeneratedWork::Action(action) => {
+                    let event = map_event(due.event.clone(), action.clone());
+                    self.delivery.delivered(&event);
+                    GeneratedDelivery::Action(DueEvent {
+                        event,
+                        delivered_at: at,
+                    })
+                }
+                GeneratedWork::Pointer(pointer) => GeneratedDelivery::Pointer(DueEvent {
+                    event: map_event(due.event.clone(), pointer.clone()),
+                    delivered_at: at,
+                }),
+            }
+        }))
     }
     /// Timeline validates device history first. Returned slots/events require caller cleanup.
     pub fn observe_device(
@@ -781,7 +876,7 @@ impl GeneratedStageQueue {
         device: DeviceInstanceId,
         removed: bool,
     ) -> Result<(Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>), GeneratedError> {
-        let events = self.timeline.observe_device(device, removed)?;
+        let events = actions_only(self.timeline.observe_device(device, removed)?);
         self.delivery.remove_device(device, removed);
         let slots = self.environment.remove(|down, _| {
             down.device.id == device.id
@@ -810,11 +905,11 @@ impl GeneratedStageQueue {
     ) -> (Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>) {
         let events = self
             .timeline
-            .discard_where(|event| event.payload.slot.batch == batch);
+            .discard_where(|event| matches!(&event.payload, GeneratedWork::Action(action) if action.slot.batch == batch));
         let slots = self.environment.remove(|_, slot| slot.batch == batch);
         self.environment.close_scope(batch);
         self.delivery.cancel(batch);
-        (slots, events)
+        (slots, actions_only(events))
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), GeneratedError> {
         let names = self.check_activation(&config)?;
@@ -857,7 +952,7 @@ impl GeneratedStageQueue {
         &mut self,
         at: MonoTime,
     ) -> Result<Vec<StageEvent<PlannedAction>>, GeneratedError> {
-        let events = self.timeline.reset(at)?;
+        let events = actions_only(self.timeline.reset(at)?);
         self.now = at;
         self.delivery = crate::stage_delivery::DeliveryLedger::default();
         self.environment.down.clear();
@@ -872,5 +967,45 @@ impl GeneratedStageQueue {
             *value = None;
         }
         Ok(events)
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn pointer_uses_shared_event_capacity_without_action_delivery_slots_and_reset_discards_it() {
+        let config = Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)));
+        let mut queue = GeneratedStageQueue::new(Stage::Complex, config.clone()).unwrap();
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        queue.observe_device(device, false).unwrap();
+        let event = StageEvent {
+            stage: Stage::Complex,
+            at_ns: MonoTime(500),
+            device,
+            source: SourceToken(1),
+            config,
+            payload: crate::pointer_work::PointerMotion::Move { x: 1, y: 2 },
+        };
+        {
+            let _aborted = queue.prepare_pointer(event.clone()).unwrap();
+        }
+        assert_eq!(queue.queued_events(), 0);
+        assert_eq!(queue.now, MonoTime(0));
+        for _ in 0..timeline::MAX_STAGE_EVENTS {
+            queue.prepare_pointer(event.clone()).unwrap().commit();
+        }
+        assert_eq!(queue.queued_events(), timeline::MAX_STAGE_EVENTS);
+        assert_eq!(queue.reserved_slots(), 0);
+        assert!(matches!(
+            queue.prepare_pointer(event),
+            Err(GeneratedError::Timeline(TimelineError::Capacity))
+        ));
+        assert!(queue.reset(MonoTime(500)).unwrap().is_empty());
+        assert_eq!(queue.queued_events(), 0);
     }
 }

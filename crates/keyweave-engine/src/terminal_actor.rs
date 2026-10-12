@@ -29,6 +29,17 @@ pub enum ActorError {
 /// Allows at most one pending down and one cleanup up per distinct key on control events.
 pub const MAX_ACTOR_KEYS: usize = MAX_OUTPUTS_PER_EVENT / 2;
 
+pub(crate) struct PreparedTerminalPointer<'a> {
+    timeline: timeline::PreparedStageAppend<'a, TerminalWork>,
+    now: &'a mut MonoTime,
+    at: MonoTime,
+}
+impl PreparedTerminalPointer<'_> {
+    pub(crate) fn commit(self) {
+        self.timeline.commit();
+        *self.now = self.at;
+    }
+}
 struct Batch {
     plan: ActionPlan,
     base_source: u64,
@@ -56,16 +67,19 @@ pub struct ActorStep {
 pub(crate) struct TerminalDelivery {
     pub(crate) step: ActorStep,
     pub(crate) action: Option<timeline::StageEvent<action_plan::PlannedAction>>,
+    pub(crate) pointer: Option<timeline::DueEvent<crate::pointer_work::PointerMotion>>,
 }
-enum TerminalWork {
+pub(crate) enum TerminalWork {
     Action(action_plan::PlannedAction),
     ScopeUp(BatchId),
+    Pointer(crate::pointer_work::PointerMotion),
 }
 impl TerminalWork {
-    fn batch(&self) -> BatchId {
+    fn batch(&self) -> Option<BatchId> {
         match self {
-            Self::Action(action) => action.slot.batch,
-            Self::ScopeUp(id) => *id,
+            Self::Action(action) => Some(action.slot.batch),
+            Self::ScopeUp(id) => Some(*id),
+            Self::Pointer(_) => None,
         }
     }
 }
@@ -517,6 +531,41 @@ impl TerminalActor {
         }))
     }
     /// Execute one due stage event. Late delivery uses actual actor time.
+    pub(crate) fn prepare_pointer(
+        &mut self,
+        event: timeline::StageEvent<crate::pointer_work::PointerMotion>,
+    ) -> Result<PreparedTerminalPointer<'_>, ActorError> {
+        if self.failed {
+            return Err(ActorError::Failed);
+        }
+        if event.stage != Stage::Output {
+            return Err(ActorError::UnsupportedStage);
+        }
+        if !Arc::ptr_eq(&event.config, &self.core.config)
+            && event.config.generation >= self.core.config.generation
+        {
+            return Err(ActorError::InvalidSnapshot);
+        }
+        self.timeline.check_live_device(event.device)?;
+        let event = timeline::StageEvent {
+            stage: event.stage,
+            at_ns: event.at_ns,
+            device: event.device,
+            source: event.source,
+            config: event.config,
+            payload: TerminalWork::Pointer(event.payload),
+        };
+        let at = event.at_ns;
+        let timeline = self
+            .timeline
+            .prepare_enqueue_at(vec![event], at)
+            .map_err(|rejected| ActorError::Timeline(rejected.error))?;
+        Ok(PreparedTerminalPointer {
+            timeline,
+            now: &mut self.core.now,
+            at,
+        })
+    }
     pub(crate) fn synchronize_modifiers(
         &mut self,
         at: MonoTime,
@@ -556,11 +605,35 @@ impl TerminalActor {
         };
         self.core.now = at;
         self.core.current_device = due.event.device;
+        if let TerminalWork::Pointer(pointer) = &due.event.payload {
+            let mut outputs = Vec::new();
+            self.core.sync_modifiers(&mut outputs);
+            return Ok(Some(TerminalDelivery {
+                step: ActorStep {
+                    outputs,
+                    halt_requested: false,
+                    completed_batch: None,
+                },
+                action: None,
+                pointer: Some(timeline::DueEvent {
+                    event: timeline::StageEvent {
+                        stage: due.event.stage,
+                        at_ns: due.event.at_ns,
+                        device: due.event.device,
+                        source: due.event.source,
+                        config: due.event.config.clone(),
+                        payload: pointer.clone(),
+                    },
+                    delivered_at: due.delivered_at,
+                }),
+            }));
+        }
         let work = due.event.payload;
-        let id = work.batch();
+        let id = work.batch().ok_or(ActorError::InvalidSlot)?;
         let action = match work {
             TerminalWork::Action(action) => Some(action),
             TerminalWork::ScopeUp(_) => None,
+            TerminalWork::Pointer(_) => return Err(ActorError::InvalidSlot),
         };
         let batch = self.batches.get_mut(&id).ok_or(ActorError::InvalidSlot)?;
         if let Some(scope) = &mut batch.scope
@@ -682,6 +755,7 @@ impl TerminalActor {
                 completed_batch,
             },
             action: receipt,
+            pointer: None,
         }))
     }
     pub fn cancel_batch(
@@ -707,7 +781,7 @@ impl TerminalActor {
             .cancel_subtree(id)
             .map_err(|_| ActorError::InvalidSlot)?;
         self.timeline
-            .discard_where(|event| event.payload.batch() == id);
+            .discard_where(|event| event.payload.batch() == Some(id));
         let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
         for canceled in bounds {
             for saved in canceled.payloads {

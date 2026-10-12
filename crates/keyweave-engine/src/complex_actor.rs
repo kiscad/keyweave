@@ -41,6 +41,7 @@ pub enum ComplexActorError {
 #[derive(Debug, Default)]
 pub struct ComplexStep {
     pub outputs: Vec<OutputIntent>,
+    pub forwarded_pointers: Vec<DueEvent<crate::pointer_work::PointerMotion>>,
     pub released_producers: Vec<ActionSlot>,
     /// Forward to the rule which generated this incoming slot.
     pub originating_halt: Option<ActionSlot>,
@@ -191,24 +192,44 @@ impl ComplexStageActor {
         let child = self.bindings.get(&slot).copied().flatten()?;
         self.output.physical_repeat_target(child)
     }
-    pub(crate) fn has_queued_output_work(&self) -> bool {
-        self.output.queued_events() != 0
-    }
-    pub(crate) fn synchronize_modifiers(
+    pub(crate) fn admit_pointer(
         &mut self,
-        at: MonoTime,
-    ) -> Result<Vec<OutputIntent>, ComplexActorError> {
+        due: &DueEvent<crate::pointer_work::PointerMotion>,
+    ) -> Result<(), ComplexActorError> {
         self.running()?;
-        self.check_time(at)?;
+        self.check_time(due.delivered_at)?;
+        if self
+            .next_deadline()
+            .is_some_and(|at| at <= due.delivered_at)
+        {
+            return Err(ComplexActorError::DeadlinePending);
+        }
+        let event = timeline::StageEvent {
+            stage: Stage::Output,
+            at_ns: due.delivered_at,
+            device: due.event.device,
+            source: due.event.source,
+            config: due.event.config.clone(),
+            payload: due.event.payload.clone(),
+        };
         let result = self
             .output
-            .synchronize_modifiers(at)
+            .enqueue_pointer(event)
             .map_err(ComplexActorError::from);
-        self.now = at;
         if result.is_err() {
             self.failed = true;
+            return result;
         }
-        result
+        if let crate::pointer_work::PointerMotion::Wheel {
+            horizontal,
+            vertical,
+        } = due.event.payload
+            && (horizontal != 0 || vertical != 0)
+        {
+            self.alone_candidate = None;
+        }
+        self.now = due.delivered_at;
+        Ok(())
     }
     pub fn producer_halted(&self, slot: ActionSlot) -> bool {
         self.halted.contains(&slot)
@@ -766,6 +787,7 @@ impl ComplexStageActor {
         let actual = delivery.step;
         let mut step = ComplexStep {
             outputs: actual.outputs,
+            forwarded_pointers: delivery.pointer.into_iter().collect(),
             ..Default::default()
         };
         if actual.halt_requested {

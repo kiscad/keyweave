@@ -28,6 +28,7 @@ pub enum OutputStageError {
 pub(crate) struct OutputDelivery {
     pub(crate) step: ActorStep,
     pub(crate) batch: Option<BatchId>,
+    pub(crate) pointer: Option<timeline::DueEvent<crate::pointer_work::PointerMotion>>,
 }
 struct Recipe {
     saved: ScopedGeneration,
@@ -372,6 +373,15 @@ impl OutputStageActor {
             if !same_delivery(&generated, &receipt) {
                 return self.fault(OutputStageError::Invariant);
             }
+        } else if let Some(pointer) = &actual.pointer {
+            let generated = match self.generated.poll_mixed(at) {
+                Ok(Some(generated_stage::GeneratedDelivery::Pointer(due))) => due,
+                Ok(_) => return self.fault(OutputStageError::Invariant),
+                Err(error) => return self.fault(error.into()),
+            };
+            if !same_delivery(&generated.event, &pointer.event) {
+                return self.fault(OutputStageError::Invariant);
+            }
         } else if let Err(error) = self.generated.advance(at) {
             return self.fault(error.into());
         }
@@ -386,27 +396,22 @@ impl OutputStageActor {
         Ok(Some(OutputDelivery {
             step: actual.step,
             batch,
+            pointer: actual.pointer,
         }))
     }
-    pub(crate) fn synchronize_modifiers(
+    pub(crate) fn enqueue_pointer(
         &mut self,
-        at: MonoTime,
-    ) -> Result<Vec<OutputIntent>, OutputStageError> {
+        event: StageEvent<crate::pointer_work::PointerMotion>,
+    ) -> Result<(), OutputStageError> {
         self.running()?;
-        self.check_time(at)?;
-        let result = self
-            .terminal
-            .synchronize_modifiers(at)
-            .map_err(OutputStageError::from)
-            .and_then(|outputs| {
-                self.generated.advance(at)?;
-                Ok(outputs)
-            });
+        self.check_time(event.at_ns)?;
+        let at = event.at_ns;
+        let generated = self.generated.prepare_pointer(event.clone())?;
+        let terminal = self.terminal.prepare_pointer(event)?;
+        generated.commit();
+        terminal.commit();
         self.now = at;
-        match result {
-            Ok(outputs) => Ok(outputs),
-            Err(error) => self.fault(error),
-        }
+        Ok(())
     }
     pub(crate) fn synchronize_if_device_idle(
         &mut self,
@@ -521,7 +526,7 @@ impl OutputStageActor {
         Ok(outputs)
     }
 }
-fn same_delivery(a: &StageEvent<PlannedAction>, b: &StageEvent<PlannedAction>) -> bool {
+fn same_delivery<T: PartialEq>(a: &StageEvent<T>, b: &StageEvent<T>) -> bool {
     a.stage == b.stage
         && a.at_ns == b.at_ns
         && a.device == b.device
@@ -692,5 +697,62 @@ mod tests {
         );
         assert!(actor.generated.check_device(old, false).is_ok());
         assert_eq!(actor.pending_batches(), 0);
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn terminal_capacity_rejection_aborts_prepared_generated_pointer_and_clock() {
+        let config = Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)));
+        let mut actor = OutputStageActor::new(config.clone()).unwrap();
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        actor.observe_device(device, false, MonoTime(0)).unwrap();
+        let actions = vec![
+            Action {
+                hold_down_ns: 1,
+                .."b".parse::<KeyId>().unwrap().into()
+            };
+            512
+        ];
+        for id in 100..108 {
+            let plan = action_plan::plan_actions(
+                &actions,
+                action_plan::PlanOrigin {
+                    batch: BatchId(id),
+                    stage: Stage::Output,
+                    start: MonoTime(0),
+                    device,
+                    source: SourceToken(id),
+                    config: config.clone(),
+                },
+                true,
+            )
+            .unwrap();
+            actor.terminal.enqueue(plan).unwrap();
+        }
+        let event = StageEvent {
+            stage: Stage::Output,
+            at_ns: MonoTime(10),
+            device,
+            source: SourceToken(1),
+            config,
+            payload: crate::pointer_work::PointerMotion::Move { x: 1, y: 2 },
+        };
+        assert!(matches!(
+            actor.enqueue_pointer(event),
+            Err(OutputStageError::Terminal(
+                terminal_actor::ActorError::Timeline(timeline::TimelineError::Capacity)
+            ))
+        ));
+        assert_eq!(actor.generated.queued_events(), 0);
+        actor.generated.advance(MonoTime(0)).unwrap();
+        assert_eq!(actor.now, MonoTime(0));
+        assert!(!actor.is_failed());
     }
 }

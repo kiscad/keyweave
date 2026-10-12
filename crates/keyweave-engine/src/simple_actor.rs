@@ -39,6 +39,7 @@ pub enum SimpleActorError {
 #[derive(Debug, Default)]
 pub struct SimpleStep {
     pub outputs: Vec<OutputIntent>,
+    pub forwarded_pointers: Vec<DueEvent<crate::pointer_work::PointerMotion>>,
     pub released_producers: Vec<ActionSlot>,
     /// Halt belongs to the rule which generated the registered Simple input.
     pub originating_halt: Option<ActionSlot>,
@@ -145,28 +146,19 @@ impl SimpleStageActor {
         }
         self.complex.physical_repeat_target(child.repeat_slot?)
     }
-    pub(crate) fn pointer_ordering_ready(&self) -> bool {
-        self.generated.queued_events() == 0 && !self.complex.has_queued_output_work()
-    }
-    pub(crate) fn synchronize_modifiers(
+    pub(crate) fn enqueue_pointer(
         &mut self,
-        at: MonoTime,
-    ) -> Result<Vec<OutputIntent>, SimpleActorError> {
+        event: timeline::StageEvent<crate::pointer_work::PointerMotion>,
+    ) -> Result<(), SimpleActorError> {
         self.running()?;
-        self.check_time(at)?;
-        let result = self
-            .complex
-            .synchronize_modifiers(at)
-            .map_err(SimpleActorError::from)
-            .and_then(|outputs| {
-                self.generated.advance(at)?;
-                Ok(outputs)
-            });
-        self.now = at;
-        if result.is_err() {
-            self.failed = true;
+        self.check_time(event.at_ns)?;
+        if event.stage != Stage::Complex || !Arc::ptr_eq(&event.config, self.snapshot()) {
+            return Err(SimpleActorError::Input);
         }
-        result
+        let at = event.at_ns;
+        self.generated.prepare_pointer(event)?.commit();
+        self.now = at;
+        Ok(())
     }
     pub fn producer_halted(&self, slot: ActionSlot) -> bool {
         self.halted.contains(&slot)
@@ -471,6 +463,7 @@ impl SimpleStageActor {
         }
         let mut step = SimpleStep {
             outputs: actual.outputs,
+            forwarded_pointers: actual.forwarded_pointers,
             ..Default::default()
         };
         if let Some(slot) = actual.originating_halt {
@@ -533,14 +526,22 @@ impl SimpleStageActor {
             .next_deadline()
             .is_some_and(|deadline| deadline <= at)
         {
-            let due = self
+            match self
                 .generated
-                .poll(at)?
-                .ok_or(SimpleActorError::Invariant)?;
-            let actual = self
-                .complex
-                .admit_with_eof(&due, context, |device| Self::device_idle(inputs, device))?;
-            return self.absorb(actual).map(Some);
+                .poll_mixed(at)?
+                .ok_or(SimpleActorError::Invariant)?
+            {
+                crate::generated_stage::GeneratedDelivery::Action(due) => {
+                    let actual = self.complex.admit_with_eof(&due, context, |device| {
+                        Self::device_idle(inputs, device)
+                    })?;
+                    return self.absorb(actual).map(Some);
+                }
+                crate::generated_stage::GeneratedDelivery::Pointer(due) => {
+                    self.complex.admit_pointer(&due)?;
+                    return Ok(Some(SimpleStep::default()));
+                }
+            }
         }
         self.generated.advance(at)?;
         if let Some(actual) = self

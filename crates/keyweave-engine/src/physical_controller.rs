@@ -21,8 +21,6 @@ pub enum PhysicalControllerError {
     DeadlinePending,
     #[error("stage controller does not accept external timer/cancellation tokens")]
     UnsupportedControl,
-    #[error("queued pointer/wheel ordering with future stage actions is not implemented")]
-    UnsupportedPointerScheduling,
     #[error("physical controller failed; stop capture and reset required")]
     Failed,
     #[error("physical root invariant failed")]
@@ -32,6 +30,8 @@ pub enum PhysicalControllerError {
 pub struct PhysicalStep {
     pub capture: CaptureDecision,
     pub outputs: Vec<OutputIntent>,
+    /// Submit keyboard outputs first, then this step's captured pointer receipt.
+    pub forwarded_pointers: Vec<DueEvent<crate::pointer_work::PointerMotion>>,
     /// Query only. Backend must prove desired/submitted ownership and choose one repeat policy.
     pub repeat_target: Option<KeyId>,
     pub next_deadline: Option<MonoTime>,
@@ -96,12 +96,14 @@ impl PhysicalStageController {
         PhysicalStep {
             capture,
             outputs: Vec::new(),
+            forwarded_pointers: Vec::new(),
             repeat_target: None,
             next_deadline: self.next_deadline(),
         }
     }
     fn collect(&mut self, actual: SimpleStep, step: &mut PhysicalStep) {
         step.outputs.extend(actual.outputs);
+        step.forwarded_pointers.extend(actual.forwarded_pointers);
         for slot in actual.released_producers {
             self.pending.remove(&slot);
         }
@@ -179,6 +181,14 @@ impl PhysicalStageController {
             return Err(PhysicalControllerError::Failed);
         }
         if input.provenance == Provenance::Physical {
+            if matches!(
+                input.event,
+                InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
+            ) {
+                self.next_source
+                    .checked_add(1)
+                    .ok_or(PhysicalControllerError::SourceExhausted)?;
+            }
             match &input.event {
                 InputEvent::Key { .. }
                 | InputEvent::Wheel { .. }
@@ -186,13 +196,6 @@ impl PhysicalStageController {
                     self.history.check_device(input.device, false)?;
                     if self.next_deadline().is_some_and(|due| due <= input.at_ns) {
                         return Err(PhysicalControllerError::DeadlinePending);
-                    }
-                    if matches!(
-                        input.event,
-                        InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
-                    ) && !self.simple.pointer_ordering_ready()
-                    {
-                        return Err(PhysicalControllerError::UnsupportedPointerScheduling);
                     }
                 }
                 InputEvent::ContextChanged { context } => {
@@ -237,6 +240,30 @@ impl PhysicalStageController {
         }
         step.next_deadline = self.next_deadline();
         Ok(step)
+    }
+    fn queue_pointer(
+        &mut self,
+        device: DeviceInstanceId,
+        at: MonoTime,
+        payload: crate::pointer_work::PointerMotion,
+        step: &mut PhysicalStep,
+    ) -> Result<(), PhysicalControllerError> {
+        let following = self
+            .next_source
+            .checked_add(1)
+            .ok_or(PhysicalControllerError::SourceExhausted)?;
+        self.observe(device, false, at, step)?;
+        self.simple.enqueue_pointer(crate::timeline::StageEvent {
+            stage: Stage::Complex,
+            at_ns: at,
+            device,
+            source: SourceToken(self.next_source),
+            config: self.snapshot().clone(),
+            payload,
+        })?;
+        self.next_source = following;
+        step.capture = CaptureDecision::Capture;
+        Ok(())
     }
     fn handle_inner(
         &mut self,
@@ -327,18 +354,23 @@ impl PhysicalStageController {
                 horizontal,
                 vertical,
             } => {
-                self.observe(input.device, false, input.at_ns, step)?;
-                self.simple
-                    .observe_wheel(horizontal, vertical, input.at_ns)?;
-                step.outputs
-                    .extend(self.simple.synchronize_modifiers(input.at_ns)?);
-                step.capture = CaptureDecision::Pass;
+                self.queue_pointer(
+                    input.device,
+                    input.at_ns,
+                    crate::pointer_work::PointerMotion::Wheel {
+                        horizontal,
+                        vertical,
+                    },
+                    step,
+                )?;
             }
-            InputEvent::PointerMove { .. } => {
-                self.observe(input.device, false, input.at_ns, step)?;
-                step.outputs
-                    .extend(self.simple.synchronize_modifiers(input.at_ns)?);
-                step.capture = CaptureDecision::Pass;
+            InputEvent::PointerMove { x, y } => {
+                self.queue_pointer(
+                    input.device,
+                    input.at_ns,
+                    crate::pointer_work::PointerMotion::Move { x, y },
+                    step,
+                )?;
             }
             InputEvent::ContextChanged { context } => {
                 self.context = context;
