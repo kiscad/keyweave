@@ -2059,3 +2059,191 @@ fn reset_keeps_removed_device_tombstone_and_requires_explicit_new_generation_obs
     assert_eq!(actor.next_batch_id().unwrap().0, id.0 + 1);
     assert_eq!(actor.pending_inputs(), 0);
 }
+fn future_input_group(actor: &mut ComplexStageActor) -> ActionPlan {
+    input(
+        actor,
+        &[
+            Action {
+                repeat: false,
+                hold_down_ns: 50,
+                modifiers: vec![key("left_shift")],
+                ..key("right_control").into()
+            },
+            key("x").into(),
+        ],
+        1,
+        100,
+    )
+}
+fn deliver_scope_prefix(actor: &mut ComplexStageActor, plan: &ActionPlan) {
+    actor
+        .admit(&down(plan, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(actor, 100);
+    actor
+        .admit(&down(plan, 1, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(actor, 100);
+    actor
+        .admit(&up(plan, 1, 150), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(drain(actor, 150).0, [("right_control".into(), KeyEdge::Up)]);
+    actor
+        .admit(&up(plan, 0, 150), &ContextSnapshot::default())
+        .unwrap();
+    // x's source slot is still Reserved; absence of terminal batches is not input EOF.
+    assert!(drain(actor, 150).0.is_empty());
+}
+#[test]
+fn future_registered_input_slot_defers_lazy_modifier_sync_until_next_real_key_down() {
+    let mut actor = actor(config(vec![]));
+    let plan = future_input_group(&mut actor);
+    deliver_scope_prefix(&mut actor, &plan);
+    actor
+        .admit(&down(&plan, 2, 150), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 150).0,
+        [
+            ("left_shift".into(), KeyEdge::Up),
+            ("x".into(), KeyEdge::Down)
+        ]
+    );
+    actor
+        .admit(&up(&plan, 2, 200), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(drain(&mut actor, 200).0, [("x".into(), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn last_empty_input_original_up_explicitly_flushes_latent_modifier_without_output_batch() {
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "empty eof".into(),
+        simple: vec![],
+        complex: vec![mapping("x", vec![])],
+    });
+    let mut actor = actor(cfg);
+    let plan = future_input_group(&mut actor);
+    deliver_scope_prefix(&mut actor, &plan);
+    actor
+        .admit(&down(&plan, 2, 150), &ContextSnapshot::default())
+        .unwrap();
+    assert!(drain(&mut actor, 150).0.is_empty());
+    let step = actor
+        .admit(&up(&plan, 2, 200), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        step.outputs
+            .iter()
+            .map(|o| (o.key, o.edge))
+            .collect::<Vec<_>>(),
+        [(key("left_shift"), KeyEdge::Up)]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(actor.poll(MonoTime(200)).unwrap().is_none());
+}
+#[test]
+fn delayed_parent_after_up_does_not_extend_device_input_eof_to_timer_deadline() {
+    let mut rule = mapping("x", vec![]);
+    rule.extras.delayed = Some(DelayedAction {
+        if_invoked: vec![key("c").into()],
+        if_canceled: vec![],
+        delay_ns: 100,
+    });
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "delayed eof".into(),
+        simple: vec![],
+        complex: vec![rule],
+    });
+    let mut actor = actor(cfg);
+    let plan = future_input_group(&mut actor);
+    deliver_scope_prefix(&mut actor, &plan);
+    actor
+        .admit(&down(&plan, 2, 150), &ContextSnapshot::default())
+        .unwrap();
+    let step = actor
+        .admit(&up(&plan, 2, 200), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        step.outputs
+            .iter()
+            .map(|o| (o.key, o.edge))
+            .collect::<Vec<_>>(),
+        [(key("left_shift"), KeyEdge::Up)]
+    );
+    assert_eq!(actor.pending_inputs(), 1);
+    assert_eq!(actor.next_deadline(), Some(MonoTime(250)));
+    assert_eq!(
+        drain(&mut actor, 250).0,
+        [("c".into(), KeyEdge::Down), ("c".into(), KeyEdge::Up)]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn reset_with_latent_modifier_and_reserved_future_input_releases_only_emitted_key() {
+    let mut actor = actor(config(vec![]));
+    let plan = future_input_group(&mut actor);
+    deliver_scope_prefix(&mut actor, &plan);
+    let step = actor.reset(MonoTime(160)).unwrap();
+    assert_eq!(
+        step.outputs
+            .iter()
+            .map(|o| (o.key, o.edge))
+            .collect::<Vec<_>>(),
+        [(key("left_shift"), KeyEdge::Up)]
+    );
+    assert_eq!(
+        step.discarded_input_batches,
+        [plan.events()[0].payload.slot.batch]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn bare_output_public_poll_preserves_existing_last_device_batch_sync_policy() {
+    use keyweave_engine::{
+        modifier_scope::ScopedActionPlan, output_stage::OutputStageActor, rule_selection::*,
+    };
+    let cfg = config(vec![Action {
+        modifiers: vec![key("left_shift")],
+        ..key("right_control").into()
+    }]);
+    let mut output = OutputStageActor::new(cfg.clone()).unwrap();
+    output
+        .observe_device(device(1), false, MonoTime(0))
+        .unwrap();
+    let selected = select_rule(
+        cfg,
+        MappingStage::Complex,
+        key("a"),
+        std::collections::BTreeSet::new(),
+        |_| Truth::True,
+    )
+    .unwrap();
+    output
+        .enqueue_scoped(
+            ScopedActionPlan::main(
+                &selected,
+                BatchId(1),
+                MonoTime(100),
+                device(1),
+                SourceToken(100),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    while output.poll(MonoTime(100)).unwrap().is_some() {}
+    output.input_up(BatchId(1), MonoTime(150)).unwrap();
+    let mut outputs = vec![];
+    while let Some(step) = output.poll(MonoTime(150)).unwrap() {
+        outputs.extend(step.outputs.into_iter().map(|o| (o.key, o.edge)));
+    }
+    assert_eq!(
+        outputs,
+        [
+            (key("right_control"), KeyEdge::Up),
+            (key("left_shift"), KeyEdge::Up)
+        ]
+    );
+}

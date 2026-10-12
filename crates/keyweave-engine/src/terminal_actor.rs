@@ -517,6 +517,20 @@ impl TerminalActor {
         }))
     }
     /// Execute one due stage event. Late delivery uses actual actor time.
+    pub(crate) fn synchronize_modifiers(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, ActorError> {
+        if self.failed {
+            return Err(ActorError::Failed);
+        }
+        self.check_time(at)?;
+        self.timeline.advance(at)?;
+        self.core.now = at;
+        let mut outputs = Vec::new();
+        self.core.sync_modifiers(&mut outputs);
+        Ok(outputs)
+    }
     pub fn poll(&mut self, at: MonoTime) -> Result<Option<ActorStep>, ActorError> {
         Ok(self.poll_delivered(at)?.map(|delivery| delivery.step))
     }
@@ -524,6 +538,13 @@ impl TerminalActor {
     pub(crate) fn poll_delivered(
         &mut self,
         at: MonoTime,
+    ) -> Result<Option<TerminalDelivery>, ActorError> {
+        self.poll_delivered_with_eof(at, |_| true)
+    }
+    pub(crate) fn poll_delivered_with_eof(
+        &mut self,
+        at: MonoTime,
+        allow_sync: impl Fn(DeviceInstanceId) -> bool,
     ) -> Result<Option<TerminalDelivery>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
@@ -634,10 +655,11 @@ impl TerminalActor {
                 .map_err(|_| ActorError::InvalidSlot)?;
             let batch = self.batches.remove(&id).ok_or(ActorError::InvalidSlot)?;
             self.scope_slots -= batch.scope.as_ref().map_or(0, |scope| scope.reserved);
-            if !self
-                .batches
-                .values()
-                .any(|other| other.plan.origin.device == due.event.device)
+            if allow_sync(due.event.device)
+                && !self
+                    .batches
+                    .values()
+                    .any(|other| other.plan.origin.device == due.event.device)
             {
                 self.core.sync_modifiers(&mut outputs);
             }

@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0131 Complex input lifecycle-controlled modifier EOF synchronization",
+  "source_base_commit": "44ef2b45f05000b402d5a55d1023a8ac3cc78565",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "9cdc51af08d3a845190ec6f10dc9463195939e721836a2fb2b305cb0d1553c38",
+    "crates/keyweave-engine/src/output_stage.rs": "6eb8ad698d0cca67652dcb478e4ab313553ddf22a587d9f2549f1a6baa9920a9",
+    "crates/keyweave-engine/src/terminal_actor.rs": "3d0c6fd98bf1e1e9873282d4f80bf3410c487f22bd6a87413426779795c14172",
+    "crates/keyweave-engine/tests/complex_actor.rs": "d0e6b57512c0568561dd77f9bfd002619659ebecd0e225e4cb9dc15b0b584bc8"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1208,
+    "new_tests": 5,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-input-eof/tests.log",
+        "sha256": "045f1f7e13a7db583c415abe34e14cc5762736ad8a04e4c3217dadb79db599b0"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-input-eof/clippy.log",
+        "sha256": "2bd3418d6249fbe0043ddba65012d29fb092cc7afaec887480be0943f82463e4"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-input-eof/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-input-eof/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust lifecycle counter and private synchronization policy; no unsafe/FFI/dependencies/native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "InputBatch unreleased decrements only after original producer Up commits, separately from actual descendant remaining count. Registered Reserved future slots therefore prevent premature same-device terminal EOF sync.",
+    "Private poll policy lets Complex owner decide device-input EOF; bare Terminal/Output public poll retains previous last-device-output-batch synchronization. Per-device EOF invokes existing global modifier synchronization semantics.",
+    "Last original Up on empty or already-completed tap input explicitly synchronizes when same-device output recipes are absent; resulting intents returned through admit step. Delayed post-Up parent retention does not defer input EOF to task completion.",
+    "This is registered Complex input-group lifecycle, not complete physical Simple root lifetime/scope propagation or global source pool. Full controller must supply actual physical binding EOF before native switchover.",
+    "Root caller must consume intents from both admit and poll, and native submitted/acceptance recovery remains independent. No physical/native release or hardware proof is claimed.",
+    "Full Simple/allstage/scope/physical EOF/source IDs/context/simultaneous/native duration/Windows/hardware/UI/packaging/driver remain incomplete. Native gate retained; no actual input/device/driver/install/Windows build executed."
+  ]
+}

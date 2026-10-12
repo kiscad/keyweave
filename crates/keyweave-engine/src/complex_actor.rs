@@ -43,6 +43,7 @@ pub struct ComplexStep {
 struct InputBatch {
     plan: ActionPlan,
     remaining: usize,
+    unreleased: usize,
 }
 pub struct ComplexStageActor {
     output: OutputStageActor,
@@ -83,6 +84,7 @@ impl PreparedComplexInput<'_> {
                 InputBatch {
                     plan: self.plan,
                     remaining: self.slots,
+                    unreleased: self.slots,
                 },
             );
         }
@@ -388,6 +390,14 @@ impl ComplexStageActor {
                     self.output.input_up(child, due.delivered_at)?;
                 }
                 parent_up.commit();
+                let input = self
+                    .inputs
+                    .get_mut(&slot.batch)
+                    .ok_or(ComplexActorError::Invariant)?;
+                input.unreleased = input
+                    .unreleased
+                    .checked_sub(1)
+                    .ok_or(ComplexActorError::Invariant)?;
                 if self.held.is_some_and(|(_, candidate)| candidate == slot) {
                     self.held = None;
                 }
@@ -420,6 +430,14 @@ impl ComplexStageActor {
                     due.delivered_at,
                 )?;
                 self.finish(slot, &mut step)?;
+                if !self.inputs.values().any(|input| {
+                    input.plan.origin.device == due.event.device && input.unreleased != 0
+                }) {
+                    step.outputs.extend(
+                        self.output
+                            .synchronize_if_device_idle(due.event.device, due.delivered_at)?,
+                    );
+                }
             }
             KeyEdge::Repeat => return Err(ComplexActorError::Input),
         }
@@ -604,7 +622,13 @@ impl ComplexStageActor {
         Ok(ComplexStep::default())
     }
     fn poll_inner(&mut self, at: MonoTime) -> Result<Option<ComplexStep>, ComplexActorError> {
-        let Some(delivery) = self.output.poll_delivered(at)? else {
+        let inputs = &self.inputs;
+        let Some(delivery) = self.output.poll_delivered_with_eof(at, |device| {
+            !inputs
+                .values()
+                .any(|input| input.plan.origin.device == device && input.unreleased != 0)
+        })?
+        else {
             return Ok(None);
         };
         let actual = delivery.step;

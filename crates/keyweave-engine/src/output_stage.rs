@@ -335,9 +335,16 @@ impl OutputStageActor {
         &mut self,
         at: MonoTime,
     ) -> Result<Option<OutputDelivery>, OutputStageError> {
+        self.poll_delivered_with_eof(at, |_| true)
+    }
+    pub(crate) fn poll_delivered_with_eof(
+        &mut self,
+        at: MonoTime,
+        allow_sync: impl Fn(DeviceInstanceId) -> bool,
+    ) -> Result<Option<OutputDelivery>, OutputStageError> {
         self.running()?;
         self.check_time(at)?;
-        let actual = self.terminal.poll_delivered(at);
+        let actual = self.terminal.poll_delivered_with_eof(at, allow_sync);
         self.now = at;
         let actual = match actual {
             Ok(actual) => actual,
@@ -380,6 +387,26 @@ impl OutputStageActor {
             step: actual.step,
             batch,
         }))
+    }
+    pub(crate) fn synchronize_if_device_idle(
+        &mut self,
+        device: DeviceInstanceId,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, OutputStageError> {
+        self.running()?;
+        self.check_time(at)?;
+        if self.recipes.values().any(|recipe| recipe.device == device) {
+            return Ok(Vec::new());
+        }
+        let outputs = match self.terminal.synchronize_modifiers(at) {
+            Ok(outputs) => outputs,
+            Err(error) => return self.fault(error.into()),
+        };
+        if let Err(error) = self.generated.advance(at) {
+            return self.fault(error.into());
+        }
+        self.now = at;
+        Ok(outputs)
     }
     pub(crate) fn check_live_device(
         &self,
