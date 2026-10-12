@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0146 Simple main consumed modifier scope receiver and device lifecycle",
+  "source_base_commit": "503b7c3cab3091d0eaced91c503879b5d8273a86",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/simple_actor.rs": "952183b0c87f7ff303e3f3ea9880b2e3e52faf8397cf0e7420386fdf24a586f5",
+    "crates/keyweave-engine/src/simple_actor/scopes.rs": "6f6bb4493f551e9c9f1f3e4c8e4407b96c18155098277628b6252f7a6b195311",
+    "crates/keyweave-engine/src/complex_actor/projections.rs": "0e26c150d2e7535e77dd5f46ed3884807e44c5e91965a915720b4bf04ccc20af",
+    "crates/keyweave-engine/src/generated_stage.rs": "1803e0690af48e21b6389c77818da884001737fe06a1eec8d82aff475f3cbd8e",
+    "crates/keyweave-engine/src/stage_delivery.rs": "187e767856b77adf74fc950ad65b66e3449643ae60c124c15b7bc6fad1f98f45",
+    "crates/keyweave-engine/tests/simple_actor.rs": "07480e905838ec5c3a769a9e6cc100703d6a8b9e48022906ad0f2cb5924d844b",
+    "crates/keyweave-engine/tests/simple_consumed_scopes.rs": "084c8f1ef4f56191fcbefd42b9af97b551696ce164a452cb7aa95bbb549bab2b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1344,
+    "new_integration_tests": 16,
+    "new_fault_tests": 2,
+    "updated_gate_case": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-simple-consumed-scopes/tests.log",
+        "sha256": "cf319c770233f6877cd9468cf4b99f71d51b8bd22dd1d71db26dae5a99975bd6"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-simple-consumed-scopes/clippy.log",
+        "sha256": "5f7bba10386676b0473b2f31bad38cdd75ad054fc85081a0556ddb777729cd44"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-simple-consumed-scopes/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-simple-consumed-scopes/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Fixture incorrectly expected generic Shift to consume both left/right sides; existing filter selects a concrete side. Replaced aggregate fixture with two owners of the same modifier and separately verified opposite side remains unaffected. Removed one leftover y restoration assertion.",
+    "A focused command filter selected only unit tests and zero integration tests. Corrected with an unfiltered integration invocation; final full workspace includes all 16 new integration cases."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Simple owns exact scope-open metadata and Complex template references with saved source-device identity; close validates pair and retries deferred child retirement after generated scope delivery completes. Mandatory modifier constructor/admission gate removed; advanced Simple branches remain unsupported.",
+    "Complex group begin/close checks due once before sequential references, allowing its own new markers while preserving existing group failure/reset semantics. No whole-group rollback claim.",
+    "Device removal/new generation clears actual source first, prunes only references proven removed by that device lifecycle, restores other-device sources when trigger is removed, and preserves remaining close metadata. Unexpected missing/wrong-device references fail instead of silently disappearing.",
+    "Pending scope open cancellation tracks exact canceled source slots from delivery ledger even after generation logical Up, intersected with not-yet-closed scope sources. This set is bounded by existing 16384 scope references, pruned after close/device control and cleared on reset. No source identities are reused or recreated.",
+    "Tests cover ordinary/variable descendants, same-modifier owners, original concrete-side selection, source Up, interleaved scopes, hot reload, generation replacement, reset, held cancellation, removal before queued close/open, and removal before open after logical source Up. Missing reference and 4096 template budget faults latch Failed and reset cleans reservations.",
+    "This enables Simple main scope propagation in pure staged actors; upstream mac tests and hardware behavior have not been run. Source-specific descendant projection is the existing KeyWeave frozen ownership contract, not newly claimed complete mac differential equivalence.",
+    "Native timing gate retained; advanced Simple branches/simultaneous/native pipeline/Windows/hardware/UI/packaging/driver and full objective remain incomplete. No active capture or native Windows execution this phase."
+  ],
+  "abi": "Pure Rust receiver state, grouped template methods and ledger metadata queries. No unsafe/FFI/dependency/native ABI changes."
+}

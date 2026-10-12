@@ -459,6 +459,16 @@ impl GeneratedStageQueue {
         queue.propagate_consumed = true;
         Ok(queue)
     }
+    pub(crate) fn pending_scope_sources(&self) -> BTreeSet<ActionSlot> {
+        self.delivery.pending_scope_sources()
+    }
+    pub(crate) fn slots_for_device_removal(
+        &self,
+        device: DeviceInstanceId,
+        removed: bool,
+    ) -> Vec<ActionSlot> {
+        self.delivery.slots_for_device_removal(device, removed)
+    }
     pub(crate) fn scope_delivery_complete(&self, batch: action_plan::BatchId) -> bool {
         self.delivery.scope_complete(batch)
     }

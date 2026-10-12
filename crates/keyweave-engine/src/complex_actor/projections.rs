@@ -9,6 +9,48 @@ pub(super) struct DescendantProjection {
     references: usize,
 }
 impl ComplexStageActor {
+    pub(crate) fn descendant_projection_device(
+        &self,
+        id: ComplexProjectionId,
+    ) -> Option<DeviceInstanceId> {
+        let slot = self.projection_handles.get(&id)?;
+        Some(self.projection_groups.get(slot)?.device)
+    }
+    pub(crate) fn begin_descendant_projection_group(
+        &mut self,
+        slots: &[ActionSlot],
+        at: MonoTime,
+    ) -> Result<Vec<ComplexProjectionId>, ComplexActorError> {
+        self.projection_control_preflight(at)?;
+        let mut ids = Vec::with_capacity(slots.len());
+        for &slot in slots {
+            match self.begin_descendant_projection_inner(slot, at) {
+                Ok(id) => ids.push(id),
+                Err(error) => {
+                    self.failed = true;
+                    self.now = at;
+                    return Err(error);
+                }
+            }
+        }
+        Ok(ids)
+    }
+    pub(crate) fn close_descendant_projection_group(
+        &mut self,
+        ids: &[ComplexProjectionId],
+        at: MonoTime,
+    ) -> Result<(), ComplexActorError> {
+        self.projection_control_preflight(at)?;
+        for &id in ids {
+            if let Err(error) = self.close_descendant_projection_inner(id, at) {
+                self.failed = true;
+                self.now = at;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     /// Lifecycle cancellation bypasses FIFO admission while preserving original
     /// child work and other template references. Retain every returned intent.
     pub fn restore_descendant_projection_control(
@@ -55,6 +97,13 @@ impl ComplexStageActor {
         at: MonoTime,
     ) -> Result<ComplexProjectionId, ComplexActorError> {
         self.projection_control_preflight(at)?;
+        self.begin_descendant_projection_inner(slot, at)
+    }
+    fn begin_descendant_projection_inner(
+        &mut self,
+        slot: ActionSlot,
+        at: MonoTime,
+    ) -> Result<ComplexProjectionId, ComplexActorError> {
         let device = if let Some(group) = self.projection_groups.get(&slot) {
             group.device
         } else {
@@ -118,6 +167,13 @@ impl ComplexStageActor {
         at: MonoTime,
     ) -> Result<(), ComplexActorError> {
         self.projection_control_preflight(at)?;
+        self.close_descendant_projection_inner(id, at)
+    }
+    fn close_descendant_projection_inner(
+        &mut self,
+        id: ComplexProjectionId,
+        at: MonoTime,
+    ) -> Result<(), ComplexActorError> {
         let slot = *self
             .projection_handles
             .get(&id)

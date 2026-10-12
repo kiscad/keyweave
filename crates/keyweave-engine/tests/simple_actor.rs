@@ -391,7 +391,7 @@ fn due_first_retries_without_selection_and_other_invalid_receipt_latches_failure
     assert_eq!(actor.reserved_sources(), 0);
 }
 #[test]
-fn unsupported_simple_branches_and_projection_reject_before_constructing_usable_actor() {
+fn unsupported_simple_branches_reject_but_consumed_modifiers_are_supported() {
     let mut mapping = mapping("a", vec![key("b").into()]);
     mapping.extras.if_alone.push(key("c").into());
     assert!(matches!(
@@ -404,10 +404,7 @@ fn unsupported_simple_branches_and_projection_reject_before_constructing_usable_
         .from_modifiers
         .mandatory
         .insert(Modifier::LeftShift);
-    assert!(matches!(
-        SimpleStageActor::new(config(vec![mapping], vec![])),
-        Err(SimpleActorError::UnsupportedSimpleSemantics)
-    ));
+    assert!(SimpleStageActor::new(config(vec![mapping], vec![])).is_ok());
 }
 #[test]
 fn final_empty_simple_input_up_flushes_modifier_deferred_by_registered_physical_group() {

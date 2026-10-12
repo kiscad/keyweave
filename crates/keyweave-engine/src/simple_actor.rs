@@ -1,5 +1,6 @@
 //! Owned Simple main generation and downstream Complex/Output execution.
-//! Pure stage component; physical entry, scope projection and native acceptance remain separate.
+//! Pure stage component; native acceptance remains separate.
+mod scopes;
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
     complex_actor::{ComplexActorError, ComplexStageActor, ComplexStep},
@@ -9,6 +10,7 @@ use crate::{
     timeline::{DueEvent, Stage},
     *,
 };
+use scopes::ScopeRun;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SimpleActorError {
     #[error(transparent)]
@@ -29,7 +31,7 @@ pub enum SimpleActorError {
     TimeReversed,
     #[error("poll due downstream work before admitting input")]
     DeadlinePending,
-    #[error("Simple advanced branches and consumed modifier projection are not implemented")]
+    #[error("Simple advanced branches are not implemented")]
     UnsupportedSimpleSemantics,
     #[error("Simple actor failed; reset required")]
     Failed,
@@ -65,6 +67,8 @@ pub struct SimpleStageActor {
     bindings: BTreeMap<ActionSlot, Option<BatchId>>,
     children: BTreeMap<BatchId, Child>,
     halted: BTreeSet<ActionSlot>,
+    scope_runs: BTreeMap<BatchId, ScopeRun>,
+    removed_scope_sources: BTreeSet<ActionSlot>,
     last_batch: u64,
     now: MonoTime,
     failed: bool,
@@ -80,7 +84,6 @@ impl SimpleStageActor {
                     .delayed
                     .as_ref()
                     .is_some_and(|d| !d.if_invoked.is_empty() || !d.if_canceled.is_empty())
-                || !extras.from_modifiers.mandatory.is_empty()
         }) {
             return Err(SimpleActorError::UnsupportedSimpleSemantics);
         }
@@ -102,6 +105,8 @@ impl SimpleStageActor {
             bindings: BTreeMap::new(),
             children: BTreeMap::new(),
             halted: BTreeSet::new(),
+            scope_runs: BTreeMap::new(),
+            removed_scope_sources: BTreeSet::new(),
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
@@ -293,9 +298,6 @@ impl SimpleStageActor {
                 let halt = decision.originating_halt();
                 let id = self.next_batch_id()?;
                 let plan = decision.plan_main(id)?;
-                if !plan.scope().consumed().is_empty() {
-                    return Err(SimpleActorError::UnsupportedSimpleSemantics);
-                }
                 let slots = plan
                     .actions()
                     .events()
@@ -547,11 +549,8 @@ impl SimpleStageActor {
                     return Err(SimpleActorError::Invariant);
                 }
                 crate::generated_stage::GeneratedDelivery::Scope(due) => {
-                    return Err(if due.event.stage == Stage::Complex {
-                        SimpleActorError::UnsupportedSimpleSemantics
-                    } else {
-                        SimpleActorError::Invariant
-                    });
+                    let step = self.deliver_scope(due)?;
+                    return Ok(Some(step));
                 }
                 crate::generated_stage::GeneratedDelivery::Pointer(due) => {
                     self.complex.admit_pointer(&due)?;
@@ -608,8 +607,12 @@ impl SimpleStageActor {
         at: MonoTime,
     ) -> Result<SimpleStep, SimpleActorError> {
         self.generated.check_device(device, removed)?;
+        let canceled = self.generated.slots_for_device_removal(device, removed);
         let actual = self.complex.observe_device(device, removed, at)?;
+        self.remember_scope_source_removal(&canceled);
+        let restored = self.cleanup_scope_device(device, removed, at)?;
         self.generated.observe_device(device, removed)?;
+        self.remember_scope_source_removal(&[]);
         let ids: Vec<_> = self
             .inputs
             .iter()
@@ -622,7 +625,7 @@ impl SimpleStageActor {
             .collect();
         self.discard_inputs(&ids)?;
         Ok(SimpleStep {
-            outputs: actual.outputs,
+            outputs: actual.outputs.into_iter().chain(restored).collect(),
             discarded_input_batches: ids,
             ..Default::default()
         })
@@ -648,6 +651,8 @@ impl SimpleStageActor {
     fn reset_inner(&mut self, at: MonoTime) -> Result<SimpleStep, SimpleActorError> {
         let actual = self.complex.reset(at)?;
         self.generated.reset(at)?;
+        self.scope_runs.clear();
+        self.removed_scope_sources.clear();
         let ids: Vec<_> = self.inputs.keys().copied().collect();
         self.discard_inputs(&ids)?;
         Ok(SimpleStep {

@@ -208,6 +208,34 @@ impl DeliveryLedger {
             KeyEdge::Repeat => unreachable!("admission rejects repeat"),
         }
     }
+    pub(crate) fn pending_scope_sources(&self) -> BTreeSet<ActionSlot> {
+        self.batches
+            .values()
+            .filter_map(|batch| batch.scope.as_ref())
+            .filter(|scope| !scope.closed)
+            .flat_map(|scope| scope.slots.iter().copied())
+            .collect()
+    }
+    pub(crate) fn slots_for_device_removal(
+        &self,
+        device: DeviceInstanceId,
+        removed: bool,
+    ) -> Vec<ActionSlot> {
+        self.batches
+            .iter()
+            .filter(|(_, batch)| {
+                batch.device.id == device.id
+                    && (batch.device.generation < device.generation
+                        || (removed && batch.device.generation == device.generation))
+            })
+            .flat_map(|(&batch, state)| {
+                state
+                    .slots
+                    .keys()
+                    .map(move |&index| ActionSlot { batch, index })
+            })
+            .collect()
+    }
     pub(crate) fn scope_complete(&self, id: BatchId) -> bool {
         self.batches
             .get(&id)
