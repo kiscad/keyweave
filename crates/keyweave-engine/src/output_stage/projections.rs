@@ -332,3 +332,87 @@ mod close_tests {
         assert!(actor.projections.is_empty());
     }
 }
+
+#[cfg(test)]
+mod variable_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn generated_full_rejects_without_pausing_variable_or_committing_actual_projection() {
+        let action = Action {
+            target: ActionTarget::SetVariable(VariableAction {
+                name: "v".into(),
+                operation: VariableOperation::Set {
+                    value: Some(VariableValue::Integer(1)),
+                    key_up_value: Some(VariableValue::Integer(2)),
+                },
+            }),
+            .."vk_none".parse::<KeyId>().unwrap().into()
+        };
+        let config = Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "variable capacity".into(),
+            simple: vec![],
+            complex: vec![Mapping {
+                id: "a".into(),
+                from: "a".parse().unwrap(),
+                to: vec![action.clone()],
+                allow_extra_modifiers: true,
+                extras: Default::default(),
+            }],
+        });
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        let mut actor = OutputStageActor::new(config.clone()).unwrap();
+        actor.observe_device(device, false, MonoTime(0)).unwrap();
+        let origin = |id| action_plan::PlanOrigin {
+            batch: BatchId(id),
+            stage: Stage::Output,
+            start: MonoTime(0),
+            device,
+            source: SourceToken(id),
+            config: config.clone(),
+        };
+        actor
+            .enqueue(action_plan::plan_actions(&[action], origin(1), false).unwrap())
+            .unwrap();
+        while actor.poll(MonoTime(0)).unwrap().is_some() {}
+        let actions = vec![
+            Action {
+                hold_down_ns: 1,
+                .."x".parse::<KeyId>().unwrap().into()
+            };
+            512
+        ];
+        for id in 100..108 {
+            actor
+                .generated
+                .enqueue(
+                    action_plan::plan_actions(&actions, origin(id), true)
+                        .unwrap()
+                        .events()
+                        .to_vec(),
+                )
+                .unwrap();
+        }
+        assert!(matches!(
+            actor.begin_key_projection(BatchId(1), MonoTime(100)),
+            Err(OutputStageError::Generated(GeneratedError::Timeline(
+                timeline::TimelineError::Capacity
+            )))
+        ));
+        assert_eq!(
+            actor.generated_variables().get("v"),
+            Some(&VariableValue::Integer(1))
+        );
+        assert_eq!(
+            actor.executed_variables().get("v"),
+            Some(&VariableValue::Integer(1))
+        );
+        assert_eq!(actor.terminal.suppression_references(), 0);
+        assert_eq!(actor.terminal.queued_events(), 0);
+        assert!(actor.projections.is_empty());
+    }
+}

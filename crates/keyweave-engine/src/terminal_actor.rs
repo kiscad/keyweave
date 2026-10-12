@@ -120,6 +120,7 @@ pub struct TerminalActor {
     max_source_end: u64,
     projections: BTreeMap<KeyProjectionId, KeyProjection>,
     next_projection: u64,
+    variable_projection_refs: BTreeMap<action_plan::ActionSlot, usize>,
     failed: bool,
 }
 /// Exclusive preflight of timeline, bindings, source IDs and scope reservations.
@@ -193,6 +194,7 @@ impl TerminalActor {
             max_source_end,
             projections: BTreeMap::new(),
             next_projection: 0,
+            variable_projection_refs: BTreeMap::new(),
             failed: false,
         })
     }
@@ -873,6 +875,7 @@ impl TerminalActor {
         self.check_time(at)?;
         self.timeline.reset(at)?;
         self.projections.clear();
+        self.variable_projection_refs.clear();
         self.batches.clear();
         self.bindings = stage_bindings::BindingArena::default();
         self.scope_slots = 0;

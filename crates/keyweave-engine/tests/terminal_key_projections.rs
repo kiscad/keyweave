@@ -214,7 +214,7 @@ fn remove_and_reset_clear_projection_and_future_controls_without_fake_key_restor
     assert!(drain(&mut actor, 200).is_empty());
 }
 #[test]
-fn variable_projection_is_cold_rejected_before_reference_queue_clock_or_identity_change() {
+fn variable_projection_is_queued_before_actual_variable_pause_and_reference_release() {
     let variable = Action {
         target: ActionTarget::SetVariable(VariableAction {
             name: "v".into(),
@@ -242,14 +242,23 @@ fn variable_projection_is_cold_rejected_before_reference_queue_clock_or_identity
     actor
         .enqueue(plan(&actor, 1, 1, 100, &[variable], false))
         .unwrap();
-    let queued = actor.queued_events();
-    assert!(matches!(
-        actor.begin_key_projection(BatchId(1), MonoTime(200)),
-        Err(ActorError::UnsupportedVariableProjection)
-    ));
-    assert_eq!(actor.queued_events(), queued);
-    assert_eq!(actor.suppression_references(), 0);
+    let id = actor
+        .begin_key_projection(BatchId(1), MonoTime(100))
+        .unwrap()
+        .unwrap();
+    assert_eq!(actor.suppression_references(), 1);
     assert!(drain(&mut actor, 100).is_empty());
+    assert_eq!(
+        actor.variable_values().get("v"),
+        Some(&VariableValue::Integer(2))
+    );
+    actor.close_key_projection(id, MonoTime(110)).unwrap();
+    drain(&mut actor, 110);
+    assert_eq!(
+        actor.variable_values().get("v"),
+        Some(&VariableValue::Integer(1))
+    );
+    assert_eq!(actor.suppression_references(), 0);
 }
 #[test]
 fn original_up_while_hidden_then_close_never_recreates_released_source() {

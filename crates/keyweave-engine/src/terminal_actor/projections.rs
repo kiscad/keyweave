@@ -5,6 +5,7 @@ pub struct KeyProjectionId(u64);
 pub(super) struct KeyProjection {
     pub(super) origin: action_plan::PlanOrigin,
     owners: Vec<(KeyId, SourceToken)>,
+    variables: Vec<(action_plan::ActionSlot, ActionTarget)>,
     active: bool,
     close_queued: bool,
 }
@@ -35,7 +36,7 @@ impl PreparedKeyProjection<'_> {
     }
     pub(crate) fn commit(self) -> KeyProjectionId {
         self.timeline.commit();
-        *self.references += self.projection.owners.len();
+        *self.references += self.projection.owners.len() + self.projection.variables.len();
         self.projections.insert(self.id, self.projection);
         *self.next = self.id.0;
         *self.now = self.at;
@@ -66,7 +67,7 @@ impl TerminalActor {
             .is_some_and(|projection| projection.active)
     }
     /// Capture exact original key sources and queue a FIFO visibility control.
-    /// Variables are cold rejected; actual owner IDs and bindings are never recreated.
+    /// Variable operations use their frozen Down/Up recipe; identities are never recreated.
     pub fn begin_key_projection(
         &mut self,
         batch: BatchId,
@@ -91,6 +92,7 @@ impl TerminalActor {
             .ok_or(ActorError::InvalidProjection)?;
         let mut owners = BTreeSet::new();
         let mut slots = Vec::new();
+        let mut variables = Vec::new();
         for event in saved
             .plan
             .events()
@@ -112,7 +114,8 @@ impl TerminalActor {
                     ));
                 }
                 ActionTarget::SetVariable(_) => {
-                    return Err(ActorError::UnsupportedVariableProjection);
+                    slots.push(action.slot);
+                    variables.push((action.slot, action.target.clone()));
                 }
                 _ => {}
             }
@@ -134,11 +137,11 @@ impl TerminalActor {
                 );
             }
         }
-        if owners.is_empty() {
+        if owners.is_empty() && variables.is_empty() {
             return Ok(None);
         }
         if self.projections.len() >= MAX_BINDINGS
-            || owners.len()
+            || owners.len().saturating_add(variables.len())
                 > MAX_PERSISTENT_SUPPRESSION_REFERENCES
                     .saturating_sub(self.core.suppression_references)
         {
@@ -171,6 +174,7 @@ impl TerminalActor {
             projection: KeyProjection {
                 origin,
                 owners: owners.into_iter().collect(),
+                variables,
                 active: false,
                 close_queued: false,
             },
@@ -226,7 +230,11 @@ impl TerminalActor {
         })
     }
 
-    fn finish_key_projection(&mut self, id: KeyProjectionId) -> Result<Vec<KeyId>, ActorError> {
+    fn finish_key_projection(
+        &mut self,
+        id: KeyProjectionId,
+        restore: bool,
+    ) -> Result<Vec<KeyId>, ActorError> {
         let projection = self
             .projections
             .remove(&id)
@@ -242,10 +250,33 @@ impl TerminalActor {
                 }
             }
         }
+        if projection.active {
+            for (slot, target) in &projection.variables {
+                let last = match self.variable_projection_refs.get_mut(slot) {
+                    Some(count) if *count > 1 => {
+                        *count -= 1;
+                        false
+                    }
+                    Some(_) => {
+                        self.variable_projection_refs.remove(slot);
+                        true
+                    }
+                    None => false,
+                };
+                if restore
+                    && last
+                    && matches!(self.bindings.live(*slot), Some(Bound::Variable { .. }))
+                    && let Some((name, value)) =
+                        crate::generated_stage::variable_update(target, KeyEdge::Down)
+                {
+                    self.core.assign_variable(name, value);
+                }
+            }
+        }
         self.core.suppression_references = self
             .core
             .suppression_references
-            .checked_sub(projection.owners.len())
+            .checked_sub(projection.owners.len() + projection.variables.len())
             .ok_or(ActorError::InvalidProjection)?;
         Ok(projection.owners.into_iter().map(|(key, _)| key).collect())
     }
@@ -257,7 +288,7 @@ impl TerminalActor {
             .map(|(&id, _)| id)
             .collect();
         for id in ids {
-            self.finish_key_projection(id)?;
+            self.finish_key_projection(id, false)?;
         }
         self.timeline.discard_where(|event| matches!(event.payload, TerminalWork::ProjectionDown(_, target) | TerminalWork::ProjectionUp(_, target) if target == batch));
         Ok(())
@@ -281,6 +312,18 @@ impl TerminalActor {
             for owner in &projection.owners {
                 *self.core.hidden.entry(*owner).or_default() += 1;
             }
+            for (slot, target) in &projection.variables {
+                let count = self.variable_projection_refs.entry(*slot).or_default();
+                let first = *count == 0;
+                *count += 1;
+                if first
+                    && matches!(self.bindings.live(*slot), Some(Bound::Variable { .. }))
+                    && let Some((name, value)) =
+                        crate::generated_stage::variable_update(target, KeyEdge::Up)
+                {
+                    self.core.assign_variable(name, value);
+                }
+            }
             projection.active = true;
             projection
                 .owners
@@ -288,7 +331,7 @@ impl TerminalActor {
                 .map(|(key, _)| *key)
                 .collect::<Vec<_>>()
         } else {
-            self.finish_key_projection(id)?
+            self.finish_key_projection(id, true)?
         };
         for key in keys.into_iter().collect::<BTreeSet<_>>() {
             if !key.is_modifier() {

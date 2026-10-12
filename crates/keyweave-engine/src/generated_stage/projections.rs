@@ -4,6 +4,7 @@ pub(super) struct GeneratedKeyProjection {
     origin: action_plan::PlanOrigin,
     slots: Vec<ActionSlot>,
     logical_open: bool,
+    variables: Vec<(ActionSlot, ActionTarget)>,
 }
 pub(crate) struct PreparedGeneratedKeyProjection<'a> {
     timeline: timeline::PreparedStageAppend<'a, GeneratedWork>,
@@ -16,6 +17,14 @@ pub(crate) struct PreparedGeneratedKeyProjection<'a> {
 impl PreparedGeneratedKeyProjection<'_> {
     pub(crate) fn commit(self) {
         self.timeline.commit();
+        for (slot, target) in &self.projection.variables {
+            if !self.environment.hidden.contains_key(slot)
+                && self.environment.down.contains_key(slot)
+                && let Some((name, value)) = variable_update(target, KeyEdge::Up)
+            {
+                self.environment.variables.insert(name.to_owned(), value);
+            }
+        }
         for slot in &self.projection.slots {
             *self.environment.hidden.entry(*slot).or_default() += 1;
         }
@@ -44,6 +53,14 @@ impl PreparedGeneratedKeyProjectionClose<'_> {
                     } else {
                         self.environment.hidden.remove(slot);
                     }
+                }
+            }
+            for (slot, target) in &projection.variables {
+                if !self.environment.hidden.contains_key(slot)
+                    && self.environment.down.contains_key(slot)
+                    && let Some((name, value)) = variable_update(target, KeyEdge::Down)
+                {
+                    self.environment.variables.insert(name.to_owned(), value);
                 }
             }
             self.environment.references -= projection.slots.len();
@@ -105,13 +122,20 @@ impl GeneratedStageQueue {
             return Err(EngineError::ResourceLimit.into());
         }
         let slots: BTreeSet<_> = slots.iter().copied().collect();
+        let mut variables = Vec::new();
         for slot in &slots {
-            if !saved.plan.events().iter().any(|event| {
-                event.payload.slot == *slot
-                    && event.payload.edge == KeyEdge::Down
-                    && matches!(event.payload.target,ActionTarget::Key(key) if key.usage!=0)
-            }) {
-                return Err(GeneratedError::Provenance);
+            let action = saved
+                .plan
+                .events()
+                .iter()
+                .find(|event| event.payload.slot == *slot && event.payload.edge == KeyEdge::Down)
+                .ok_or(GeneratedError::Provenance)?;
+            match &action.payload.target {
+                ActionTarget::Key(key) if key.usage != 0 => {}
+                ActionTarget::SetVariable(_) => {
+                    variables.push((*slot, action.payload.target.clone()))
+                }
+                _ => return Err(GeneratedError::Provenance),
             }
         }
         let origin = saved.plan.origin.clone();
@@ -141,6 +165,7 @@ impl GeneratedStageQueue {
                 origin,
                 slots: slots.into_iter().collect(),
                 logical_open: true,
+                variables,
             },
         })
     }

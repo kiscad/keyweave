@@ -231,7 +231,10 @@ impl PreparedGeneratedUp<'_> {
         self.saved.up_generated = true;
     }
 }
-fn variable_update(target: &ActionTarget, edge: KeyEdge) -> Option<(&str, Option<VariableValue>)> {
+pub(crate) fn variable_update(
+    target: &ActionTarget,
+    edge: KeyEdge,
+) -> Option<(&str, Option<VariableValue>)> {
     let ActionTarget::SetVariable(variable) = target else {
         return None;
     };

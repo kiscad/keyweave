@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0141 saved-variable source projection generation/actual protocol",
+  "source_base_commit": "6cee6c0f6320cba80416e27f6fadf56407ba39c5",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/generated_stage.rs": "e8f119a1b3bdddb695b519e873150f9c5a7c86f1f8ee8f32547c4045e6a2f669",
+    "crates/keyweave-engine/src/generated_stage/projections.rs": "10365ef8544dbab1eaee6b814e00dcd62708054e1e17cf1d8b916a6ac5816d44",
+    "crates/keyweave-engine/src/terminal_actor.rs": "7ba4fa838233b925764084c439d98155c4201c0998f4273ef072d2e595ade26c",
+    "crates/keyweave-engine/src/terminal_actor/projections.rs": "df8ccecd542b055dc0ae113f80d4b7de13ba14e6760becc51664bc274cbb971f",
+    "crates/keyweave-engine/src/output_stage/projections.rs": "72db114cf4711dbaf47b2aae3002bcb9a2474936f28cdd8934976be884e98373",
+    "crates/keyweave-engine/tests/output_variable_projections.rs": "6770b081a78979413418be7cf7350e2c1a9891de4796f43486849c5bf7c86434",
+    "crates/keyweave-engine/tests/terminal_key_projections.rs": "9af53d6f39a5dd32fe4328e76383240dd56d8c9a76dfc968ff2822948b05771e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1287,
+    "new_tests": 7,
+    "updated_terminal_variable_case": 1,
+    "focused_after_conditional_style_fix_cases": 14,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-variable-projections/tests.log",
+        "sha256": "217091629853ad9cf8414c98f513520eece41b62206dc4896b40c3d2471d0cac"
+      },
+      "focused": {
+        "path": "target/validation/linux-20261012-variable-projections/focused.log",
+        "sha256": "d15afc1d6616d51211e4b05a91d39237735ade79d2fb8b66b7159e2b51a2a0fb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-variable-projections/clippy.log",
+        "sha256": "4489899deafb9c7f0a2b63d3e82346b6cb7e771adc7d5116a4c97161a4250579"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-variable-projections/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-variable-projections/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Fixture named a helper gen, reserved in Rust 2024. Renamed generated; focused tests passed.",
+    "Clippy identified four nested-if expressions. Collapsed equivalent conditions with let chains; final focused 14 cases and Clippy/fmt passed after full workspace 1287 cases."
+  ],
+  "abi": "Pure Rust frozen variable-target/refcount state and shared variable-update helper. No unsafe/FFI/dependency/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Projection captures original VariableAction/ActionSlot as well as key owners. Variable references occupy suppression/slot budget, mint no new key owner SourceToken and generate no keyboard output.",
+    "Generation first hidden reference applies saved Up only while logical Down exists; final close applies saved Down only if logical source still exists. Actual FIFO performs same first/last operation against live saved Bound::Variable, skipping actual released sources. No rule/condition/config reselection.",
+    "Variables retain existing last-assignment-wins semantics: final restored old Down may overwrite a different source assignment by configured operation; no invented variable-owner stack. Unset and missing Down/Up fields preserve original operation/no-op semantics.",
+    "Original Up, generated tap Up, cancel/device/reset prevent source revival. Cancel removes references without Down restoration, then normal original Up cleanup applies. Reset clears refs/variables; projection identities and source cursors retain existing rules.",
+    "Existing Output prepare/abort/close guards still hold both sides, and generated FIFO full preserves old variable value/actual queue/ref/identity. Historical UnsupportedVariableProjection enum retained but projection now supports variables.",
+    "Full Complex descendant inheritance and Simple consumed scope/native pipeline remain incomplete; simultaneous/Windows/hardware/UI/packaging/driver goal remains active. Native duration gate retained; no real input/device/driver/install/native Windows operation executed."
+  ]
+}
