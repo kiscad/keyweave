@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0138 complete terminal recipe archive and guarded pointer modifier synchronization",
+  "source_base_commit": "3157f245670ffcc462d81d21587554576364c666",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/terminal_actor.rs": "2682796d7c713545785d3be08dc509516b7608429f7b6cd3c568c92eee3e0b10",
+    "crates/keyweave-engine/tests/physical_controller.rs": "74c10c8297fbc163bfe83a1ca8907429d9a00781049c0cbfd0cb973667892d11",
+    "crates/keyweave-engine/tests/terminal_recipe_archive.rs": "1a679832d09b08a69da315092d277bc56faf371cd47ced1e16fb073e08d215de"
+  },
+  "rust": "1.97.1",
+  "upstream_pointer_dispatch_reference": {
+    "path": "../Karabiner-Elements/src/share/manipulator/manipulators/post_event_to_virtual_devices/post_event_to_virtual_devices.hpp",
+    "sha256": "c28cffbcbca2f783a84084d8a11c43242a4ccfb79d9b392a1f175d2fa77dd097",
+    "lines": [
+      118,
+      394
+    ],
+    "scope": "Source inspection only: repeat/button/mouse-key guard. Existing compiler does not support mouse_key actions; no macOS upstream tests executed."
+  },
+  "linux": {
+    "workspace_test_cases_passed": 1260,
+    "new_tests": 3,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-terminal-archive-pointer-sync/tests.log",
+        "sha256": "f6dbd2cf05938a46bf0d9508c2bd8f5bacc4653a73f0d60abdde573762c350f2"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-terminal-archive-pointer-sync/clippy.log",
+        "sha256": "158c2c0a9a35d2b33b8e53795a306c64a721a642c01c98dba7e04a18605396e2"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-terminal-archive-pointer-sync/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-terminal-archive-pointer-sync/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust stored-plan clone/read-only API and reuse of existing pointer synchronization helper. No unsafe/FFI/dependency/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Terminal batch stores complete initial filtered events and saved Up instead of moving initial events away. saved_plan returns borrowed original recipe while actual batch remains; original earliest is not FIFO-shifted delivery or OS acceptance timestamp. Actual completion/control cleanup removes it.",
+    "Pointer actual delivery uses legacy Engine sync_pointer_modifiers, preserving keyboard repeat/button protection. Pointer receipt still forwarded in mixed FIFO; idle pointer or a real new key Down performs normal modifier synchronization. Upstream also guards active mouse_key; that action remains unsupported rather than silently implemented.",
+    "Archived targets/slots/old Arc are a necessary projection metadata basis, not a Live/visible-owner witness or completed scope implementation. Full Simple consumed modifier projection through saved ordinary/variable descendants remains gated.",
+    "Full simultaneous/native stage integration/pointer acceptance/Windows/hardware/UI/packaging/driver remain incomplete. Native duration gate retained; no real input/device/driver/install/native Windows operations executed."
+  ]
+}

@@ -1037,3 +1037,102 @@ fn delayed_post_up_and_its_actual_tap_hold_global_lease_until_producer_completio
     drain(&mut actor, 160);
     assert_eq!(actor.reserved_sources(), 0);
 }
+#[test]
+fn pointer_does_not_flush_lazy_modifiers_during_repeat_or_button_hold_but_flushes_when_idle() {
+    for held in ["x", "button1"] {
+        let mut actor = PhysicalStageController::new(config(
+            vec![],
+            vec![mapping(
+                "b",
+                vec![Action {
+                    lazy: true,
+                    ..key("left_shift").into()
+                }],
+            )],
+        ))
+        .unwrap();
+        let dev = device(1, 1);
+        actor
+            .handle(keyboard(1, 100, dev, held, KeyEdge::Down))
+            .unwrap();
+        drain(&mut actor, 100);
+        actor
+            .handle(keyboard(2, 110, dev, "b", KeyEdge::Down))
+            .unwrap();
+        assert!(drain(&mut actor, 110).is_empty());
+        actor
+            .handle(envelope(
+                3,
+                120,
+                dev,
+                InputEvent::PointerMove { x: 1, y: 2 },
+            ))
+            .unwrap();
+        let (outputs, pointers) = drain_mixed(&mut actor, 120);
+        assert!(outputs.is_empty());
+        assert_eq!(pointers.len(), 1);
+        actor
+            .handle(keyboard(4, 130, dev, held, KeyEdge::Up))
+            .unwrap();
+        assert_eq!(drain(&mut actor, 130), vec![(key(held), KeyEdge::Up)]);
+        actor
+            .handle(envelope(
+                5,
+                140,
+                dev,
+                InputEvent::Wheel {
+                    horizontal: 0,
+                    vertical: 1,
+                },
+            ))
+            .unwrap();
+        let (outputs, pointers) = drain_mixed(&mut actor, 140);
+        assert_eq!(outputs, vec![(key("left_shift"), KeyEdge::Down)]);
+        assert_eq!(pointers.len(), 1);
+    }
+}
+#[test]
+fn new_real_key_down_still_flushes_lazy_modifier_before_key_after_pointer_deferred_it() {
+    let mut actor = PhysicalStageController::new(config(
+        vec![],
+        vec![mapping(
+            "b",
+            vec![Action {
+                lazy: true,
+                ..key("left_shift").into()
+            }],
+        )],
+    ))
+    .unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "x", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .handle(keyboard(2, 110, dev, "b", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 110);
+    actor
+        .handle(envelope(
+            3,
+            120,
+            dev,
+            InputEvent::Wheel {
+                horizontal: 1,
+                vertical: 0,
+            },
+        ))
+        .unwrap();
+    assert!(drain_mixed(&mut actor, 120).0.is_empty());
+    actor
+        .handle(keyboard(4, 130, dev, "y", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 130),
+        vec![
+            (key("left_shift"), KeyEdge::Down),
+            (key("y"), KeyEdge::Down)
+        ]
+    );
+}

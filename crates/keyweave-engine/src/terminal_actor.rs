@@ -228,6 +228,11 @@ impl TerminalActor {
     pub fn next_deadline(&self) -> Option<MonoTime> {
         self.timeline.next_deadline()
     }
+    /// Original already-filtered plan, including initial events and saved Up.
+    /// This does not report timeline-shifted delivery, Live visibility or native acceptance.
+    pub fn saved_plan(&self, batch: BatchId) -> Option<&ActionPlan> {
+        self.batches.get(&batch).map(|saved| &saved.plan)
+    }
     pub fn pressed_outputs(&self) -> Vec<KeyId> {
         self.core.emitted.iter().copied().collect()
     }
@@ -323,7 +328,7 @@ impl TerminalActor {
     }
     fn prepare_inner(
         &mut self,
-        mut plan: ActionPlan,
+        plan: ActionPlan,
         scope: Option<modifier_scope::ModifierScope>,
         child: Option<&stage_bindings::ChildAdmission<'_>>,
     ) -> Result<PreparedTerminalAppend<'_>, ActorError> {
@@ -425,10 +430,7 @@ impl TerminalActor {
             .ok_or(EngineError::ResourceLimit)?;
         let scope_events = plan.events.len();
         let up_queued = plan.release_on_input_up.is_empty() && !scope_up;
-        let events = std::mem::take(&mut plan.events)
-            .into_iter()
-            .map(action_event)
-            .collect();
+        let events = plan.events.iter().cloned().map(action_event).collect();
         let reservation = if remaining > 0 {
             Some(
                 self.bindings
@@ -616,7 +618,7 @@ impl TerminalActor {
         self.core.current_device = due.event.device;
         if let TerminalWork::Pointer(pointer) = &due.event.payload {
             let mut outputs = Vec::new();
-            self.core.sync_modifiers(&mut outputs);
+            self.core.sync_pointer_modifiers(&mut outputs);
             return Ok(Some(TerminalDelivery {
                 step: ActorStep {
                     outputs,
