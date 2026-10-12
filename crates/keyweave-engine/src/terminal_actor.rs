@@ -6,6 +6,10 @@ use crate::{
     *,
 };
 
+mod projections;
+use projections::KeyProjection;
+pub use projections::KeyProjectionId;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ActorError {
     #[error(transparent)]
@@ -24,6 +28,10 @@ pub enum ActorError {
     InvalidSlot,
     #[error("actor execution failed; reset is required before ordinary work")]
     Failed,
+    #[error("invalid key projection lifecycle")]
+    InvalidProjection,
+    #[error("variable projection requires the generated/actual variable protocol")]
+    UnsupportedVariableProjection,
 }
 
 /// Allows at most one pending down and one cleanup up per distinct key on control events.
@@ -73,6 +81,8 @@ pub(crate) enum TerminalWork {
     Action(action_plan::PlannedAction),
     ScopeUp(BatchId),
     Pointer(crate::pointer_work::PointerMotion),
+    ProjectionDown(KeyProjectionId, BatchId),
+    ProjectionUp(KeyProjectionId, BatchId),
 }
 impl TerminalWork {
     fn batch(&self) -> Option<BatchId> {
@@ -80,6 +90,7 @@ impl TerminalWork {
             Self::Action(action) => Some(action.slot.batch),
             Self::ScopeUp(id) => Some(*id),
             Self::Pointer(_) => None,
+            Self::ProjectionDown(_, batch) | Self::ProjectionUp(_, batch) => Some(*batch),
         }
     }
 }
@@ -103,6 +114,8 @@ pub struct TerminalActor {
     last_batch: Option<BatchId>,
     scope_slots: usize,
     max_source_end: u64,
+    projections: BTreeMap<KeyProjectionId, KeyProjection>,
+    next_projection: u64,
     failed: bool,
 }
 /// Exclusive preflight of timeline, bindings, source IDs and scope reservations.
@@ -174,6 +187,8 @@ impl TerminalActor {
             last_batch: None,
             scope_slots: 0,
             max_source_end,
+            projections: BTreeMap::new(),
+            next_projection: 0,
             failed: false,
         })
     }
@@ -288,6 +303,19 @@ impl TerminalActor {
         let mut outputs = Vec::new();
         for id in ids {
             self.cancel(id, &mut outputs)?;
+        }
+        let projected: Vec<_> = self
+            .projections
+            .values()
+            .filter(|projection| {
+                projection.origin.device.id == device.id
+                    && (projection.origin.device.generation < device.generation
+                        || (removed && projection.origin.device.generation == device.generation))
+            })
+            .map(|projection| projection.origin.batch)
+            .collect();
+        for batch in projected {
+            self.cancel_key_projections(batch)?;
         }
         if removed || canceled {
             self.core.sync_modifiers(&mut outputs);
@@ -616,6 +644,16 @@ impl TerminalActor {
         };
         self.core.now = at;
         self.core.current_device = due.event.device;
+        if let TerminalWork::ProjectionDown(id, _) | TerminalWork::ProjectionUp(id, _) =
+            &due.event.payload
+        {
+            return self
+                .deliver_key_projection(
+                    *id,
+                    matches!(due.event.payload, TerminalWork::ProjectionDown(_, _)),
+                )
+                .map(Some);
+        }
         if let TerminalWork::Pointer(pointer) = &due.event.payload {
             let mut outputs = Vec::new();
             self.core.sync_pointer_modifiers(&mut outputs);
@@ -644,7 +682,9 @@ impl TerminalActor {
         let action = match work {
             TerminalWork::Action(action) => Some(action),
             TerminalWork::ScopeUp(_) => None,
-            TerminalWork::Pointer(_) => return Err(ActorError::InvalidSlot),
+            TerminalWork::Pointer(_)
+            | TerminalWork::ProjectionDown(_, _)
+            | TerminalWork::ProjectionUp(_, _) => return Err(ActorError::InvalidSlot),
         };
         let batch = self.batches.get_mut(&id).ok_or(ActorError::InvalidSlot)?;
         if let Some(scope) = &mut batch.scope
@@ -775,6 +815,7 @@ impl TerminalActor {
         at: MonoTime,
     ) -> Result<Vec<OutputIntent>, ActorError> {
         self.advance(at)?;
+        self.cancel_key_projections(id)?;
         if !self.batches.contains_key(&id) {
             return Ok(Vec::new());
         }
@@ -784,6 +825,7 @@ impl TerminalActor {
         Ok(outputs)
     }
     fn cancel(&mut self, id: BatchId, outputs: &mut Vec<OutputIntent>) -> Result<(), ActorError> {
+        self.cancel_key_projections(id)?;
         if !self.batches.contains_key(&id) {
             return Ok(());
         }
@@ -817,6 +859,7 @@ impl TerminalActor {
     pub fn reset(&mut self, at: MonoTime) -> Result<Vec<OutputIntent>, ActorError> {
         self.check_time(at)?;
         self.timeline.reset(at)?;
+        self.projections.clear();
         self.batches.clear();
         self.bindings = stage_bindings::BindingArena::default();
         self.scope_slots = 0;

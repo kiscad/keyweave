@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0139 exact saved-batch Terminal key source projections",
+  "source_base_commit": "3b74dc007806a7e489b42051e8276cb0f6cb4efe",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/terminal_actor.rs": "c833a386a4765f459b62446dcc46713553ca5b6a76b90f308d61301f37a39a79",
+    "crates/keyweave-engine/src/terminal_actor/projections.rs": "84a2622c1cac806a57165b5d48183c556b1091a4f624f1583a65dee066040a91",
+    "crates/keyweave-engine/src/modifier_scope.rs": "a3016b3592a01937959e0dd1ba67bfa356ac5f709d1a2330e0cc25de907a05e6",
+    "crates/keyweave-engine/tests/terminal_key_projections.rs": "b1d84b687b69251530a1506bbd61a5588c81411fa696b36426c79ea216ec60b7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1271,
+    "new_tests": 11,
+    "integration_tests": 8,
+    "private_capacity_tests": 3,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-terminal-key-projections/tests.log",
+        "sha256": "25fff6984b6d3b3617af3e1280ff33405b53d448a7104ef64dbfe072d3a7f507"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-terminal-key-projections/clippy.log",
+        "sha256": "130e2878bd8c24919bcbc6667b3dad5b091bb7165c1e2b71e632a3664d02582f"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-terminal-key-projections/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-terminal-key-projections/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial edit script could not locate observe_device tail and stopped before writing Terminal changes. Only temporary_owners getter was saved, causing one temporary unused warning in successful check. Reapplied implementation in child projections module and exact device cleanup location; final checks clean."
+  ],
+  "abi": "Pure Rust private scope state/FIFO control variants/opaque token/read-only reference telemetry. No unsafe/FFI/dependency/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Terminal begin_key_projection captures retained Reserved/Live original key slot sources plus pending/active snapshot temporary sources, never reselects new configuration, returns opaque actor-local token. Down/Up controls share original Output FIFO; original arrays deliver first.",
+    "Projection references booked at admission under 16384 suppression limit and 4096 projection cap. Actual marker changes source-specific hidden counts; ordinary momentary keys sync visibility, standard modifier changes remain lazy until normal sync. Nested scopes restore only final reference and shared-key other source remains visible.",
+    "Close FIFO rejection retains same token for retry. Complete/released/canceled captured source never gets a fake down; cancel/device/reset discard markers and references, projection IDs monotonic across reset. Scope token is not actual SourceToken/native authority.",
+    "Variable Reserved/Live targets explicitly cold reject before projection mutation; generated variable pause/resume protocol remains pending. Released targets are excluded. No actual key binding/source identity/macro is regenerated.",
+    "This public standalone Terminal capability is not wired into private Output generated mirror or Complex descendant inheritance/complete Simple consumed scope. Simple/native gates remain; full simultaneous/native pipeline/acceptance/Windows/hardware/UI/packaging/driver goal remains incomplete. No real input/device/driver/install/native Windows operation executed."
+  ]
+}

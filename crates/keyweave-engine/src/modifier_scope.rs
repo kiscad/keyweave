@@ -114,6 +114,9 @@ pub(crate) struct ScopeBinding {
     hidden: Vec<(KeyId, SourceToken)>,
 }
 impl ScopeBinding {
+    pub(crate) fn temporary_owners(&self) -> impl Iterator<Item = (KeyId, SourceToken)> + '_ {
+        self.temporary.iter().copied()
+    }
     pub(crate) fn close(self, core: &mut Engine) {
         core.suppression_references -= self.hidden.len();
         for owner in self.hidden {
