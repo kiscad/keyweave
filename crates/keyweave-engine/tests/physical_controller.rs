@@ -920,3 +920,120 @@ fn pointer_also_waits_behind_future_terminal_actions_after_complex_input_queue_i
     }
     assert_eq!(order, vec!["b", "c", "pointer", "z"]);
 }
+fn large_budget_config() -> Arc<ConfigSnapshot> {
+    config(
+        vec![mapping(
+            "a",
+            vec![
+                Action {
+                    repeat: false,
+                    hold_down_ns: 1,
+                    ..key("b").into()
+                };
+                512
+            ],
+        )],
+        vec![mapping(
+            "b",
+            vec![
+                Action {
+                    hold_down_ns: 1,
+                    ..key("c").into()
+                };
+                16
+            ],
+        )],
+    )
+}
+#[test]
+fn cross_stage_source_ceiling_rejects_before_input_sequence_or_device_changes_and_reset_reclaims() {
+    let mut actor = PhysicalStageController::new(large_budget_config()).unwrap();
+    actor
+        .handle(keyboard(1, 100, device(1, 1), "a", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 8705);
+    drain(&mut actor, 100);
+    assert!(matches!(
+        actor.handle(keyboard(2, 100, device(2, 1), "a", KeyEdge::Down)),
+        Err(PhysicalControllerError::Engine(EngineError::ResourceLimit))
+    ));
+    assert!(!actor.is_failed());
+    assert_eq!(actor.active_bindings(), 1);
+    assert_eq!(actor.reserved_sources(), 8705);
+    actor
+        .handle(keyboard(2, 100, device(1, 1), "a", KeyEdge::Up))
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 8705); // original Up does not retire actual children
+    let reset = actor
+        .handle(envelope(3, 100, device(1, 1), InputEvent::Reset))
+        .unwrap();
+    assert_eq!(edges(reset.outputs), vec![(key("c"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn reload_changes_new_root_budget_and_leaves_retained_old_lease_unchanged() {
+    let mut actor = PhysicalStageController::new(large_budget_config()).unwrap();
+    actor
+        .handle(keyboard(1, 100, device(1, 1), "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 8705);
+    actor
+        .handle(keyboard(2, 100, device(2, 1), "a", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 8708);
+    let reset = actor
+        .handle(envelope(3, 100, device(1, 1), InputEvent::Reset))
+        .unwrap();
+    assert_eq!(edges(reset.outputs), vec![(key("c"), KeyEdge::Up)]); // new source was still future Reserved
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn new_device_generation_admission_accounts_for_old_generation_lease_cleanup() {
+    let mut actor = PhysicalStageController::new(large_budget_config()).unwrap();
+    actor
+        .handle(keyboard(1, 100, device(1, 1), "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    let replacement = actor
+        .handle(keyboard(2, 100, device(1, 2), "a", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(edges(replacement.outputs), vec![(key("c"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 8705);
+    assert_eq!(actor.active_bindings(), 1);
+    actor
+        .handle(envelope(3, 100, device(1, 2), InputEvent::Reset))
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn delayed_post_up_and_its_actual_tap_hold_global_lease_until_producer_completion() {
+    let mut rule = mapping("a", vec![]);
+    rule.extras.delayed = Some(DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![Action {
+            hold_down_ns: 10,
+            ..key("h").into()
+        }],
+        if_canceled: vec![],
+    });
+    let mut actor = PhysicalStageController::new(config(vec![], vec![rule])).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    assert_eq!(actor.reserved_sources(), 11); // physical+Complex + output + snapshot 8
+    actor
+        .handle(keyboard(2, 120, dev, "a", KeyEdge::Up))
+        .unwrap();
+    drain(&mut actor, 120);
+    assert_eq!(actor.reserved_sources(), 11);
+    drain(&mut actor, 150);
+    assert_eq!(actor.reserved_sources(), 11);
+    drain(&mut actor, 160);
+    assert_eq!(actor.reserved_sources(), 0);
+}

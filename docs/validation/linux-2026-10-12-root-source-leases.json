@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0136 whole physical root cross-stage source leases",
+  "source_base_commit": "9bd0894dda381ec4683e14368885bfe48cab0fc4",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/source_budget.rs": "635155ff87aa91646f710c928aceadd829d80df3531a33df3ff4b192049f95e1",
+    "crates/keyweave-engine/src/physical_controller.rs": "9c7f866f2e193ad60d304d88929e8beab3539832d4c5f7575e7d820108685c35",
+    "crates/keyweave-engine/src/lib.rs": "573489340e5b74635387483004ca62246e03567a21255aba90980702ed0dfd36",
+    "crates/keyweave-engine/tests/timed_source_budget.rs": "48f59e848fdd5ed089fef30a3fd37340b1bd6df5b738873cbb06fa97df0fada2",
+    "crates/keyweave-engine/tests/physical_controller.rs": "3ae2de2d7e1c3a0d47a8038384b8cd9d77f9d197f2004402cf59b0b31935b307"
+  },
+  "original_source_budget_tests_preserved_sha256": "0b2db285cc694f4741793c8243029c6108a68c79a981c2bd2e2182e660660832",
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1255,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-root-source-leases/tests.log",
+        "sha256": "559bbb925da418327e1d9b35fb00e917a7a8ccecc4659ec5737cb73fd8f5a21f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-root-source-leases/clippy.log",
+        "sha256": "31afaf0caa7f451e13a2e71f46d3ad710140c3d376a7fb22b96d2dfeef766ef1"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-root-source-leases/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-root-source-leases/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial edit inserted key-only source-cost preflight into pointer block; cargo check identified out-of-scope key. Moved block to new Key Down preflight; check passed.",
+    "New formula tests initially reused existing tests/source_budget.rs filename. Restored original HEAD bytes and saved new tests as timed_source_budget.rs. Final complete workspace run includes all original tests; original hash verified."
+  ],
+  "review_corrections": [
+    "AfterKeyUp uses CurrentMinusConsumed, not DownSnapshotMinusConsumed. Removed unnecessary 8-source padding; only Alone and each nonempty delayed candidate reserve snapshot ceiling. Combined branch estimate corrected from 40 to 32 before final verification."
+  ],
+  "abi": "Pure Rust static bound cache/root lease accounting. No unsafe/FFI/dependency/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "timed_stage_source_bounds covers current Simple main pipeline: physical root, each intermediate Complex slot and all possible output slots/snapshot scope identities. Variable actions and modifier-target Complex expansion included; candidates max with pass-through, no recursive Complex remapping.",
+    "Whole-root conservative lease <=16384 preflight before seq/device/source/selection/registration. Old generation cleanup credit is based on exact device IDs/older generation. Charge after root registration, retain through original Up and actual delayed/duration descendants, release on actual Simple producer completion or device/reset discard.",
+    "Hot reload swaps new estimate cache only after valid stage activation; old leases retain old amounts. Tests exercise 8705-unit root and second-root cold rejection, old/new config 8705+3, generation replacement and post-Up delayed lease.",
+    "This global admission lease is not an actual emitted-owner count or unified SourceToken allocator; pointer payloads own no action source lease and remain bounded by mixed queue capacity. Actual SourceToken allocation namespaces and dynamic owner bookkeeping remain separate.",
+    "All lower per-stage event/batch/key/source/suppression budgets remain active; root source estimate does not guarantee arbitrary macros avoid queue capacity failure. Simple advanced/consumed scope projection remains gated. Full allocator/scope/simultaneous/native pipeline/pointer acceptance/Windows/hardware/UI/packaging/driver remain incomplete; native duration gate retained; no real input/device/driver/install/native Windows operations executed."
+  ]
+}

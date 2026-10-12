@@ -36,9 +36,16 @@ pub struct PhysicalStep {
     pub repeat_target: Option<KeyId>,
     pub next_deadline: Option<MonoTime>,
 }
+struct SourceLease {
+    device: DeviceInstanceId,
+    units: usize,
+}
 pub struct PhysicalStageController {
     simple: SimpleStageActor,
     active: BTreeMap<(DeviceInstanceId, KeyId), ActionPlan>,
+    source_bounds: BTreeMap<KeyId, usize>,
+    source_leases: BTreeMap<ActionSlot, SourceLease>,
+    reserved_sources: usize,
     pending: BTreeSet<ActionSlot>,
     history: StageTimeline<()>,
     context: ContextSnapshot,
@@ -50,6 +57,9 @@ pub struct PhysicalStageController {
 impl PhysicalStageController {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, PhysicalControllerError> {
         Ok(Self {
+            source_bounds: config.timed_stage_source_bounds(),
+            source_leases: BTreeMap::new(),
+            reserved_sources: 0,
             simple: SimpleStageActor::new(config)?,
             active: BTreeMap::new(),
             pending: BTreeSet::new(),
@@ -67,6 +77,22 @@ impl PhysicalStageController {
     pub fn is_failed(&self) -> bool {
         self.failed
     }
+    /// Conservative whole-root leases, including possible future branches; not actual emitted owners.
+    pub fn reserved_sources(&self) -> usize {
+        self.reserved_sources
+    }
+    fn source_cost(&self, key: KeyId) -> usize {
+        self.source_bounds.get(&key).copied().unwrap_or(3)
+    }
+    fn release_source_lease(&mut self, slot: ActionSlot) -> Result<(), PhysicalControllerError> {
+        if let Some(lease) = self.source_leases.remove(&slot) {
+            self.reserved_sources = self
+                .reserved_sources
+                .checked_sub(lease.units)
+                .ok_or(PhysicalControllerError::Invariant)?;
+        }
+        Ok(())
+    }
     pub fn active_bindings(&self) -> usize {
         self.active.len()
     }
@@ -83,7 +109,9 @@ impl PhysicalStageController {
         if self.failed {
             return Err(PhysicalControllerError::Failed);
         }
+        let bounds = config.timed_stage_source_bounds();
         self.simple.activate(config)?;
+        self.source_bounds = bounds;
         Ok(())
     }
     fn check_time(&self, at: MonoTime) -> Result<(), PhysicalControllerError> {
@@ -101,18 +129,33 @@ impl PhysicalStageController {
             next_deadline: self.next_deadline(),
         }
     }
-    fn collect(&mut self, actual: SimpleStep, step: &mut PhysicalStep) {
+    fn collect(
+        &mut self,
+        actual: SimpleStep,
+        step: &mut PhysicalStep,
+    ) -> Result<(), PhysicalControllerError> {
         step.outputs.extend(actual.outputs);
         step.forwarded_pointers.extend(actual.forwarded_pointers);
         for slot in actual.released_producers {
             self.pending.remove(&slot);
+            self.release_source_lease(slot)?;
         }
         if !actual.discarded_input_batches.is_empty() {
             let discarded: BTreeSet<_> = actual.discarded_input_batches.into_iter().collect();
             self.active
                 .retain(|_, plan| !discarded.contains(&plan.origin.batch));
             self.pending.retain(|slot| !discarded.contains(&slot.batch));
+            let slots: Vec<_> = self
+                .source_leases
+                .keys()
+                .copied()
+                .filter(|slot| discarded.contains(&slot.batch))
+                .collect();
+            for slot in slots {
+                self.release_source_lease(slot)?;
+            }
         }
+        Ok(())
     }
     fn observe(
         &mut self,
@@ -124,7 +167,7 @@ impl PhysicalStageController {
         self.history.check_device(device, removed)?;
         let actual = self.simple.observe_device(device, removed, at)?;
         self.history.observe_device(device, removed)?;
-        self.collect(actual, step);
+        self.collect(actual, step)?;
         Ok(())
     }
     /// Trusted lifecycle observation is still caller supplied, not native device authorization.
@@ -165,7 +208,10 @@ impl PhysicalStageController {
             return Ok(None);
         };
         let mut step = self.step(CaptureDecision::Pass);
-        self.collect(actual, &mut step);
+        if let Err(error) = self.collect(actual, &mut step) {
+            self.failed = true;
+            return Err(error);
+        }
         step.next_deadline = self.next_deadline();
         Ok(Some(step))
     }
@@ -224,6 +270,22 @@ impl PhysicalStageController {
                 self.next_source
                     .checked_add(1)
                     .ok_or(PhysicalControllerError::SourceExhausted)?;
+                let reclaimed = self
+                    .source_leases
+                    .values()
+                    .filter(|lease| {
+                        lease.device.id == input.device.id
+                            && lease.device.generation < input.device.generation
+                    })
+                    .map(|lease| lease.units)
+                    .sum::<usize>();
+                let retained = self
+                    .reserved_sources
+                    .checked_sub(reclaimed)
+                    .ok_or(PhysicalControllerError::Invariant)?;
+                if self.source_cost(*key) > MAX_OUTPUT_OWNERS.saturating_sub(retained) {
+                    return Err(EngineError::ResourceLimit.into());
+                }
             }
         }
         self.now = input.at_ns;
@@ -302,6 +364,19 @@ impl PhysicalStageController {
                             .ok_or(PhysicalControllerError::Invariant)?
                             .clone();
                         self.simple.register_input(plan.clone())?;
+                        let cost = self.source_cost(key);
+                        self.reserved_sources = self
+                            .reserved_sources
+                            .checked_add(cost)
+                            .filter(|total| *total <= MAX_OUTPUT_OWNERS)
+                            .ok_or(PhysicalControllerError::Invariant)?;
+                        self.source_leases.insert(
+                            down.payload.slot,
+                            SourceLease {
+                                device: input.device,
+                                units: cost,
+                            },
+                        );
                         self.next_source = following;
                         let actual = self.simple.admit(
                             &DueEvent {
@@ -311,7 +386,7 @@ impl PhysicalStageController {
                             &self.context,
                         )?;
                         self.active.insert(identity, plan);
-                        self.collect(actual, step);
+                        self.collect(actual, step)?;
                     }
                     KeyEdge::Up => {
                         let Some(plan) = self.active.get(&identity) else {
@@ -337,7 +412,7 @@ impl PhysicalStageController {
                         )?;
                         self.active.remove(&identity);
                         self.pending.insert(slot);
-                        self.collect(actual, step);
+                        self.collect(actual, step)?;
                     }
                     KeyEdge::Repeat => {
                         step.repeat_target = self
@@ -380,9 +455,12 @@ impl PhysicalStageController {
             InputEvent::Reset => {
                 let actual = self.simple.reset(input.at_ns)?;
                 self.history.reset(input.at_ns)?;
-                self.collect(actual, step);
+                self.collect(actual, step)?;
                 self.active.clear();
                 self.pending.clear();
+                if !self.source_leases.is_empty() || self.reserved_sources != 0 {
+                    return Err(PhysicalControllerError::Invariant);
+                }
                 self.failed = false;
             }
             InputEvent::TimerFired { .. } | InputEvent::CancelDelayed { .. } => {
