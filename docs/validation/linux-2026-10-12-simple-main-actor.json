@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0133 owned Simple main actor with Complex/Output execution",
+  "source_base_commit": "4bf77209d4c1053fc668f29d8865971929514582",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/simple_actor.rs": "e23b0267ec993bbd128b273f13c09caace7cd6c3169ff54fcd378909a495e633",
+    "crates/keyweave-engine/src/complex_actor.rs": "e43d476b8fc44fe8083528eb86165962d5265431ab68dd5b9c601e45f5c53b0e",
+    "crates/keyweave-engine/src/lib.rs": "efc9cdbf84b87ce38c92fd4c5501714c9cae0b4c5222a6222afb706fd81879c1",
+    "crates/keyweave-engine/tests/simple_actor.rs": "05742172760d7260a4d0fa24a46b1882b17eccc4f2c8074feec14363c9db6008"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1225,
+    "new_tests": 11,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "focused_after_test_style_fix_cases": 11,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-simple-main-actor/tests.log",
+        "sha256": "50c24c72036a1ac361ec068e5ad638c3b5d96f1f8486d876418c7b5b47a8aef7"
+      },
+      "focused": {
+        "path": "target/validation/linux-20261012-simple-main-actor/focused.log",
+        "sha256": "1061dd52182e52687417486815720b479bcbcf95c8749f4db1eba7b39512d28c"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-simple-main-actor/clippy.log",
+        "sha256": "74b4dcd47556e5c3a80e553823b59176e2ea59ac99a1e3f9ac5981f5a208e347"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-simple-main-actor/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-simple-main-actor/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Fixture compile: mandatory modifiers are BTreeSet, use insert rather than push.",
+    "Focused run 8 passed / 1 failed: second device was admitted behind first macro future FIFO tail, so it could not emit at 110. Reordered fixture to emit retained second-device key before future macro; production FIFO preserved.",
+    "Workspace Clippy: get(v).is_none() replaced by !contains_key(v) in one fixture assertion. Full suite passed before equivalent assertion style fix; focused 11 cases and final Clippy/fmt passed after."
+  ],
+  "abi": "Pure Rust owning actor and private EOF policy composition; no unsafe/FFI/dependency/native ABI change. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "SimpleStageActor privately owns producer decisions/roots/child recipes/Complex generation/Complex execution. Saved old Down and original Up preserve both-stage rule selection; children retire only after actual descendant completion and original Simple Up.",
+    "Each poll returns one bounded downstream or upstream step; downstream due work drains first, times/context are injected. All intents from admit and poll must reach caller. Exceptions latch Failed; Reset returns recovery intents without OS acceptance proof.",
+    "Registered Simple input unreleased slots gate downstream modifier EOF, including Reserved future slots. Empty final Simple Up explicitly flushes idle descendants. Physical adapter must still prove root grouping and real input/device ownership.",
+    "Simple advanced branches and mandatory consumed-modifier scope projection explicitly reject before actor construction/activation; Complex held/alone/after/delayed remain in downstream actor. Full scope projection through saved ordinary/variable Complex descendants remains incomplete.",
+    "Batch identity allocation uses maximum actor identity, monotonic across Reset. Actual SourceToken allocation and source budgets remain separate across arenas, not globally unified.",
+    "Full physical controller/repeat/context/native integration/simultaneous/global source pool/scope/Windows/hardware/UI/packaging/driver remain incomplete. Native duration gate retained; no actual input/device/driver/install/Windows build executed."
+  ]
+}

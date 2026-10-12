@@ -8,6 +8,7 @@ mod modifiers;
 pub mod output_stage;
 pub mod producer_decision;
 pub mod rule_selection;
+pub mod simple_actor;
 pub mod stage_bindings;
 mod stage_delivery;
 pub mod terminal_actor;

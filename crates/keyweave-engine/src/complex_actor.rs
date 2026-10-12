@@ -290,6 +290,14 @@ impl ComplexStageActor {
         due: &DueEvent<PlannedAction>,
         context: &ContextSnapshot,
     ) -> Result<ComplexStep, ComplexActorError> {
+        self.admit_with_eof(due, context, |_| true)
+    }
+    pub(crate) fn admit_with_eof(
+        &mut self,
+        due: &DueEvent<PlannedAction>,
+        context: &ContextSnapshot,
+        allow_sync: impl Fn(DeviceInstanceId) -> bool,
+    ) -> Result<ComplexStep, ComplexActorError> {
         self.running()?;
         self.check_time(due.delivered_at)?;
         if self
@@ -298,7 +306,7 @@ impl ComplexStageActor {
         {
             return Err(ComplexActorError::DeadlinePending);
         }
-        let result = self.admit_inner(due, context);
+        let result = self.admit_inner(due, context, allow_sync);
         if result.is_err() {
             self.failed = true;
         }
@@ -308,6 +316,7 @@ impl ComplexStageActor {
         &mut self,
         due: &DueEvent<PlannedAction>,
         context: &ContextSnapshot,
+        allow_sync: impl Fn(DeviceInstanceId) -> bool,
     ) -> Result<ComplexStep, ComplexActorError> {
         let slot = due.event.payload.slot;
         let mut step = ComplexStep::default();
@@ -510,9 +519,11 @@ impl ComplexStageActor {
                     due.delivered_at,
                 )?;
                 self.finish(slot, &mut step)?;
-                if !self.inputs.values().any(|input| {
-                    input.plan.origin.device == due.event.device && input.unreleased != 0
-                }) {
+                if allow_sync(due.event.device)
+                    && !self.inputs.values().any(|input| {
+                        input.plan.origin.device == due.event.device && input.unreleased != 0
+                    })
+                {
                     step.outputs.extend(
                         self.output
                             .synchronize_if_device_idle(due.event.device, due.delivered_at)?,
@@ -647,10 +658,18 @@ impl ComplexStageActor {
         at: MonoTime,
         context: &ContextSnapshot,
     ) -> Result<Option<ComplexStep>, ComplexActorError> {
+        self.poll_with_context_and_eof(at, context, |_| true)
+    }
+    pub(crate) fn poll_with_context_and_eof(
+        &mut self,
+        at: MonoTime,
+        context: &ContextSnapshot,
+        allow_sync: impl Fn(DeviceInstanceId) -> bool,
+    ) -> Result<Option<ComplexStep>, ComplexActorError> {
         self.running()?;
         self.check_time(at)?;
         let result = if self.output.next_deadline().is_some_and(|due| due <= at) {
-            self.poll_inner(at)
+            self.poll_inner(at, &allow_sync)
         } else {
             let held = self.held.filter(|(due, _)| *due <= at);
             let delayed = self.delayed.filter(|(due, _)| *due <= at);
@@ -659,7 +678,7 @@ impl ComplexStageActor {
             } else if delayed.is_some() {
                 self.fire_delayed(at, context).map(Some)
             } else {
-                self.poll_inner(at)
+                self.poll_inner(at, &allow_sync)
             }
         };
         if result.is_err() {
@@ -701,12 +720,17 @@ impl ComplexStageActor {
         self.bindings.insert(slot, new);
         Ok(ComplexStep::default())
     }
-    fn poll_inner(&mut self, at: MonoTime) -> Result<Option<ComplexStep>, ComplexActorError> {
+    fn poll_inner(
+        &mut self,
+        at: MonoTime,
+        allow_sync: &impl Fn(DeviceInstanceId) -> bool,
+    ) -> Result<Option<ComplexStep>, ComplexActorError> {
         let inputs = &self.inputs;
         let Some(delivery) = self.output.poll_delivered_with_eof(at, |device| {
-            !inputs
-                .values()
-                .any(|input| input.plan.origin.device == device && input.unreleased != 0)
+            allow_sync(device)
+                && !inputs
+                    .values()
+                    .any(|input| input.plan.origin.device == device && input.unreleased != 0)
         })?
         else {
             return Ok(None);
@@ -740,6 +764,24 @@ impl ComplexStageActor {
             self.finish(parent, &mut step)?;
         }
         Ok(Some(step))
+    }
+    pub(crate) fn synchronize_if_device_idle(
+        &mut self,
+        device: DeviceInstanceId,
+        at: MonoTime,
+    ) -> Result<Vec<OutputIntent>, ComplexActorError> {
+        self.running()?;
+        self.check_time(at)?;
+        if self
+            .inputs
+            .values()
+            .any(|input| input.plan.origin.device == device && input.unreleased != 0)
+        {
+            return Ok(Vec::new());
+        }
+        let outputs = self.output.synchronize_if_device_idle(device, at)?;
+        self.now = at;
+        Ok(outputs)
     }
     /// Eligibility only. Caller forwards pointer input and coordinates modifier sync separately.
     pub fn observe_wheel(
