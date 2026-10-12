@@ -287,7 +287,10 @@ fn advanced_branches_are_explicitly_rejected_and_activation_keeps_current_snapsh
     let mut actor = actor(old.clone());
     let mut candidate = (*old).clone();
     candidate.generation = ConfigGeneration(2);
-    candidate.complex[0].extras.if_alone.push(key("c").into());
+    candidate.complex[0]
+        .extras
+        .if_held_down
+        .push(key("c").into());
     assert!(matches!(
         ComplexStageActor::new(Arc::new(candidate.clone())),
         Err(ComplexActorError::UnsupportedBranches)
@@ -879,4 +882,277 @@ fn filtered_empty_after_up_needs_no_batch_id_even_when_identity_counter_is_exhau
     assert_eq!(actor.reserved_sources(), 0);
     assert!(!actor.is_failed());
     assert!(actor.poll(MonoTime(110)).unwrap().is_none());
+}
+fn alone_config(
+    main: Vec<Action>,
+    alone: Vec<Action>,
+    after: Vec<Action>,
+    timeout: u64,
+) -> Arc<ConfigSnapshot> {
+    let mut cfg = (*after_config(main, after)).clone();
+    cfg.complex[0].extras.if_alone = alone;
+    cfg.complex[0].extras.alone_timeout_ns = timeout;
+    Arc::new(cfg)
+}
+#[test]
+fn alone_timeout_is_strict_and_alone_tap_precedes_after_up_with_parent_completion_barrier() {
+    for (at, eligible) in [(199, true), (200, false), (201, false)] {
+        let mut actor = actor(alone_config(
+            vec![],
+            vec![Action {
+                hold_down_ns: 20,
+                ..key("c").into()
+            }],
+            vec![key("d").into()],
+            100,
+        ));
+        let plan = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+            .unwrap();
+        actor
+            .admit(&up(&plan, 0, at), &ContextSnapshot::default())
+            .unwrap();
+        let (first, _) = drain(&mut actor, at);
+        if eligible {
+            assert_eq!(first, [("c".into(), KeyEdge::Down)]);
+            assert_eq!(actor.pending_inputs(), 1);
+            assert_eq!(
+                drain(&mut actor, at + 20).0,
+                [
+                    ("c".into(), KeyEdge::Up),
+                    ("d".into(), KeyEdge::Down),
+                    ("d".into(), KeyEdge::Up)
+                ]
+            );
+        } else {
+            assert_eq!(
+                first,
+                [("d".into(), KeyEdge::Down), ("d".into(), KeyEdge::Up)]
+            );
+        }
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+#[test]
+fn another_device_button_down_cancels_alone_and_its_up_does_not_restore_old_eligibility() {
+    let mut actor = actor(alone_config(vec![], vec![key("c").into()], vec![], 1000));
+    let first = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&first, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    let button = input(&mut actor, &[KeyId::new(BUTTON_PAGE, 1).into()], 2, 110);
+    actor
+        .admit(&down(&button, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 110);
+    actor
+        .admit(&up(&button, 0, 115), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 115);
+    actor
+        .admit(&up(&first, 0, 120), &ContextSnapshot::default())
+        .unwrap();
+    assert!(drain(&mut actor, 120).0.is_empty());
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn nonzero_wheel_either_axis_cancels_alone_but_zero_wheel_does_not() {
+    for (h, v, eligible) in [(0, 0, true), (1, 0, false), (0, -1, false)] {
+        let mut actor = actor(alone_config(vec![], vec![key("c").into()], vec![], 1000));
+        let plan = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+            .unwrap();
+        actor.observe_wheel(h, v, MonoTime(110)).unwrap();
+        actor
+            .admit(&up(&plan, 0, 120), &ContextSnapshot::default())
+            .unwrap();
+        let outputs = drain(&mut actor, 120).0;
+        assert_eq!(!outputs.is_empty(), eligible);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+#[test]
+fn variable_input_does_not_cancel_alone_and_branch_reads_its_generated_value_fresh() {
+    let condition = Condition::Variable {
+        name: "v".into(),
+        value: VariableValue::Integer(1),
+        unless: false,
+    };
+    let mut actor = actor(alone_config(
+        vec![],
+        vec![Action {
+            conditions: vec![condition],
+            ..key("c").into()
+        }],
+        vec![],
+        1000,
+    ));
+    let first = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&first, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    let variable = Action {
+        target: ActionTarget::SetVariable(VariableAction {
+            name: "v".into(),
+            operation: VariableOperation::Set {
+                value: Some(VariableValue::Integer(1)),
+                key_up_value: None,
+            },
+        }),
+        ..key("vk_none").into()
+    };
+    let other = input(&mut actor, &[variable], 1, 110);
+    actor
+        .admit(&down(&other, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 110);
+    actor
+        .admit(&up(&first, 0, 120), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 120).0,
+        [("c".into(), KeyEdge::Down), ("c".into(), KeyEdge::Up)]
+    );
+    actor
+        .admit(&up(&other, 0, 130), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 130);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn alone_recreates_down_snapshot_after_original_modifiers_up_and_charges_extra_tree_sources() {
+    let mut cfg = (*alone_config(
+        vec![],
+        vec![Action {
+            hold_down_ns: 20,
+            ..key("c").into()
+        }],
+        vec![],
+        1000,
+    ))
+    .clone();
+    cfg.complex[0]
+        .extras
+        .from_modifiers
+        .mandatory
+        .insert(Modifier::Shift);
+    let mut actor = actor(Arc::new(cfg));
+    let shift = input(&mut actor, &[key("left_shift").into()], 1, 100);
+    actor
+        .admit(&down(&shift, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    let ctrl = input(&mut actor, &[key("right_control").into()], 1, 100);
+    actor
+        .admit(&down(&ctrl, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    let first = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&first, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    actor
+        .admit(&up(&shift, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 110);
+    actor
+        .admit(&up(&ctrl, 0, 111), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 111);
+    assert_eq!(actor.reserved_sources(), 1);
+    actor
+        .admit(&up(&first, 0, 120), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(actor.reserved_sources(), 4);
+    assert_eq!(
+        drain(&mut actor, 120).0,
+        [
+            ("right_control".into(), KeyEdge::Down),
+            ("c".into(), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(
+        drain(&mut actor, 140).0,
+        [
+            ("c".into(), KeyEdge::Up),
+            ("right_control".into(), KeyEdge::Up)
+        ]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+}
+#[test]
+fn alone_generated_variable_affects_after_up_selection_and_alone_halt_suppresses_it() {
+    for halt in [false, true] {
+        let variable = Action {
+            halt,
+            target: ActionTarget::SetVariable(VariableAction {
+                name: "v".into(),
+                operation: VariableOperation::Set {
+                    value: Some(VariableValue::Integer(1)),
+                    key_up_value: Some(VariableValue::Integer(2)),
+                },
+            }),
+            ..key("vk_none").into()
+        };
+        let after = Action {
+            conditions: vec![Condition::Variable {
+                name: "v".into(),
+                value: VariableValue::Integer(2),
+                unless: false,
+            }],
+            ..key("d").into()
+        };
+        let mut actor = actor(alone_config(vec![], vec![variable], vec![after], 1000));
+        let plan = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&plan, 0, 100), &ContextSnapshot::default())
+            .unwrap();
+        actor
+            .admit(&up(&plan, 0, 110), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(
+            actor.generated_variables().get("v"),
+            Some(&VariableValue::Integer(2))
+        );
+        let outputs = drain(&mut actor, 110).0;
+        if halt {
+            assert!(outputs.is_empty());
+        } else {
+            assert_eq!(
+                outputs,
+                [("d".into(), KeyEdge::Down), ("d".into(), KeyEdge::Up)]
+            );
+        }
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+#[test]
+fn alone_uses_retained_rule_after_reload_and_reset_does_not_fire_pending_alone() {
+    let old = alone_config(vec![], vec![key("c").into()], vec![], 1000);
+    let mut actor = actor(old.clone());
+    let first = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&first, 0, 100), &ContextSnapshot::default())
+        .unwrap();
+    let mut new = (*old).clone();
+    new.generation = ConfigGeneration(2);
+    new.complex[0].extras.if_alone = vec![key("d").into()];
+    actor.activate(Arc::new(new)).unwrap();
+    actor
+        .admit(&up(&first, 0, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 110).0,
+        [("c".into(), KeyEdge::Down), ("c".into(), KeyEdge::Up)]
+    );
+    let next = input(&mut actor, &[key("a").into()], 1, 120);
+    actor
+        .admit(&down(&next, 0, 120), &ContextSnapshot::default())
+        .unwrap();
+    let cleanup = actor.reset(MonoTime(130)).unwrap();
+    assert!(cleanup.outputs.is_empty());
+    assert!(actor.poll(MonoTime(140)).unwrap().is_none());
+    assert_eq!(actor.reserved_sources(), 0);
 }

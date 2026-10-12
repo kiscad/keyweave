@@ -1,4 +1,4 @@
-//! Owned Complex producer execution. Held/alone/delayed and Simple controller pending.
+//! Owned Complex producer execution. Held/delayed and Simple controller pending.
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
     output_stage::{OutputStageActor, OutputStageError},
@@ -17,7 +17,7 @@ pub enum ComplexActorError {
     Up(#[from] ProducerUpError),
     #[error(transparent)]
     Plan(#[from] PlanError),
-    #[error("Complex held/alone/delayed branch scheduling is not connected")]
+    #[error("Complex held/delayed branch scheduling is not connected")]
     UnsupportedBranches,
     #[error("invalid registered Complex input receipt")]
     Input,
@@ -51,6 +51,7 @@ pub struct ComplexStageActor {
     bindings: BTreeMap<ActionSlot, Option<BatchId>>,
     children: BTreeMap<BatchId, ActionSlot>,
     halted: BTreeSet<ActionSlot>,
+    alone_candidate: Option<ActionSlot>,
     last_batch: u64,
     now: MonoTime,
     failed: bool,
@@ -59,7 +60,6 @@ fn check_branches(config: &ConfigSnapshot) -> Result<(), ComplexActorError> {
     if config.complex.iter().any(|mapping| {
         let extras = &mapping.extras;
         !extras.if_held_down.is_empty()
-            || !extras.if_alone.is_empty()
             || extras
                 .delayed
                 .as_ref()
@@ -79,6 +79,7 @@ impl ComplexStageActor {
             bindings: BTreeMap::new(),
             children: BTreeMap::new(),
             halted: BTreeSet::new(),
+            alone_candidate: None,
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
@@ -239,6 +240,11 @@ impl ComplexStageActor {
                     .iter()
                     .filter(|e| e.payload.edge == KeyEdge::Down)
                     .count();
+                let momentary = matches!(due.event.payload.target, ActionTarget::Key(_));
+                let candidate = momentary
+                    && decision
+                        .selection()
+                        .is_some_and(|rule| !rule.mapping().extras.if_alone.is_empty());
                 let generated_halt = plan
                     .actions()
                     .events()
@@ -268,6 +274,9 @@ impl ComplexStageActor {
                     self.children.insert(id, slot);
                 }
                 self.last_batch = id.0;
+                if momentary {
+                    self.alone_candidate = if candidate { Some(slot) } else { None };
+                }
                 if generated_halt {
                     self.halted.insert(slot);
                 }
@@ -301,7 +310,34 @@ impl ComplexStageActor {
                     self.output.input_up(child, due.delivered_at)?;
                 }
                 parent_up.commit();
-                self.after_key_up(slot, context, due.delivered_at)?;
+                let alone = self.alone_candidate == Some(slot);
+                if alone {
+                    self.alone_candidate = None;
+                }
+                if alone {
+                    let decision = self
+                        .producers
+                        .live(slot)
+                        .ok_or(ComplexActorError::Invariant)?;
+                    let within = decision.selection().is_some_and(|rule| {
+                        due.delivered_at.0 - decision.delivered_at().0
+                            < rule.mapping().extras.alone_timeout_ns
+                    });
+                    if within {
+                        self.branch(
+                            slot,
+                            rule_selection::RuleBranch::Alone,
+                            context,
+                            due.delivered_at,
+                        )?;
+                    }
+                }
+                self.branch(
+                    slot,
+                    rule_selection::RuleBranch::AfterKeyUp,
+                    context,
+                    due.delivered_at,
+                )?;
                 self.finish(slot, &mut step)?;
             }
             KeyEdge::Repeat => return Err(ComplexActorError::Input),
@@ -309,9 +345,10 @@ impl ComplexStageActor {
         self.now = due.delivered_at;
         Ok(step)
     }
-    fn after_key_up(
+    fn branch(
         &mut self,
         slot: ActionSlot,
+        kind: rule_selection::RuleBranch,
         context: &ContextSnapshot,
         at: MonoTime,
     ) -> Result<(), ComplexActorError> {
@@ -322,18 +359,21 @@ impl ComplexStageActor {
         let Some(selection) = decision.selection() else {
             return Ok(());
         };
-        if selection.mapping().extras.after_key_up.is_empty() {
+        let empty = match kind {
+            rule_selection::RuleBranch::Alone => selection.mapping().extras.if_alone.is_empty(),
+            rule_selection::RuleBranch::AfterKeyUp => {
+                selection.mapping().extras.after_key_up.is_empty()
+            }
+            _ => return Err(ComplexActorError::Invariant),
+        };
+        if empty {
             return Ok(());
         }
         let branch = selection
-            .select_branch(
-                rule_selection::RuleBranch::AfterKeyUp,
-                self.halted.contains(&slot),
-                |condition| {
-                    self.output
-                        .condition_truth(condition, context, decision.down().device, at)
-                },
-            )
+            .select_branch(kind, self.halted.contains(&slot), |condition| {
+                self.output
+                    .condition_truth(condition, context, decision.down().device, at)
+            })
             .ok_or(ComplexActorError::Invariant)?;
         if branch.actions().len() == 0 {
             return Ok(());
@@ -448,6 +488,21 @@ impl ComplexStageActor {
         }
         Ok(Some(step))
     }
+    /// Eligibility only. Caller forwards pointer input and coordinates modifier sync separately.
+    pub fn observe_wheel(
+        &mut self,
+        horizontal: i32,
+        vertical: i32,
+        at: MonoTime,
+    ) -> Result<(), ComplexActorError> {
+        self.running()?;
+        self.check_time(at)?;
+        if horizontal != 0 || vertical != 0 {
+            self.alone_candidate = None;
+        }
+        self.now = at;
+        Ok(())
+    }
     pub fn observe_device(
         &mut self,
         device: DeviceInstanceId,
@@ -489,6 +544,9 @@ impl ComplexStageActor {
     }
     fn discard_inputs(&mut self, ids: &[BatchId]) -> Result<(), ComplexActorError> {
         for &id in ids {
+            if self.alone_candidate.is_some_and(|slot| slot.batch == id) {
+                self.alone_candidate = None;
+            }
             let canceled = self.producers.cancel_subtree(id)?;
             for batch in canceled {
                 self.children.remove(&batch.origin.batch);

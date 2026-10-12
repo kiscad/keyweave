@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0126 Complex alone eligibility and snapshot branch scheduling",
+  "source_base_commit": "e422303fafa70a522d2dd0e4a9f65e7d3e4224c2",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "4d5eeed25cdf3792c142189607bb296444f7d5d999d702c8b7cffc1a124b2dad",
+    "crates/keyweave-engine/tests/complex_actor.rs": "f576811baf52edbba0032f0367c9fbe1066714d7040d6caf7085d0cac0546e87"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1176,
+    "new_tests": 7,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-alone/tests.log",
+        "sha256": "d1d588aea3bc3753782baaf70b7d9a55b54f9f401d6d28c8e722f392759bd981"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-alone/clippy.log",
+        "sha256": "e2c915d1ac9fc3b6c37e79272e6213c869a58a0a8af24da5b1080f74e2cfddd2"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-alone/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-alone/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust actor candidate and branch scheduling; no unsafe/FFI/dependencies/native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Alone cold gate removed, held/delayed still explicitly rejected. Most recent eligible momentary Down is candidate; any new key/button/consumer Down cancels it, variable input does not. Repeated physical input is not routed by this stage-receipt API.",
+    "Original Up clears own candidate; elapsed strictly below old rule timeout qualifies. Up does not restore an earlier canceled candidate. Nonzero wheel either axis cancels eligibility; zero wheel does not.",
+    "observe_wheel only manages eligibility and actor time; no pointer forwarding, native actuation or modifier synchronization. Full input/controller integration remains pending.",
+    "Up generates main saved Up then alone tap using down modifier snapshot and fresh current destination conditions, then after_up using alone-generated view. All sibling children must finish and detach before producer release. Snapshot extra sources automatically charged to same binding arena.",
+    "Generation-time halt suppresses later branches; incoming halt still upstream metadata. Failures after earlier Up/branch commits latch Failed and require stop/reset; no entire-Up rollback or native recovery proof.",
+    "Simple/allstage controller, crossstage scope/physical EOF/global source IDs, held/delayed/context scheduling/native duration/Windows build/hardware/UI/packaging/driver unfinished; native runtime and duration gate retained.",
+    "No actual input, device, driver, installation or Windows native compilation executed."
+  ]
+}
