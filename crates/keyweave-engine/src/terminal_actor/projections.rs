@@ -351,6 +351,89 @@ impl TerminalActor {
     }
 }
 
+#[must_use = "commit or discard birth projection and terminal batch together"]
+pub(crate) struct PreparedTerminalProjectedAppend<'a> {
+    append: PreparedTerminalAppend<'a>,
+    projection: KeyProjection,
+    id: KeyProjectionId,
+}
+impl PreparedTerminalProjectedAppend<'_> {
+    pub(crate) fn id(&self) -> KeyProjectionId {
+        self.id
+    }
+    pub(crate) fn commit(mut self) {
+        if let Some(batch) = self.append.batch.as_mut() {
+            batch.birth_projection = Some(self.id);
+        }
+        *self.append.projection_references +=
+            self.projection.owners.len() + self.projection.variables.len();
+        self.append.projection_map.insert(self.id, self.projection);
+        *self.append.projection_cursor = self.id.0;
+        self.append.commit();
+    }
+}
+impl<'a> PreparedTerminalAppend<'a> {
+    pub(crate) fn projected(self) -> Result<PreparedTerminalProjectedAppend<'a>, ActorError> {
+        let batch = self.batch.as_ref().ok_or(ActorError::InvalidProjection)?;
+        let mut owners = BTreeSet::new();
+        let mut variables = Vec::new();
+        for event in batch
+            .plan
+            .events()
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+        {
+            match &event.payload.target {
+                ActionTarget::Key(key) if key.usage != 0 => {
+                    owners.insert((
+                        *key,
+                        SourceToken(batch.base_source + u64::from(event.payload.slot.index)),
+                    ));
+                }
+                ActionTarget::SetVariable(_) => {
+                    variables.push((event.payload.slot, event.payload.target.clone()))
+                }
+                _ => {}
+            }
+        }
+        if let Some(scope) = &batch.scope
+            && let Some(pending) = &scope.pending
+            && pending.policy() == rule_selection::BranchModifierPolicy::DownSnapshotMinusConsumed
+        {
+            owners.extend(
+                pending
+                    .snapshot()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, key)| (*key, SourceToken(scope.source + index as u64))),
+            );
+        }
+        if self.projection_map.len() >= MAX_BINDINGS
+            || owners.len().saturating_add(variables.len())
+                > MAX_PERSISTENT_SUPPRESSION_REFERENCES.saturating_sub(*self.projection_references)
+        {
+            return Err(ActorError::Capacity);
+        }
+        let id = KeyProjectionId(
+            self.projection_cursor
+                .checked_add(1)
+                .ok_or(EngineError::ResourceLimit)?,
+        );
+        let projection = KeyProjection {
+            origin: batch.plan.origin.clone(),
+            owners: owners.into_iter().collect(),
+            variables,
+            active: false,
+            close_queued: false,
+        };
+        Ok(PreparedTerminalProjectedAppend {
+            append: self,
+            projection,
+            id,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]

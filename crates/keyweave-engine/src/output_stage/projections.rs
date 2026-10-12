@@ -118,6 +118,112 @@ impl OutputStageActor {
     }
 }
 
+#[must_use = "commit or abort projected batch admission on both sides"]
+pub struct PreparedProjectedOutputBatch<'a> {
+    terminal: terminal_actor::PreparedTerminalProjectedAppend<'a>,
+    generated: generated_stage::PreparedScopedGeneration<'a>,
+    recipes: &'a mut BTreeMap<BatchId, Recipe>,
+    projections: &'a mut BTreeMap<KeyProjectionId, ProjectionRecipe>,
+    id: KeyProjectionId,
+    batch: BatchId,
+    device: DeviceInstanceId,
+    parent: Option<action_plan::ActionSlot>,
+}
+impl PreparedProjectedOutputBatch<'_> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) -> KeyProjectionId {
+        self.terminal.commit();
+        let saved = self.generated.commit();
+        self.recipes.insert(
+            self.batch,
+            Recipe {
+                saved,
+                device: self.device,
+                parent: self.parent,
+            },
+        );
+        self.projections.insert(
+            self.id,
+            ProjectionRecipe {
+                batch: self.batch,
+                device: self.device,
+            },
+        );
+        self.id
+    }
+}
+impl OutputStageActor {
+    /// New batch keys/variables become projected before their first real action.
+    /// No ordinary Down or variable Down value is briefly exposed during projection.
+    pub fn prepare_projected_scoped(
+        &mut self,
+        plan: ScopedActionPlan,
+    ) -> Result<PreparedProjectedOutputBatch<'_>, OutputStageError> {
+        self.prepare_projected_inner(plan, None)
+    }
+    fn prepare_projected_inner(
+        &mut self,
+        plan: ScopedActionPlan,
+        child: Option<&stage_bindings::ChildAdmission<'_>>,
+    ) -> Result<PreparedProjectedOutputBatch<'_>, OutputStageError> {
+        self.running()?;
+        let batch = plan.actions().origin.batch;
+        let device = plan.actions().origin.device;
+        let generated = match child {
+            Some(child) => self.generated.prepare_child_scoped(&plan, child)?,
+            None => self.generated.prepare_scoped(&plan)?,
+        };
+        let terminal = match child {
+            Some(child) => self.terminal.prepare_child_scoped(plan, child)?,
+            None => self.terminal.prepare_scoped(plan)?,
+        }
+        .projected()?;
+        let id = terminal.id();
+        let generated = generated.projected(id)?;
+        Ok(PreparedProjectedOutputBatch {
+            terminal,
+            generated,
+            recipes: &mut self.recipes,
+            projections: &mut self.projections,
+            id,
+            batch,
+            device,
+            parent: child.map(stage_bindings::ChildAdmission::parent),
+        })
+    }
+    pub fn prepare_projected_child_scoped<'a, T>(
+        &'a mut self,
+        plan: ScopedActionPlan,
+        registration: stage_bindings::Reservation<'a, T>,
+    ) -> Result<PreparedProjectedOutputChild<'a, T>, OutputStageError> {
+        self.running()?;
+        let registration = registration.with_extra_sources(plan.scope().reservation())?;
+        let child = registration.child_admission()?;
+        let output = self.prepare_projected_inner(plan, Some(&child))?;
+        Ok(PreparedProjectedOutputChild {
+            output,
+            registration,
+        })
+    }
+}
+
+#[must_use = "commit or abort parent registration and born-projected output together"]
+pub struct PreparedProjectedOutputChild<'a, T> {
+    output: PreparedProjectedOutputBatch<'a>,
+    registration: stage_bindings::Reservation<'a, T>,
+}
+impl<T> PreparedProjectedOutputChild<'_, T> {
+    pub fn abort(self) {
+        drop(self);
+    }
+    pub fn commit(self) -> KeyProjectionId {
+        self.registration.commit();
+        self.output.commit()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]

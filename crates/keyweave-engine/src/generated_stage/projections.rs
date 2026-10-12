@@ -17,21 +17,8 @@ pub(crate) struct PreparedGeneratedKeyProjection<'a> {
 impl PreparedGeneratedKeyProjection<'_> {
     pub(crate) fn commit(self) {
         self.timeline.commit();
-        for (slot, target) in &self.projection.variables {
-            if !self.environment.hidden.contains_key(slot)
-                && self.environment.down.contains_key(slot)
-                && let Some((name, value)) = variable_update(target, KeyEdge::Up)
-            {
-                self.environment.variables.insert(name.to_owned(), value);
-            }
-        }
-        for slot in &self.projection.slots {
-            *self.environment.hidden.entry(*slot).or_default() += 1;
-        }
-        self.environment.references += self.projection.slots.len();
         self.environment
-            .key_projections
-            .insert(self.id, self.projection);
+            .install_key_projection(self.id, self.projection);
         *self.now = self.at;
     }
 }
@@ -70,6 +57,26 @@ impl PreparedGeneratedKeyProjectionClose<'_> {
     }
 }
 impl Environment {
+    pub(super) fn install_key_projection(
+        &mut self,
+        id: KeyProjectionId,
+        projection: GeneratedKeyProjection,
+    ) {
+        for (slot, target) in &projection.variables {
+            if !self.hidden.contains_key(slot)
+                && self.down.contains_key(slot)
+                && let Some((name, value)) = variable_update(target, KeyEdge::Up)
+            {
+                self.variables.insert(name.to_owned(), value);
+            }
+        }
+        for slot in &projection.slots {
+            *self.hidden.entry(*slot).or_default() += 1;
+        }
+        self.references += projection.slots.len();
+        self.key_projections.insert(id, projection);
+    }
+
     pub(super) fn cancel_key_projections(
         &mut self,
         matches: impl Fn(&action_plan::PlanOrigin) -> bool,
@@ -226,5 +233,53 @@ impl GeneratedStageQueue {
             self.environment.key_projections.remove(&command.id);
         }
         Ok(())
+    }
+}
+
+impl PreparedScopedGeneration<'_> {
+    pub(crate) fn projected(mut self, id: KeyProjectionId) -> Result<Self, GeneratedError> {
+        let env = &self.append.append.environment;
+        if env.stage != Stage::Output {
+            return Err(GeneratedError::Stage);
+        }
+        let actions: Vec<_> = self
+            .saved
+            .plan
+            .events()
+            .iter()
+            .filter(|event| {
+                event.payload.edge == KeyEdge::Down
+                    && !matches!(event.payload.target,ActionTarget::Key(key) if key.usage==0)
+            })
+            .map(|event| &event.payload)
+            .collect();
+        let cost = actions.len().saturating_add(
+            self.append
+                .scope
+                .as_ref()
+                .map_or(0, |(_, scope)| scope.hidden.len()),
+        );
+        if env.key_projections.len() >= MAX_BINDINGS
+            || env.key_projections.contains_key(&id)
+            || cost > MAX_PERSISTENT_SUPPRESSION_REFERENCES.saturating_sub(env.references)
+        {
+            return Err(EngineError::ResourceLimit.into());
+        }
+        let slots = actions.iter().map(|action| action.slot).collect();
+        let variables = actions
+            .iter()
+            .filter(|action| matches!(action.target, ActionTarget::SetVariable(_)))
+            .map(|action| (action.slot, action.target.clone()))
+            .collect();
+        self.append.birth_projection = Some((
+            id,
+            GeneratedKeyProjection {
+                origin: self.saved.plan.origin.clone(),
+                slots,
+                variables,
+                logical_open: true,
+            },
+        ));
+        Ok(self)
     }
 }

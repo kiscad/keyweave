@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0142 born-projected Output batch joint admission",
+  "source_base_commit": "00168372a40f56860e378efed44bb79abcf957ac",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/output_stage.rs": "f76fd4813b698360cc612d5257b58b185913ce6bbb5e27f024697ded23387466",
+    "crates/keyweave-engine/src/generated_stage.rs": "f16d0cce5a7f54368c15ff9a196800d46f545604721138d7179ac1659195f7f7",
+    "crates/keyweave-engine/src/terminal_actor.rs": "c3bff5ae655b966853a382b1eaaefe595779758fb6a21c61bcfac40b326879e1",
+    "crates/keyweave-engine/src/output_stage/projections.rs": "a5a255daf18eaf8bc89e6811931f9d5078c1a5ad9e74b45dc703988c1e886ca4",
+    "crates/keyweave-engine/src/terminal_actor/projections.rs": "02cb46192953e5ab7c9432b66a87cd676bb5c9c1368ebd54b56d383ab1a7846b",
+    "crates/keyweave-engine/src/generated_stage/projections.rs": "ddd4d7da25039dd8ef528f64cd435b3ebd5a86569be1249efa58f27e6627c46e",
+    "crates/keyweave-engine/tests/born_projected_output.rs": "dfdc0632163452bf38a539bc8522e51d6640d8312c0e061e5748a0063c24c1a3"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1294,
+    "new_tests": 7,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "focused_after_module_move_cases": 7,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-born-projected-output/tests.log",
+        "sha256": "9538247f7a26d80e9481e498617c7f4c496e4f76216bb2735688ca089d836afc"
+      },
+      "focused": {
+        "path": "target/validation/linux-20261012-born-projected-output/focused.log",
+        "sha256": "7cc07d23171bad7970f6ea07fb148be33e8efa36da9d6576b6b07fd46f717fa7"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-born-projected-output/clippy.log",
+        "sha256": "3bcea401c86ff0d0cc95d2a7feca24507fa7548d46d1bc8c1a99d7cf62b99e2d"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-born-projected-output/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-born-projected-output/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial edit scripts failed before saving parent fields; compiler identified incomplete wiring. Corrected exact insertion points.",
+    "ScopedActionPlan has no Clone API; corrected prepare order so generation borrows before Terminal consumes the plan.",
+    "Clippy rejected production items after a test module; moved declarations before tests. Final focused tests and Clippy passed after full workspace tests."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Output joint preparation now admits a batch with its projection before any initial action or snapshot owner is delivered. No initial ProjectionDown queue entry; ordinary action receipt remains paired.",
+    "Actual key masks activate before first action; variable saved Up follows bound Down within that same step. Generation applies its frozen projection before the committed view is exposed.",
+    "Close remains a paired FIFO marker and restores only original sources still live; no rule reselection, array replay or new owner identities.",
+    "Abort leaves batch/source/projection IDs, queues and generated/actual views unchanged. Existing retained parent child registration participates in the transaction.",
+    "Only nonempty Output batches supported. Complex descendant templates and Simple consumed scope inheritance remain incomplete. Native timing gate remains; no live capture, hardware, Windows native verification or driver operations."
+  ],
+  "abi": "Pure Rust actor state/guards; no unsafe/FFI/dependency/native ABI changes."
+}

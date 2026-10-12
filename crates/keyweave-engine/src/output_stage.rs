@@ -12,7 +12,10 @@ use crate::{
 
 mod projections;
 use projections::ProjectionRecipe;
-pub use projections::{PreparedOutputKeyProjection, PreparedOutputKeyProjectionClose};
+pub use projections::{
+    PreparedOutputKeyProjection, PreparedOutputKeyProjectionClose, PreparedProjectedOutputBatch,
+    PreparedProjectedOutputChild,
+};
 
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum OutputStageError {

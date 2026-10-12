@@ -143,6 +143,10 @@ pub struct PreparedGeneratedAppend<'a> {
     delivery: stage_delivery::DeliveryAppend<'a>,
     timeline: timeline::PreparedStageAppend<'a, GeneratedWork>,
     scope: Option<(action_plan::BatchId, LogicalScope)>,
+    birth_projection: Option<(
+        crate::terminal_actor::KeyProjectionId,
+        GeneratedKeyProjection,
+    )>,
 }
 impl PreparedGeneratedAppend<'_> {
     pub fn abort(self) -> Vec<StageEvent<PlannedAction>> {
@@ -158,6 +162,9 @@ impl PreparedGeneratedAppend<'_> {
             }
             environment.references += scope.hidden.len();
             environment.scopes.insert(id, scope);
+        }
+        if let Some((id, projection)) = self.birth_projection {
+            environment.install_key_projection(id, projection);
         }
     }
 }
@@ -591,6 +598,7 @@ impl GeneratedStageQueue {
             delivery,
             timeline,
             scope: None,
+            birth_projection: None,
         })
     }
     pub fn hidden_modifier_references(&self) -> usize {
@@ -761,6 +769,7 @@ impl GeneratedStageQueue {
                 delivery,
                 timeline,
                 scope,
+                birth_projection: None,
             },
             saved: ScopedGeneration {
                 queue: Arc::clone(&self.identity),

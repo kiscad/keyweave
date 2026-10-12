@@ -10,7 +10,8 @@ mod projections;
 use projections::KeyProjection;
 pub use projections::KeyProjectionId;
 pub(crate) use projections::{
-    PreparedKeyProjection, PreparedKeyProjectionClose, ProjectionCommand,
+    PreparedKeyProjection, PreparedKeyProjectionClose, PreparedTerminalProjectedAppend,
+    ProjectionCommand,
 };
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -58,6 +59,7 @@ struct Batch {
     up_queued: bool,
     keys: BTreeSet<KeyId>,
     scope: Option<BatchScope>,
+    birth_projection: Option<KeyProjectionId>,
 }
 struct BatchScope {
     pending: Option<modifier_scope::ModifierScope>,
@@ -137,6 +139,9 @@ pub struct PreparedTerminalAppend<'a> {
     id: BatchId,
     next_source_value: u64,
     scope_reserved: usize,
+    projection_map: &'a mut BTreeMap<KeyProjectionId, KeyProjection>,
+    projection_cursor: &'a mut u64,
+    projection_references: &'a mut usize,
 }
 impl PreparedTerminalAppend<'_> {
     /// The consumed plan is discarded, as for a rejected enqueue; retain a
@@ -494,6 +499,7 @@ impl TerminalActor {
                 remaining,
                 up_queued,
                 keys: batch_keys,
+                birth_projection: None,
                 scope,
             })
         } else {
@@ -510,6 +516,9 @@ impl TerminalActor {
             id,
             next_source_value: next_source,
             scope_reserved,
+            projection_map: &mut self.projections,
+            projection_cursor: &mut self.next_projection,
+            projection_references: &mut self.core.suppression_references,
         })
     }
     /// Unknown/completed or duplicate original up is a no-op, not a new release.
@@ -700,6 +709,31 @@ impl TerminalActor {
             | TerminalWork::ProjectionDown(_, _)
             | TerminalWork::ProjectionUp(_, _) => return Err(ActorError::InvalidSlot),
         };
+        let birth = self
+            .batches
+            .get_mut(&id)
+            .ok_or(ActorError::InvalidSlot)?
+            .birth_projection
+            .take();
+        if let Some(projection_id) = birth {
+            let event = timeline::StageEvent {
+                stage: due.event.stage,
+                at_ns: due.event.at_ns,
+                device: due.event.device,
+                source: due.event.source,
+                config: due.event.config.clone(),
+                payload: ProjectionCommand {
+                    id: projection_id,
+                    opening: true,
+                    batch: id,
+                },
+            };
+            let birth = self.deliver_key_projection(event)?;
+            if !birth.step.outputs.is_empty() {
+                self.failed = true;
+                return Err(ActorError::InvalidProjection);
+            }
+        }
         let batch = self.batches.get_mut(&id).ok_or(ActorError::InvalidSlot)?;
         if let Some(scope) = &mut batch.scope
             && let Some(spec) = scope.pending.take()
@@ -760,6 +794,12 @@ impl TerminalActor {
                     self.bindings
                         .insert(action.slot, bound)
                         .map_err(|_| ActorError::InvalidSlot)?;
+                    if self.variable_projection_refs.contains_key(&action.slot)
+                        && let Some((name, value)) =
+                            crate::generated_stage::variable_update(&action.target, KeyEdge::Up)
+                    {
+                        self.core.assign_variable(name, value);
+                    }
                 }
                 KeyEdge::Up => {
                     let mut bound = self
