@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0127 Complex held deadline and saved-main replacement",
+  "source_base_commit": "6cd1f57eebedff3db27d8ea60113d7f536685dfc",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "9f05ef1432875e23f893ba7e1eb83ffeda1042083326188c3c77b2195b353126",
+    "crates/keyweave-engine/tests/complex_actor.rs": "c04f8403e8b04acaecb20e903284251f4b01362e376ba0228cf799092b858a91"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1185,
+    "new_tests": 9,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-held/tests.log",
+        "sha256": "28cab08c85e15ed0fbab39b276100d97bd4a491c3fc370b7fcdfb52dee15a64a"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-held/clippy.log",
+        "sha256": "56cd26d97f70a38754a58a484f0bb0190c534c865d4b985488a9162580fd1e64"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-held/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-held/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "run": "first existing actor regression run, 26 passed / 1 failed, exit 101",
+      "cause": "Test-update script assertion failed after writing actor; old cold-gate test still expected held unsupported.",
+      "resolution": "Changed fixture to remaining delayed gate. Production implementation unchanged; existing 27 and final 36 actor tests passed."
+    }
+  ],
+  "abi": "Pure Rust injected deadline and branch scheduling; no unsafe/FFI/dependencies/native ABI changes. ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "One bounded pending held task is canceled by any new Down including variable, by target original Up, device cleanup or reset. Checked deadline overflow rejects before producer/output commit.",
+    "next_deadline merges output and held deadline. Due outputs are polled before timer generation; timer gets actual poll time and caller context through poll_with_context. Legacy poll uses default Unknown context. Same-time input waits for timer/output polling first.",
+    "Held first generates old main saved Up/logical scope/variable Up, then once-filters held current-modifier branch. New child becomes current saved main while old child remains tree-registered until actual FIFO completion. Physical original Up releases replacement and may still generate alone within original timeout.",
+    "Empty/halt-skipped held still releases old main but allocates no child/ID. Generation failure after old Up commits latches Failed and requires capture-stop/reset; no complete event rollback or native acceptance/recovery proof.",
+    "Delayed still explicitly rejected. Simple/allstage/scope propagation/physical EOF/source ID pooling/context/native duration integration/Windows/hardware/UI/packaging/driver incomplete. Native runtime and UnsupportedActionTiming gate retained.",
+    "No actual input, device, driver, install or Windows native compilation executed."
+  ]
+}
