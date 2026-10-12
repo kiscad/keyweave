@@ -9,6 +9,9 @@ use crate::{
 mod projections;
 use projections::KeyProjection;
 pub use projections::KeyProjectionId;
+pub(crate) use projections::{
+    PreparedKeyProjection, PreparedKeyProjectionClose, ProjectionCommand,
+};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ActorError {
@@ -76,6 +79,7 @@ pub(crate) struct TerminalDelivery {
     pub(crate) step: ActorStep,
     pub(crate) action: Option<timeline::StageEvent<action_plan::PlannedAction>>,
     pub(crate) pointer: Option<timeline::DueEvent<crate::pointer_work::PointerMotion>>,
+    pub(crate) projection: Option<timeline::StageEvent<ProjectionCommand>>,
 }
 pub(crate) enum TerminalWork {
     Action(action_plan::PlannedAction),
@@ -644,15 +648,22 @@ impl TerminalActor {
         };
         self.core.now = at;
         self.core.current_device = due.event.device;
-        if let TerminalWork::ProjectionDown(id, _) | TerminalWork::ProjectionUp(id, _) =
+        if let TerminalWork::ProjectionDown(id, batch) | TerminalWork::ProjectionUp(id, batch) =
             &due.event.payload
         {
-            return self
-                .deliver_key_projection(
-                    *id,
-                    matches!(due.event.payload, TerminalWork::ProjectionDown(_, _)),
-                )
-                .map(Some);
+            let event = timeline::StageEvent {
+                stage: due.event.stage,
+                at_ns: due.event.at_ns,
+                device: due.event.device,
+                source: due.event.source,
+                config: due.event.config.clone(),
+                payload: ProjectionCommand {
+                    id: *id,
+                    batch: *batch,
+                    opening: matches!(due.event.payload, TerminalWork::ProjectionDown(_, _)),
+                },
+            };
+            return self.deliver_key_projection(event).map(Some);
         }
         if let TerminalWork::Pointer(pointer) = &due.event.payload {
             let mut outputs = Vec::new();
@@ -664,6 +675,7 @@ impl TerminalActor {
                     completed_batch: None,
                 },
                 action: None,
+                projection: None,
                 pointer: Some(timeline::DueEvent {
                     event: timeline::StageEvent {
                         stage: due.event.stage,
@@ -807,6 +819,7 @@ impl TerminalActor {
             },
             action: receipt,
             pointer: None,
+            projection: None,
         }))
     }
     pub fn cancel_batch(

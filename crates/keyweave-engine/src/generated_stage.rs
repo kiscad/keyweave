@@ -7,7 +7,10 @@ use crate::{
     *,
 };
 
+mod projections;
 pub use crate::stage_delivery::DeliveryProgress;
+use projections::GeneratedKeyProjection;
+pub(crate) use projections::{PreparedGeneratedKeyProjection, PreparedGeneratedKeyProjectionClose};
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum GeneratedError {
     #[error(transparent)]
@@ -50,10 +53,12 @@ impl std::fmt::Debug for RejectedGeneratedBatch {
 pub(crate) enum GeneratedWork {
     Action(PlannedAction),
     Pointer(crate::pointer_work::PointerMotion),
+    Projection(crate::terminal_actor::ProjectionCommand),
 }
 pub(crate) enum GeneratedDelivery {
     Action(DueEvent<PlannedAction>),
     Pointer(DueEvent<crate::pointer_work::PointerMotion>),
+    Projection(DueEvent<crate::terminal_actor::ProjectionCommand>),
 }
 fn map_event<A, B>(event: StageEvent<A>, payload: B) -> StageEvent<B> {
     StageEvent {
@@ -105,6 +110,7 @@ struct Environment {
     variables: BTreeMap<String, Option<VariableValue>>,
     hidden: BTreeMap<ActionSlot, usize>,
     scopes: BTreeMap<action_plan::BatchId, LogicalScope>,
+    key_projections: BTreeMap<crate::terminal_actor::KeyProjectionId, GeneratedKeyProjection>,
     references: usize,
 }
 struct Append<'a> {
@@ -397,6 +403,7 @@ impl GeneratedStageQueue {
                 variables,
                 hidden: BTreeMap::new(),
                 scopes: BTreeMap::new(),
+                key_projections: BTreeMap::new(),
                 references: 0,
             },
             timeline: StageTimeline::new(),
@@ -817,7 +824,9 @@ impl GeneratedStageQueue {
     ) -> Result<Option<DueEvent<PlannedAction>>, GeneratedError> {
         match self.poll_mixed(at)? {
             Some(GeneratedDelivery::Action(due)) => Ok(Some(due)),
-            Some(GeneratedDelivery::Pointer(_)) => Err(GeneratedError::Stage),
+            Some(GeneratedDelivery::Pointer(_) | GeneratedDelivery::Projection(_)) => {
+                Err(GeneratedError::Stage)
+            }
             None => Ok(None),
         }
     }
@@ -852,23 +861,32 @@ impl GeneratedStageQueue {
     ) -> Result<Option<GeneratedDelivery>, GeneratedError> {
         let due = self.timeline.pop_due(at)?;
         self.now = at;
-        Ok(due.map(|due| {
-            let at = due.delivered_at;
-            match &due.event.payload {
-                GeneratedWork::Action(action) => {
-                    let event = map_event(due.event.clone(), action.clone());
-                    self.delivery.delivered(&event);
-                    GeneratedDelivery::Action(DueEvent {
-                        event,
-                        delivered_at: at,
-                    })
-                }
-                GeneratedWork::Pointer(pointer) => GeneratedDelivery::Pointer(DueEvent {
-                    event: map_event(due.event.clone(), pointer.clone()),
+        let Some(due) = due else {
+            return Ok(None);
+        };
+        let at = due.delivered_at;
+        let delivery = match &due.event.payload {
+            GeneratedWork::Action(action) => {
+                let event = map_event(due.event.clone(), action.clone());
+                self.delivery.delivered(&event);
+                GeneratedDelivery::Action(DueEvent {
+                    event,
                     delivered_at: at,
-                }),
+                })
             }
-        }))
+            GeneratedWork::Pointer(pointer) => GeneratedDelivery::Pointer(DueEvent {
+                event: map_event(due.event.clone(), pointer.clone()),
+                delivered_at: at,
+            }),
+            GeneratedWork::Projection(command) => {
+                self.delivered_key_projection(command)?;
+                GeneratedDelivery::Projection(DueEvent {
+                    event: map_event(due.event.clone(), command.clone()),
+                    delivered_at: at,
+                })
+            }
+        };
+        Ok(Some(delivery))
     }
     /// Timeline validates device history first. Returned slots/events require caller cleanup.
     pub fn observe_device(
@@ -878,6 +896,11 @@ impl GeneratedStageQueue {
     ) -> Result<(Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>), GeneratedError> {
         let events = actions_only(self.timeline.observe_device(device, removed)?);
         self.delivery.remove_device(device, removed);
+        self.environment.cancel_key_projections(|origin| {
+            origin.device.id == device.id
+                && (origin.device.generation < device.generation
+                    || (removed && origin.device.generation == device.generation))
+        });
         let slots = self.environment.remove(|down, _| {
             down.device.id == device.id
                 && (down.device.generation < device.generation
@@ -903,9 +926,13 @@ impl GeneratedStageQueue {
         &mut self,
         batch: action_plan::BatchId,
     ) -> (Vec<ActionSlot>, Vec<StageEvent<PlannedAction>>) {
-        let events = self
-            .timeline
-            .discard_where(|event| matches!(&event.payload, GeneratedWork::Action(action) if action.slot.batch == batch));
+        self.environment
+            .cancel_key_projections(|origin| origin.batch == batch);
+        let events = self.timeline.discard_where(|event| match &event.payload {
+            GeneratedWork::Action(action) => action.slot.batch == batch,
+            GeneratedWork::Projection(command) => command.batch == batch,
+            GeneratedWork::Pointer(_) => false,
+        });
         let slots = self.environment.remove(|_, slot| slot.batch == batch);
         self.environment.close_scope(batch);
         self.delivery.cancel(batch);
@@ -957,6 +984,7 @@ impl GeneratedStageQueue {
         self.delivery = crate::stage_delivery::DeliveryLedger::default();
         self.environment.down.clear();
         self.environment.scopes.clear();
+        self.environment.key_projections.clear();
         self.environment.hidden.clear();
         self.environment.references = 0;
         self.identity = Arc::new(());

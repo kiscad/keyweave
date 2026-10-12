@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0140 joint Output generation/actual key projection transactions",
+  "source_base_commit": "d7c4ffd34ce7dd3f592e2955aacc2e94d2c0a4be",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/generated_stage.rs": "a902fe7cae7acc29ae1d145546d768a3ee925f514dd12a16ba5f71d5900d3827",
+    "crates/keyweave-engine/src/generated_stage/projections.rs": "d1f6c00fb50decc6c0acd9b62f2d59f5ef7b09458df862f87e402d129c118ad5",
+    "crates/keyweave-engine/src/output_stage.rs": "6a64d8c746dbff0c0de3400cebd89d92f530f4fa346dc33c3b51f692adfc6575",
+    "crates/keyweave-engine/src/output_stage/projections.rs": "afbcdd7698d02d98b3c50cbcbab418c1461c38b41391a5485e447d7ad2758af5",
+    "crates/keyweave-engine/src/terminal_actor.rs": "72d7a4c4c27898ebf21a44da71791ad751a6179396360ce07f46b3ecdd7e169a",
+    "crates/keyweave-engine/src/terminal_actor/projections.rs": "2a6265e86772c4099228b1e437446c8ccfaa45c7393331c969d80c8b99a1e487",
+    "crates/keyweave-engine/src/simple_actor.rs": "18bae2012be48f9b397af6685139432230cec249445971a679ab54669df22397",
+    "crates/keyweave-engine/tests/output_key_projections.rs": "e85d1d5eb912b7c0a75c0600375dc558be1a844d045d793cb0e1498142df5623"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1280,
+    "new_tests": 9,
+    "integration_tests": 5,
+    "private_fault_capacity_tests": 4,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-output-projection-transactions/tests.log",
+        "sha256": "5a12dd556da54ad5069b51a70f7728c5820825c864b8733779630449fc54aa87"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-output-projection-transactions/clippy.log",
+        "sha256": "d5f17227dcfffaabfb385ab68eaa0819f4be02339f3f0ab72c267b5c9b073e25"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-output-projection-transactions/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-output-projection-transactions/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "During mixed work extension, compiler identified missing GeneratedDelivery::Projection match in Simple actor. Added explicit Invariant reject; projection admission is private Output-only until Simple protocol is implemented.",
+    "Output edit script searched for a different derive annotation and stopped before saving owner integration. Corrected anchor and completed wiring; temporary unused warnings disappeared."
+  ],
+  "abi": "Pure Rust prepared guards/logical hidden references/FIFO projection receipts. No unsafe/FFI/dependency/native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Output prepare_key_projection/prepare_key_projection_close own both Terminal and Generated guards; abort/drop/capacity rejection preserve both views, IDs, refs, queues and clocks. Commit changes generated logical key-slot hidden refs immediately and queues actual source visibility control.",
+    "Projection markers share both Output FIFOs; actual delivery is paired against full generated id/direction/batch/earliest/stage/source/device/exact Arc receipt. Missing/mismatched recipe or receipt latches Failed; recovery is separate from native acceptance/rollback.",
+    "Logical captured slots use exact retained saved generation credential and Terminal-selected key slots; snapshot actual owners stay in Terminal domain. Variables remain cold rejected. Close retains old origin independently after target batch actual retirement; delivery retires projection records only after actual close.",
+    "Device/cancel/reset remove both controls and booked references. Public standalone Terminal APIs preserved as wrappers; Simple mixed queue explicitly rejects unexpected projection records until full source protocol is wired.",
+    "Full Complex descendant inheritance, variable pause/resume and Simple consumed scope/native pipeline remain incomplete. Simultaneous/Windows/hardware/UI/packaging/driver goal also remains active. Native duration gate retained; no real input/device/driver/install/native Windows operation executed."
+  ]
+}

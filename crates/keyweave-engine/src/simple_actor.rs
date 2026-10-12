@@ -543,6 +543,9 @@ impl SimpleStageActor {
                     })?;
                     return self.absorb(actual).map(Some);
                 }
+                crate::generated_stage::GeneratedDelivery::Projection(_) => {
+                    return Err(SimpleActorError::Invariant);
+                }
                 crate::generated_stage::GeneratedDelivery::Pointer(due) => {
                     self.complex.admit_pointer(&due)?;
                     return Ok(Some(SimpleStep::default()));

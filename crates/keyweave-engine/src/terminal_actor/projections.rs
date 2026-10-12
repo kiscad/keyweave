@@ -8,6 +8,54 @@ pub(super) struct KeyProjection {
     active: bool,
     close_queued: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProjectionCommand {
+    pub(crate) id: KeyProjectionId,
+    pub(crate) opening: bool,
+    pub(crate) batch: BatchId,
+}
+#[must_use = "commit or discard the prepared key projection"]
+pub(crate) struct PreparedKeyProjection<'a> {
+    timeline: timeline::PreparedStageAppend<'a, TerminalWork>,
+    projections: &'a mut BTreeMap<KeyProjectionId, KeyProjection>,
+    next: &'a mut u64,
+    references: &'a mut usize,
+    now: &'a mut MonoTime,
+    projection: KeyProjection,
+    id: KeyProjectionId,
+    slots: Vec<action_plan::ActionSlot>,
+    at: MonoTime,
+}
+impl PreparedKeyProjection<'_> {
+    pub(crate) fn id(&self) -> KeyProjectionId {
+        self.id
+    }
+    pub(crate) fn slots(&self) -> &[action_plan::ActionSlot] {
+        &self.slots
+    }
+    pub(crate) fn commit(self) -> KeyProjectionId {
+        self.timeline.commit();
+        *self.references += self.projection.owners.len();
+        self.projections.insert(self.id, self.projection);
+        *self.next = self.id.0;
+        *self.now = self.at;
+        self.id
+    }
+}
+#[must_use = "commit or discard the prepared projection close"]
+pub(crate) struct PreparedKeyProjectionClose<'a> {
+    timeline: timeline::PreparedStageAppend<'a, TerminalWork>,
+    close: &'a mut bool,
+    now: &'a mut MonoTime,
+    at: MonoTime,
+}
+impl PreparedKeyProjectionClose<'_> {
+    pub(crate) fn commit(self) {
+        self.timeline.commit();
+        *self.close = true;
+        *self.now = self.at;
+    }
+}
 impl TerminalActor {
     pub fn suppression_references(&self) -> usize {
         self.core.suppression_references
@@ -24,6 +72,15 @@ impl TerminalActor {
         batch: BatchId,
         at: MonoTime,
     ) -> Result<Option<KeyProjectionId>, ActorError> {
+        Ok(self
+            .prepare_key_projection(batch, at)?
+            .map(PreparedKeyProjection::commit))
+    }
+    pub(crate) fn prepare_key_projection(
+        &mut self,
+        batch: BatchId,
+        at: MonoTime,
+    ) -> Result<Option<PreparedKeyProjection<'_>>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
         }
@@ -33,6 +90,7 @@ impl TerminalActor {
             .get(&batch)
             .ok_or(ActorError::InvalidProjection)?;
         let mut owners = BTreeSet::new();
+        let mut slots = Vec::new();
         for event in saved
             .plan
             .events()
@@ -47,6 +105,7 @@ impl TerminalActor {
             }
             match &action.target {
                 ActionTarget::Key(key) if key.usage != 0 => {
+                    slots.push(action.slot);
                     owners.insert((
                         *key,
                         SourceToken(saved.base_source + u64::from(action.slot.index)),
@@ -99,30 +158,42 @@ impl TerminalActor {
             config: origin.config.clone(),
             payload: TerminalWork::ProjectionDown(id, batch),
         };
-        self.timeline
+        let timeline = self
+            .timeline
             .prepare_enqueue_at(vec![event], at)
-            .map_err(|rejected| ActorError::Timeline(rejected.error))?
-            .commit();
-        self.core.suppression_references += owners.len();
-        self.projections.insert(
-            id,
-            KeyProjection {
+            .map_err(|rejected| ActorError::Timeline(rejected.error))?;
+        Ok(Some(PreparedKeyProjection {
+            timeline,
+            projections: &mut self.projections,
+            next: &mut self.next_projection,
+            references: &mut self.core.suppression_references,
+            now: &mut self.core.now,
+            projection: KeyProjection {
                 origin,
                 owners: owners.into_iter().collect(),
                 active: false,
                 close_queued: false,
             },
-        );
-        self.next_projection = id.0;
-        self.core.now = at;
-        Ok(Some(id))
+            id,
+            slots,
+            at,
+        }))
     }
+
     /// FIFO close is queued once; rejection leaves the same token usable for retry.
     pub fn close_key_projection(
         &mut self,
         id: KeyProjectionId,
         at: MonoTime,
     ) -> Result<(), ActorError> {
+        self.prepare_key_projection_close(id, at)?.commit();
+        Ok(())
+    }
+    pub(crate) fn prepare_key_projection_close(
+        &mut self,
+        id: KeyProjectionId,
+        at: MonoTime,
+    ) -> Result<PreparedKeyProjectionClose<'_>, ActorError> {
         if self.failed {
             return Err(ActorError::Failed);
         }
@@ -143,14 +214,18 @@ impl TerminalActor {
             config: origin.config.clone(),
             payload: TerminalWork::ProjectionUp(id, origin.batch),
         };
-        self.timeline
+        let timeline = self
+            .timeline
             .prepare_enqueue_at(vec![event], at)
-            .map_err(|rejected| ActorError::Timeline(rejected.error))?
-            .commit();
-        projection.close_queued = true;
-        self.core.now = at;
-        Ok(())
+            .map_err(|rejected| ActorError::Timeline(rejected.error))?;
+        Ok(PreparedKeyProjectionClose {
+            timeline,
+            close: &mut projection.close_queued,
+            now: &mut self.core.now,
+            at,
+        })
     }
+
     fn finish_key_projection(&mut self, id: KeyProjectionId) -> Result<Vec<KeyId>, ActorError> {
         let projection = self
             .projections
@@ -189,9 +264,10 @@ impl TerminalActor {
     }
     pub(super) fn deliver_key_projection(
         &mut self,
-        id: KeyProjectionId,
-        opening: bool,
+        event: timeline::StageEvent<ProjectionCommand>,
     ) -> Result<TerminalDelivery, ActorError> {
+        let id = event.payload.id;
+        let opening = event.payload.opening;
         let mut outputs = Vec::new();
         let keys = if opening {
             let projection = self
@@ -227,6 +303,7 @@ impl TerminalActor {
             },
             action: None,
             pointer: None,
+            projection: Some(event),
         })
     }
 }

@@ -10,6 +10,10 @@ use crate::{
     *,
 };
 
+mod projections;
+use projections::ProjectionRecipe;
+pub use projections::{PreparedOutputKeyProjection, PreparedOutputKeyProjectionClose};
+
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum OutputStageError {
     #[error(transparent)]
@@ -41,6 +45,7 @@ pub struct OutputStageActor {
     generated: GeneratedStageQueue,
     terminal: TerminalActor,
     recipes: BTreeMap<BatchId, Recipe>,
+    projections: BTreeMap<terminal_actor::KeyProjectionId, ProjectionRecipe>,
     now: MonoTime,
     failed: bool,
 }
@@ -117,6 +122,7 @@ impl OutputStageActor {
             generated: GeneratedStageQueue::new(Stage::Output, config.clone())?,
             terminal: TerminalActor::new_with_source_limit(config, max_source_end)?,
             recipes: BTreeMap::new(),
+            projections: BTreeMap::new(),
             now: MonoTime(0),
             failed: false,
         })
@@ -379,6 +385,24 @@ impl OutputStageActor {
             if !same_delivery(&generated, &receipt) {
                 return self.fault(OutputStageError::Invariant);
             }
+        } else if let Some(projection) = &actual.projection {
+            let generated = match self.generated.poll_mixed(at) {
+                Ok(Some(generated_stage::GeneratedDelivery::Projection(due))) => due,
+                Ok(_) => return self.fault(OutputStageError::Invariant),
+                Err(error) => return self.fault(error.into()),
+            };
+            if !same_delivery(&generated.event, projection) {
+                return self.fault(OutputStageError::Invariant);
+            }
+            let Some(recipe) = self.projections.get(&projection.payload.id) else {
+                return self.fault(OutputStageError::Invariant);
+            };
+            if recipe.batch != projection.payload.batch {
+                return self.fault(OutputStageError::Invariant);
+            }
+            if !projection.payload.opening {
+                self.projections.remove(&projection.payload.id);
+            }
         } else if let Some(pointer) = &actual.pointer {
             let generated = match self.generated.poll_mixed(at) {
                 Ok(Some(generated_stage::GeneratedDelivery::Pointer(due))) => due,
@@ -477,6 +501,11 @@ impl OutputStageActor {
                 && (recipe.device.generation < device.generation
                     || (removed && recipe.device.generation == device.generation)))
         });
+        self.projections.retain(|_, recipe| {
+            !(recipe.device.id == device.id
+                && (recipe.device.generation < device.generation
+                    || (removed && recipe.device.generation == device.generation)))
+        });
         self.now = at;
         Ok(outputs)
     }
@@ -499,6 +528,7 @@ impl OutputStageActor {
             return self.fault(error.into());
         }
         self.recipes.remove(&id);
+        self.projections.retain(|_, recipe| recipe.batch != id);
         self.now = at;
         Ok(outputs)
     }
@@ -527,6 +557,7 @@ impl OutputStageActor {
             return self.fault(error.into());
         }
         self.recipes.clear();
+        self.projections.clear();
         self.now = at;
         self.failed = false;
         Ok(outputs)
