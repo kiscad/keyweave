@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0137 disjoint physical lineage and actual owner source identity domains",
+  "source_base_commit": "9df1cce0e5e4a516f9189941692581d2af0c66b1",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/source_identity.rs": "edb22588ca9185a647a343613f46504df67378dd35812a4c94706f0589ccc1e0",
+    "crates/keyweave-engine/src/physical_controller.rs": "07cd1ad7bf4a72153741bc199fa555947a13a6efd807248a5b8d0eced6922af1",
+    "crates/keyweave-engine/src/simple_actor.rs": "fb2932bd97ce61235171deaa3fa7cd2b52618869103d731f9f8dc1a8e74f0162",
+    "crates/keyweave-engine/src/complex_actor.rs": "9e9164dec2839b9d6412d523c1bf74e76d6ab4a406c292b9ba2fb9e806f51798",
+    "crates/keyweave-engine/src/output_stage.rs": "6d6ef5bb0458f2f976859b08623159c4f0c092a27d53bc6baa59bcacff3e8e4e",
+    "crates/keyweave-engine/src/terminal_actor.rs": "95a08430e1dbb98d189bd54954ae999f7cb5d79996a11d172a26ed0da0b75c95",
+    "crates/keyweave-engine/src/lib.rs": "e30f526576722fa4e2baadb72b6bd6fdb259cd1f1371a443b615f56bc531690a",
+    "crates/keyweave-engine/tests/physical_controller.rs": "c71a7371758b6a07b51ac1cd90d946b158177d9de264a37078880a254925dd11"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1257,
+    "new_tests": 2,
+    "updated_existing_pointer_source_assertion": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-source-domains/tests.log",
+        "sha256": "fd15dc4fe055b78392eb2cfb72c08d536a709082e63af63f92f72f2b46f464ba"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-source-domains/clippy.log",
+        "sha256": "99976c9331bdce4201929d67a884d1e25a46cc7b3d1f2f761c156f14705a2517"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-source-domains/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-source-domains/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "abi": "Pure Rust private constructor/source-range policy and tagged lineage arithmetic. SourceToken remains u64; no unsafe/FFI/dependency/native ABI changes, ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending following earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "One owned PhysicalStageController uses origin IDs with highest bit set and a private 1..2^63-1 counter; its unique Terminal uses actual slot/snapshot owner IDs below 2^63. Intermediate logical identities remain ActionSlot and source metadata retains original lineage; no new lineage minted per mapping.",
+    "Private source-limit constructor policy propagates Physical -> Simple -> Complex -> Output -> Terminal. Standalone public stage constructors preserve original u64 range and previous near-u64-MAX transaction regression. Domain claim only applies to the owned controller, not arbitrary standalone stages or separate controller/process lifetimes.",
+    "Terminal checks exclusive range end before preparing slot/snapshot allocation; abort preserves cursor/batch IDs, commit can reach low-domain end, following nonempty source admission rejects without crossing domain. Reset preserves source cursor and limit.",
+    "Origin can emit SourceToken(u64::MAX) once; following origin/pointer admission rejects before seq/device/root changes. Reset/device removal do not reopen origin domain. No counter wrap or fallback to alternate domain.",
+    "Numeric domains are not own-injected markers or authentication/OS-acceptance proof. Global live reservation ceiling remains conservative whole-root lease from ADR-0136 with local event/key/reference checks.",
+    "Full Simple consumed modifier scope projection/advanced branches, simultaneous, native pipeline/pointer acceptance, Windows/hardware/UI/packaging/driver remain incomplete. Native duration gate retained; no real input/device/driver/install/native Windows operations executed."
+  ]
+}

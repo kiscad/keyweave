@@ -87,10 +87,16 @@ impl SimpleStageActor {
         Ok(())
     }
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, SimpleActorError> {
+        Self::new_with_source_limit(config, u64::MAX)
+    }
+    pub(crate) fn new_with_source_limit(
+        config: Arc<ConfigSnapshot>,
+        max_source_end: u64,
+    ) -> Result<Self, SimpleActorError> {
         Self::check_simple(&config)?;
         Ok(Self {
             generated: GeneratedStageQueue::new(Stage::Complex, config.clone())?,
-            complex: ComplexStageActor::new(config)?,
+            complex: ComplexStageActor::new_with_source_limit(config, max_source_end)?,
             producers: BindingArena::default(),
             inputs: BTreeMap::new(),
             bindings: BTreeMap::new(),

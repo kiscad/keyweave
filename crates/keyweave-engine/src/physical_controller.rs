@@ -60,7 +60,10 @@ impl PhysicalStageController {
             source_bounds: config.timed_stage_source_bounds(),
             source_leases: BTreeMap::new(),
             reserved_sources: 0,
-            simple: SimpleStageActor::new(config)?,
+            simple: SimpleStageActor::new_with_source_limit(
+                config,
+                crate::source_identity::ORIGIN_DOMAIN_START,
+            )?,
             active: BTreeMap::new(),
             pending: BTreeSet::new(),
             history: StageTimeline::new(),
@@ -80,6 +83,10 @@ impl PhysicalStageController {
     /// Conservative whole-root leases, including possible future branches; not actual emitted owners.
     pub fn reserved_sources(&self) -> usize {
         self.reserved_sources
+    }
+    fn prepare_origin(&self) -> Result<(SourceToken, u64), PhysicalControllerError> {
+        crate::source_identity::prepare_origin(self.next_source)
+            .ok_or(PhysicalControllerError::SourceExhausted)
     }
     fn source_cost(&self, key: KeyId) -> usize {
         self.source_bounds.get(&key).copied().unwrap_or(3)
@@ -231,9 +238,7 @@ impl PhysicalStageController {
                 input.event,
                 InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
             ) {
-                self.next_source
-                    .checked_add(1)
-                    .ok_or(PhysicalControllerError::SourceExhausted)?;
+                self.prepare_origin()?;
             }
             match &input.event {
                 InputEvent::Key { .. }
@@ -267,9 +272,7 @@ impl PhysicalStageController {
                 if self.active.len().saturating_add(self.pending.len()) >= MAX_BINDINGS {
                     return Err(EngineError::ResourceLimit.into());
                 }
-                self.next_source
-                    .checked_add(1)
-                    .ok_or(PhysicalControllerError::SourceExhausted)?;
+                self.prepare_origin()?;
                 let reclaimed = self
                     .source_leases
                     .values()
@@ -310,16 +313,13 @@ impl PhysicalStageController {
         payload: crate::pointer_work::PointerMotion,
         step: &mut PhysicalStep,
     ) -> Result<(), PhysicalControllerError> {
-        let following = self
-            .next_source
-            .checked_add(1)
-            .ok_or(PhysicalControllerError::SourceExhausted)?;
+        let (source, following) = self.prepare_origin()?;
         self.observe(device, false, at, step)?;
         self.simple.enqueue_pointer(crate::timeline::StageEvent {
             stage: Stage::Complex,
             at_ns: at,
             device,
-            source: SourceToken(self.next_source),
+            source,
             config: self.snapshot().clone(),
             payload,
         })?;
@@ -342,10 +342,7 @@ impl PhysicalStageController {
                             return Ok(());
                         }
                         let id = self.simple.next_batch_id()?;
-                        let following = self
-                            .next_source
-                            .checked_add(1)
-                            .ok_or(PhysicalControllerError::SourceExhausted)?;
+                        let (source, following) = self.prepare_origin()?;
                         let plan = plan_actions(
                             &[key.into()],
                             PlanOrigin {
@@ -353,7 +350,7 @@ impl PhysicalStageController {
                                 stage: Stage::Simple,
                                 start: input.at_ns,
                                 device: input.device,
-                                source: SourceToken(self.next_source),
+                                source,
                                 config: self.snapshot().clone(),
                             },
                             false,
@@ -518,5 +515,65 @@ mod tests {
             })
             .unwrap();
         assert_eq!(actor.next_source, u64::MAX);
+    }
+}
+
+#[cfg(test)]
+mod origin_domain_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn final_origin_identity_is_used_once_and_reset_does_not_reopen_domain_or_consume_rejected_sequence()
+     {
+        let boundary = crate::source_identity::ORIGIN_DOMAIN_START;
+        let mut actor =
+            PhysicalStageController::new(Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))))
+                .unwrap();
+        actor.next_source = boundary - 1;
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        let key = "a".parse::<KeyId>().unwrap();
+        let event = |seq, event| InputEnvelope {
+            seq,
+            at_ns: MonoTime(100),
+            device,
+            provenance: Provenance::Physical,
+            event,
+        };
+        actor
+            .handle(event(
+                1,
+                InputEvent::Key {
+                    key,
+                    edge: KeyEdge::Down,
+                },
+            ))
+            .unwrap();
+        assert_eq!(
+            actor.active[&(device, key)].origin.source,
+            SourceToken(u64::MAX)
+        );
+        assert_eq!(actor.next_source, boundary);
+        actor.handle(event(2, InputEvent::Reset)).unwrap();
+        assert_eq!(actor.next_source, boundary);
+        assert_eq!(actor.reserved_sources(), 0);
+        assert!(matches!(
+            actor.handle(event(
+                3,
+                InputEvent::Key {
+                    key,
+                    edge: KeyEdge::Down
+                }
+            )),
+            Err(PhysicalControllerError::SourceExhausted)
+        ));
+        assert!(matches!(
+            actor.handle(event(3, InputEvent::PointerMove { x: 1, y: 2 })),
+            Err(PhysicalControllerError::SourceExhausted)
+        ));
+        assert_eq!(actor.last_seq, Some(2));
+        assert!(!actor.is_failed());
     }
 }

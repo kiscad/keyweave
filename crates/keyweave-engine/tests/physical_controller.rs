@@ -814,7 +814,7 @@ fn queued_pointer_retains_old_config_and_payload_across_reload_without_creating_
         pointers[0].event.payload,
         PointerMotion::Move { x: -7, y: 9 }
     );
-    assert_eq!(pointers[0].event.source, SourceToken(2));
+    assert_eq!(pointers[0].event.source, SourceToken((1 << 63) | 2));
     assert_eq!(actor.active_bindings(), 1);
 }
 #[test]

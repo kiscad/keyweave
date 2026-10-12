@@ -107,9 +107,15 @@ impl<T> PreparedEmptyOutputChild<'_, T> {
 }
 impl OutputStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, OutputStageError> {
+        Self::new_with_source_limit(config, u64::MAX)
+    }
+    pub(crate) fn new_with_source_limit(
+        config: Arc<ConfigSnapshot>,
+        max_source_end: u64,
+    ) -> Result<Self, OutputStageError> {
         Ok(Self {
             generated: GeneratedStageQueue::new(Stage::Output, config.clone())?,
-            terminal: TerminalActor::new(config)?,
+            terminal: TerminalActor::new_with_source_limit(config, max_source_end)?,
             recipes: BTreeMap::new(),
             now: MonoTime(0),
             failed: false,

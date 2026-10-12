@@ -12,6 +12,7 @@ pub mod producer_decision;
 pub mod rule_selection;
 pub mod simple_actor;
 mod source_budget;
+mod source_identity;
 pub mod stage_bindings;
 mod stage_delivery;
 pub mod terminal_actor;

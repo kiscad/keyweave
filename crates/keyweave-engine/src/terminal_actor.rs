@@ -102,6 +102,7 @@ pub struct TerminalActor {
     bindings: stage_bindings::BindingArena<Bound>,
     last_batch: Option<BatchId>,
     scope_slots: usize,
+    max_source_end: u64,
     failed: bool,
 }
 /// Exclusive preflight of timeline, bindings, source IDs and scope reservations.
@@ -159,6 +160,12 @@ impl PreparedTerminalUp<'_> {
 }
 impl TerminalActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, ActorError> {
+        Self::new_with_source_limit(config, u64::MAX)
+    }
+    pub(crate) fn new_with_source_limit(
+        config: Arc<ConfigSnapshot>,
+        max_source_end: u64,
+    ) -> Result<Self, ActorError> {
         Ok(Self {
             core: Engine::new_inner(config, true)?,
             timeline: StageTimeline::new(),
@@ -166,6 +173,7 @@ impl TerminalActor {
             bindings: stage_bindings::BindingArena::default(),
             last_batch: None,
             scope_slots: 0,
+            max_source_end,
             failed: false,
         })
     }
@@ -413,6 +421,7 @@ impl TerminalActor {
             .ok_or(EngineError::ResourceLimit)?;
         let next_source = scope_source
             .checked_add(scope_reserved as u64)
+            .filter(|end| *end <= self.max_source_end)
             .ok_or(EngineError::ResourceLimit)?;
         let scope_events = plan.events.len();
         let up_queued = plan.release_on_input_up.is_empty() && !scope_up;
@@ -933,5 +942,102 @@ mod repeat_tests {
         assert_eq!(actor.physical_repeat_target(BatchId(1)), Some(key));
         actor.failed = true;
         assert_eq!(actor.physical_repeat_target(BatchId(1)), None);
+    }
+}
+
+#[cfg(test)]
+mod source_domain_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn partitioned_slot_and_snapshot_sources_stay_below_origin_domain_and_abort_preserves_cursor() {
+        use crate::{modifier_scope::ScopedActionPlan, rule_selection::*};
+        let key = |name: &str| name.parse::<KeyId>().unwrap();
+        let boundary = crate::source_identity::ORIGIN_DOMAIN_START;
+        let config = Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "source-domains".into(),
+            simple: vec![],
+            complex: vec![Mapping {
+                id: "a".into(),
+                from: key("a"),
+                to: vec![],
+                allow_extra_modifiers: true,
+                extras: MappingExtras {
+                    if_alone: vec![Action {
+                        hold_down_ns: 10,
+                        modifiers: vec![key("left_alt")],
+                        ..key("x").into()
+                    }],
+                    ..Default::default()
+                },
+            }],
+        });
+        let device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        let selection = select_rule(
+            config.clone(),
+            MappingStage::Complex,
+            key("a"),
+            BTreeSet::from([key("left_shift"), key("left_control")]),
+            |_| Truth::True,
+        )
+        .unwrap();
+        let branch = selection
+            .select_branch(RuleBranch::Alone, false, |_| Truth::True)
+            .unwrap();
+        let plan = || {
+            ScopedActionPlan::branch(
+                &branch,
+                BatchId(1),
+                MonoTime(100),
+                device,
+                SourceToken(boundary | 1),
+            )
+            .unwrap()
+        };
+        let mut actor = TerminalActor::new_with_source_limit(config.clone(), boundary).unwrap();
+        actor.observe_device(device, false, MonoTime(0)).unwrap();
+        actor.core.next_source = boundary - 4; // two action slots + two snapshot owners
+        actor.prepare_scoped(plan()).unwrap().abort();
+        assert_eq!(actor.core.next_source, boundary - 4);
+        assert!(actor.core.owners.is_empty());
+        assert_eq!(actor.last_batch, None);
+        actor.prepare_scoped(plan()).unwrap().commit();
+        assert_eq!(actor.core.next_source, boundary);
+        while actor.poll(MonoTime(100)).unwrap().is_some() {}
+        let sources: BTreeSet<_> = actor
+            .core
+            .owners
+            .values()
+            .flat_map(|sources| sources.iter().copied())
+            .collect();
+        assert_eq!(sources.len(), 4);
+        assert!(sources.iter().all(|source| source.0 < boundary));
+        assert!(!sources.contains(&SourceToken(boundary | 1)));
+        let extra = action_plan::plan_actions(
+            &[key("z").into()],
+            action_plan::PlanOrigin {
+                batch: BatchId(2),
+                stage: Stage::Output,
+                start: MonoTime(100),
+                device,
+                source: SourceToken(boundary | 2),
+                config,
+            },
+            false,
+        )
+        .unwrap();
+        assert!(matches!(
+            actor.prepare(extra),
+            Err(ActorError::Engine(EngineError::ResourceLimit))
+        ));
+        assert_eq!(actor.core.next_source, boundary);
+        assert_eq!(actor.last_batch, Some(BatchId(1)));
+        actor.reset(MonoTime(100)).unwrap();
+        assert_eq!(actor.core.next_source, boundary);
+        assert_eq!(actor.max_source_end, boundary);
     }
 }
