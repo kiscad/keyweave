@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-12",
+  "feature": "ADR-0124 owned Complex main producer/output actor and original Up lazy flags",
+  "source_base_commit": "8395616d6901648b7ea42cf49e79f01385687df2",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "db6e63076634aa5c4547ff27273da6363afaf5f1a9a98ddafbd360b2475f58fa",
+    "crates/keyweave-engine/src/complex_actor.rs": "74c924a7cfbd63c12e139d409adaaafe96f9748a2af09a81ec4042bbb9127b91",
+    "crates/keyweave-engine/src/output_stage.rs": "da722ffc1920dee6f23534f13c0cbb38502fa926118871ec439c4cf5013c8783",
+    "crates/keyweave-engine/src/producer_decision.rs": "a2f0b25fc8d3f1edd289119257eb69399c6b952e0ecebff7754633cbb77d9e85",
+    "crates/keyweave-engine/src/terminal_actor.rs": "fdcef183b49cc50b679840e7f9befa3b7514ff6a51047b1a0780893cb3210021",
+    "crates/keyweave-engine/tests/complex_actor.rs": "fca26fb8214eacf531dc96e41a1e2a6aebde8985c5e68b4d9bf346d1a384b3c7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1161,
+    "new_tests": 12,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261012-complex-main/tests.log",
+        "sha256": "0cc885b424211a735d1b7a0153830656ea2f3c49e508736a6bbf54223e0d9f89"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261012-complex-main/clippy.log",
+        "sha256": "aa15b58f96710c2d1d255a773e22fcef949e7403d10002c77f06e573c9ab4b2a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261012-complex-main/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261012-complex-main/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "run": "initial focused Complex actor tests, exit 101, 8 passed / 1 failed",
+      "cause": "Modifier test expected latent Up after all same-device terminal batches had ended; existing terminal last-device-batch sync flushes then.",
+      "resolution": "Kept another same-device key held to test asymmetric lazy Up before EOF sync; implementation EOF sync remains unchanged. Revised 9 and final 12 focused tests passed."
+    }
+  ],
+  "abi": "Pure Rust actor ownership, private output receipt and planned Up lazy release changes. No unsafe, FFI, dependencies or native ABI changes; ABI oracle not rerun.",
+  "windows": {
+    "status": "not executed",
+    "scope": "Earlier automatic approval quota issue remains for pending native checks; no bypass or Windows invocation."
+  },
+  "limitations": [
+    "ComplexStageActor owns registered input plans, producer arena, main child associations, output actor and monotonic batch IDs. It drives actual saved Down/Up and completion cleanup rather than requiring caller arena insert/remove wiring.",
+    "Complex roots and output children share one 4096-batch/16384-source arena accounting budget; private terminal actual source ID cursor remains separate. Source IDs and all-stage pooling are not complete.",
+    "Cold new/activate explicitly reject Complex held/alone/after-up/delayed actions until advanced scheduling is connected. Simple rules are upstream responsibility. This is a main-stage component, not replacement scope or full native implementation.",
+    "New input roots require current Arc and increasing IDs; retained registered roots work across reload. Old Simple parent creating a new Complex child after reload requires later shared all-stage admission, not this strict root API.",
+    "Due output must be polled before input at same injected time; DeadlinePending selects nothing. Other execution-admission errors latch Failed; no failed Down re-selection until reset. Full crossstage same-time scheduler is still pending.",
+    "Control/reset first clean output bindings then producer trees and return intents plus upstream batch IDs caller must discard. Results and Drop do not prove capture stop/native output acceptance/recovery. No true OS actuation performed.",
+    "Halt association uses exact crate-private output batch receipt; incoming halt returned as upstream metadata. Advanced branch eligibility/timers/context scheduler and backend physical repeat wiring remain pending.",
+    "Original registered Up recipe preserves asymmetric attached modifier lazy flags. Terminal actual release now uses planned Up lazy. Existing terminal last-same-device-batch sync remains; full physical-binding EOF/scope propagation policy still needs the complete controller.",
+    "Main array duration, empty consume, variable generated-state selection, modifier consumed scope, saved Up across reload, same-key device owners, device/reset cleanup and bad input recovery tested deterministically only.",
+    "Simple actor/crossstage scopes/global source IDs/advanced branches/native duration integration/Windows builds/hardware/UI/packaging/driver remain incomplete. Existing native runtime and UnsupportedActionTiming gate retained."
+  ]
+}

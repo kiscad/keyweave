@@ -15,6 +15,7 @@ pub struct ProducerDecision {
     destination: Stage,
     selection: Option<RuleSelection>,
     up_delivered_at: Option<MonoTime>,
+    up_lazy: bool,
 }
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum ProducerUpError {
@@ -48,13 +49,27 @@ impl ProducerDecision {
         destination: Stage,
         selection: Option<RuleSelection>,
     ) -> Self {
+        let up_lazy = down.payload.lazy;
         Self {
             down,
             delivered_at,
             destination,
             selection,
             up_delivered_at: None,
+            up_lazy,
         }
+    }
+    /// Preserve a registered input plan's original Up flags, including asymmetric modifier lazy Up.
+    /// This is supplied before activation; it does not select conditions again.
+    pub fn with_original_up(mut self, up: &PlannedAction) -> Result<Self, ProducerUpError> {
+        if self.up_delivered_at.is_some() || up.edge != KeyEdge::Up {
+            return Err(ProducerUpError::Lifecycle);
+        }
+        if up.slot != self.down.payload.slot || up.target != self.down.payload.target || up.halt {
+            return Err(ProducerUpError::Provenance);
+        }
+        self.up_lazy = up.lazy;
+        Ok(self)
     }
     pub fn up_delivered_at(&self) -> Option<MonoTime> {
         self.up_delivered_at
@@ -73,7 +88,7 @@ impl ProducerDecision {
             || event.source != self.down.source
             || !Arc::ptr_eq(&event.config, &self.down.config)
             || event.payload.target != self.down.payload.target
-            || event.payload.lazy != self.down.payload.lazy
+            || event.payload.lazy != self.up_lazy
             || event.payload.halt
         {
             return Err(ProducerUpError::Provenance);
@@ -126,7 +141,7 @@ impl ProducerDecision {
                 modifiers: Vec::new(),
                 conditions: Vec::new(),
             };
-            let plan = plan_actions(
+            let mut plan = plan_actions(
                 &[action],
                 PlanOrigin {
                     batch,
@@ -138,6 +153,9 @@ impl ProducerDecision {
                 },
                 false,
             )?;
+            for up in &mut plan.release_on_input_up {
+                up.lazy = self.up_lazy;
+            }
             Ok(ScopedActionPlan::plain(plan))
         }
     }

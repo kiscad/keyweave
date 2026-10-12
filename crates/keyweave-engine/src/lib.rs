@@ -1,5 +1,6 @@
 //! Deterministic remapping. No OS input, file IO, threads or wall clock.
 pub mod action_plan;
+pub mod complex_actor;
 mod conditions;
 pub mod generated_stage;
 pub mod modifier_scope;

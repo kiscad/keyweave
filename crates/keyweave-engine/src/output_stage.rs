@@ -25,6 +25,10 @@ pub enum OutputStageError {
     #[error(transparent)]
     Binding(#[from] stage_bindings::BindingError),
 }
+pub(crate) struct OutputDelivery {
+    pub(crate) step: ActorStep,
+    pub(crate) batch: Option<BatchId>,
+}
 struct Recipe {
     saved: ScopedGeneration,
     device: DeviceInstanceId,
@@ -315,6 +319,12 @@ impl OutputStageActor {
     /// Deliver exactly one actual event; markers never consume another batch's action.
     /// A completion releases generation reservations only after actual bindings/scopes finish.
     pub fn poll(&mut self, at: MonoTime) -> Result<Option<ActorStep>, OutputStageError> {
+        Ok(self.poll_delivered(at)?.map(|delivery| delivery.step))
+    }
+    pub(crate) fn poll_delivered(
+        &mut self,
+        at: MonoTime,
+    ) -> Result<Option<OutputDelivery>, OutputStageError> {
         self.running()?;
         self.check_time(at)?;
         let actual = self.terminal.poll_delivered(at);
@@ -332,6 +342,10 @@ impl OutputStageActor {
             }
             return Ok(None);
         };
+        let batch = actual
+            .action
+            .as_ref()
+            .map(|receipt| receipt.payload.slot.batch);
         if let Some(receipt) = actual.action {
             let generated = match self.generated.poll(at) {
                 Ok(Some(delivery)) => delivery.event,
@@ -352,7 +366,10 @@ impl OutputStageActor {
                 return self.fault(OutputStageError::Invariant);
             }
         }
-        Ok(Some(actual.step))
+        Ok(Some(OutputDelivery {
+            step: actual.step,
+            batch,
+        }))
     }
     /// Both device histories preflight before controls; cleanup uses actual saved bindings.
     pub fn observe_device(

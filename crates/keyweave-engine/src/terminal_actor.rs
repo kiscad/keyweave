@@ -600,10 +600,15 @@ impl TerminalActor {
                         .map_err(|_| ActorError::InvalidSlot)?;
                 }
                 KeyEdge::Up => {
-                    let bound = self
+                    let mut bound = self
                         .bindings
                         .take(action.slot)
                         .map_err(|_| ActorError::InvalidSlot)?;
+                    // Attached modifier scopes may have non-lazy Down and lazy Up.
+                    // Release uses the saved planned Up, not the Down's flag.
+                    if let Bound::Leaf(owner) = &mut bound {
+                        owner.lazy_up = action.lazy;
+                    }
                     self.core
                         .release_bound(bound, &config, &mut cursor, false, &mut outputs);
                 }
