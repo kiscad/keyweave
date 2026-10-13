@@ -329,9 +329,18 @@ impl ComplexStageActor {
         context: &ContextSnapshot,
         frontier: Option<MonoTime>,
     ) -> Result<Option<ComplexStep>, ComplexActorError> {
+        self.poll_arbitrated_with_eof(at, context, frontier, |_| true)
+    }
+    pub(crate) fn poll_arbitrated_with_eof(
+        &mut self,
+        at: MonoTime,
+        context: &ContextSnapshot,
+        frontier: Option<MonoTime>,
+        allow_sync: impl Fn(DeviceInstanceId) -> bool,
+    ) -> Result<Option<ComplexStep>, ComplexActorError> {
         self.running()?;
         self.check_time(at)?;
-        let result = self.poll_arbitrated_inner(at, context, frontier);
+        let result = self.poll_arbitrated_inner(at, context, frontier, &allow_sync);
         if result.is_err() {
             self.failed = true;
         }
@@ -343,9 +352,10 @@ impl ComplexStageActor {
         at: MonoTime,
         context: &ContextSnapshot,
         frontier: Option<MonoTime>,
+        allow_sync: &impl Fn(DeviceInstanceId) -> bool,
     ) -> Result<Option<ComplexStep>, ComplexActorError> {
         if self.next_deadline().is_some_and(|deadline| deadline <= at) {
-            return self.poll_with_context(at, context);
+            return self.poll_with_context_and_eof(at, context, allow_sync);
         }
         if self
             .arbitration
@@ -359,11 +369,11 @@ impl ComplexStageActor {
             input.due.delivered_at = at;
             let step = match input.selection {
                 ReplaySelection::Selected(selection) => {
-                    self.admit_inner(&input.due, context, |_| true, Some(selection), true)?
+                    self.admit_inner(&input.due, context, allow_sync, Some(selection), true)?
                 }
                 ReplaySelection::Decide => self.accept_arbitrated(&input.due, context, frontier)?,
                 ReplaySelection::Ordinary => {
-                    self.admit_inner(&input.due, context, |_| true, None, true)?
+                    self.admit_inner(&input.due, context, allow_sync, None, true)?
                 }
             };
             return Ok(Some(step));

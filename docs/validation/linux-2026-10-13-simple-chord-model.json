@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0170 complete Simple to Complex chord model handoff with actual frontier, EOF and scope barriers",
+  "source_base_commit": "952ac1485bb031dbd0cb47e576a9685e7a0d9480",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "57e9a1f186ad420fd618fe3cce05f4fe05cca5a7564721809ca0cf530d8a122f",
+    "crates/keyweave-engine/src/generated_stage.rs": "64381190d0f43fd43e3de5df57acb04383115674b9a9be35d3fbd0cad8d30c32",
+    "crates/keyweave-engine/src/complex_actor.rs": "d0eb8937acd882c8692fbc1d10cdc4f42caa205c364b0f14294ca7e5697d48ab",
+    "crates/keyweave-engine/src/complex_actor/arbitration.rs": "e71b55785bc60dc745f93632df17561d068ccb07e0209534bf7ca006208e7e89",
+    "crates/keyweave-engine/src/complex_actor/groups.rs": "f61c49d88378db9ded2e4a6024bc1b1aae460deba7f305646242b7dfc73c04d1",
+    "crates/keyweave-engine/src/simple_actor.rs": "a014e69152440dfe9bdf9718e1500da27134ea7aa272fe512109e30b23a4d1c4",
+    "crates/keyweave-engine/src/simple_actor/scopes.rs": "2530851688c3e949d40c9fb11293b4ad0d97db667e92cf60c8050bdbef4a454a",
+    "crates/keyweave-engine/tests/simple_chord_model.rs": "f4acd63d67e3c9de55a2a2b9cda91f834a8f982fcdc03c34fe6a2f8731c31939"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1580,
+    "new_tests": 10,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-simple-chord-model/tests.log",
+        "sha256": "22fd16b7fc7322304731fabc6149930c8c0bc4acb0d84c8d727b5b72c59ef16f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-simple-chord-model/clippy.log",
+        "sha256": "5bb6dc78187731cdfe33c8bba86404715e2c97ad543d1a1076111409cf60ebfe"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-simple-chord-model/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-simple-chord-model/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "External fixture initially accessed private ActionPlan origin and assumed an origin getter; changed fixture to public event metadata.",
+    "Initial Scope fixture used Alone canceled by an intervening Shift Down; replaced with a valid mandatory-modifier consumed scope.",
+    "Scope replay exposed close occurring before body receipts held by arbitration were actually processed. Added bounded deferred close work and actual Complex original-Up completion barrier.",
+    "Timed Simple FIFO shifted the later b event to the array end; adjusted fixture threshold to cover actual normalized stage history. Final focused/full checks passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Public Simple/Complex new_with_chord_model APIs verify the full existing engine model with unchanged configuration Arc. Default constructors, Physical/Native factories and compiler KW-SIM/runtime simultaneous gates remain strict.",
+    "Complete global Physical source bounds and unified native execution-mode admission remain pending.",
+    "Native pointer/repeat, Windows compilation, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending.",
+    "Queued stage history is FIFO-normalized event.at_ns, not untransformed physical registration time.",
+    "Logical output and metadata restoration are not native accepted-output or hardware recovery proofs."
+  ]
+}

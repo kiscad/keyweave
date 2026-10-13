@@ -108,7 +108,10 @@ impl ComplexStageActor {
             credentials.push((up, identity));
         }
         let rule = selection.mapping();
-        let candidate = !rule.extras.if_alone.is_empty();
+        let candidate = !rule.extras.if_alone.is_empty()
+            && !self
+                .last_wheel_event
+                .is_some_and(|wheel| wheel >= first.down().event.at_ns && wheel <= at);
         let held = if rule.extras.if_held_down.is_empty() {
             None
         } else {

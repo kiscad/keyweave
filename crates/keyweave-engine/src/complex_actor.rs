@@ -78,6 +78,8 @@ pub struct ComplexStageActor {
     canceled_group_members: BTreeSet<ActionSlot>,
     arbitration: Option<PendingArbitration>,
     replay: std::collections::VecDeque<ReplayInput>,
+    chord_model: bool,
+    last_wheel_event: Option<MonoTime>,
     next_projection: u64,
     alone_candidate: Option<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
@@ -158,6 +160,14 @@ impl ComplexStageActor {
             max_source_end,
         )?))
     }
+    pub fn new_with_chord_model(config: Arc<ConfigSnapshot>) -> Result<Self, ComplexActorError> {
+        config
+            .validate_complex_chord_model()
+            .map_err(GeneratedError::from)?;
+        let mut actor = Self::from_output(OutputStageActor::new(config)?);
+        actor.chord_model = true;
+        Ok(actor)
+    }
     fn from_output(output: OutputStageActor) -> Self {
         Self {
             output,
@@ -176,6 +186,8 @@ impl ComplexStageActor {
             canceled_group_members: BTreeSet::new(),
             arbitration: None,
             replay: std::collections::VecDeque::new(),
+            chord_model: false,
+            last_wheel_event: None,
             next_projection: 0,
             alone_candidate: None,
             held: None,
@@ -238,6 +250,11 @@ impl ComplexStageActor {
     pub fn pending_inputs(&self) -> usize {
         self.inputs.len()
     }
+    pub(crate) fn input_up_complete(&self, batch: BatchId) -> bool {
+        self.inputs
+            .get(&batch)
+            .is_none_or(|input| input.unreleased == 0)
+    }
     pub fn producer(&self, slot: ActionSlot) -> Option<&ProducerDecision> {
         self.producers.live(slot)
     }
@@ -285,6 +302,10 @@ impl ComplexStageActor {
             && (horizontal != 0 || vertical != 0)
         {
             self.alone_candidate = None;
+            self.last_wheel_event = Some(
+                self.last_wheel_event
+                    .map_or(due.event.at_ns, |at| at.max(due.event.at_ns)),
+            );
         }
         self.now = due.delivered_at;
         Ok(())
@@ -387,9 +408,15 @@ impl ComplexStageActor {
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), ComplexActorError> {
         self.running()?;
-        config
-            .validate_timed_stages(true)
-            .map_err(GeneratedError::from)?;
+        if self.chord_model {
+            config
+                .validate_complex_chord_model()
+                .map_err(GeneratedError::from)?;
+        } else {
+            config
+                .validate_timed_stages(true)
+                .map_err(GeneratedError::from)?;
+        }
         self.output.activate(config)?;
         Ok(())
     }
@@ -505,6 +532,10 @@ impl ComplexStageActor {
                     .count();
                 let momentary = matches!(due.event.payload.target, ActionTarget::Key(_));
                 let candidate = momentary
+                    && !(original_event_timing
+                        && self
+                            .last_wheel_event
+                            .is_some_and(|at| at >= due.event.at_ns && at <= due.delivered_at))
                     && decision
                         .selection()
                         .is_some_and(|rule| !rule.mapping().extras.if_alone.is_empty());
@@ -1015,6 +1046,7 @@ impl ComplexStageActor {
         self.check_time(at)?;
         if horizontal != 0 || vertical != 0 {
             self.alone_candidate = None;
+            self.last_wheel_event = Some(at);
         }
         self.now = at;
         Ok(())
@@ -1094,6 +1126,7 @@ impl ComplexStageActor {
         let outputs = self.output.reset(at)?;
         self.arbitration = None;
         self.replay.clear();
+        self.last_wheel_event = None;
         self.release_group_holds_for_reset()?;
         let ids: Vec<_> = self.inputs.keys().copied().collect();
         self.discard_inputs(&ids)?;

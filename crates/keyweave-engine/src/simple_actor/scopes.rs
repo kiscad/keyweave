@@ -7,6 +7,11 @@ pub(super) struct ScopeRun {
     references: Vec<(ComplexProjectionId, DeviceInstanceId)>,
 }
 impl SimpleStageActor {
+    pub(super) fn ready_scope_close(&self) -> bool {
+        self.deferred_scope_closes
+            .front()
+            .is_some_and(|due| self.complex.input_up_complete(due.event.payload.batch))
+    }
     pub(super) fn remember_scope_source_removal(&mut self, canceled: &[ActionSlot]) {
         let pending = self.generated.pending_scope_sources();
         self.removed_scope_sources

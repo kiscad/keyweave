@@ -68,6 +68,7 @@ pub struct SimpleStageActor {
     children: BTreeMap<BatchId, Child>,
     halted: BTreeSet<ActionSlot>,
     scope_runs: BTreeMap<BatchId, ScopeRun>,
+    deferred_scope_closes: std::collections::VecDeque<DueEvent<generated_stage::ScopeCommand>>,
     removed_scope_sources: BTreeSet<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
     alone_candidate: Option<ActionSlot>,
@@ -75,6 +76,7 @@ pub struct SimpleStageActor {
     last_batch: u64,
     now: MonoTime,
     failed: bool,
+    chord_model: bool,
 }
 impl SimpleStageActor {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, SimpleActorError> {
@@ -84,15 +86,30 @@ impl SimpleStageActor {
         config: Arc<ConfigSnapshot>,
         max_source_end: u64,
     ) -> Result<Self, SimpleActorError> {
-        Ok(Self {
-            generated: GeneratedStageQueue::new_complex_propagating(config.clone())?,
-            complex: ComplexStageActor::new_with_source_limit(config, max_source_end)?,
+        let generated = GeneratedStageQueue::new_complex_propagating(config.clone())?;
+        let complex = ComplexStageActor::new_with_source_limit(config, max_source_end)?;
+        Ok(Self::from_components(generated, complex, false))
+    }
+    pub fn new_with_chord_model(config: Arc<ConfigSnapshot>) -> Result<Self, SimpleActorError> {
+        let generated = GeneratedStageQueue::new_complex_chord_model(config.clone())?;
+        let complex = ComplexStageActor::new_with_chord_model(config)?;
+        Ok(Self::from_components(generated, complex, true))
+    }
+    fn from_components(
+        generated: GeneratedStageQueue,
+        complex: ComplexStageActor,
+        chord_model: bool,
+    ) -> Self {
+        Self {
+            generated,
+            complex,
             producers: BindingArena::default(),
             inputs: BTreeMap::new(),
             bindings: BTreeMap::new(),
             children: BTreeMap::new(),
             halted: BTreeSet::new(),
             scope_runs: BTreeMap::new(),
+            deferred_scope_closes: std::collections::VecDeque::new(),
             removed_scope_sources: BTreeSet::new(),
             held: None,
             alone_candidate: None,
@@ -100,7 +117,8 @@ impl SimpleStageActor {
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
-        })
+            chord_model,
+        }
     }
     fn running(&self) -> Result<(), SimpleActorError> {
         if self.failed {
@@ -135,6 +153,7 @@ impl SimpleStageActor {
             pressed,
             pending
                 + self.generated.queued_events()
+                + self.deferred_scope_closes.len()
                 + usize::from(self.held.is_some())
                 + usize::from(self.delayed.is_some()),
         )
@@ -200,9 +219,15 @@ impl SimpleStageActor {
         self.generated
             .next_deadline()
             .into_iter()
-            .chain(self.complex.next_deadline())
+            .chain(if self.chord_model {
+                self.complex
+                    .next_arbitrated_deadline(self.generated.next_deadline())
+            } else {
+                self.complex.next_deadline()
+            })
             .chain(self.held.map(|(at, _)| at))
             .chain(self.delayed.map(|(at, _)| at))
+            .chain(self.ready_scope_close().then_some(self.now))
             .min()
     }
     /// Register a physical adapter's current-snapshot Simple plan before receipts arrive.
@@ -656,6 +681,13 @@ impl SimpleStageActor {
         Ok(())
     }
     fn finish_child(&mut self, id: BatchId, step: &mut SimpleStep) -> Result<(), SimpleActorError> {
+        if self
+            .deferred_scope_closes
+            .iter()
+            .any(|due| due.event.payload.batch == id)
+        {
+            return Ok(());
+        }
         let child = self.children.get(&id).ok_or(SimpleActorError::Invariant)?;
         if child.remaining != 0 || !child.up_seen || !self.generated.scope_delivery_complete(id) {
             return Ok(());
@@ -729,15 +761,25 @@ impl SimpleStageActor {
         context: &ContextSnapshot,
     ) -> Result<Option<SimpleStep>, SimpleActorError> {
         let inputs = &self.inputs;
-        if self
-            .complex
-            .next_deadline()
-            .is_some_and(|deadline| deadline <= at)
-        {
-            let actual = self
-                .complex
-                .poll_with_context_and_eof(at, context, |device| Self::device_idle(inputs, device))?
-                .ok_or(SimpleActorError::Invariant)?;
+        let frontier = self.generated.next_deadline();
+        let complex_deadline = if self.chord_model {
+            self.complex.next_arbitrated_deadline(frontier)
+        } else {
+            self.complex.next_deadline()
+        };
+        if complex_deadline.is_some_and(|deadline| deadline <= at) {
+            let actual = if self.chord_model {
+                self.complex
+                    .poll_arbitrated_with_eof(at, context, frontier, |device| {
+                        Self::device_idle(inputs, device)
+                    })?
+            } else {
+                self.complex
+                    .poll_with_context_and_eof(at, context, |device| {
+                        Self::device_idle(inputs, device)
+                    })?
+            }
+            .ok_or(SimpleActorError::Invariant)?;
             return self.absorb(actual).map(Some);
         }
         if self
@@ -751,15 +793,33 @@ impl SimpleStageActor {
                 .ok_or(SimpleActorError::Invariant)?
             {
                 crate::generated_stage::GeneratedDelivery::Action(due) => {
-                    let actual = self.complex.admit_with_eof(&due, context, |device| {
-                        Self::device_idle(inputs, device)
-                    })?;
+                    let actual = if self.chord_model {
+                        self.complex.admit_arbitrated(
+                            &due,
+                            context,
+                            self.generated.next_deadline(),
+                        )?
+                    } else {
+                        self.complex.admit_with_eof(&due, context, |device| {
+                            Self::device_idle(inputs, device)
+                        })?
+                    };
                     return self.absorb(actual).map(Some);
                 }
                 crate::generated_stage::GeneratedDelivery::Projection(_) => {
                     return Err(SimpleActorError::Invariant);
                 }
                 crate::generated_stage::GeneratedDelivery::Scope(due) => {
+                    if self.chord_model
+                        && !due.event.payload.opening
+                        && !self.complex.input_up_complete(due.event.payload.batch)
+                    {
+                        if self.deferred_scope_closes.len() >= MAX_BINDINGS {
+                            return Err(BindingError::Capacity.into());
+                        }
+                        self.deferred_scope_closes.push_back(due);
+                        return Ok(Some(SimpleStep::default()));
+                    }
                     let step = self.deliver_scope(due)?;
                     return Ok(Some(step));
                 }
@@ -768,6 +828,14 @@ impl SimpleStageActor {
                     return Ok(Some(SimpleStep::default()));
                 }
             }
+        }
+        if self.ready_scope_close() {
+            let mut due = self
+                .deferred_scope_closes
+                .pop_front()
+                .ok_or(SimpleActorError::Invariant)?;
+            due.delivered_at = at;
+            return self.deliver_scope(due).map(Some);
         }
         let held = self.held.filter(|(deadline, _)| *deadline <= at);
         let delayed = self.delayed.filter(|(deadline, _)| *deadline <= at);
@@ -787,10 +855,20 @@ impl SimpleStageActor {
             return Ok(Some(step));
         }
         self.generated.advance(at)?;
-        if let Some(actual) = self
-            .complex
-            .poll_with_context_and_eof(at, context, |device| Self::device_idle(inputs, device))?
-        {
+        let actual = if self.chord_model {
+            self.complex.poll_arbitrated_with_eof(
+                at,
+                context,
+                self.generated.next_deadline(),
+                |device| Self::device_idle(inputs, device),
+            )?
+        } else {
+            self.complex
+                .poll_with_context_and_eof(at, context, |device| {
+                    Self::device_idle(inputs, device)
+                })?
+        };
+        if let Some(actual) = actual {
             return self.absorb(actual).map(Some);
         }
         Ok(None)
@@ -842,6 +920,8 @@ impl SimpleStageActor {
         let mut actual = self.complex.observe_device(device, removed, at)?;
         self.remember_scope_source_removal(&canceled);
         let restored = self.cleanup_scope_device(device, removed, at)?;
+        self.deferred_scope_closes
+            .retain(|due| self.scope_runs.contains_key(&due.event.payload.batch));
         self.generated.observe_device(device, removed)?;
         self.remember_scope_source_removal(&[]);
         let ids: Vec<_> = self
@@ -900,6 +980,7 @@ impl SimpleStageActor {
         let actual = self.complex.reset(at)?;
         self.generated.reset(at)?;
         self.scope_runs.clear();
+        self.deferred_scope_closes.clear();
         self.removed_scope_sources.clear();
         let ids: Vec<_> = self.inputs.keys().copied().collect();
         self.discard_inputs(&ids)?;

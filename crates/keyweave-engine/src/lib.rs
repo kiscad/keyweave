@@ -319,6 +319,16 @@ impl ConfigSnapshot {
     fn validate_output_metadata(&self) -> Result<(), EngineError> {
         self.validate_stage_metadata(true, true)
     }
+    fn validate_complex_chord_model(&self) -> Result<(), EngineError> {
+        if self
+            .simple
+            .iter()
+            .any(|mapping| mapping.extras.simultaneous.is_some())
+        {
+            return Err(EngineError::UnsupportedSimultaneous);
+        }
+        self.validate_output_metadata()
+    }
     fn validate_destination(&self, stage: timeline::Stage) -> Result<(), EngineError> {
         if stage == timeline::Stage::Output {
             self.validate_output_metadata()

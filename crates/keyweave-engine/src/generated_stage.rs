@@ -425,10 +425,22 @@ pub struct GeneratedStageQueue {
     now: MonoTime,
     delivery: crate::stage_delivery::DeliveryLedger,
     propagate_consumed: bool,
+    chord_model: bool,
 }
 impl GeneratedStageQueue {
     pub fn new(stage: Stage, config: Arc<ConfigSnapshot>) -> Result<Self, GeneratedError> {
-        config.validate_destination(stage)?;
+        Self::new_inner(stage, config, false)
+    }
+    fn new_inner(
+        stage: Stage,
+        config: Arc<ConfigSnapshot>,
+        chord_model: bool,
+    ) -> Result<Self, GeneratedError> {
+        if chord_model {
+            config.validate_complex_chord_model()?;
+        } else {
+            config.validate_destination(stage)?;
+        }
         let variables = config
             .variable_names()?
             .into_iter()
@@ -450,6 +462,7 @@ impl GeneratedStageQueue {
             now: MonoTime(0),
             delivery: crate::stage_delivery::DeliveryLedger::default(),
             propagate_consumed: false,
+            chord_model,
         })
     }
     pub(crate) fn new_complex_propagating(
@@ -461,6 +474,20 @@ impl GeneratedStageQueue {
     }
     pub(crate) fn pending_scope_sources(&self) -> BTreeSet<ActionSlot> {
         self.delivery.pending_scope_sources()
+    }
+    pub(crate) fn new_complex_chord_model(
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, GeneratedError> {
+        let mut queue = Self::new_inner(Stage::Complex, config, true)?;
+        queue.propagate_consumed = true;
+        Ok(queue)
+    }
+    fn validate_input_metadata(&self, config: &ConfigSnapshot) -> Result<(), EngineError> {
+        if self.chord_model {
+            config.validate_complex_chord_model()
+        } else {
+            config.validate_destination(self.environment.stage)
+        }
     }
     pub(crate) fn slots_for_device_removal(
         &self,
@@ -614,7 +641,7 @@ impl GeneratedStageQueue {
             }
             // Current Arc was validated at construction/activation. Caller-supplied
             // old snapshots still need schema validation before immutable selection.
-            event.config.validate_destination(self.environment.stage)?;
+            self.validate_input_metadata(&event.config)?;
             event.config.variable_names()?;
         }
         let selection = match event.payload.target {
@@ -771,10 +798,7 @@ impl GeneratedStageQueue {
             {
                 return Err(GeneratedError::Provenance);
             }
-            actions
-                .origin
-                .config
-                .validate_destination(self.environment.stage)?;
+            self.validate_input_metadata(&actions.origin.config)?;
             actions.origin.config.variable_names()?;
         } else if !Arc::ptr_eq(&actions.origin.config, &self.environment.config) {
             return Err(GeneratedError::Provenance);
@@ -1101,7 +1125,7 @@ impl GeneratedStageQueue {
         if config.generation <= self.environment.config.generation {
             return Err(EngineError::InvalidGeneration.into());
         }
-        config.validate_destination(self.environment.stage)?;
+        self.validate_input_metadata(config)?;
         let names = config.variable_names()?;
         if self
             .environment
