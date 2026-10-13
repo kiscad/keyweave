@@ -484,3 +484,244 @@ fn complex_held_deadline_at_original_simple_up_runs_before_up_then_releases_save
     assert_eq!(released, vec![root.events()[0].payload.slot]);
     assert_eq!(actor.reserved_sources(), 0);
 }
+
+#[test]
+fn after_up_uses_old_simple_and_complex_rules_after_reload() {
+    let mut simple = mapping("a", vec![key("b").into()]);
+    simple.extras.after_key_up = vec![key("d").into()];
+    let old = config(
+        vec![simple],
+        vec![
+            mapping("b", vec![key("c").into()]),
+            mapping("d", vec![key("e").into()]),
+        ],
+    );
+    let mut actor = actor(old.clone());
+    let root = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&root, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(drain(&mut actor, 100).0, [(key("c"), KeyEdge::Down)]);
+    actor
+        .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+        .unwrap();
+    actor
+        .admit(&up(&root, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(actor.pending_children(), 2);
+    let (outputs, released) = drain(&mut actor, 110);
+    assert_eq!(
+        outputs,
+        [
+            (key("c"), KeyEdge::Up),
+            (key("e"), KeyEdge::Down),
+            (key("e"), KeyEdge::Up)
+        ]
+    );
+    assert_eq!(released, [root.events()[0].payload.slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(Arc::ptr_eq(&root.events()[0].config, &old));
+}
+
+#[test]
+fn empty_main_after_up_duration_retains_parent_until_actual_child_completes() {
+    let mut simple = mapping("a", vec![]);
+    simple.extras.after_key_up = vec![Action {
+        hold_down_ns: 50,
+        ..key("d").into()
+    }];
+    let mut actor = actor(config(vec![simple], vec![]));
+    let root = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&root, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert!(drain(&mut actor, 100).0.is_empty());
+    let step = actor
+        .admit(&up(&root, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert!(step.released_producers.is_empty());
+    assert_eq!(drain(&mut actor, 110).0, [(key("d"), KeyEdge::Down)]);
+    assert_eq!(actor.pending_inputs(), 1);
+    assert_eq!(actor.next_deadline(), Some(MonoTime(160)));
+    assert!(drain(&mut actor, 159).0.is_empty());
+    let (outputs, released) = drain(&mut actor, 160);
+    assert_eq!(outputs, [(key("d"), KeyEdge::Up)]);
+    assert_eq!(released, [root.events()[0].payload.slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn early_up_after_branch_preserves_main_fifo_and_multiple_child_retirement() {
+    let mut simple = mapping(
+        "a",
+        vec![
+            Action {
+                hold_down_ns: 50,
+                ..key("b").into()
+            },
+            key("c").into(),
+        ],
+    );
+    simple.extras.after_key_up = vec![Action {
+        hold_down_ns: 100,
+        ..key("d").into()
+    }];
+    let mut actor = actor(config(vec![simple], vec![]));
+    let root = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&root, 100), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(drain(&mut actor, 100).0, [(key("b"), KeyEdge::Down)]);
+    actor
+        .admit(&up(&root, 110), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(actor.pending_children(), 2);
+    assert!(drain(&mut actor, 149).0.is_empty());
+    assert_eq!(
+        drain(&mut actor, 150).0,
+        [
+            (key("b"), KeyEdge::Up),
+            (key("c"), KeyEdge::Down),
+            (key("c"), KeyEdge::Up),
+            (key("d"), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(actor.pending_children(), 1);
+    assert_eq!(actor.pending_inputs(), 1);
+    // The whole branch shifts behind the main tail; its 100ns duration survives.
+    assert_eq!(actor.next_deadline(), Some(MonoTime(250)));
+    assert!(drain(&mut actor, 249).0.is_empty());
+    let (outputs, released) = drain(&mut actor, 250);
+    assert_eq!(outputs, [(key("d"), KeyEdge::Up)]);
+    assert_eq!(released, [root.events()[0].payload.slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn simple_main_halt_suppresses_after_up_but_incoming_halt_belongs_to_parent() {
+    for halted in [false, true] {
+        let mut simple = mapping(
+            "a",
+            if halted {
+                vec![Action {
+                    halt: true,
+                    ..key("b").into()
+                }]
+            } else {
+                vec![]
+            },
+        );
+        simple.extras.after_key_up = vec![key("d").into()];
+        let mut actor = actor(config(vec![simple], vec![]));
+        let root = input(
+            &mut actor,
+            &[Action {
+                halt: true,
+                ..key("a").into()
+            }],
+            1,
+            100,
+        );
+        let step = actor
+            .admit(&down(&root, 100), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(step.originating_halt, Some(root.events()[0].payload.slot));
+        drain(&mut actor, 100);
+        actor
+            .admit(&up(&root, 110), &ContextSnapshot::default())
+            .unwrap();
+        let outputs = drain(&mut actor, 110).0;
+        if halted {
+            assert_eq!(outputs, [(key("b"), KeyEdge::Up)]);
+        } else {
+            assert_eq!(
+                outputs,
+                [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+            );
+        }
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+
+#[test]
+fn after_up_actions_evaluate_current_stage_variables_once_without_new_rule_selection() {
+    for value in [0, 1] {
+        let assign = Action {
+            target: ActionTarget::SetVariable(VariableAction {
+                name: "flag".into(),
+                operation: VariableOperation::Set {
+                    value: Some(VariableValue::Integer(value)),
+                    key_up_value: None,
+                },
+            }),
+            ..key("x").into()
+        };
+        let mut simple = mapping("a", vec![assign]);
+        simple.extras.after_key_up = vec![Action {
+            conditions: vec![Condition::Variable {
+                name: "flag".into(),
+                value: VariableValue::Integer(1),
+                unless: false,
+            }],
+            ..key("d").into()
+        }];
+        let mut actor = actor(config(vec![simple], vec![]));
+        let root = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&root, 100), &ContextSnapshot::default())
+            .unwrap();
+        assert!(drain(&mut actor, 100).0.is_empty());
+        actor
+            .admit(&up(&root, 110), &ContextSnapshot::default())
+            .unwrap();
+        let outputs = drain(&mut actor, 110).0;
+        if value == 1 {
+            assert_eq!(
+                outputs,
+                [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+            );
+        } else {
+            assert!(outputs.is_empty());
+        }
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+
+#[test]
+fn after_up_device_removal_or_reset_cancels_future_edges_and_releases_actual_owner() {
+    for reset in [false, true] {
+        let mut simple = mapping("a", vec![]);
+        simple.extras.after_key_up = vec![
+            Action {
+                hold_down_ns: 50,
+                ..key("d").into()
+            },
+            key("e").into(),
+        ];
+        let mut actor = actor(config(vec![simple], vec![]));
+        let root = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&root, 100), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 100);
+        actor
+            .admit(&up(&root, 110), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 110).0, [(key("d"), KeyEdge::Down)]);
+        let step = if reset {
+            actor.reset(MonoTime(120)).unwrap()
+        } else {
+            actor
+                .observe_device(device(1), true, MonoTime(120))
+                .unwrap()
+        };
+        assert_eq!(edges(step.outputs), [(key("d"), KeyEdge::Up)]);
+        assert_eq!(
+            step.discarded_input_batches,
+            [root.events()[0].payload.slot.batch]
+        );
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+        assert!(drain(&mut actor, 200).0.is_empty());
+    }
+}

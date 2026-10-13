@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0154 Simple retained after-key-up child batches and source budget",
+  "source_base_commit": "7112cd18cfb7acb4dbf81fdf4f9f3dabbb46860c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/simple_actor.rs": "c26bcc01dc987930686b5e39ba0d9ddb7b0f5430a793ebf4b25a7c04f222e874",
+    "crates/keyweave-engine/src/source_budget.rs": "be2291f2f82a62f403f2daf08e44a8212b1acb173a3c476a4cfa9e646378dc5e",
+    "crates/keyweave-engine/tests/simple_actor.rs": "b75cadb9147a4e090c499116c9ad74be88a27f99bf4f6d805eaaf87a9ee3e1e5",
+    "crates/keyweave-engine/tests/simple_consumed_scopes.rs": "7b22bf14c9e742774d3af135281596c81db9eb45b9813b3e7196db2ad071037f",
+    "crates/keyweave-engine/tests/timed_source_budget.rs": "c57caaa7f6dedbd6bd0c7aad8441ede42af70aa00a42c5509d2537c3d57ffdce"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1398,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-simple-after-up/tests.log",
+        "sha256": "7d48ac9f697bd1b7879899b43e8c56615f4d339294b098b468af130e80fbfa62"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-simple-after-up/clippy.log",
+        "sha256": "2bc69df8f32bf03b4a0bcbce05a2f715afc6acd0eb179b665ef88a080d232d1a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-simple-after-up/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-simple-after-up/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New fixtures initially used private ActionPlan.origin and obsolete VariableAction fields. Corrected fixtures to event provenance and VariableOperation::Set payload.",
+    "Early-up fixture initially expected branch completion at original time 210ns. Existing StageTimeline uniformly shifts the entire branch behind main tail 150ns, preserving 100ns duration; corrected new assertion to 250ns and verified no edge at 249ns.",
+    "Inspection found physical source bounds included only Simple main. Added Simple after-up actions/modifiers and Complex descendants before admitting this branch; added bound regression."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows compilation still pending after earlier automatic approval quota rejection; this phase changes pure shared engine only. No native attempt, bypass or capture."
+  },
+  "limitations": [
+    "Simple actor admits AfterKeyUp using frozen old rule/Arc and original device/source after saved original Up commit. Action conditions use current Simple generated environment/context; generated/actual Complex child registration reuses joint prepare/commit.",
+    "Main and after-up can overlap in retained child lifetime; after-up retirement only clears matching main binding. Parent cannot finish while any child or scope receipt remains. Empty main and delayed tap complete through actual downstream receipts.",
+    "Tests cover old Simple/Complex snapshot across reload, empty main timed branch, early Up/FIFO and full duration, originating vs generated halt, conditional variable admission, device/reset cleanup, consumed scope propagation and source bound.",
+    "Only AfterKeyUp gate removed. Simple Alone/Held/Delayed, simultaneous, native pointer, platform/hardware verification, GUI, packaging, driver and full objective remain incomplete. This is actor-level IR behavior, not expanded JSON Simple schema."
+  ],
+  "abi": "Pure Rust engine logic; no unsafe/FFI/native packet layouts/dependencies."
+}

@@ -1,8 +1,8 @@
-//! Static source-identity ceiling for one physical root of the Simple-main stage pipeline.
+//! Static source-identity ceiling for one physical root of the stage pipeline.
 use crate::*;
 impl ConfigSnapshot {
     /// Reserve every possible descendant once, including retained snapshot scopes.
-    /// Simple advanced branches are excluded: the owned Simple actor rejects them.
+    /// Includes Simple main/after-up; other Simple branches remain rejected.
     /// The result is a conservative lease, not an actual owner count or SourceToken allocator.
     pub fn timed_stage_source_bounds(&self) -> BTreeMap<KeyId, usize> {
         let weight = |actions: &[Action]| {
@@ -44,6 +44,7 @@ impl ConfigSnapshot {
             let descendants = mapping
                 .to
                 .iter()
+                .chain(&mapping.extras.after_key_up)
                 .map(|action| {
                     let main = match action.target {
                         ActionTarget::Key(key) => complex.get(&key).copied().unwrap_or(2),

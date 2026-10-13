@@ -556,3 +556,40 @@ fn trigger_removal_before_scope_open_discards_markers_without_duplicate_restore_
     assert_eq!(release(&mut actor, &shift, 160), [(key("x"), KeyEdge::Up)]);
     assert_eq!(actor.reserved_sources(), 0);
 }
+
+#[test]
+fn after_up_scope_hides_saved_modifier_descendant_for_entire_timed_branch() {
+    let mut trigger = mapping("a", vec![]);
+    trigger
+        .extras
+        .from_modifiers
+        .mandatory
+        .insert(Modifier::LeftShift);
+    trigger.extras.after_key_up = vec![Action {
+        hold_down_ns: 50,
+        ..key("d").into()
+    }];
+    let mut actor = actor(config(
+        vec![trigger],
+        vec![mapping("left_shift", vec![key("x").into()])],
+    ));
+    let (shift, outputs) = press(&mut actor, "left_shift", 1, 100);
+    assert_eq!(outputs, [(key("x"), KeyEdge::Down)]);
+    let (trigger, outputs) = press(&mut actor, "a", 2, 110);
+    assert!(outputs.is_empty());
+    assert_eq!(
+        release(&mut actor, &trigger, 120),
+        [(key("x"), KeyEdge::Up), (key("d"), KeyEdge::Down)]
+    );
+    assert_eq!(actor.pending_inputs(), 2);
+    assert!(drain(&mut actor, 169).0.is_empty());
+    let (outputs, released) = drain(&mut actor, 170);
+    assert_eq!(
+        outputs,
+        [(key("d"), KeyEdge::Up), (key("x"), KeyEdge::Down)]
+    );
+    assert_eq!(released, [trigger.events()[0].payload.slot]);
+    assert_eq!(release(&mut actor, &shift, 180), [(key("x"), KeyEdge::Up)]);
+    assert_eq!(actor.pending_inputs(), 0);
+    assert_eq!(actor.reserved_sources(), 0);
+}

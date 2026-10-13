@@ -79,3 +79,16 @@ fn modifier_targets_use_their_own_complex_expansion_and_complex_is_not_recursive
     .timed_stage_source_bounds();
     assert_eq!(bounds[&key("a")], 6); // root + b pass-through(2) + shift(1+2)
 }
+
+#[test]
+fn simple_after_up_counts_main_and_branch_descendants_with_complex_expansion() {
+    let mut simple = mapping("a", vec![key("b").into()]);
+    simple.extras.after_key_up = vec![Action {
+        modifiers: vec![key("left_shift")],
+        ..key("d").into()
+    }];
+    let mut complex = mapping("d", vec![key("e").into()]);
+    complex.extras.after_key_up = vec![key("f").into()];
+    let bounds = cfg(vec![simple], vec![complex]).timed_stage_source_bounds();
+    assert_eq!(bounds[&key("a")], 8); // root + main(2) + d(Complex+2 Output) + shift(2)
+}

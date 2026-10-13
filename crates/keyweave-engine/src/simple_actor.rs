@@ -1,4 +1,4 @@
-//! Owned Simple main generation and downstream Complex/Output execution.
+//! Owned Simple main/after-up generation and downstream Complex/Output execution.
 //! Pure stage component; native acceptance remains separate.
 mod scopes;
 use crate::{
@@ -79,7 +79,6 @@ impl SimpleStageActor {
             let extras = &mapping.extras;
             !extras.if_held_down.is_empty()
                 || !extras.if_alone.is_empty()
-                || !extras.after_key_up.is_empty()
                 || extras
                     .delayed
                     .as_ref()
@@ -401,6 +400,7 @@ impl SimpleStageActor {
                     .unreleased
                     .checked_sub(1)
                     .ok_or(SimpleActorError::Invariant)?;
+                self.after_key_up(slot, context, due.delivered_at)?;
                 if let Some(id) = id {
                     self.finish_child(id, &mut step)?;
                 }
@@ -420,6 +420,80 @@ impl SimpleStageActor {
         !inputs
             .values()
             .any(|input| input.plan.origin.device == device && input.unreleased != 0)
+    }
+    fn after_key_up(
+        &mut self,
+        slot: ActionSlot,
+        context: &ContextSnapshot,
+        at: MonoTime,
+    ) -> Result<(), SimpleActorError> {
+        let decision = self
+            .producers
+            .live(slot)
+            .ok_or(SimpleActorError::Invariant)?;
+        let Some(selection) = decision.selection() else {
+            return Ok(());
+        };
+        if selection.mapping().extras.after_key_up.is_empty() {
+            return Ok(());
+        }
+        let branch = selection
+            .select_branch(
+                rule_selection::RuleBranch::AfterKeyUp,
+                self.halted.contains(&slot),
+                |condition| {
+                    self.generated
+                        .condition_truth(condition, context, decision.down().device, at)
+                },
+            )
+            .ok_or(SimpleActorError::Invariant)?;
+        if branch.actions().len() == 0 {
+            return Ok(());
+        }
+        let id = self.next_batch_id()?;
+        let plan = modifier_scope::ScopedActionPlan::branch(
+            &branch,
+            id,
+            at,
+            decision.down().device,
+            decision.down().source,
+        )?;
+        let slots = plan
+            .actions()
+            .events()
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+            .count();
+        if slots == 0 {
+            return Ok(());
+        }
+        let generated_halt = plan
+            .actions()
+            .events()
+            .iter()
+            .any(|event| event.payload.halt);
+        let registration =
+            self.producers
+                .prepare(plan.actions().origin.clone(), slots, Some(slot))?;
+        let saved = self
+            .complex
+            .prepare_generated_child_input(&mut self.generated, &plan, registration)?
+            .commit();
+        self.children.insert(
+            id,
+            Child {
+                saved,
+                parent: slot,
+                remaining: slots,
+                up_seen: true,
+                repeat_slot: None,
+            },
+        );
+        self.last_batch = id.0;
+        if generated_halt {
+            self.halted.insert(slot);
+        }
+        Ok(())
     }
     fn finish(&mut self, slot: ActionSlot, step: &mut SimpleStep) -> Result<(), SimpleActorError> {
         if self
@@ -463,10 +537,13 @@ impl SimpleStageActor {
             return Err(SimpleActorError::Invariant);
         }
         self.children.remove(&id);
-        *self
+        let binding = self
             .bindings
             .get_mut(&parent)
-            .ok_or(SimpleActorError::Invariant)? = None;
+            .ok_or(SimpleActorError::Invariant)?;
+        if *binding == Some(id) {
+            *binding = None;
+        }
         self.finish(parent, step)
     }
     fn absorb(&mut self, actual: ComplexStep) -> Result<SimpleStep, SimpleActorError> {
