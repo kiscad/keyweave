@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0148 explicitly staged Linux keyboard runtime with budget continuation and accepted-frame recovery",
+  "source_base_commit": "6a5b9eba1fefbf919986b8ababf3db4a981cdb4f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/terminal_actor.rs": "3c1a28d125946bbf670704911cad5888f6e45abf1a565b383e80882df5880e37",
+    "crates/keyweave-engine/src/output_stage.rs": "b9c62933fa1b25e3be39bbfd1989e60435c8fa7554dfb4b4f430b8450c217ad4",
+    "crates/keyweave-engine/src/complex_actor.rs": "1ce487538b571825e6f1648eb948ce643e7ca86b77355f7ef927c93651c7804c",
+    "crates/keyweave-engine/src/simple_actor.rs": "bc0be046b139ecab269cb07acc5332b6ada3eedb552ecc1a9ae6df59d3c2c922",
+    "crates/keyweave-engine/src/physical_controller.rs": "3cf7e7d653b4aef45398cec824cdc536f09bcaabf7867468210e6b7a3005d63e",
+    "crates/keyweave-engine/tests/physical_controller.rs": "d0e0c314c6a58a75ea8ae0892990703f072401661effc363d76b2fd0b2a10dbb",
+    "crates/keyweave-linux/src/runtime.rs": "58aa49c351574f753ccd4449fab5c84a2418da06bf11f717a74d1c3ea78e154d",
+    "crates/keyweave-linux/src/runtime/machine.rs": "da7563db6c4c54db62d591f7e16ffd786259a4c71c880f7e503a5b494f4cf025"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1367,
+    "new_runtime_tests": 8,
+    "new_core_diagnostic_test": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-staged-linux-runtime/tests.log",
+        "sha256": "0a77adb096ca0b7361e75c08e8ce9766c6c006eaf823b33956cef2918bac2f84"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-staged-linux-runtime/clippy.log",
+        "sha256": "93e8e52c9a785c6d3b82a8371f70cbf6efb83320efd98017c882abfe0f50bf6a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-staged-linux-runtime/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-staged-linux-runtime/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New fixture used pause without required MonoTime and nonexistent termination getter; corrected to existing APIs.",
+    "First round-robin device scope fixture did not retain its Shift source long enough and asserted too little. Added explicit WouldBlock slot and exact key frame/owner assertions to prove masking/restoration rather than ordinary device removal."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending after earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "Runtime::new_staged/preflight_staged_config explicitly select one boxed PhysicalStageController while default native bootstrap/worker/legacy runtime retain timing gate. Existing captured-device/output-path/capability/emergency/kernel-repeat admission and input-close-before-backend-drop order preserved.",
+    "Active poll prioritizes output due, one stage step, legacy timer, then saved physical event. At 64 work budget it returns pending and retains all state for the next poll rather than re-registering input or inventing timer seq/token. 512 taps complete as 1024 ordered edges over bounded polls, with Active phase and exact source seq.",
+    "Hot reload preserves old pending array/up, early Up retains duration, kernel repeat is delegated under existing policy without manual Repeat submission, and pause cancels future work before accepted recovery. Logical times/mock receipts do not prove application timing or OS repeat behavior.",
+    "REPORT pending stops normal work, input closes before flush, flush precedes recovery Up. Unknown acceptance remains in terminal facts and produces no speculative Up; backend destruction is not output recovery confirmation.",
+    "Cross-device consumed scope test validates exact xDown/xUp/rightCtrlDown/rightCtrlUp/xDown frames and later source xUp; only trigger device input owner closes, surviving source remains captured.",
+    "EngineState staged fields report actual active/pending physical roots, old binding generations, Terminal model owner/emitted counts and queued stage work plus timers; Output generation mirror is not double counted. These differ from native API submitted/application state. Core diagnostic regression verifies each stage and reset/up retirement.",
+    "No new unsafe/FFI/dependency/native ABI changes. No active evdev/uinput/Hook/SendInput or platform driver operations. Native entry/bootstrap/preparation mode selection, native pointer, Windows async draining/native checks, Simple advanced branches/simultaneous/hardware/UI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure Rust runtime machine/dispatch and exact model diagnostic accessors. Native frame layouts and kernel APIs unchanged."
+}

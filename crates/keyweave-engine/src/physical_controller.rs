@@ -74,6 +74,23 @@ impl PhysicalStageController {
             failed: false,
         })
     }
+    /// Model diagnostics, not native API acceptance. Queued stage work is counted
+    /// once; the Output generation mirror is not another deadline task.
+    pub fn state(&self) -> EngineState {
+        let (output_owners, pressed_outputs, pending_deadlines) = self.simple.output_model();
+        EngineState {
+            bindings: self.active.len(),
+            output_owners,
+            pressed_outputs,
+            binding_generations: self
+                .active
+                .values()
+                .map(|plan| plan.origin.config.generation)
+                .collect(),
+            pending_deadlines,
+            pending_bindings: self.pending.len(),
+        }
+    }
     pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
         self.simple.snapshot()
     }

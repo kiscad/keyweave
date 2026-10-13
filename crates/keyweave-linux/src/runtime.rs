@@ -1,4 +1,5 @@
 //! Explicit-clock, bounded IO coordinator. Does not open devices or spawn threads.
+mod machine;
 use crate::{
     capture::{CaptureDevice, CaptureError, CapturePhase, CaptureSource},
     emergency::{EmergencyChord, EmergencyError},
@@ -10,6 +11,7 @@ use crate::{
 };
 use keyweave_engine::{ConfigSnapshot, Engine, EngineError, EngineState};
 use keyweave_types::*;
+use machine::Machine;
 use std::{
     collections::{BTreeSet, VecDeque},
     sync::Arc,
@@ -47,6 +49,10 @@ pub enum RuntimeError {
     Key(#[from] KeyError),
     #[error(transparent)]
     Engine(#[from] EngineError),
+    #[error(transparent)]
+    Staged(#[from] keyweave_engine::physical_controller::PhysicalControllerError),
+    #[error("keyboard runtime does not support staged pointer input or delivery")]
+    StagedPointer,
     #[error(transparent)]
     Output(#[from] PumpError),
     #[error("invalid startup resources or duplicate device identity")]
@@ -116,7 +122,7 @@ struct Input<S: CaptureSource> {
 pub struct Runtime<S: CaptureSource, B: FrameBackend> {
     inputs: Vec<Input<S>>,
     output: OutputPump<B>,
-    engine: Engine,
+    engine: Machine,
     raw: VecDeque<(usize, Event)>,
     logical: Option<(usize, InputEvent)>,
     cursor: usize,
@@ -154,13 +160,40 @@ pub fn validate_config(config: &ConfigSnapshot, spec: &DeviceSpec) -> Result<(),
     }
     Ok(())
 }
+/// Cold keyboard/output validation only; no capture or consumer-ready proof.
+pub fn preflight_staged_config(
+    config: Arc<ConfigSnapshot>,
+    spec: &DeviceSpec,
+) -> Result<(), RuntimeError> {
+    if spec.repeat() != RepeatPolicy::Kernel {
+        return Err(RuntimeError::RepeatPolicy);
+    }
+    validate_config(&config, spec)?;
+    Machine::staged(config, &[]).map(drop)
+}
 impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
     /// Takes ownership of already armed inputs. Caller must finish bootstrap
     /// readiness and neutral policy before constructing this coordinator.
     pub fn new(
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        backend: B,
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, RuntimeError> {
+        Self::new_inner(inputs, backend, config, false)
+    }
+    /// Explicit staged keyboard mode; native bootstrap/worker do not select it yet.
+    pub fn new_staged(
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        backend: B,
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, RuntimeError> {
+        Self::new_inner(inputs, backend, config, true)
+    }
+    fn new_inner(
         mut inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
         backend: B,
         config: Arc<ConfigSnapshot>,
+        staged: bool,
     ) -> Result<Self, RuntimeError> {
         let prepared = (|| {
             if inputs.is_empty() || inputs.len() > MAX_DEVICES {
@@ -206,7 +239,12 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 return Err(RuntimeError::RepeatPolicy);
             }
             validate_config(&config, backend.spec())?;
-            let engine = Engine::new(config).map_err(RuntimeError::Engine)?;
+            let engine = if staged {
+                let devices: Vec<_> = inputs.iter().map(|(id, _)| *id).collect();
+                Machine::staged(config, &devices)?
+            } else {
+                Machine::Legacy(Box::new(Engine::new(config)?))
+            };
             // Copy only verified metadata; names/bus/path do not prove other fields.
             let captured_devices = inputs
                 .iter()
@@ -295,6 +333,8 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         self.engine.config_generation()
     }
 
+    /// Model diagnostics, separate from native submitted state. Staged mode
+    /// counts queued stage work/timers rather than legacy DeadlineTokens.
     pub fn engine_state(&self) -> EngineState {
         self.engine.state()
     }
@@ -312,7 +352,6 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             RuntimePhase::Active => self
                 .engine
                 .next_deadline()
-                .map(|(at, _)| at)
                 .into_iter()
                 .chain(self.output.ledger().next_deadline())
                 .chain(Some(self.context_refresh_at))
@@ -489,11 +528,13 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 if self.output.phase() != Phase::Normal {
                     return Err(RuntimeError::IncompleteOutput);
                 }
-            } else if let Some((_, token)) = self
-                .engine
-                .next_deadline()
-                .filter(|(at, _)| *at <= self.now)
-            {
+            } else if self.engine.stage_due(self.now) {
+                let step = self
+                    .engine
+                    .poll_stage(self.now)?
+                    .ok_or(RuntimeError::UnexpectedPass)?;
+                self.output.enqueue(&step.outputs)?;
+            } else if let Some(token) = self.engine.legacy_timer_due(self.now) {
                 self.dispatch(0, InputEvent::TimerFired { token })?;
             } else if let Some((index, event)) = self.logical.clone() {
                 match self.dispatch(index, event) {
@@ -1082,6 +1123,234 @@ mod tests {
             })
             .collect()
     }
+    fn staged_config() -> Arc<ConfigSnapshot> {
+        let mut cfg = (*config(1, "b")).clone();
+        cfg.simple[0].to = vec![
+            keyweave_engine::Action {
+                hold_down_ns: 50,
+                .."b".parse::<KeyId>().unwrap().into()
+            },
+            "c".parse::<KeyId>().unwrap().into(),
+        ];
+        Arc::new(cfg)
+    }
+    fn make_staged(
+        reads: Vec<Vec<io::Result<ReadBatch>>>,
+        cfg: Arc<ConfigSnapshot>,
+    ) -> (Runtime<Source, Backend>, Trace) {
+        let (inputs, backend, trace) = resources(reads);
+        (Runtime::new_staged(inputs, backend, cfg).unwrap(), trace)
+    }
+    fn native_edges(trace: &Trace) -> Vec<(u16, i32)> {
+        submits(trace)
+            .into_iter()
+            .flat_map(|(events, _)| events.into_iter().map(|event| (event.code, event.value)))
+            .collect()
+    }
+    #[test]
+    fn staged_array_early_up_preserves_duration_and_kernel_repeat_emits_no_extra_packet() {
+        let (mut runtime, trace) = make_staged(
+            vec![vec![frame(30, 1), frame(30, 2), frame(30, 0)]],
+            staged_config(),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        assert_eq!(native_edges(&trace), [(48, 1)]);
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(120)).unwrap();
+        assert_eq!(native_edges(&trace), [(48, 1)]);
+        assert_eq!(runtime.engine_state().pending_bindings, 1);
+        runtime.poll(MonoTime(149)).unwrap();
+        runtime.poll(MonoTime(150)).unwrap();
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0), (46, 1), (46, 0)]);
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.engine_state().pending_bindings, 0);
+        assert_eq!(runtime.seq, 4); // one context + Down/Repeat/Up, no fake timer events
+    }
+    #[test]
+    fn staged_large_immediate_array_yields_budget_and_continues_without_reregistering_root() {
+        let mut cfg = (*config(1, "b")).clone();
+        cfg.simple[0].to = vec![
+            keyweave_engine::Action {
+                repeat: false,
+                .."b".parse::<KeyId>().unwrap().into()
+            };
+            512
+        ];
+        let (mut runtime, trace) =
+            make_staged(vec![vec![frame(30, 1), frame(30, 0)]], Arc::new(cfg));
+        let first = runtime.poll(MonoTime(100)).unwrap();
+        assert_eq!(first.work, MAX_WORK_PER_POLL);
+        assert!(first.pending);
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+        assert!(runtime.engine_state().pending_deadlines > 0);
+        for _ in 0..100 {
+            let report = runtime.poll(MonoTime(100)).unwrap();
+            assert!(report.work <= MAX_WORK_PER_POLL);
+            if !report.pending && runtime.engine_state().bindings == 0 {
+                break;
+            }
+        }
+        assert_eq!(runtime.engine_state().bindings, 0);
+        assert_eq!(runtime.engine_state().pending_bindings, 0);
+        assert_eq!(runtime.engine_state().pending_deadlines, 0);
+        assert_eq!(native_edges(&trace).len(), 1024);
+        assert!(
+            native_edges(&trace)
+                .chunks_exact(2)
+                .all(|pair| pair == [(48, 1), (48, 0)])
+        );
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.seq, 3);
+        assert_eq!(runtime.stop_reason(), None);
+    }
+    #[test]
+    fn staged_reload_keeps_original_future_array_and_up_then_new_root_uses_new_generation() {
+        let (mut runtime, trace) = make_staged(
+            vec![vec![frame(30, 1), frame(30, 0), frame(30, 1), frame(30, 0)]],
+            staged_config(),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.activate(config(2, "d")).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(150)).unwrap();
+        runtime.poll(MonoTime(160)).unwrap();
+        runtime.poll(MonoTime(170)).unwrap();
+        assert_eq!(
+            native_edges(&trace),
+            [(48, 1), (48, 0), (46, 1), (46, 0), (32, 1), (32, 0)]
+        );
+        assert_eq!(runtime.config_generation(), ConfigGeneration(2));
+    }
+    #[test]
+    fn staged_pause_cancels_future_array_and_closes_input_before_known_accepted_recovery() {
+        let (mut runtime, trace) = make_staged(vec![vec![frame(30, 1)]], staged_config());
+        runtime.poll(MonoTime(100)).unwrap();
+        let before = trace.borrow().len();
+        runtime.pause(MonoTime(110)).unwrap();
+        assert_eq!(trace.borrow()[before], Call::InputClose(1));
+        runtime.poll(MonoTime(110)).unwrap();
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0)]);
+        assert!(submits(&trace).last().unwrap().1);
+        assert_eq!(runtime.engine_state().pending_deadlines, 0);
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        assert!(
+            runtime
+                .termination_report()
+                .unwrap()
+                .output_recovery_confirmed
+        );
+    }
+    #[test]
+    fn staged_default_cold_gate_is_retained_and_explicit_preflight_does_not_touch_devices() {
+        let (inputs, backend, trace) = resources(vec![vec![]]);
+        assert!(preflight_staged_config(staged_config(), &backend.spec).is_ok());
+        assert!(matches!(
+            Runtime::new(inputs, backend, staged_config()),
+            Err(RuntimeError::Engine(EngineError::UnsupportedActionTiming))
+        ));
+        assert!(submits(&trace).is_empty());
+        assert!(trace.borrow().contains(&Call::InputClose(1)));
+        assert_eq!(trace.borrow().last(), Some(&Call::OutputClose));
+    }
+    #[test]
+    fn staged_report_pending_stops_before_future_array_and_flush_precedes_recovery_up() {
+        let (inputs, mut backend, trace) = resources(vec![vec![frame(30, 1)]]);
+        backend.receipts.push_back(Ok(FrameWrite::Incomplete {
+            accepted: 1,
+            report_pending: true,
+        }));
+        let mut runtime = Runtime::new_staged(inputs, backend, staged_config()).unwrap();
+        assert!(matches!(
+            runtime.poll(MonoTime(100)),
+            Err(RuntimeError::IncompleteOutput)
+        ));
+        assert_eq!(runtime.phase(), RuntimePhase::Recovering);
+        assert_eq!(runtime.output.phase(), Phase::ReportPending);
+        assert!(runtime.submitted().contains(&"b".parse().unwrap()));
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(111)).unwrap();
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0)]);
+        let events = trace.borrow();
+        let close = events
+            .iter()
+            .position(|call| *call == Call::InputClose(1))
+            .unwrap();
+        let flush = events.iter().position(|call| *call == Call::Flush).unwrap();
+        let recovery = events
+            .iter()
+            .position(|call| matches!(call, Call::Submit(_, true)))
+            .unwrap();
+        assert!(close < flush && flush < recovery);
+        assert_eq!(runtime.engine_state().pending_deadlines, 0);
+        assert!(
+            runtime
+                .termination_report()
+                .unwrap()
+                .output_recovery_confirmed
+        );
+    }
+    #[test]
+    fn staged_unknown_acceptance_preserves_unknown_fact_and_never_submits_speculative_up() {
+        let (inputs, mut backend, trace) = resources(vec![vec![frame(30, 1)]]);
+        backend
+            .receipts
+            .push_back(Err(WriteError::UnknownAcceptance(io::Error::other(
+                "synthetic staged",
+            ))));
+        let mut runtime = Runtime::new_staged(inputs, backend, staged_config()).unwrap();
+        assert!(runtime.poll(MonoTime(100)).is_err());
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        assert_eq!(native_edges(&trace), [(48, 1)]);
+        let report = runtime.termination_report().unwrap();
+        assert!(report.acceptance_unknown);
+        assert!(!report.output_recovery_confirmed);
+        assert!(report.input_owners_released);
+        assert!(trace.borrow().contains(&Call::InputClose(1)));
+    }
+    #[test]
+    fn staged_trigger_device_removal_restores_other_device_source_through_ordered_output_pump() {
+        let mut cfg = (*config(1, "right_control")).clone();
+        cfg.simple[0]
+            .extras
+            .from_modifiers
+            .mandatory
+            .insert(keyweave_engine::Modifier::LeftShift);
+        cfg.complex.push(Mapping {
+            id: "source".into(),
+            from: "left_shift".parse().unwrap(),
+            to: vec!["x".parse::<KeyId>().unwrap().into()],
+            allow_extra_modifiers: true,
+            extras: Default::default(),
+        });
+        let (mut runtime, trace) = make_staged(
+            vec![
+                vec![frame(42, 1), Ok(ReadBatch::WouldBlock), frame(42, 0)],
+                vec![Ok(ReadBatch::WouldBlock), frame(30, 1)],
+            ],
+            Arc::new(cfg),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(105)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+        runtime.poll(MonoTime(115)).unwrap();
+        runtime.remove_device(instance(2), MonoTime(120)).unwrap();
+        runtime.poll(MonoTime(120)).unwrap();
+        assert_eq!(
+            native_edges(&trace),
+            [(45, 1), (45, 0), (97, 1), (97, 0), (45, 1)]
+        );
+        assert_eq!(runtime.engine_state().output_owners, 1);
+        assert_eq!(
+            runtime.engine_state().pressed_outputs,
+            ["x".parse::<KeyId>().unwrap()]
+        );
+        assert!(trace.borrow().contains(&Call::InputClose(2)));
+        assert!(!trace.borrow().contains(&Call::InputClose(1)));
+        runtime.poll(MonoTime(130)).unwrap();
+        assert_eq!(native_edges(&trace).last(), Some(&(45, 0)));
+        assert_eq!(runtime.engine_state().bindings, 0);
+    }
     #[test]
     fn actual_runtime_frames_repeat_and_old_config_release() {
         let (mut runtime, trace) = make_runtime(
@@ -1624,7 +1893,7 @@ mod tests {
             cfg,
         );
         runtime.poll(MonoTime(0)).unwrap();
-        assert_eq!(runtime.engine.next_deadline().unwrap().0, MonoTime(hold));
+        assert_eq!(runtime.engine.next_deadline().unwrap(), MonoTime(hold));
         runtime.poll(MonoTime(hold)).unwrap();
         assert_eq!(runtime.stop_reason(), Some(StopReason::Emergency));
         assert!(runtime.engine.next_deadline().is_none());

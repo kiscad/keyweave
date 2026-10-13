@@ -179,6 +179,9 @@ impl OutputStageActor {
     pub fn executed_variables(&self) -> BTreeMap<String, VariableValue> {
         self.terminal.variable_values()
     }
+    pub(crate) fn output_owner_count(&self) -> usize {
+        self.terminal.output_owner_count()
+    }
     pub fn pressed_outputs(&self) -> Vec<KeyId> {
         self.terminal.pressed_outputs()
     }

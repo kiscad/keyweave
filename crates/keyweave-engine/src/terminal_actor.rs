@@ -259,6 +259,9 @@ impl TerminalActor {
     pub fn saved_plan(&self, batch: BatchId) -> Option<&ActionPlan> {
         self.batches.get(&batch).map(|saved| &saved.plan)
     }
+    pub(crate) fn output_owner_count(&self) -> usize {
+        self.core.owners.values().map(BTreeSet::len).sum()
+    }
     pub fn pressed_outputs(&self) -> Vec<KeyId> {
         self.core.emitted.iter().copied().collect()
     }

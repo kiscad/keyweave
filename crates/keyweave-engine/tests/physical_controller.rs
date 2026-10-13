@@ -1172,3 +1172,54 @@ fn lifecycle_reset_and_repeat_query_do_not_consume_input_sequence_or_reuse_sourc
     assert_eq!(pointers.len(), 1);
     assert_eq!(pointers[0].event.source, SourceToken((1u64 << 63) | 3));
 }
+#[test]
+fn staged_diagnostics_count_real_roots_owners_and_queue_work_once_without_output_mirror_duplicates()
+{
+    let mut actor =
+        PhysicalStageController::new(config(vec![mapping("a", vec![key("b").into()])], vec![]))
+            .unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    let state = actor.state();
+    assert_eq!(
+        (state.bindings, state.output_owners, state.pending_deadlines),
+        (1, 0, 1)
+    );
+    assert_eq!(state.binding_generations, [ConfigGeneration(1)]);
+    actor.poll(MonoTime(100)).unwrap().unwrap();
+    assert_eq!(actor.state().pending_deadlines, 1); // one Output action, not its paired mirror
+    actor.poll(MonoTime(100)).unwrap().unwrap();
+    let state = actor.state();
+    assert_eq!((state.output_owners, state.pending_deadlines), (1, 0));
+    assert_eq!(state.pressed_outputs, [key("b")]);
+    let mut next = (*config(vec![mapping("a", vec![key("c").into()])], vec![])).clone();
+    next.generation = ConfigGeneration(2);
+    actor.activate(Arc::new(next)).unwrap();
+    assert_eq!(actor.state().binding_generations, [ConfigGeneration(1)]);
+    actor
+        .handle(keyboard(2, 110, dev, "a", KeyEdge::Up))
+        .unwrap();
+    let state = actor.state();
+    assert_eq!(
+        (
+            state.bindings,
+            state.pending_bindings,
+            state.output_owners,
+            state.pending_deadlines
+        ),
+        (0, 1, 1, 1)
+    );
+    assert_eq!(drain(&mut actor, 110), [(key("b"), KeyEdge::Up)]);
+    let state = actor.state();
+    assert_eq!(
+        (
+            state.bindings,
+            state.pending_bindings,
+            state.output_owners,
+            state.pending_deadlines
+        ),
+        (0, 0, 0, 0)
+    );
+}

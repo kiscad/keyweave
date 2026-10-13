@@ -189,6 +189,15 @@ impl ComplexStageActor {
             .chain(self.delayed.map(|(at, _)| at))
             .min()
     }
+    pub(crate) fn output_model(&self) -> (usize, Vec<KeyId>, usize) {
+        (
+            self.output.output_owner_count(),
+            self.output.pressed_outputs(),
+            self.output.queued_events()
+                + usize::from(self.held.is_some())
+                + usize::from(self.delayed.is_some()),
+        )
+    }
     pub fn reserved_sources(&self) -> usize {
         self.producers.reserved_sources()
     }

@@ -138,6 +138,10 @@ impl SimpleStageActor {
     pub fn pending_children(&self) -> usize {
         self.children.len()
     }
+    pub(crate) fn output_model(&self) -> (usize, Vec<KeyId>, usize) {
+        let (owners, pressed, pending) = self.complex.output_model();
+        (owners, pressed, pending + self.generated.queued_events())
+    }
     /// Accounting in the external Simple tree only; not a unified allstage source budget.
     pub fn reserved_sources(&self) -> usize {
         self.producers.reserved_sources()
