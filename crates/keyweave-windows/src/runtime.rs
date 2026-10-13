@@ -121,24 +121,26 @@ impl<B: SendBackend> SessionActor<B> {
         tag: InjectionTag,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        let engine = Machine::Legacy(Box::new(prepare_engine(config)?));
-        Ok(Self {
-            engine,
-            output: OutputPump::new(backend, tag),
-            phase: ActorPhase::Standby,
-            now: MonoTime(0),
-            seq: 0,
-            failure: None,
-            pending_inputs: VecDeque::new(),
-        })
+        Self::new_with_mode(backend, tag, config, ExecutionMode::Legacy)
     }
-    /// Explicit staged keyboard mode. No native entry selects this constructor yet.
+    /// Explicit staged keyboard mode; lifecycle gates remain caller-owned.
     pub fn new_staged(
         backend: B,
         tag: InjectionTag,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        let engine = Machine::staged(config)?;
+        Self::new_with_mode(backend, tag, config, ExecutionMode::StagedKeyboard)
+    }
+    pub fn new_with_mode(
+        backend: B,
+        tag: InjectionTag,
+        config: Arc<ConfigSnapshot>,
+        mode: ExecutionMode,
+    ) -> Result<Self, RuntimeError> {
+        let engine = match mode {
+            ExecutionMode::Legacy => Machine::Legacy(Box::new(prepare_engine(config)?)),
+            ExecutionMode::StagedKeyboard => Machine::staged(config)?,
+        };
         Ok(Self {
             engine,
             output: OutputPump::new(backend, tag),

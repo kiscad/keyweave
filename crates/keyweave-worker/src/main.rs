@@ -297,7 +297,10 @@ fn execute(args: Arguments) -> NativeWorkerExit {
             Err(_) => return WorkerExit::Admission.into(),
         };
         // Consume the inherited file object, never reopen the diagnostic path.
-        let loaded = keyweave_worker::load_config(&mut reader);
+        let loaded = keyweave_worker::preparation::PreparedConfig::read_with_mode(
+            &mut reader,
+            args.execution_mode,
+        );
         if reader.close().is_err() {
             return WorkerExit::Cleanup.into();
         }
@@ -307,20 +310,28 @@ fn execute(args: Arguments) -> NativeWorkerExit {
         // the immutable four-handle contract instead of reopening user paths.
         std::fs::File::open(&args.config)
             .map_err(keyweave_worker::LoadError::from)
-            .and_then(keyweave_worker::load_config)
+            .map_err(keyweave_worker::preparation::PreparationError::from)
+            .and_then(|file| {
+                keyweave_worker::preparation::PreparedConfig::read_with_mode(
+                    file,
+                    args.execution_mode,
+                )
+            })
     };
-    let config = match loaded {
+    let prepared = match loaded {
         Ok(config) => config,
         Err(_) => return WorkerExit::Config.into(),
     };
-    // Staged argv must never be silently installed as Legacy. Native factory
-    // mode handoff remains pending platform validation and is not enabled yet.
-    if args.execution_mode != keyweave_worker::preparation::ExecutionMode::Legacy {
-        return WorkerExit::UnsupportedPlatform.into();
-    }
     // This constructor allocates only; it does not install or inject input.
     let backend = SendInputBackend::new(args.tag);
-    let mut worker = match Worker::install(startup, backend, args.tag, args.identity, config) {
+    let mut worker = match Worker::install_with_mode(
+        startup,
+        backend,
+        args.tag,
+        args.identity,
+        prepared.snapshot().clone(),
+        prepared.execution_mode(),
+    ) {
         Ok(worker) => worker,
         Err(_) => return WorkerExit::Install.into(),
     };

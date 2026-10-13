@@ -96,6 +96,8 @@ Windows host 已增加每次启动的系统随机 run ID 和注入标记生成�
 
 已增加 `keyweave-host` 用户入口：`check-windows --config PATH` 离线检查；`run-windows --config PATH --identity strict` 显式启动 Windows 会话，按 Enter 停止。需要同目录已构建的 `keyweave-worker.exe`；开发时可显式指定可信的绝对 `--worker` 路径。配置准备、随机启动身份、原文件对象交付、独立进度监督与退出清理已接通。[设计与运行限制](docs/ADR-0062-windows-user-host.md)。目前仍属开发版，正常键盘、控制台信号、热更新及完整发布验收继续。
 
+Windows 两个命令支持 `--execution-mode legacy|staged-keyboard`，默认 `legacy`。显式阶段模式支持已实现的定时键盘规则，模式由冷配置固定并传到 worker 工厂；`check-windows` 只做离线检查，不验证设备就绪。当前阶段模式工厂改动仅通过 Linux 共享 Rust/mock 测试，Windows 本机编译与真实输入验收仍待完成，见 [ADR-0153](docs/ADR-0153-windows-mode-native-handoff.md)。
+
 
 Windows host 现已接入控制台 Ctrl+C / Ctrl+Break 协作停止，Enter/EOF 控制继续可用；关闭窗口、注销和关机的恢复边界另见[设计](docs/ADR-0063-console-cooperative-stop.md)。两架构原生验证使用自有私有控制台和无输入协议fixture，真实键盘及发布验收仍继续。
 

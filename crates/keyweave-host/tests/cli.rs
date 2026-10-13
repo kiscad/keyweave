@@ -310,3 +310,61 @@ fn linux_offline_mode_explicitly_admits_timed_json_and_reports_unverified_readin
     assert_eq!(fs::read(&path).unwrap(), body);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn windows_offline_mode_admits_timing_only_when_explicit_and_preserves_private_bytes() {
+    let root = dir("windows-staged-offline");
+    let path = root.join("private config with spaces.jsonc");
+    let body = br#"// private-timed-comment
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"private-timed-rule","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":50},{"key_code":"c"}]}]}]}}]}"#;
+    fs::write(&path, body).unwrap();
+    for mode in [
+        None,
+        Some("legacy"),
+        Some("staged-keyboard"),
+        Some("unknown"),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_keyweave-host"));
+        command.arg("check-windows").arg("--config").arg(&path);
+        if let Some(mode) = mode {
+            command.args(["--execution-mode", mode]);
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.success(), mode == Some("staged-keyboard"));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(!stdout.contains("private-timed") && !stderr.contains("private-timed"));
+        if mode == Some("staged-keyboard") {
+            assert!(stderr.is_empty());
+            assert!(stdout.contains("offline") && stdout.contains("mode=StagedKeyboard"));
+            assert!(stdout.contains("device readiness unverified"));
+        } else {
+            assert!(stdout.is_empty());
+        }
+    }
+    assert_eq!(fs::read(&path).unwrap(), body);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(not(windows))]
+#[test]
+fn windows_staged_run_remains_unavailable_on_non_windows_before_file_access() {
+    let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args([
+            "run-windows",
+            "--execution-mode",
+            "staged-keyboard",
+            "--config",
+            "absent-private-config.json",
+            "--identity",
+            "strict",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(78));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap().trim(),
+        "run-windows requires Windows"
+    );
+}

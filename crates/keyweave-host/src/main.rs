@@ -39,11 +39,15 @@ enum Command {
     },
     /// Check a Windows configuration without opening input or starting a worker.
     CheckWindows {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: WindowsExecution,
         #[arg(long)]
         config: PathBuf,
     },
     /// Run an experimental Windows remapping session. Enter or Ctrl+C stops it.
     RunWindows {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: WindowsExecution,
         #[arg(long)]
         config: PathBuf,
         #[arg(long, value_enum)]
@@ -64,6 +68,19 @@ struct WatchArgs {
     /// File check interval (100..60000 milliseconds); default 1000 when enabled.
     #[arg(long, requires = "watch_config", value_parser = clap::value_parser!(u64).range(100..=60000))]
     watch_interval_ms: Option<u64>,
+}
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum WindowsExecution {
+    Legacy,
+    StagedKeyboard,
+}
+impl WindowsExecution {
+    fn runtime(self) -> keyweave_worker::preparation::ExecutionMode {
+        match self {
+            Self::Legacy => keyweave_worker::preparation::ExecutionMode::Legacy,
+            Self::StagedKeyboard => keyweave_worker::preparation::ExecutionMode::StagedKeyboard,
+        }
+    }
 }
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum LinuxExecution {
@@ -136,15 +153,21 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Command::CheckWindows { config } => match std::fs::File::open(config)
+        Command::CheckWindows {
+            config,
+            execution_mode,
+        } => match std::fs::File::open(config)
             .map_err(|e| e.to_string())
-            .and_then(|f| PreparedConfig::read(f).map_err(|e| e.to_string()))
-        {
+            .and_then(|f| {
+                PreparedConfig::read_with_mode(f, execution_mode.runtime())
+                    .map_err(|e| e.to_string())
+            }) {
             Ok(config) => {
                 println!(
-                    "configuration accepted: bytes={}, generation={}",
+                    "configuration accepted offline: bytes={}, generation={}, mode={:?}; device readiness unverified",
                     config.bytes().len(),
-                    config.snapshot().generation.0
+                    config.snapshot().generation.0,
+                    config.execution_mode()
                 );
                 ExitCode::SUCCESS
             }
@@ -154,15 +177,28 @@ fn main() -> ExitCode {
             }
         },
         Command::RunWindows {
+            execution_mode,
             config,
             identity,
             worker,
             artifact_directory,
-        } => run(config, identity.into(), worker, artifact_directory),
+        } => run(
+            config,
+            identity.into(),
+            worker,
+            artifact_directory,
+            execution_mode,
+        ),
     }
 }
 #[cfg(not(windows))]
-fn run(_: PathBuf, _: IdentityPolicy, _: Option<PathBuf>, _: Option<PathBuf>) -> ExitCode {
+fn run(
+    _: PathBuf,
+    _: IdentityPolicy,
+    _: Option<PathBuf>,
+    _: Option<PathBuf>,
+    _: WindowsExecution,
+) -> ExitCode {
     eprintln!("run-windows requires Windows");
     ExitCode::from(78)
 }
@@ -172,6 +208,7 @@ fn run(
     identity: IdentityPolicy,
     worker: Option<PathBuf>,
     directory: Option<PathBuf>,
+    execution_mode: WindowsExecution,
 ) -> ExitCode {
     use std::{
         io::Read,
@@ -189,9 +226,11 @@ fn run(
         let config = config
             .canonicalize()
             .map_err(|e| format!("config path: {e}"))?;
-        let prepared =
-            PreparedConfig::read(std::fs::File::open(&config).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
+        let prepared = PreparedConfig::read_with_mode(
+            std::fs::File::open(&config).map_err(|e| e.to_string())?,
+            execution_mode.runtime(),
+        )
+        .map_err(|e| e.to_string())?;
         let directory = directory.unwrap_or_else(std::env::temp_dir);
         if !directory.is_absolute() {
             return Err("artifact directory must be absolute".into());

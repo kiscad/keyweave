@@ -189,10 +189,27 @@ impl<B: SendBackend + 'static> Worker<B> {
         policy: IdentityPolicy,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, WorkerInstallError> {
+        Self::install_with_mode(
+            startup,
+            backend,
+            tag,
+            policy,
+            config,
+            crate::runtime::ExecutionMode::Legacy,
+        )
+    }
+    pub fn install_with_mode(
+        startup: WorkerStartup,
+        backend: B,
+        tag: InjectionTag,
+        policy: IdentityPolicy,
+        config: Arc<ConfigSnapshot>,
+        mode: crate::runtime::ExecutionMode,
+    ) -> Result<Self, WorkerInstallError> {
         context()?;
         let (guard, run_id, reader, writer) = startup.into_parts();
         let client = ProgressClient::new(reader, writer, run_id)?;
-        let session = CaptureSession::install(backend, tag, policy, config)?;
+        let session = CaptureSession::install_with_mode(backend, tag, policy, config, mode)?;
         Ok(Self {
             _guard: guard,
             driver: Driver {

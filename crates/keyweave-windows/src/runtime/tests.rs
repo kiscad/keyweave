@@ -756,6 +756,51 @@ fn timed_config() -> Arc<ConfigSnapshot> {
     ];
     config(1, vec![rule])
 }
+
+#[test]
+fn explicit_mode_factory_retains_cold_lifecycle_and_selects_timing_engine() {
+    for mode in [ExecutionMode::Legacy, ExecutionMode::StagedKeyboard] {
+        let calls = Rc::new(RefCell::new(vec![]));
+        let backend = Backend {
+            calls: calls.clone(),
+            replies: VecDeque::new(),
+            zero: false,
+        };
+        let actor = SessionActor::new_with_mode(
+            backend,
+            InjectionTag::new(1).unwrap(),
+            timed_config(),
+            mode,
+        );
+        assert!(calls.borrow().is_empty());
+        match mode {
+            ExecutionMode::Legacy => assert!(matches!(
+                actor,
+                Err(RuntimeError::Engine(EngineError::UnsupportedActionTiming))
+            )),
+            ExecutionMode::StagedKeyboard => {
+                let mut actor = actor.unwrap();
+                assert_eq!(actor.execution_mode(), mode);
+                assert_eq!(actor.phase(), ActorPhase::Standby);
+                assert!(matches!(
+                    actor.key(event(4, KeyEdge::Down), MonoTime(100)),
+                    Err(RuntimeError::NotActive)
+                ));
+                assert!(calls.borrow().is_empty());
+                actor.start_after_neutral().unwrap();
+                actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+                actor.key(event(4, KeyEdge::Up), MonoTime(110)).unwrap();
+                assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+                actor.tick(MonoTime(150)).unwrap();
+                assert_eq!(
+                    packet_edges(&calls),
+                    [(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
+                );
+                actor.stop_after_unhook().unwrap();
+            }
+        }
+    }
+}
 fn packet_edges(calls: &Calls) -> Vec<(u16, u32)> {
     calls
         .borrow()

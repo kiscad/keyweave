@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0153 Windows explicit mode host/worker/native factory handoff",
+  "source_base_commit": "455540519696c644daacc9f29b278c34165afbf5",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/main.rs": "12843724be934fb6f601cda0280558a0d3b4e654ba538b88fd6e0b959a449103",
+    "crates/keyweave-host/src/windows.rs": "37cc29a108f8009347a0af3e044148e13d4523fb4c5b7a798767aff2baff2920",
+    "crates/keyweave-host/tests/cli.rs": "1416b373c1e8e0bd3b27a951f101460c7d6ddab8252928416740bf495b22a9d5",
+    "crates/keyweave-windows/src/native/session.rs": "8a3ed97175f25cac7ecba306128d57e9e7a23357f2045cdf023a0a42a0e9580c",
+    "crates/keyweave-windows/src/native/worker.rs": "b2d71415e7dadd6bda0a545a6d22d28a068ad0cba02bbecac39806f46d22864a",
+    "crates/keyweave-windows/src/runtime.rs": "8ca6b910edf821313dd915c2977ede3ec606ec51f5027c656f45e27728d01a9f",
+    "crates/keyweave-windows/src/runtime/tests.rs": "3e68bea76dae34375b6025c9e70736dafc28bf6336b3c2edcf5d36639a96b21f",
+    "crates/keyweave-worker/src/main.rs": "92210757486cb07f4e997dcbf6d0d324791855764f5d7bb6647ef94b7e4b141f"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1390,
+    "new_tests": 3,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-windows-native-mode/tests.log",
+        "sha256": "8534d9e6678e42969f8ff3689c69b4eddaff8e0d449b5558f0599f0caad5bcbc"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-windows-native-mode/clippy.log",
+        "sha256": "26a05f5f19f02aabf70dea5fe2c51eae1899ff37ad538d817f9410175b49b13f"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-windows-native-mode/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-windows-native-mode/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native x64/i686 compilation remains pending after prior automatic approval quota rejection. No new native attempt or bypass; native factory changes have not been compiled with Windows MSVC."
+  },
+  "limitations": [
+    "Cold Windows PreparedConfig mode now selects fixed worker argv and Worker.install_with_mode -> CaptureSession.install_with_mode -> SessionActor.new_with_mode before Hook installation. Exact sealed bytes and explicit reader close remain. Legacy wrappers/default and all existing lifecycle gates retained.",
+    "Windows check-windows explicitly accepts staged timing and reports offline mode/unverified readiness; default and explicit Legacy timing still reject. CLI tests preserve bytes/private rule text and reject invalid mode. Non-Windows staged run returns 78 before file access.",
+    "Shared SessionActor factory mock test proves cold Standby, no submission before neutral gate, Legacy timing refusal and actual ordered staged output. This is not native Hook/SendInput proof.",
+    "Native pointer, advanced Simple branches, simultaneous, Windows native/hardware and Linux graphical consumer/hot-add, GUI, packaging, driver and full objective remain incomplete."
+  ],
+  "abi": "No new unsafe/FFI/dependencies/native packet layouts."
+}

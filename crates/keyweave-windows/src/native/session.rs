@@ -338,15 +338,31 @@ impl<B: SendBackend + 'static> CaptureSession<B> {
         policy: IdentityPolicy,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, SessionError> {
+        Self::install_with_mode(
+            backend,
+            tag,
+            policy,
+            config,
+            crate::runtime::ExecutionMode::Legacy,
+        )
+    }
+    pub fn install_with_mode(
+        backend: B,
+        tag: InjectionTag,
+        policy: IdentityPolicy,
+        config: Arc<ConfigSnapshot>,
+        mode: crate::runtime::ExecutionMode,
+    ) -> Result<Self, SessionError> {
         // Validate every output/condition before registering or touching input.
         let enabled = Rc::new(Cell::new(false));
-        let actor = Rc::new(RefCell::new(SessionActor::new(
+        let actor = Rc::new(RefCell::new(SessionActor::new_with_mode(
             GuardedBackend {
                 backend,
                 enabled: enabled.clone(),
             },
             tag,
             config,
+            mode,
         )?));
         let clock = SessionClock::new();
         let now = clock.now().ok_or(SessionError::Clock)?;
