@@ -1,0 +1,1050 @@
+use super::*;
+use crate::simultaneous::{ChordMatch, GroupBindingOwner, GroupOwnerError, UnfinishedGroupOwner};
+
+/// A chosen group has executed its original member admission; only outside inputs are replayable.
+pub struct MatchedGroupStep {
+    pub step: ComplexStep,
+    pub replay: Vec<DueEvent<PlannedAction>>,
+}
+impl ComplexStageActor {
+    /// Handoff from ordered arbitration. Default construction still gates simultaneous input.
+    /// The caller must coordinate input frontier and interrupt previous candidates before selecting.
+    pub fn admit_matched_group(
+        &mut self,
+        group: ChordMatch,
+        selection: rule_selection::RuleSelection,
+        at: MonoTime,
+    ) -> Result<MatchedGroupStep, ComplexActorError> {
+        self.running()?;
+        self.check_time(at)?;
+        if self.next_deadline().is_some_and(|deadline| deadline <= at) {
+            return Err(ComplexActorError::DeadlinePending);
+        }
+        let result = self.admit_matched_group_inner(group, selection, at);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+    fn registered_group_down(
+        &self,
+        down: &timeline::StageEvent<PlannedAction>,
+    ) -> Result<(PlannedAction, bool), ComplexActorError> {
+        let slot = down.payload.slot;
+        let input = self
+            .inputs
+            .get(&slot.batch)
+            .ok_or(ComplexActorError::Input)?;
+        let origin = &input.plan.origin;
+        if down.stage != Stage::Complex
+            || down.device != origin.device
+            || down.source != origin.source
+            || !Arc::ptr_eq(&down.config, &origin.config)
+        {
+            return Err(ComplexActorError::Input);
+        }
+        let expected = input
+            .plan
+            .events()
+            .iter()
+            .find(|event| event.payload.slot == slot && event.payload.edge == KeyEdge::Down)
+            .ok_or(ComplexActorError::Input)?;
+        if down.payload != expected.payload || down.at_ns < expected.at_ns {
+            return Err(ComplexActorError::Input);
+        }
+        self.producers.check_down(slot)?;
+        self.output.check_live_device(down.device)?;
+        let up = input
+            .plan
+            .events()
+            .iter()
+            .find(|event| event.payload.slot == slot && event.payload.edge == KeyEdge::Up)
+            .map(|event| &event.payload)
+            .or_else(|| {
+                input
+                    .plan
+                    .releases()
+                    .iter()
+                    .find(|action| action.slot == slot)
+            })
+            .cloned()
+            .ok_or(ComplexActorError::Input)?;
+        Ok((up, !input.plan.snapshot_modifier_slots.contains(&slot)))
+    }
+    fn admit_matched_group_inner(
+        &mut self,
+        group: ChordMatch,
+        selection: rule_selection::RuleSelection,
+        at: MonoTime,
+    ) -> Result<MatchedGroupStep, ComplexActorError> {
+        let first = group.members().first().ok_or(ComplexActorError::Input)?;
+        if selection.stage() != rule_selection::MappingStage::Complex
+            || !Arc::ptr_eq(selection.snapshot(), &first.down().event.config)
+            || selection.mapping().extras.simultaneous.as_ref() != Some(group.spec())
+            || at < group.matched_at()
+            || group.events().iter().any(|event| at < event.delivered_at)
+        {
+            return Err(ComplexActorError::Input);
+        }
+        let primary = first.down().event.payload.slot;
+        let has_initial_up = group.members().iter().any(|member| member.up().is_some());
+        let mut credentials = Vec::with_capacity(group.members().len());
+        for member in group.members() {
+            let (up, identity) = self.registered_group_down(&member.down().event)?;
+            if let Some(observed) = member.up() {
+                let input = &self.inputs[&up.slot.batch];
+                let earliest = input
+                    .plan
+                    .events()
+                    .iter()
+                    .find(|event| {
+                        event.payload.slot == up.slot && event.payload.edge == KeyEdge::Up
+                    })
+                    .map_or(input.plan.ends_at(), |event| event.at_ns);
+                if observed.event.payload != up || observed.event.at_ns < earliest {
+                    return Err(ComplexActorError::Input);
+                }
+            }
+            credentials.push((up, identity));
+        }
+        let rule = selection.mapping();
+        let candidate = !rule.extras.if_alone.is_empty();
+        let held = if rule.extras.if_held_down.is_empty() {
+            None
+        } else {
+            Some((
+                MonoTime(
+                    at.0.checked_add(rule.extras.held_threshold_ns)
+                        .ok_or(ComplexActorError::TimeOverflow)?,
+                ),
+                primary,
+            ))
+        };
+        let delayed = match rule
+            .extras
+            .delayed
+            .as_ref()
+            .filter(|branch| !branch.if_invoked.is_empty() || !branch.if_canceled.is_empty())
+        {
+            Some(branch) => Some((
+                MonoTime(
+                    at.0.checked_add(branch.delay_ns)
+                        .ok_or(ComplexActorError::TimeOverflow)?,
+                ),
+                primary,
+            )),
+            None => None,
+        };
+        let id = self.next_batch_id()?;
+        let plan = modifier_scope::ScopedActionPlan::main(
+            &selection,
+            id,
+            at,
+            first.down().event.device,
+            first.down().event.source,
+        )?;
+        let slots = plan
+            .actions()
+            .events()
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+            .count();
+        let generated_halt = plan
+            .actions()
+            .events()
+            .iter()
+            .any(|event| event.payload.halt);
+        let member_slots: Vec<_> = group
+            .members()
+            .iter()
+            .map(|member| member.down().event.payload.slot)
+            .collect();
+        let member_downs: Vec<_> = group
+            .members()
+            .iter()
+            .map(|member| member.down().event.clone())
+            .collect();
+        let mut selected = Some(selection);
+        let mut downs = Vec::with_capacity(member_slots.len());
+        for (index, (member, (up, identity))) in group.members().iter().zip(credentials).enumerate()
+        {
+            let down = DueEvent {
+                event: member.down().event.clone(),
+                delivered_at: at,
+            };
+            let decision = ProducerDecision::new(
+                down.event.clone(),
+                at,
+                Stage::Output,
+                if index == 0 { selected.take() } else { None },
+            )
+            .with_device_identity(identity)
+            .with_original_up(&up)?;
+            downs.push((down, decision));
+        }
+        // Prior interruption belongs to the outer arbiter's Down frame. Never fire old delayed
+        // cancellation after its selection has been frozen using a different generated view.
+        if self.delayed.is_some() {
+            return Err(ComplexActorError::Input);
+        }
+        let handle = if slots == 0 {
+            let activation = self
+                .producers
+                .prepare_shared_consumed_down(plan.actions().origin.clone(), downs)
+                .map_err(|rejected| rejected.error)?;
+            self.output
+                .prepare_shared_empty_child_scoped(plan, activation)?
+                .commit()
+        } else {
+            let registration = self
+                .producers
+                .prepare_shared_child_with_down(plan.actions().origin.clone(), slots, downs)
+                .map_err(|rejected| rejected.error)?;
+            self.output
+                .prepare_shared_child_scoped(plan, registration)?
+                .commit()
+        };
+        self.last_batch = id.0;
+        let main = (slots != 0).then_some(id);
+        if let Some(main) = main {
+            self.children.insert(main, primary);
+        }
+        self.quarantined_group_holds.push(handle);
+        // The real original Up markers must exist before the owner applies initial lookahead facts.
+        for member in group.members() {
+            if let Some(up) = member.up() {
+                let due = DueEvent {
+                    event: up.event.clone(),
+                    delivered_at: at,
+                };
+                let marker = self.producers.prepare_producer_up(&due)?;
+                marker.commit();
+                let input = self
+                    .inputs
+                    .get_mut(&due.event.payload.slot.batch)
+                    .ok_or(ComplexActorError::Invariant)?;
+                input.unreleased = input
+                    .unreleased
+                    .checked_sub(1)
+                    .ok_or(ComplexActorError::Invariant)?;
+            }
+        }
+        let handle = self
+            .quarantined_group_holds
+            .pop()
+            .ok_or(ComplexActorError::Invariant)?;
+        let (owner, events) =
+            match GroupBindingOwner::new(group, handle, main, &self.producers, &self.output) {
+                Ok(owned) => owned,
+                Err(rejected) => {
+                    self.quarantined_group_holds.push(rejected.handle);
+                    return Err(rejected.error.into());
+                }
+            };
+        self.groups.insert(primary, owner);
+        for &slot in &member_slots {
+            self.group_members.insert(slot, primary);
+            self.bindings.insert(slot, main);
+        }
+        self.held = held;
+        self.delayed = delayed;
+        self.alone_candidate = candidate.then_some(primary);
+        if generated_halt {
+            self.halted.insert(primary);
+        }
+        let mut step = ComplexStep::default();
+        if self
+            .producers
+            .live(primary)
+            .is_some_and(ProducerDecision::originating_halt)
+        {
+            step.originating_halt = Some(primary);
+        }
+        self.now = at;
+        if has_initial_up {
+            self.pending_group_initial.insert(primary);
+        }
+        let replay = events
+            .into_iter()
+            .filter(|event| {
+                !member_downs.iter().any(|down| {
+                    down.stage == event.event.stage
+                        && down.device == event.event.device
+                        && down.source == event.event.source
+                        && Arc::ptr_eq(&down.config, &event.event.config)
+                        && down.payload.slot == event.event.payload.slot
+                        && down.payload.target == event.event.payload.target
+                })
+            })
+            .collect();
+        Ok(MatchedGroupStep { step, replay })
+    }
+    pub(super) fn initialize_group_up(
+        &mut self,
+        primary: ActionSlot,
+        at: MonoTime,
+        context: &ContextSnapshot,
+    ) -> Result<ComplexStep, ComplexActorError> {
+        self.pending_group_initial.remove(&primary);
+        let facts = self
+            .groups
+            .get_mut(&primary)
+            .ok_or(ComplexActorError::Invariant)?
+            .initial(at, &mut self.output)?;
+        let mut step = ComplexStep::default();
+        self.apply_group_up_facts(primary, facts, at, context, &mut step)?;
+        Ok(step)
+    }
+    pub(super) fn admit_group_up(
+        &mut self,
+        primary: ActionSlot,
+        due: &DueEvent<PlannedAction>,
+        context: &ContextSnapshot,
+        step: &mut ComplexStep,
+    ) -> Result<(), ComplexActorError> {
+        let facts = self
+            .groups
+            .get_mut(&primary)
+            .ok_or(ComplexActorError::Invariant)?
+            .up(due, &mut self.producers, &mut self.output)?;
+        let input = self
+            .inputs
+            .get_mut(&due.event.payload.slot.batch)
+            .ok_or(ComplexActorError::Invariant)?;
+        input.unreleased = input
+            .unreleased
+            .checked_sub(1)
+            .ok_or(ComplexActorError::Invariant)?;
+        self.apply_group_up_facts(primary, facts, due.delivered_at, context, step)?;
+        self.now = due.delivered_at;
+        Ok(())
+    }
+    fn apply_group_up_facts(
+        &mut self,
+        primary: ActionSlot,
+        facts: simultaneous::ChordUpFacts,
+        at: MonoTime,
+        context: &ContextSnapshot,
+        step: &mut ComplexStep,
+    ) -> Result<(), ComplexActorError> {
+        if self.held.is_some_and(|(_, slot)| slot == primary)
+            && self.groups.get(&primary).is_some_and(|group| {
+                group.members().iter().any(|slot| {
+                    self.producers
+                        .live(*slot)
+                        .is_some_and(|decision| decision.up_delivered_at().is_some())
+                })
+            })
+        {
+            self.held = None;
+        }
+        if facts.release_output {
+            let trigger = self
+                .groups
+                .get(&primary)
+                .and_then(GroupBindingOwner::last_up_member)
+                .ok_or(ComplexActorError::Invariant)?;
+            if self.alone_candidate == Some(primary) {
+                self.alone_candidate = None;
+                let decision = self
+                    .producers
+                    .live(primary)
+                    .ok_or(ComplexActorError::Invariant)?;
+                let release_time = self
+                    .groups
+                    .get(&primary)
+                    .and_then(GroupBindingOwner::last_up_event_time)
+                    .ok_or(ComplexActorError::Invariant)?;
+                let duration = release_time
+                    .0
+                    .checked_sub(decision.down().at_ns.0)
+                    .ok_or(ComplexActorError::Invariant)?;
+                if decision
+                    .selection()
+                    .is_some_and(|rule| duration < rule.mapping().extras.alone_timeout_ns)
+                {
+                    self.branch_for_trigger(
+                        primary,
+                        rule_selection::RuleBranch::Alone,
+                        context,
+                        at,
+                        trigger,
+                    )?;
+                }
+            }
+            self.branch_for_trigger(
+                primary,
+                rule_selection::RuleBranch::AfterKeyUp,
+                context,
+                at,
+                trigger,
+            )?;
+        }
+        if facts.after_group_up {
+            let id = self.next_batch_id()?;
+            let admitted = self
+                .groups
+                .get_mut(&primary)
+                .ok_or(ComplexActorError::Invariant)?
+                .dispatch_group_after_up(
+                    id,
+                    at,
+                    context,
+                    self.halted.contains(&primary),
+                    &mut self.producers,
+                    &mut self.output,
+                )?;
+            if let Some(batch) = admitted.batch {
+                self.children.insert(batch, primary);
+                self.last_batch = batch.0;
+            }
+            if admitted.generated_halt {
+                self.halted.insert(primary);
+            }
+        }
+        self.finish_group(primary, step)
+    }
+    pub(super) fn finish_group(
+        &mut self,
+        primary: ActionSlot,
+        step: &mut ComplexStep,
+    ) -> Result<(), ComplexActorError> {
+        let owner = self
+            .groups
+            .remove(&primary)
+            .ok_or(ComplexActorError::Invariant)?;
+        let outer_done = !self.delayed.is_some_and(|(_, slot)| slot == primary)
+            && !self.held.is_some_and(|(_, slot)| slot == primary);
+        let finished = match owner.finish(&mut self.producers, outer_done) {
+            Ok(finished) => finished,
+            Err(rejected) => {
+                let UnfinishedGroupOwner { error, owner } = *rejected;
+                self.groups.insert(primary, owner);
+                return if matches!(error, GroupOwnerError::Pending) {
+                    Ok(())
+                } else {
+                    Err(error.into())
+                };
+            }
+        };
+        for (slot, _) in finished {
+            self.group_members.remove(&slot);
+            self.finish_input_metadata(slot, step)?;
+        }
+        Ok(())
+    }
+    pub(super) fn release_group_holds_for_reset(&mut self) -> Result<(), ComplexActorError> {
+        self.pending_group_initial.clear();
+        for (_, owner) in std::mem::take(&mut self.groups) {
+            let (handle, _, _) = owner.into_control_ownership();
+            self.quarantined_group_holds.push(handle);
+        }
+        self.group_members.clear();
+        while let Some(handle) = self.quarantined_group_holds.pop() {
+            if let Err(rejected) = self.producers.release_shared_retention(handle) {
+                self.quarantined_group_holds.push(rejected.handle);
+                return Err(rejected.error.into());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::{action_plan::*, simultaneous::*, timeline::*};
+    fn key(name: &str) -> KeyId {
+        name.parse().unwrap()
+    }
+    fn slot(id: u64) -> ActionSlot {
+        ActionSlot {
+            batch: BatchId(id),
+            index: 0,
+        }
+    }
+    fn snapshot(
+        when: KeyUpWhen,
+        timed: bool,
+        empty: bool,
+        extras: impl FnOnce(&mut MappingExtras),
+    ) -> Arc<ConfigSnapshot> {
+        let mut spec = Simultaneous::new(vec![key("a"), key("b")]);
+        spec.threshold_ns = 50;
+        spec.key_up_when = when;
+        let mut metadata = MappingExtras {
+            simultaneous: Some(spec),
+            ..Default::default()
+        };
+        extras(&mut metadata);
+        Arc::new(ConfigSnapshot {
+            generation: ConfigGeneration(1),
+            name: "actor group".into(),
+            simple: vec![],
+            complex: vec![Mapping {
+                id: "group".into(),
+                from: key("a"),
+                to: if empty {
+                    vec![]
+                } else if timed {
+                    vec![
+                        Action {
+                            hold_down_ns: 50,
+                            ..key("c").into()
+                        },
+                        key("d").into(),
+                    ]
+                } else {
+                    vec![key("c").into()]
+                },
+                allow_extra_modifiers: true,
+                extras: metadata,
+            }],
+        })
+    }
+    fn setup(cfg: &Arc<ConfigSnapshot>) -> (ComplexStageActor, Vec<ActionPlan>) {
+        // Same production actor fields and execution; strict public constructor stays gated.
+        let mut actor = ComplexStageActor::from_output(OutputStageActor::new(cfg.clone()).unwrap());
+        let mut plans = vec![];
+        for (id, name, at) in [(1, "a", 100), (2, "b", 110)] {
+            actor
+                .observe_device(DeviceInstanceId { id, generation: 1 }, false, MonoTime(0))
+                .unwrap();
+            let plan = plan_actions(
+                &[key(name).into()],
+                PlanOrigin {
+                    batch: BatchId(id),
+                    stage: Stage::Complex,
+                    start: MonoTime(at),
+                    device: DeviceInstanceId { id, generation: 1 },
+                    source: SourceToken(id),
+                    config: cfg.clone(),
+                },
+                false,
+            )
+            .unwrap();
+            actor.register_input(plan.clone()).unwrap();
+            plans.push(plan);
+        }
+        (actor, plans)
+    }
+    fn down(plan: &ActionPlan) -> DueEvent<PlannedAction> {
+        DueEvent {
+            event: plan.events()[0].clone(),
+            delivered_at: plan.origin.start,
+        }
+    }
+    fn up(plan: &ActionPlan, at: u64) -> DueEvent<PlannedAction> {
+        DueEvent {
+            event: StageEvent {
+                stage: Stage::Complex,
+                at_ns: MonoTime(at),
+                device: plan.origin.device,
+                source: plan.origin.source,
+                config: plan.origin.config.clone(),
+                payload: plan.releases()[0].clone(),
+            },
+            delivered_at: MonoTime(at),
+        }
+    }
+    fn matched(
+        plans: &[ActionPlan],
+        initial_up: bool,
+    ) -> (ChordMatch, rule_selection::RuleSelection, MonoTime) {
+        let mut arbiter = ChordArbiter::new(down(&plans[0])).unwrap();
+        arbiter.observe(down(&plans[1])).unwrap();
+        let at = MonoTime(if initial_up { 120 } else { 110 });
+        if initial_up {
+            arbiter.observe(up(&plans[0], 120)).unwrap();
+        }
+        let ArbitrationChoice::Matched {
+            group,
+            selection,
+            tail,
+        } = arbiter
+            .advance(at, None, &BTreeSet::new(), |_| Truth::True)
+            .unwrap()
+            .choice
+        else {
+            panic!("group");
+        };
+        assert!(tail.is_empty());
+        (group, selection, at)
+    }
+    fn admit(actor: &mut ComplexStageActor, plans: &[ActionPlan], initial_up: bool) -> ComplexStep {
+        let (group, selection, at) = matched(plans, initial_up);
+        let actual = actor.admit_matched_group(group, selection, at).unwrap();
+        assert!(actual.replay.is_empty());
+        actual.step
+    }
+    fn drain(actor: &mut ComplexStageActor, at: u64) -> (Vec<(KeyId, KeyEdge)>, Vec<ActionSlot>) {
+        let mut edges = vec![];
+        let mut released = vec![];
+        for _ in 0..1000 {
+            let Some(step) = actor.poll(MonoTime(at)).unwrap() else {
+                return (edges, released);
+            };
+            edges.extend(
+                step.outputs
+                    .into_iter()
+                    .map(|intent| (intent.key, intent.edge)),
+            );
+            released.extend(step.released_producers);
+        }
+        panic!("bounded actor did not drain")
+    }
+    #[test]
+    fn actual_actor_any_all_members_share_main_repeat_up_and_final_retirement() {
+        for when in [KeyUpWhen::Any, KeyUpWhen::All] {
+            let cfg = snapshot(when, false, false, |_| {});
+            assert!(ComplexStageActor::new(cfg.clone()).is_err());
+            let (mut actor, plans) = setup(&cfg);
+            admit(&mut actor, &plans, false);
+            assert_eq!(drain(&mut actor, 110).0, [(key("c"), KeyEdge::Down)]);
+            assert_eq!(actor.physical_repeat_target(slot(1)), Some(key("c")));
+            assert_eq!(actor.physical_repeat_target(slot(2)), Some(key("c")));
+            let first = actor
+                .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+                .unwrap();
+            assert!(first.released_producers.is_empty());
+            let edges = drain(&mut actor, 120).0;
+            if when == KeyUpWhen::Any {
+                assert_eq!(edges, [(key("c"), KeyEdge::Up)]);
+            } else {
+                assert!(edges.is_empty());
+            }
+            assert_eq!(actor.pending_inputs(), 2);
+            assert!(actor.physical_repeat_target(slot(1)).is_none());
+            assert_eq!(
+                actor.physical_repeat_target(slot(2)),
+                (when == KeyUpWhen::All).then_some(key("c"))
+            );
+            let last = actor
+                .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+                .unwrap();
+            let (edges, released) = drain(&mut actor, 130);
+            if when == KeyUpWhen::All {
+                assert_eq!(edges, [(key("c"), KeyEdge::Up)]);
+            } else {
+                assert!(edges.is_empty());
+            }
+            let mut all = last.released_producers;
+            all.extend(released);
+            assert_eq!(all, [slot(1), slot(2)]);
+            assert_eq!(actor.pending_inputs(), 0);
+            assert_eq!(actor.reserved_sources(), 0);
+            assert!(actor.groups.is_empty() && actor.group_members.is_empty());
+        }
+    }
+    #[test]
+    fn actor_early_all_up_retains_timed_main_until_every_actual_output_completes() {
+        let cfg = snapshot(KeyUpWhen::Any, true, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        assert_eq!(drain(&mut actor, 110).0, [(key("c"), KeyEdge::Down)]);
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.pending_inputs(), 2);
+        assert!(drain(&mut actor, 159).0.is_empty());
+        let (edges, released) = drain(&mut actor, 160);
+        assert_eq!(
+            edges,
+            [
+                (key("c"), KeyEdge::Up),
+                (key("d"), KeyEdge::Down),
+                (key("d"), KeyEdge::Up)
+            ]
+        );
+        assert_eq!(released, [slot(1), slot(2)]);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn actor_empty_main_runs_normal_after_up_at_any_all_then_group_after_up_at_all() {
+        for when in [KeyUpWhen::Any, KeyUpWhen::All] {
+            let cfg = snapshot(when, false, true, |extras| {
+                extras.after_key_up = vec![key("e").into()];
+                extras.simultaneous.as_mut().unwrap().after_key_up = vec![key("z").into()];
+            });
+            let (mut actor, plans) = setup(&cfg);
+            admit(&mut actor, &plans, false);
+            assert!(drain(&mut actor, 110).0.is_empty());
+            actor
+                .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+                .unwrap();
+            let first = drain(&mut actor, 120).0;
+            if when == KeyUpWhen::Any {
+                assert_eq!(first, [(key("e"), KeyEdge::Down), (key("e"), KeyEdge::Up)]);
+            } else {
+                assert!(first.is_empty());
+            }
+            actor
+                .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+                .unwrap();
+            let (last, released) = drain(&mut actor, 130);
+            let mut expected = vec![];
+            if when == KeyUpWhen::All {
+                expected.extend([(key("e"), KeyEdge::Down), (key("e"), KeyEdge::Up)]);
+            }
+            expected.extend([(key("z"), KeyEdge::Down), (key("z"), KeyEdge::Up)]);
+            assert_eq!(last, expected);
+            assert_eq!(released, [slot(1), slot(2)]);
+            assert_eq!(actor.pending_inputs(), 0);
+        }
+    }
+    #[test]
+    fn actor_held_replacement_updates_shared_saved_up_and_waits_old_timed_child() {
+        for timed in [false, true] {
+            let cfg = snapshot(KeyUpWhen::All, timed, false, |extras| {
+                extras.held_threshold_ns = 20;
+                extras.if_held_down = vec![key("f").into()];
+            });
+            let (mut actor, plans) = setup(&cfg);
+            admit(&mut actor, &plans, false);
+            assert_eq!(drain(&mut actor, 110).0, [(key("c"), KeyEdge::Down)]);
+            let at_held = drain(&mut actor, 130).0;
+            if timed {
+                assert!(at_held.is_empty());
+            } else {
+                assert_eq!(
+                    at_held,
+                    [(key("c"), KeyEdge::Up), (key("f"), KeyEdge::Down)]
+                );
+                assert_eq!(actor.physical_repeat_target(slot(2)), Some(key("f")));
+            }
+            actor
+                .admit(&up(&plans[0], 140), &ContextSnapshot::default())
+                .unwrap();
+            actor
+                .admit(&up(&plans[1], 150), &ContextSnapshot::default())
+                .unwrap();
+            let (last, released) = drain(&mut actor, if timed { 160 } else { 150 });
+            if timed {
+                assert_eq!(
+                    last,
+                    [
+                        (key("c"), KeyEdge::Up),
+                        (key("d"), KeyEdge::Down),
+                        (key("d"), KeyEdge::Up),
+                        (key("f"), KeyEdge::Down),
+                        (key("f"), KeyEdge::Up)
+                    ]
+                );
+            } else {
+                assert_eq!(last, [(key("f"), KeyEdge::Up)]);
+            }
+            assert_eq!(released, [slot(1), slot(2)]);
+            assert_eq!(actor.pending_inputs(), 0);
+        }
+    }
+    #[test]
+    fn actor_delayed_invoked_keeps_group_roots_after_all_original_up() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras.delayed = Some(DelayedAction {
+                delay_ns: 25,
+                if_invoked: vec![key("v").into()],
+                if_canceled: vec![],
+            });
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 120);
+        actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 130);
+        assert_eq!(actor.pending_inputs(), 2);
+        assert_eq!(actor.next_deadline(), Some(MonoTime(135)));
+        let (edges, released) = drain(&mut actor, 135);
+        assert_eq!(edges, [(key("v"), KeyEdge::Down), (key("v"), KeyEdge::Up)]);
+        assert_eq!(released, [slot(1), slot(2)]);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn actor_reset_releases_real_group_holds_after_output_reset_without_reusing_ids() {
+        let cfg = snapshot(KeyUpWhen::All, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        let reset = actor.reset(MonoTime(115)).unwrap();
+        assert_eq!(
+            reset
+                .outputs
+                .iter()
+                .map(|out| (out.key, out.edge))
+                .collect::<Vec<_>>(),
+            [(key("c"), KeyEdge::Up)]
+        );
+        assert_eq!(reset.discarded_input_batches, [BatchId(1), BatchId(2)]);
+        assert_eq!(actor.reserved_sources(), 0);
+        assert_eq!(actor.pending_inputs(), 0);
+        assert!(
+            actor.groups.is_empty()
+                && actor.group_members.is_empty()
+                && actor.quarantined_group_holds.is_empty()
+        );
+        assert_eq!(actor.next_batch_id().unwrap(), BatchId(4));
+    }
+    #[test]
+    fn actor_initial_lookahead_up_commits_real_marker_and_releases_saved_main_at_current_time() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras.simultaneous.as_mut().unwrap().key_up_order = KeyOrder::Strict;
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, true);
+        assert_eq!(
+            actor.producer(slot(1)).unwrap().up_delivered_at(),
+            Some(MonoTime(120))
+        );
+        assert_eq!(actor.producer(slot(1)).unwrap().down().at_ns, MonoTime(100));
+        assert_eq!(
+            actor.producer(slot(1)).unwrap().delivered_at(),
+            MonoTime(120)
+        );
+        assert_eq!(
+            drain(&mut actor, 120).0,
+            [(key("c"), KeyEdge::Down), (key("c"), KeyEdge::Up)]
+        );
+        let step = actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(step.released_producers, [slot(1), slot(2)]);
+        assert_eq!(actor.pending_inputs(), 0);
+    }
+    #[test]
+    fn actor_bad_registered_peer_is_cold_and_reset_retains_batch_identity() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        let mut arbiter = ChordArbiter::new(down(&plans[0])).unwrap();
+        let mut peer = down(&plans[1]);
+        peer.event.source = SourceToken(99);
+        arbiter.observe(peer).unwrap();
+        let ArbitrationChoice::Matched {
+            group, selection, ..
+        } = arbiter
+            .advance(MonoTime(110), None, &BTreeSet::new(), |_| Truth::True)
+            .unwrap()
+            .choice
+        else {
+            panic!("group");
+        };
+        assert!(
+            actor
+                .admit_matched_group(group, selection, MonoTime(110))
+                .is_err()
+        );
+        assert!(actor.is_failed());
+        assert_eq!(actor.producers.live_slots(), 0);
+        assert_eq!(actor.output.pending_batches(), 0);
+        let reset = actor.reset(MonoTime(110)).unwrap();
+        assert!(reset.outputs.is_empty());
+        assert_eq!(actor.reserved_sources(), 0);
+        assert_eq!(actor.next_batch_id().unwrap(), BatchId(3));
+    }
+    #[test]
+    fn actor_returns_exact_outside_receipt_and_replay_keeps_same_key_owner_independent() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras
+                .simultaneous
+                .as_mut()
+                .unwrap()
+                .detect_key_down_uninterruptedly = true;
+        });
+        let (mut actor, plans) = setup(&cfg);
+        let outside = plan_actions(
+            &[key("c").into()],
+            PlanOrigin {
+                batch: BatchId(3),
+                stage: Stage::Complex,
+                start: MonoTime(105),
+                device: plans[0].origin.device,
+                source: SourceToken(3),
+                config: cfg.clone(),
+            },
+            false,
+        )
+        .unwrap();
+        actor.register_input(outside.clone()).unwrap();
+        let mut arbiter = ChordArbiter::new(down(&plans[0])).unwrap();
+        arbiter.observe(down(&outside)).unwrap();
+        arbiter.observe(down(&plans[1])).unwrap();
+        let ArbitrationChoice::Matched {
+            group,
+            selection,
+            tail,
+        } = arbiter
+            .advance(MonoTime(110), None, &BTreeSet::new(), |_| Truth::True)
+            .unwrap()
+            .choice
+        else {
+            panic!("group");
+        };
+        assert!(tail.is_empty());
+        let chosen = actor
+            .admit_matched_group(group, selection, MonoTime(110))
+            .unwrap();
+        assert_eq!(chosen.replay.len(), 1);
+        let mut replay = chosen.replay.into_iter().next().unwrap();
+        assert_eq!(replay.event.payload.slot, slot(3));
+        assert_eq!(replay.event.at_ns, MonoTime(105));
+        assert_eq!(replay.delivered_at, MonoTime(105));
+        assert_eq!(drain(&mut actor, 110).0, [(key("c"), KeyEdge::Down)]);
+        replay.delivered_at = MonoTime(111);
+        actor.admit(&replay, &ContextSnapshot::default()).unwrap();
+        assert!(drain(&mut actor, 111).0.is_empty());
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        assert!(drain(&mut actor, 120).0.is_empty());
+        actor
+            .admit(&up(&outside, 125), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 125).0, [(key("c"), KeyEdge::Up)]);
+        let final_up = actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(final_up.released_producers, [slot(1), slot(2)]);
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn actor_normal_group_after_up_uses_actual_releasing_member_device_and_original_alone_span() {
+        for when in [KeyUpWhen::Any, KeyUpWhen::All] {
+            let cfg = snapshot(when, false, false, |extras| {
+                extras.alone_timeout_ns = 15;
+                extras.if_alone = vec![key("e").into()];
+                extras.after_key_up = vec![Action {
+                    conditions: vec![Condition::Device {
+                        identifiers: vec![DeviceProperties {
+                            vendor_id: Some(20),
+                            ..Default::default()
+                        }],
+                        unless: false,
+                        exists: false,
+                    }],
+                    ..key("f").into()
+                }];
+            });
+            let (mut actor, plans) = setup(&cfg);
+            admit(&mut actor, &plans, false);
+            drain(&mut actor, 110);
+            let context = ContextSnapshot {
+                revision: 1,
+                observed_at_ns: MonoTime(119),
+                valid_until_ns: MonoTime(200),
+                devices: Some(vec![
+                    DeviceContext {
+                        device: plans[0].origin.device,
+                        properties: DeviceProperties {
+                            vendor_id: Some(10),
+                            ..Default::default()
+                        },
+                    },
+                    DeviceContext {
+                        device: plans[1].origin.device,
+                        properties: DeviceProperties {
+                            vendor_id: Some(20),
+                            ..Default::default()
+                        },
+                    },
+                ]),
+                ..Default::default()
+            };
+            actor.admit(&up(&plans[1], 120), &context).unwrap();
+            let first = drain(&mut actor, 120).0;
+            if when == KeyUpWhen::Any {
+                assert_eq!(
+                    first,
+                    [
+                        (key("c"), KeyEdge::Up),
+                        (key("f"), KeyEdge::Down),
+                        (key("f"), KeyEdge::Up)
+                    ]
+                );
+            } else {
+                assert!(first.is_empty());
+            }
+            actor.admit(&up(&plans[0], 130), &context).unwrap();
+            let last = drain(&mut actor, 130).0;
+            if when == KeyUpWhen::All {
+                assert_eq!(last, [(key("c"), KeyEdge::Up)]);
+            } else {
+                assert!(last.is_empty());
+            }
+            assert_eq!(actor.pending_inputs(), 0);
+        }
+    }
+    #[test]
+    fn actor_first_physical_up_cancels_group_held_even_when_all_main_remains_pressed() {
+        let cfg = snapshot(KeyUpWhen::All, false, false, |extras| {
+            extras.held_threshold_ns = 20;
+            extras.if_held_down = vec![key("f").into()];
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        actor
+            .admit(&up(&plans[1], 120), &ContextSnapshot::default())
+            .unwrap();
+        assert!(actor.held.is_none());
+        assert!(drain(&mut actor, 130).0.is_empty());
+        assert!(actor.output.pressed_outputs().contains(&key("c")));
+        actor
+            .admit(&up(&plans[0], 140), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 140).0, [(key("c"), KeyEdge::Up)]);
+        assert_eq!(actor.pending_inputs(), 0);
+    }
+    #[test]
+    fn actor_reset_cancels_pending_initial_up_without_fabricating_down_up_or_branch() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras.simultaneous.as_mut().unwrap().key_up_order = KeyOrder::Strict;
+            extras.after_key_up = vec![key("z").into()];
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, true);
+        assert!(!actor.pending_group_initial.is_empty());
+        let reset = actor.reset(MonoTime(120)).unwrap();
+        assert!(reset.outputs.is_empty());
+        assert!(actor.pending_group_initial.is_empty());
+        assert_eq!(actor.next_deadline(), None);
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn actor_late_initial_up_qualifies_alone_from_original_events_and_generates_at_current_clock() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras.simultaneous.as_mut().unwrap().key_up_order = KeyOrder::Strict;
+            extras.alone_timeout_ns = 25;
+            extras.if_alone = vec![key("e").into()];
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, true);
+        assert_eq!(
+            drain(&mut actor, 200).0,
+            [
+                (key("c"), KeyEdge::Down),
+                (key("c"), KeyEdge::Up),
+                (key("e"), KeyEdge::Down),
+                (key("e"), KeyEdge::Up)
+            ]
+        );
+        assert_eq!(
+            actor.producer(slot(1)).unwrap().up_delivered_at(),
+            Some(MonoTime(120))
+        );
+        let last = actor
+            .admit(&up(&plans[1], 210), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(last.released_producers, [slot(1), slot(2)]);
+        assert_eq!(actor.pending_inputs(), 0);
+    }
+}

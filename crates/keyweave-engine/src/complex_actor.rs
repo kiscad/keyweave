@@ -1,4 +1,5 @@
 //! Owned Complex producer generation/execution.
+mod groups;
 mod projections;
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
@@ -12,6 +13,7 @@ use crate::{
     timeline::{DueEvent, Stage},
     *,
 };
+pub use groups::MatchedGroupStep;
 pub use projections::ComplexProjectionId;
 use projections::DescendantProjection;
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -26,6 +28,8 @@ pub enum ComplexActorError {
     Up(#[from] ProducerUpError),
     #[error(transparent)]
     Plan(#[from] PlanError),
+    #[error(transparent)]
+    Group(#[from] simultaneous::GroupOwnerError),
     #[error("invalid registered Complex input receipt")]
     Input,
     #[error("batch identity must increase and must not overflow")]
@@ -64,6 +68,10 @@ pub struct ComplexStageActor {
     halted: BTreeSet<ActionSlot>,
     projection_groups: BTreeMap<ActionSlot, DescendantProjection>,
     projection_handles: BTreeMap<ComplexProjectionId, ActionSlot>,
+    groups: BTreeMap<ActionSlot, simultaneous::GroupBindingOwner>,
+    group_members: BTreeMap<ActionSlot, ActionSlot>,
+    quarantined_group_holds: Vec<stage_bindings::SharedRetention>,
+    pending_group_initial: BTreeSet<ActionSlot>,
     next_projection: u64,
     alone_candidate: Option<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
@@ -139,8 +147,14 @@ impl ComplexStageActor {
         config
             .validate_timed_stages(true)
             .map_err(GeneratedError::from)?;
-        Ok(Self {
-            output: OutputStageActor::new_with_source_limit(config, max_source_end)?,
+        Ok(Self::from_output(OutputStageActor::new_with_source_limit(
+            config,
+            max_source_end,
+        )?))
+    }
+    fn from_output(output: OutputStageActor) -> Self {
+        Self {
+            output,
             producers: BindingArena::default(),
             inputs: BTreeMap::new(),
             bindings: BTreeMap::new(),
@@ -148,6 +162,10 @@ impl ComplexStageActor {
             halted: BTreeSet::new(),
             projection_groups: BTreeMap::new(),
             projection_handles: BTreeMap::new(),
+            groups: BTreeMap::new(),
+            group_members: BTreeMap::new(),
+            quarantined_group_holds: Vec::new(),
+            pending_group_initial: BTreeSet::new(),
             next_projection: 0,
             alone_candidate: None,
             held: None,
@@ -155,7 +173,7 @@ impl ComplexStageActor {
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
-        })
+        }
     }
     fn running(&self) -> Result<(), ComplexActorError> {
         if self.failed {
@@ -190,6 +208,7 @@ impl ComplexStageActor {
             .into_iter()
             .chain(self.held.map(|(at, _)| at))
             .chain(self.delayed.map(|(at, _)| at))
+            .chain((!self.pending_group_initial.is_empty()).then_some(self.now))
             .min()
     }
     pub(crate) fn output_model(&self) -> (usize, Vec<KeyId>, usize) {
@@ -198,7 +217,8 @@ impl ComplexStageActor {
             self.output.pressed_outputs(),
             self.output.queued_events()
                 + usize::from(self.held.is_some())
-                + usize::from(self.delayed.is_some()),
+                + usize::from(self.delayed.is_some())
+                + self.pending_group_initial.len(),
         )
     }
     pub fn reserved_sources(&self) -> usize {
@@ -561,6 +581,20 @@ impl ComplexStageActor {
                 if due.event.at_ns < earliest {
                     return Err(ComplexActorError::Input);
                 }
+                if let Some(&primary) = self.group_members.get(&slot) {
+                    self.admit_group_up(primary, due, context, &mut step)?;
+                    if allow_sync(due.event.device)
+                        && !self.inputs.values().any(|input| {
+                            input.plan.origin.device == due.event.device && input.unreleased != 0
+                        })
+                    {
+                        step.outputs.extend(
+                            self.output
+                                .synchronize_if_device_idle(due.event.device, due.delivered_at)?,
+                        );
+                    }
+                    return Ok(step);
+                }
                 let child = *self.bindings.get(&slot).ok_or(ComplexActorError::Input)?;
                 let parent_up = self.producers.prepare_producer_up(due)?;
                 if let Some(child) = child {
@@ -630,9 +664,23 @@ impl ComplexStageActor {
         context: &ContextSnapshot,
         at: MonoTime,
     ) -> Result<Option<BatchId>, ComplexActorError> {
+        self.branch_for_trigger(slot, kind, context, at, slot)
+    }
+    fn branch_for_trigger(
+        &mut self,
+        slot: ActionSlot,
+        kind: rule_selection::RuleBranch,
+        context: &ContextSnapshot,
+        at: MonoTime,
+        trigger_slot: ActionSlot,
+    ) -> Result<Option<BatchId>, ComplexActorError> {
         let decision = self
             .producers
             .live(slot)
+            .ok_or(ComplexActorError::Invariant)?;
+        let trigger = self
+            .producers
+            .live(trigger_slot)
             .ok_or(ComplexActorError::Invariant)?;
         let Some(selection) = decision.selection() else {
             return Ok(None);
@@ -668,7 +716,7 @@ impl ComplexStageActor {
         let branch = selection
             .select_branch(kind, self.halted.contains(&slot), |condition| {
                 self.output
-                    .condition_truth_for_producer(condition, context, decision, at)
+                    .condition_truth_for_producer(condition, context, trigger, at)
             })
             .ok_or(ComplexActorError::Invariant)?;
         if branch.actions().len() == 0 {
@@ -718,6 +766,9 @@ impl ComplexStageActor {
         slot: ActionSlot,
         step: &mut ComplexStep,
     ) -> Result<(), ComplexActorError> {
+        if let Some(&primary) = self.group_members.get(&slot) {
+            return self.finish_group(primary, step);
+        }
         if self.delayed.is_some_and(|(_, candidate)| candidate == slot) {
             return Ok(());
         }
@@ -733,6 +784,13 @@ impl ComplexStageActor {
             Err(error) => return Err(error.into()),
             Ok(_) => {}
         }
+        self.finish_input_metadata(slot, step)
+    }
+    fn finish_input_metadata(
+        &mut self,
+        slot: ActionSlot,
+        step: &mut ComplexStep,
+    ) -> Result<(), ComplexActorError> {
         self.bindings.remove(&slot);
         self.halted.remove(&slot);
         step.released_producers.push(slot);
@@ -772,6 +830,8 @@ impl ComplexStageActor {
         self.check_time(at)?;
         let result = if self.output.next_deadline().is_some_and(|due| due <= at) {
             self.poll_inner(at, &allow_sync)
+        } else if let Some(&primary) = self.pending_group_initial.first() {
+            self.initialize_group_up(primary, at, context).map(Some)
         } else {
             let held = self.held.filter(|(due, _)| *due <= at);
             let delayed = self.delayed.filter(|(due, _)| *due <= at);
@@ -820,6 +880,12 @@ impl ComplexStageActor {
         }
         let new = self.branch(slot, rule_selection::RuleBranch::Held, context, at)?;
         self.bindings.insert(slot, new);
+        if let Some(group) = self.groups.get_mut(&slot) {
+            group.replace_main(new, &self.output)?;
+            for &member in group.members() {
+                self.bindings.insert(member, new);
+            }
+        }
         Ok(ComplexStep::default())
     }
     fn poll_inner(
@@ -838,6 +904,12 @@ impl ComplexStageActor {
             return Ok(None);
         };
         let actual = delivery.step;
+        if let Some(id) = actual.completed_batch
+            && let Some(parent) = self.children.get(&id)
+            && let Some(group) = self.groups.get_mut(parent)
+        {
+            group.observe_output_step(&actual, &self.output)?;
+        }
         let mut step = ComplexStep {
             outputs: actual.outputs,
             forwarded_pointers: delivery.pointer.into_iter().collect(),
@@ -863,6 +935,13 @@ impl ComplexStageActor {
                 .ok_or(ComplexActorError::Invariant)?;
             if *main == Some(id) {
                 *main = None;
+            }
+            if let Some(group) = self.groups.get(&parent) {
+                for &member in group.members() {
+                    if self.bindings.get(&member) == Some(&Some(id)) {
+                        self.bindings.insert(member, None);
+                    }
+                }
             }
             self.finish(parent, &mut step)?;
         }
@@ -984,6 +1063,7 @@ impl ComplexStageActor {
     }
     fn reset_inner(&mut self, at: MonoTime) -> Result<ComplexStep, ComplexActorError> {
         let outputs = self.output.reset(at)?;
+        self.release_group_holds_for_reset()?;
         let ids: Vec<_> = self.inputs.keys().copied().collect();
         self.discard_inputs(&ids)?;
         self.projection_groups.clear();

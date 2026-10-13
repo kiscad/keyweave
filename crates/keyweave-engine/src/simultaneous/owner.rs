@@ -5,7 +5,7 @@ use crate::{
     stage_bindings::{BindingArena, BindingError, SharedRetention},
     terminal_actor::ActorStep,
 };
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum GroupOwnerError {
     #[error(transparent)]
     Chord(#[from] ChordError),
@@ -304,6 +304,42 @@ impl GroupBindingOwner {
     }
     pub fn members_up(&self) -> bool {
         self.all_up
+    }
+    pub fn members(&self) -> &[crate::action_plan::ActionSlot] {
+        &self.members
+    }
+    pub fn last_up_member(&self) -> Option<crate::action_plan::ActionSlot> {
+        self.last_up
+    }
+    pub fn last_up_event_time(&self) -> Option<MonoTime> {
+        self.active
+            .members
+            .iter()
+            .find(|member| Some(member.down.event.payload.slot) == self.last_up)
+            .and_then(|member| member.up.as_ref())
+            .map(|up| up.event.at_ns)
+    }
+    /// Outer Held replacement has already released the old main and admitted the new child.
+    /// Older children remain real arena work; their completion cannot finish this new main.
+    pub fn replace_main(
+        &mut self,
+        main: Option<crate::action_plan::BatchId>,
+        output: &OutputStageActor,
+    ) -> Result<(), GroupOwnerError> {
+        if self.failed {
+            return Err(GroupOwnerError::Failed);
+        }
+        if self.active.members.iter().any(|member| member.up.is_some()) {
+            return Err(GroupOwnerError::Pending);
+        }
+        if let Some(main) = main
+            && output.parent_binding(main) != self.members.first().copied()
+        {
+            return Err(GroupOwnerError::Ownership);
+        }
+        self.main = main;
+        self.output_done = main.is_none();
+        Ok(())
     }
     /// Transfer metadata ownership to outer Reset/device control, including after failure.
     /// This performs no output release, producer finish, retention release or native recovery.
@@ -1198,5 +1234,36 @@ mod tests {
             );
         }
         assert_eq!(edges, [(key("left_shift"), KeyEdge::Up)]);
+    }
+    #[test]
+    fn held_replacement_is_cold_after_any_member_up_even_if_all_main_still_pressed() {
+        let (mut owner, mut arena, mut output, cfg) = setup(KeyUpWhen::All, false);
+        drain(&mut owner, &mut output, 110);
+        owner
+            .up(
+                &raw(&cfg, 1, "a", KeyEdge::Up, 120),
+                &mut arena,
+                &mut output,
+            )
+            .unwrap();
+        assert!(matches!(
+            owner.replace_main(None, &output),
+            Err(GroupOwnerError::Pending)
+        ));
+        assert!(!owner.main_done());
+        assert!(drain(&mut owner, &mut output, 120).is_empty());
+        owner
+            .up(
+                &raw(&cfg, 2, "b", KeyEdge::Up, 130),
+                &mut arena,
+                &mut output,
+            )
+            .unwrap();
+        assert_eq!(
+            drain(&mut owner, &mut output, 130),
+            [(key("c"), KeyEdge::Up)]
+        );
+        arena.cancel(BatchId(10)).unwrap();
+        assert_eq!(owner.finish(&mut arena, true).unwrap().len(), 2);
     }
 }

@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0166 actual Complex actor shared group match admission, Up, branches, completion and Reset",
+  "source_base_commit": "d4b32db4b67f9cd2a2768670e575c910615a30aa",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "26a8c9103e82a1e6b788994f62673e0cd5bfc2ae5c6d3cf5170fde3771fe16d9",
+    "crates/keyweave-engine/src/complex_actor/groups.rs": "f2939b5ee9ebaf89ab8205a007e457d7782971dae35f9ed1ac21a00d2caf9cdf",
+    "crates/keyweave-engine/src/simultaneous/owner.rs": "c8a42941f97fba4e7ab85da9c459f46a34faf4cc310ce72bcd442ee9ac30dfa7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1537,
+    "new_tests": 14,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-complex-groups/tests.log",
+        "sha256": "0691d19a33fe790137933eca1b6ec694ca6685bc585e30708a9c4609de44d92b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-complex-groups/clippy.log",
+        "sha256": "d8ff1d753bdc8d2481bed5502fd4009908ed6e8a80a4d6c6a8a746b80bc27a37"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-complex-groups/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-complex-groups/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial compile exposed child-module method visibility; changed required helper methods to pub(super).",
+    "Focused initial-lookahead-Up test exposed Terminal DeadlinePending before the same-clock main Down had executed. Added bounded initial-facts work after due Output and before Held/Delayed; final focused and full workspace tests passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Same actual Complex actor execution is verified through an internal Output-based test construction. Public default Complex construction and compiler KW-SIM/runtime simultaneous gates remain strict.",
+    "Explicit admit_matched_group handoff requires coordinated outer arbitration and prior Down interruption. Automatic waiting/frontier/replay integration with Simple and native sessions remains pending.",
+    "Cross-member device cancellation, projection inheritance, complete global source lease and native repeat integration remain pending.",
+    "Reset facts and logical OutputIntents do not prove accepted native output recovery.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}
