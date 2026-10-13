@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0169 actual Complex actor bounded arbitration and replay with explicit upstream frontier",
+  "source_base_commit": "d762b394527a56007387dd597739db2e9b7bfc7f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "8e15fd10e8808f3941b5f43bcd4c97c92f86768194ae428201b6efadb44107c3",
+    "crates/keyweave-engine/src/complex_actor/arbitration.rs": "58240cdeb4bdf121e4ea4ae347b75a572edc05c404c2b3c4862d3646ad3a5254",
+    "crates/keyweave-engine/src/complex_actor/groups.rs": "b1d8c91c7916d76303f9dfde80035c6e43a73a462fbc60dbde228feb651daf3d",
+    "crates/keyweave-engine/src/producer_decision.rs": "b28badef85252ff9cddcd86baf711e6c67b390c6acff8ccfc129956705c7149a",
+    "crates/keyweave-engine/src/simultaneous.rs": "d5daf57f668ccf3507d633808c91f3a177222b2d694f7604cb70fda76587910a",
+    "crates/keyweave-engine/src/simultaneous/arbiter.rs": "73069c09984bf2597bf435066266dbbae2234866762f0df7b7a50384cb7c6e8a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1570,
+    "new_tests": 15,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-actor-arbitration/tests.log",
+        "sha256": "0385f026564f83f692d760167b93b8ea44bc7fdf240d182e9e314cb207fd9820"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-actor-arbitration/clippy.log",
+        "sha256": "d510e4cbb85803abea4856c7d073c82c3f6b6fd66473fb9170a65a2c1b0b8d58"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-actor-arbitration/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-actor-arbitration/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New consumer fixture used the keyboard namespace for volume_increment. Corrected it to consumer:volume_increment; final focused/full workspace checks passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Explicit automatic arbitration APIs use the actual Complex actor; group tests still use internal Output-based construction. Public default constructors and compiler KW-SIM/runtime simultaneous gates remain strict.",
+    "Simple actual input frontier, allow_sync/EOF coordination and mixed Scope/pointer stream integration remain pending.",
+    "Complete global source lease and native repeat integration remain pending.",
+    "Caller must supply actual upstream history frontier. Logical intents and metadata cleanup do not prove accepted native output or hardware recovery.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}

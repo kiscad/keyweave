@@ -48,7 +48,10 @@ pub struct ChordArbiter {
 impl ChordArbiter {
     /// The original first receipt's Arc is authoritative, including across reload.
     pub fn new(first: DueEvent<PlannedAction>) -> Result<Self, Box<RejectedChordEvent>> {
-        if !valid(&first) || first.event.payload.edge != KeyEdge::Down {
+        if !valid(&first)
+            || first.event.payload.edge != KeyEdge::Down
+            || !key(&first).is_some_and(|key| key.page == KEYBOARD_PAGE)
+        {
             return Err(Box::new(RejectedChordEvent {
                 error: ChordError::Input,
                 event: first,

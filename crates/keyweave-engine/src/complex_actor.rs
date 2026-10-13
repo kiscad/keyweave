@@ -1,5 +1,7 @@
 //! Owned Complex producer generation/execution.
+mod arbitration;
 mod groups;
+use arbitration::{PendingArbitration, ReplayInput};
 mod projections;
 use crate::{
     action_plan::{ActionPlan, ActionSlot, BatchId, PlanError, PlannedAction},
@@ -74,6 +76,8 @@ pub struct ComplexStageActor {
     quarantined_group_holds: Vec<stage_bindings::SharedRetention>,
     pending_group_initial: BTreeSet<ActionSlot>,
     canceled_group_members: BTreeSet<ActionSlot>,
+    arbitration: Option<PendingArbitration>,
+    replay: std::collections::VecDeque<ReplayInput>,
     next_projection: u64,
     alone_candidate: Option<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
@@ -170,6 +174,8 @@ impl ComplexStageActor {
             quarantined_group_holds: Vec::new(),
             pending_group_initial: BTreeSet::new(),
             canceled_group_members: BTreeSet::new(),
+            arbitration: None,
+            replay: std::collections::VecDeque::new(),
             next_projection: 0,
             alone_candidate: None,
             held: None,
@@ -222,7 +228,8 @@ impl ComplexStageActor {
             self.output.queued_events()
                 + usize::from(self.held.is_some())
                 + usize::from(self.delayed.is_some())
-                + self.pending_group_initial.len(),
+                + self.pending_group_initial.len()
+                + self.buffered_arbitration_inputs(),
         )
     }
     pub fn reserved_sources(&self) -> usize {
@@ -409,7 +416,7 @@ impl ComplexStageActor {
         {
             return Err(ComplexActorError::DeadlinePending);
         }
-        let result = self.admit_inner(due, context, allow_sync);
+        let result = self.admit_inner(due, context, allow_sync, None, false);
         if result.is_err() {
             self.failed = true;
         }
@@ -420,6 +427,8 @@ impl ComplexStageActor {
         due: &DueEvent<PlannedAction>,
         context: &ContextSnapshot,
         allow_sync: impl Fn(DeviceInstanceId) -> bool,
+        selected: Option<Option<rule_selection::RuleSelection>>,
+        original_event_timing: bool,
     ) -> Result<ComplexStep, ComplexActorError> {
         let slot = due.event.payload.slot;
         let mut step = ComplexStep::default();
@@ -455,8 +464,12 @@ impl ComplexStageActor {
                     .cloned()
                     .ok_or(ComplexActorError::Input)?;
                 self.producers.check_down(slot)?;
-                self.held = None;
-                if let Some((_, previous)) = self.delayed.take() {
+                if selected.is_none() {
+                    self.held = None;
+                }
+                if selected.is_none()
+                    && let Some((_, previous)) = self.delayed.take()
+                {
                     let _ = self.branch(
                         previous,
                         rule_selection::RuleBranch::DelayedCanceled,
@@ -465,10 +478,22 @@ impl ComplexStageActor {
                     )?;
                     self.finish(previous, &mut step)?;
                 }
-                let decision = self
-                    .output
-                    .decide_producer_down_with_identity(due, context, has_identity)?
-                    .with_original_up(&up)?;
+                let decision = match selected {
+                    Some(selection) => ProducerDecision::new(
+                        due.event.clone(),
+                        due.delivered_at,
+                        Stage::Output,
+                        selection,
+                    )
+                    .with_device_identity(has_identity),
+                    None => self.output.decide_producer_down_with_identity(
+                        due,
+                        context,
+                        has_identity,
+                    )?,
+                }
+                .with_original_event_timing(original_event_timing)
+                .with_original_up(&up)?;
                 let id = self.next_batch_id()?;
                 let plan = decision.plan_main(id)?;
                 let origin = plan.actions().origin.clone();
@@ -627,8 +652,14 @@ impl ComplexStageActor {
                         .live(slot)
                         .ok_or(ComplexActorError::Invariant)?;
                     let within = decision.selection().is_some_and(|rule| {
-                        due.delivered_at.0 - decision.delivered_at().0
-                            < rule.mapping().extras.alone_timeout_ns
+                        let duration = if decision.uses_original_event_timing() {
+                            due.event.at_ns.0.checked_sub(decision.down().at_ns.0)
+                        } else {
+                            due.delivered_at.0.checked_sub(decision.delivered_at().0)
+                        };
+                        duration.is_some_and(|duration| {
+                            duration < rule.mapping().extras.alone_timeout_ns
+                        })
                     });
                     if within {
                         let _ = self.branch(
@@ -1009,6 +1040,7 @@ impl ComplexStageActor {
         at: MonoTime,
     ) -> Result<ComplexStep, ComplexActorError> {
         self.output.check_device_control(device, removed, at)?;
+        self.cancel_arbitration_device(device, removed);
         let mut step = ComplexStep::default();
         self.cancel_groups_for_device(device, removed, at, &mut step)?;
         step.outputs
@@ -1060,6 +1092,8 @@ impl ComplexStageActor {
     }
     fn reset_inner(&mut self, at: MonoTime) -> Result<ComplexStep, ComplexActorError> {
         let outputs = self.output.reset(at)?;
+        self.arbitration = None;
+        self.replay.clear();
         self.release_group_holds_for_reset()?;
         let ids: Vec<_> = self.inputs.keys().copied().collect();
         self.discard_inputs(&ids)?;

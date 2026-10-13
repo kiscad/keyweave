@@ -211,7 +211,6 @@ fn valid(event: &DueEvent<PlannedAction>) -> bool {
         && event.event.source.0 != 0
         && event.event.payload.slot.batch.0 != 0
         && usize::from(event.event.payload.slot.index) < 512
-        && key(event).is_some_and(|key| key.page == KEYBOARD_PAGE)
         && matches!(event.event.payload.edge, KeyEdge::Down | KeyEdge::Up)
 }
 fn ordered(actual: impl Iterator<Item = KeyId>, keys: &[KeyId], order: KeyOrder) -> bool {
@@ -281,10 +280,9 @@ impl ChordWindow {
             return Err(Box::new(RejectedChordEvent { error, event }));
         }
         let Some(target) = key(&event) else {
-            return Err(Box::new(RejectedChordEvent {
-                error: ChordError::Input,
-                event,
-            }));
+            self.now = event.delivered_at;
+            self.events.push(event);
+            return Ok(self.decide(false));
         };
         self.now = event.delivered_at;
         match event.event.payload.edge {

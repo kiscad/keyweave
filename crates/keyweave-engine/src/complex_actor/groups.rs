@@ -26,7 +26,7 @@ impl ComplexStageActor {
         }
         result
     }
-    fn registered_group_down(
+    pub(super) fn registered_group_down(
         &self,
         down: &timeline::StageEvent<PlannedAction>,
     ) -> Result<(PlannedAction, bool), ComplexActorError> {
