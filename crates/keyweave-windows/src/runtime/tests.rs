@@ -851,7 +851,7 @@ fn staged_known_zero_submission_stops_and_discards_future_array_before_ledger_re
     ));
 }
 #[test]
-fn staged_callback_budget_failure_keeps_only_known_accepted_recovery_and_drops_future_stage_work() {
+fn staged_user_stop_after_partial_budget_drain_recovers_only_accepted_and_drops_future_work() {
     let mut rule = mapping(4, 5);
     rule.to = vec![
         keyweave_engine::Action {
@@ -861,11 +861,11 @@ fn staged_callback_budget_failure_keeps_only_known_accepted_recovery_and_drops_f
         512
     ];
     let (mut actor, calls) = staged_actor(config(1, vec![rule]), vec![]);
-    assert!(matches!(
-        actor.key(event(4, KeyEdge::Down), MonoTime(100)),
-        Err(RuntimeError::Budget)
-    ));
-    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert_eq!(
+        actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap(),
+        CaptureDecision::Capture
+    );
+    assert_eq!(actor.phase(), ActorPhase::Active);
     let submitted = actor.output().ledger().submitted().clone();
     let before = packet_edges(&calls).len();
     actor.stop_after_unhook().unwrap();
@@ -1098,4 +1098,139 @@ fn staged_context_change_at_held_deadline_runs_due_branch_with_previous_valid_sn
     actor.key(event(4, KeyEdge::Up), MonoTime(160)).unwrap();
     assert_eq!(packet_edges(&calls).last(), Some(&(0x2e, 10)));
     actor.stop_after_unhook().unwrap();
+}
+fn large_staged_rule() -> Mapping {
+    let mut rule = mapping(4, 5);
+    rule.to = vec![
+        keyweave_engine::Action {
+            repeat: false,
+            ..key(5).into()
+        };
+        512
+    ];
+    rule
+}
+#[test]
+fn staged_large_array_and_early_up_continue_across_ticks_without_stopping_or_false_reload_ack() {
+    let (mut actor, calls) = staged_actor(config(1, vec![large_staged_rule()]), vec![]);
+    assert_eq!(
+        actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap(),
+        CaptureDecision::Capture
+    );
+    assert!(packet_edges(&calls).len() < 1024);
+    actor.key(event(4, KeyEdge::Up), MonoTime(101)).unwrap();
+    assert!(actor.queued_inputs() > 0);
+    assert!(matches!(
+        actor.activate(config(2, vec![])),
+        Err(RuntimeError::StagedInputPending)
+    ));
+    assert_eq!(actor.config_generation(), ConfigGeneration(1));
+    assert_eq!(actor.phase(), ActorPhase::Active);
+    for _ in 0..100 {
+        actor.tick(MonoTime(200)).unwrap();
+        if actor.next_wakeup().is_none() {
+            break;
+        }
+    }
+    assert_eq!(packet_edges(&calls).len(), 1024);
+    assert!(
+        packet_edges(&calls)
+            .chunks_exact(2)
+            .all(|pair| pair == [(0x30, 8), (0x30, 10)])
+    );
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert_eq!(actor.queued_inputs(), 0);
+    assert_eq!(actor.seq, 2);
+    assert_eq!(actor.phase(), ActorPhase::Active);
+    actor.activate(config(2, vec![])).unwrap();
+    assert_eq!(actor.config_generation(), ConfigGeneration(2));
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_queued_key_context_key_order_keeps_snapshot_choice_across_late_tick() {
+    let mut before = mapping(7, 8);
+    before.extras.conditions = vec![application_condition(false)];
+    let mut after = mapping(9, 10);
+    after.extras.conditions = vec![application_condition(true)];
+    let (mut actor, calls) =
+        staged_actor(config(1, vec![large_staged_rule(), before, after]), vec![]);
+    actor
+        .context_changed(context(1, 90, 1000, Some("editor")), MonoTime(90))
+        .unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(7, KeyEdge::Down), MonoTime(101)).unwrap();
+    actor
+        .context_changed(context(2, 102, 1000, Some("other")), MonoTime(102))
+        .unwrap();
+    actor.key(event(9, KeyEdge::Down), MonoTime(103)).unwrap();
+    for _ in 0..100 {
+        actor.tick(MonoTime(200)).unwrap();
+        if actor.next_wakeup().is_none() {
+            break;
+        }
+    }
+    assert_eq!(&packet_edges(&calls)[1024..], [(0x12, 8), (0x22, 8)]);
+    actor.key(event(7, KeyEdge::Up), MonoTime(201)).unwrap();
+    actor.key(event(9, KeyEdge::Up), MonoTime(202)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(203)).unwrap();
+    assert_eq!(&packet_edges(&calls)[1026..], [(0x12, 10), (0x22, 10)]);
+    assert_eq!(actor.seq, 8);
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_fifo_overflow_is_stop_required_and_discards_unprocessed_frames_before_recovery() {
+    let (mut actor, calls) = staged_actor(timed_config(), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    for _ in 0..MAX_PENDING_INPUTS {
+        actor
+            .enqueue_input(
+                InputEvent::Key {
+                    key: key(4),
+                    edge: KeyEdge::Repeat,
+                },
+                MonoTime(110),
+            )
+            .unwrap();
+    }
+    assert!(matches!(
+        actor.key(event(4, KeyEdge::Up), MonoTime(120)),
+        Err(RuntimeError::Budget)
+    ));
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert_eq!(actor.queued_inputs(), MAX_PENDING_INPUTS);
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(actor.queued_inputs(), 0);
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10)]);
+    assert_eq!(actor.seq, 1);
+}
+#[test]
+fn staged_invalid_context_rejects_before_queue_storage_and_preserves_accepted_owner_for_stop() {
+    let (mut actor, calls) = staged_actor(timed_config(), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    assert!(matches!(
+        actor.context_changed(context(1, 121, 200, Some("editor")), MonoTime(120)),
+        Err(RuntimeError::Staged(_))
+    ));
+    assert_eq!(actor.queued_inputs(), 0);
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert!(actor.output().ledger().submitted().contains(&key(5)));
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10)]);
+}
+#[test]
+fn staged_context_revision_validation_includes_unprocessed_queued_snapshot() {
+    let (mut actor, _) = staged_actor(config(1, vec![large_staged_rule()]), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor
+        .context_changed(context(1, 101, 1000, Some("editor")), MonoTime(101))
+        .unwrap();
+    assert_eq!(actor.queued_inputs(), 1);
+    assert!(matches!(
+        actor.context_changed(context(1, 102, 1000, Some("other")), MonoTime(102)),
+        Err(RuntimeError::Staged(_))
+    ));
+    assert_eq!(actor.queued_inputs(), 1);
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(actor.queued_inputs(), 0);
 }

@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0151 Windows staged bounded input FIFO and continuation across callback/tick budgets",
+  "source_base_commit": "327dca80f6394c7a31fc53db5326ca0a279c6756",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/physical_controller.rs": "5e77dad4f4c3bbe080827a2165d42e9360609ea55200895c4669b08c4394787a",
+    "crates/keyweave-windows/src/runtime.rs": "4bd9cea564e64fdf1dc56c496127aede31a6ce573a31736df2afd93707109aaf",
+    "crates/keyweave-windows/src/runtime/machine.rs": "05927f83b2cd1ad23b333c49ab0b650891415059cae06838d63e551d8e15b367",
+    "crates/keyweave-windows/src/runtime/staged.rs": "96e0ee7127dd11b876c2812ebea13107d2dc4d503d10c4fc2a990eefdadf9e17",
+    "crates/keyweave-windows/src/runtime/tests.rs": "487102b4c7fdd31d1df4c650e5706052ec8485d5cf498159408f204baaef41cd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1383,
+    "new_tests": 5,
+    "updated_budget_case": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-windows-staged-input-fifo/tests.log",
+        "sha256": "aa27f0bee6dfb0ffb182f41fa991d090b908b904c353f83bc62510f368265737"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-windows-staged-input-fifo/clippy.log",
+        "sha256": "4285b23a76d2744da9451e64b9e604b4c28992b9ec519d159a17a82cb02eed20"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-windows-staged-input-fifo/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-windows-staged-input-fifo/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Old staged budget test expected StopRequired for a 512-tap array. Updated it to explicit user-stop after partial drain and added full budget-continuation regression. Legacy budget error behavior remains unchanged.",
+    "Malformed-context fixture used an immediately expired snapshot, which is valid metadata and should yield Unknown at condition evaluation. Corrected to future observed_at, a genuinely invalid snapshot, without tightening shared context semantics."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native x64/i686/Hook/SendInput checks remain pending after earlier auto-review quota rejection; no attempt or bypass this phase."
+  },
+  "limitations": [
+    "Explicit staged SessionActor stores up to 128 normalized Key/Context frames and returns Capture when a key frame is accepted, not when target output is API accepted. stage/native failures or FIFO overflow still StopRequired.",
+    "Each call handles at most original 64 work, yields normally in staged mode and retains pending work; next_wakeup includes FIFO frontier. Legacy budget semantics unchanged. Output pump uses actual session now, controller stage cutoff is capped by oldest queued frame observed time, preserving early Up/context chronology under late ticks. Logical timestamps/mock prefixes are not real app timing evidence.",
+    "Repeat is emitted only after its frame processing, saved actual leaf lookup and desired/submitted ownership checks. Context validates bounded fields/device/revision/observation immediately against both current and queued revisions before storage; expired valid metadata retains Unknown behavior.",
+    "Configuration activation cold rejects StagedInputPending while any input frame is unprocessed, preserves generation/queue/Active and does no output IO; after drain normal activation can succeed. Rejected config is not a claimed Applied ack and can be retried by caller. Already registered old root future stage work retains normal reload support.",
+    "Stop clears input FIFO before controller reset, then existing unhook-first accepted-ledger recovery/quarantine remains. Native capture wrappers must continue to inspect independent untracked-input/access-loss facts; passing a source after handler failure cannot be treated as known global ownership.",
+    "Tests prove 512 taps complete over ticks with 1024 ordered packets and original seq, key-context-key mapping across late tick, FIFO overflow discard/recovery, invalid context before storage, queued revision rejection, and explicit stop after partial drain. No native Windows input or compile run performed.",
+    "Windows native entry execution mode is not selected yet; native pointer, Simple advanced branches/simultaneous/hardware/GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure Rust input FIFO/controller context preflight and scheduler dispatch, no unsafe/FFI/dependency/native packet ABI changes."
+}

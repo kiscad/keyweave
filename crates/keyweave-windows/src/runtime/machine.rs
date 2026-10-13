@@ -18,6 +18,21 @@ fn keyboard_step(step: PhysicalStep) -> Result<EngineStep, RuntimeError> {
     })
 }
 impl Machine {
+    pub(super) fn is_staged(&self) -> bool {
+        matches!(self, Self::Staged(_))
+    }
+    pub(super) fn validate_staged_context(
+        &self,
+        context: &ContextSnapshot,
+        revision: u64,
+        at: MonoTime,
+    ) -> Result<(), RuntimeError> {
+        if let Self::Staged(controller) = self {
+            controller.validate_context_candidate(context, revision, at)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn staged(config: Arc<ConfigSnapshot>) -> Result<Self, RuntimeError> {
         validate(&config)?;
         let mut controller = PhysicalStageController::new(config)?;

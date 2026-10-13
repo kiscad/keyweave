@@ -164,6 +164,22 @@ impl PhysicalStageController {
     pub fn next_deadline(&self) -> Option<MonoTime> {
         self.simple.next_deadline()
     }
+    /// Validate a bounded queued provider update against current and already
+    /// queued revisions without applying it or advancing controller time.
+    pub fn validate_context_candidate(
+        &self,
+        context: &ContextSnapshot,
+        queued_revision: u64,
+        at: MonoTime,
+    ) -> Result<(), PhysicalControllerError> {
+        validate_context_update(
+            context,
+            self.context.revision.max(queued_revision),
+            at,
+            |device| self.history.check_device(device, false).is_err(),
+        )?;
+        Ok(())
+    }
     pub fn context_revision(&self) -> u64 {
         self.context.revision
     }

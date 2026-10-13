@@ -1,5 +1,6 @@
 //! Single-thread engine/output owner. Lifecycle gates belong to the session host.
 mod machine;
+mod staged;
 use crate::{
     hook::{HookEvent, HookFault, HookHandler},
     keys::{self, InjectionTag, KeyError},
@@ -8,9 +9,11 @@ use crate::{
 use keyweave_engine::{Condition, ConfigSnapshot, Engine, EngineError};
 use keyweave_types::*;
 use machine::Machine;
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use staged::PendingInput;
+use std::{cell::RefCell, collections::VecDeque, rc::Rc, sync::Arc};
 pub const MAX_WORK: usize = 64;
 pub const MAX_RECOVERY: usize = 8;
+pub const MAX_PENDING_INPUTS: usize = 128;
 const STREAM: DeviceInstanceId = DeviceInstanceId {
     id: 1,
     generation: 1,
@@ -37,6 +40,8 @@ pub enum RuntimeError {
     Staged(#[from] keyweave_engine::physical_controller::PhysicalControllerError),
     #[error("keyboard session does not support staged pointer input or delivery")]
     StagedPointer,
+    #[error("staged input remains queued; configuration activation must retry after drain")]
+    StagedInputPending,
     #[error(transparent)]
     Output(#[from] PumpError),
     #[error(transparent)]
@@ -103,6 +108,7 @@ pub struct SessionActor<B: SendBackend> {
     now: MonoTime,
     seq: u64,
     failure: Option<RuntimeError>,
+    pending_inputs: VecDeque<PendingInput>,
 }
 impl<B: SendBackend> SessionActor<B> {
     pub fn new(
@@ -118,6 +124,7 @@ impl<B: SendBackend> SessionActor<B> {
             now: MonoTime(0),
             seq: 0,
             failure: None,
+            pending_inputs: VecDeque::new(),
         })
     }
     /// Explicit staged keyboard mode. No native entry selects this constructor yet.
@@ -134,6 +141,7 @@ impl<B: SendBackend> SessionActor<B> {
             now: MonoTime(0),
             seq: 0,
             failure: None,
+            pending_inputs: VecDeque::new(),
         })
     }
     pub fn phase(&self) -> ActorPhase {
@@ -159,6 +167,7 @@ impl<B: SendBackend> SessionActor<B> {
         [
             self.output.ledger().next_deadline(),
             self.engine.next_deadline(),
+            self.pending_inputs.front().map(|input| input.at),
         ]
         .into_iter()
         .flatten()
@@ -182,6 +191,9 @@ impl<B: SendBackend> SessionActor<B> {
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
         if !matches!(self.phase, ActorPhase::Standby | ActorPhase::Active) {
             return Err(RuntimeError::NotActive);
+        }
+        if !self.pending_inputs.is_empty() {
+            return Err(RuntimeError::StagedInputPending);
         }
         validate(&config)?;
         self.engine.activate(config)?;
@@ -209,12 +221,20 @@ impl<B: SendBackend> SessionActor<B> {
         event: InputEvent,
         work: &mut usize,
     ) -> Result<CaptureDecision, RuntimeError> {
+        self.dispatch_at(event, self.now, work)
+    }
+    fn dispatch_at(
+        &mut self,
+        event: InputEvent,
+        at: MonoTime,
+        work: &mut usize,
+    ) -> Result<CaptureDecision, RuntimeError> {
         Self::spend(work)?;
         let seq = self.seq.checked_add(1).ok_or(RuntimeError::Sequence)?;
         let is_key = matches!(event, InputEvent::Key { .. });
         let step = self.engine.handle(InputEnvelope {
             seq,
-            at_ns: self.now,
+            at_ns: at,
             device: STREAM,
             provenance: Provenance::Physical,
             event,
@@ -228,6 +248,13 @@ impl<B: SendBackend> SessionActor<B> {
     }
     fn due(&mut self, work: &mut usize) -> Result<(), RuntimeError> {
         loop {
+            if self.engine.is_staged() && *work == MAX_WORK {
+                return Ok(());
+            }
+            let cutoff = self
+                .pending_inputs
+                .front()
+                .map_or(self.now, |input| input.at.min(self.now));
             if self
                 .output
                 .ledger()
@@ -239,13 +266,19 @@ impl<B: SendBackend> SessionActor<B> {
                 if self.output.phase() != Phase::Normal {
                     return Err(RuntimeError::Incomplete);
                 }
-            } else if self.engine.stage_due(self.now) {
+            } else if self.engine.stage_due(cutoff) {
                 Self::spend(work)?;
                 let step = self
                     .engine
-                    .poll_stage(self.now)?
+                    .poll_stage(cutoff)?
                     .ok_or(RuntimeError::Decision)?;
                 self.output.enqueue(&step.outputs)?;
+            } else if self
+                .pending_inputs
+                .front()
+                .is_some_and(|input| input.at <= self.now)
+            {
+                self.deliver_pending_input(work)?;
             } else if let Some(token) = self.engine.legacy_timer_due(self.now) {
                 self.dispatch(InputEvent::TimerFired { token }, work)?;
             } else {
@@ -276,6 +309,10 @@ impl<B: SendBackend> SessionActor<B> {
     ) -> Result<(), RuntimeError> {
         let result = (|| {
             self.advance(now)?;
+            if self.engine.is_staged() {
+                self.enqueue_context(context, now)?;
+                return self.due(&mut 0);
+            }
             let mut work = 0;
             self.due(&mut work)?;
             self.dispatch(InputEvent::ContextChanged { context }, &mut work)?;
@@ -293,6 +330,17 @@ impl<B: SendBackend> SessionActor<B> {
             self.advance(now)?;
             if event.binding == Some(CaptureDecision::Pass) {
                 return Err(RuntimeError::Decision);
+            }
+            if self.engine.is_staged() {
+                self.enqueue_input(
+                    InputEvent::Key {
+                        key: event.identity.key,
+                        edge: event.edge,
+                    },
+                    now,
+                )?;
+                self.due(&mut 0)?;
+                return Ok(CaptureDecision::Capture);
             }
             let mut work = 0;
             self.due(&mut work)?;
@@ -357,6 +405,7 @@ impl<B: SendBackend> SessionActor<B> {
             return self.stop_after_unhook();
         }
         self.phase = ActorPhase::Unresolved;
+        self.pending_inputs.clear();
         let _ = self.engine.reset(self.now);
         self.output.quarantine_without_delivery();
         Err(RuntimeError::Unresolved)
@@ -368,6 +417,7 @@ impl<B: SendBackend> SessionActor<B> {
             return Err(RuntimeError::NotActive);
         }
         self.phase = ActorPhase::StopRequired;
+        self.pending_inputs.clear();
         let reset = self.engine.reset(self.now);
         if self.output.begin_recovery(self.now).is_err() {
             self.phase = ActorPhase::Unresolved;
