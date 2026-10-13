@@ -45,6 +45,7 @@ pub struct UnfinishedGroupOwner {
 pub struct GroupBranchAdmission {
     pub batch: Option<crate::action_plan::BatchId>,
     pub generated_halt: bool,
+    pub projection: Option<crate::terminal_actor::KeyProjectionId>,
 }
 impl std::fmt::Debug for UnfinishedGroupOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -210,6 +211,28 @@ impl GroupBindingOwner {
         arena: &mut BindingArena<ProducerDecision>,
         output: &mut OutputStageActor,
     ) -> Result<GroupBranchAdmission, GroupOwnerError> {
+        self.dispatch_after_up_mode((batch, false), at, context, halted, arena, output)
+    }
+    pub fn dispatch_projected_group_after_up(
+        &mut self,
+        batch: crate::action_plan::BatchId,
+        at: MonoTime,
+        context: &crate::ContextSnapshot,
+        halted: bool,
+        arena: &mut BindingArena<ProducerDecision>,
+        output: &mut OutputStageActor,
+    ) -> Result<GroupBranchAdmission, GroupOwnerError> {
+        self.dispatch_after_up_mode((batch, true), at, context, halted, arena, output)
+    }
+    fn dispatch_after_up_mode(
+        &mut self,
+        destination: (crate::action_plan::BatchId, bool),
+        at: MonoTime,
+        context: &crate::ContextSnapshot,
+        halted: bool,
+        arena: &mut BindingArena<ProducerDecision>,
+        output: &mut OutputStageActor,
+    ) -> Result<GroupBranchAdmission, GroupOwnerError> {
         if self.failed {
             return Err(GroupOwnerError::Failed);
         }
@@ -219,7 +242,7 @@ impl GroupBindingOwner {
         if !self.after_up_pending {
             return Ok(GroupBranchAdmission::default());
         }
-        let result = self.dispatch_after_up_inner(batch, at, context, halted, arena, output);
+        let result = self.dispatch_after_up_inner(destination, at, context, halted, arena, output);
         if result.is_err() {
             self.failed = true;
         }
@@ -227,13 +250,14 @@ impl GroupBindingOwner {
     }
     fn dispatch_after_up_inner(
         &mut self,
-        batch: crate::action_plan::BatchId,
+        destination: (crate::action_plan::BatchId, bool),
         at: MonoTime,
         context: &crate::ContextSnapshot,
         halted: bool,
         arena: &mut BindingArena<ProducerDecision>,
         output: &mut OutputStageActor,
     ) -> Result<GroupBranchAdmission, GroupOwnerError> {
+        let (batch, projected) = destination;
         if at < self.active.now {
             return Err(ChordError::Time.into());
         }
@@ -274,11 +298,21 @@ impl GroupBindingOwner {
             .iter()
             .any(|event| event.payload.halt);
         let registration = arena.prepare(plan.actions().origin.clone(), slots, Some(primary))?;
-        output.prepare_child_scoped(plan, registration)?.commit();
+        let projection = if projected {
+            Some(
+                output
+                    .prepare_projected_child_scoped(plan, registration)?
+                    .commit(),
+            )
+        } else {
+            output.prepare_child_scoped(plan, registration)?.commit();
+            None
+        };
         self.after_up_pending = false;
         Ok(GroupBranchAdmission {
             batch: Some(batch),
             generated_halt,
+            projection,
         })
     }
     pub fn observe_output_step(

@@ -14,7 +14,7 @@ mod projections;
 use projections::ProjectionRecipe;
 pub use projections::{
     PreparedOutputKeyProjection, PreparedOutputKeyProjectionClose, PreparedProjectedOutputBatch,
-    PreparedProjectedOutputChild,
+    PreparedProjectedOutputChild, PreparedProjectedSharedOutputChild,
 };
 
 #[derive(Debug, PartialEq, Eq, Error)]

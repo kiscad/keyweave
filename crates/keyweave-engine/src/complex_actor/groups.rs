@@ -164,6 +164,8 @@ impl ComplexStageActor {
             .iter()
             .map(|member| member.down().event.clone())
             .collect();
+        let projection_references = self.prepared_group_projection_references(&member_slots)?;
+        let primary_device = first.down().event.device;
         let mut selected = Some(selection);
         let mut downs = Vec::with_capacity(member_slots.len());
         for (index, (member, (up, identity))) in group.members().iter().zip(credentials).enumerate()
@@ -187,22 +189,35 @@ impl ComplexStageActor {
         if self.delayed.is_some() {
             return Err(ComplexActorError::Input);
         }
-        let handle = if slots == 0 {
+        let (handle, projection) = if slots == 0 {
             let activation = self
                 .producers
                 .prepare_shared_consumed_down(plan.actions().origin.clone(), downs)
                 .map_err(|rejected| rejected.error)?;
-            self.output
+            let handle = self
+                .output
                 .prepare_shared_empty_child_scoped(plan, activation)?
-                .commit()
+                .commit();
+            (handle, None)
         } else {
             let registration = self
                 .producers
                 .prepare_shared_child_with_down(plan.actions().origin.clone(), slots, downs)
                 .map_err(|rejected| rejected.error)?;
-            self.output
-                .prepare_shared_child_scoped(plan, registration)?
-                .commit()
+            if projection_references != 0 {
+                let (handle, projection) = self
+                    .output
+                    .prepare_projected_shared_child_scoped(plan, registration)?
+                    .commit();
+                (handle, Some(projection))
+            } else {
+                (
+                    self.output
+                        .prepare_shared_child_scoped(plan, registration)?
+                        .commit(),
+                    None,
+                )
+            }
         };
         self.last_batch = id.0;
         let main = (slots != 0).then_some(id);
@@ -210,6 +225,13 @@ impl ComplexStageActor {
             self.children.insert(main, primary);
         }
         self.quarantined_group_holds.push(handle);
+        self.merge_group_projections(
+            primary,
+            &member_slots,
+            primary_device,
+            projection_references,
+            projection,
+        );
         // The real original Up markers must exist before the owner applies initial lookahead facts.
         for member in group.members() {
             if let Some(up) = member.up() {
@@ -382,18 +404,36 @@ impl ComplexStageActor {
         }
         if facts.after_group_up {
             let id = self.next_batch_id()?;
-            let admitted = self
+            let owner = self
                 .groups
                 .get_mut(&primary)
-                .ok_or(ComplexActorError::Invariant)?
-                .dispatch_group_after_up(
+                .ok_or(ComplexActorError::Invariant)?;
+            let admitted = if self.projection_groups.contains_key(&primary) {
+                owner.dispatch_projected_group_after_up(
                     id,
                     at,
                     context,
                     self.halted.contains(&primary),
                     &mut self.producers,
                     &mut self.output,
-                )?;
+                )?
+            } else {
+                owner.dispatch_group_after_up(
+                    id,
+                    at,
+                    context,
+                    self.halted.contains(&primary),
+                    &mut self.producers,
+                    &mut self.output,
+                )?
+            };
+            if let Some(projection) = admitted.projection {
+                self.projection_groups
+                    .get_mut(&primary)
+                    .ok_or(ComplexActorError::Invariant)?
+                    .outputs
+                    .push(projection);
+            }
             if let Some(batch) = admitted.batch {
                 self.children.insert(batch, primary);
                 self.last_batch = batch.0;
@@ -1524,6 +1564,317 @@ mod tests {
             .admit(&up(&second[1], 160), &ContextSnapshot::default())
             .unwrap();
         assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn secondary_member_projection_hides_and_restores_the_shared_primary_output() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        let reference = actor
+            .begin_descendant_projection(slot(2), MonoTime(115))
+            .unwrap();
+        assert_eq!(
+            actor.descendant_projection_device(reference),
+            Some(plans[1].origin.device)
+        );
+        assert_eq!(actor.projection_handles[&reference], slot(1));
+        assert_eq!(drain(&mut actor, 115).0, [(key("c"), KeyEdge::Up)]);
+        actor
+            .close_descendant_projection(reference, MonoTime(125))
+            .unwrap();
+        assert_eq!(drain(&mut actor, 125).0, [(key("c"), KeyEdge::Down)]);
+        actor
+            .admit(&up(&plans[0], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 130).0, [(key("c"), KeyEdge::Up)]);
+        actor
+            .admit(&up(&plans[1], 140), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.reserved_sources(), 0);
+        assert!(actor.projection_devices.is_empty());
+    }
+    #[test]
+    fn both_members_share_one_projection_template_and_only_last_reference_restores() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        let first = actor
+            .begin_descendant_projection(slot(1), MonoTime(115))
+            .unwrap();
+        assert_eq!(drain(&mut actor, 115).0, [(key("c"), KeyEdge::Up)]);
+        let second = actor
+            .begin_descendant_projection(slot(2), MonoTime(120))
+            .unwrap();
+        assert_eq!(actor.projection_groups.len(), 1);
+        assert_eq!(actor.projection_groups[&slot(1)].references, 2);
+        actor
+            .close_descendant_projection(first, MonoTime(125))
+            .unwrap();
+        assert!(drain(&mut actor, 125).0.is_empty());
+        actor
+            .close_descendant_projection(second, MonoTime(130))
+            .unwrap();
+        assert_eq!(drain(&mut actor, 130).0, [(key("c"), KeyEdge::Down)]);
+        actor
+            .admit(&up(&plans[0], 140), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 140);
+        actor
+            .admit(&up(&plans[1], 150), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.pending_inputs(), 0);
+    }
+    #[test]
+    fn pre_match_member_templates_merge_and_shared_main_is_born_projected_without_down_exposure() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        let first = actor
+            .begin_descendant_projection(slot(1), MonoTime(0))
+            .unwrap();
+        let second = actor
+            .begin_descendant_projection(slot(2), MonoTime(0))
+            .unwrap();
+        assert_eq!(actor.projection_groups.len(), 2);
+        admit(&mut actor, &plans, false);
+        assert_eq!(actor.projection_groups.len(), 1);
+        assert_eq!(actor.projection_groups[&slot(1)].references, 2);
+        assert_eq!(actor.projection_handles[&first], slot(1));
+        assert_eq!(actor.projection_handles[&second], slot(1));
+        assert_eq!(
+            actor.descendant_projection_device(first),
+            Some(plans[0].origin.device)
+        );
+        assert_eq!(
+            actor.descendant_projection_device(second),
+            Some(plans[1].origin.device)
+        );
+        assert!(drain(&mut actor, 110).0.is_empty());
+        actor
+            .close_descendant_projection(first, MonoTime(120))
+            .unwrap();
+        assert!(drain(&mut actor, 120).0.is_empty());
+        actor
+            .close_descendant_projection(second, MonoTime(130))
+            .unwrap();
+        assert_eq!(drain(&mut actor, 130).0, [(key("c"), KeyEdge::Down)]);
+        actor
+            .admit(&up(&plans[0], 140), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 140);
+        actor
+            .admit(&up(&plans[1], 150), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn born_projected_shared_variable_never_exposes_down_value_before_scope_close() {
+        let mut snapshot = (*snapshot(KeyUpWhen::Any, false, false, |_| {})).clone();
+        snapshot.complex[0].to = vec![Action {
+            target: ActionTarget::SetVariable(VariableAction {
+                name: "flag".into(),
+                operation: VariableOperation::Set {
+                    value: Some(VariableValue::Integer(1)),
+                    key_up_value: Some(VariableValue::Integer(2)),
+                },
+            }),
+            ..key("c").into()
+        }];
+        let cfg = Arc::new(snapshot);
+        let (mut actor, plans) = setup(&cfg);
+        let reference = actor
+            .begin_descendant_projection(slot(2), MonoTime(0))
+            .unwrap();
+        admit(&mut actor, &plans, false);
+        assert_eq!(
+            actor.generated_variables()["flag"],
+            VariableValue::Integer(2)
+        );
+        assert!(drain(&mut actor, 110).0.is_empty());
+        assert_eq!(
+            actor.output.executed_variables()["flag"],
+            VariableValue::Integer(2)
+        );
+        actor
+            .close_descendant_projection(reference, MonoTime(120))
+            .unwrap();
+        drain(&mut actor, 120);
+        assert_eq!(
+            actor.generated_variables()["flag"],
+            VariableValue::Integer(1)
+        );
+        assert_eq!(
+            actor.output.executed_variables()["flag"],
+            VariableValue::Integer(1)
+        );
+        actor
+            .admit(&up(&plans[0], 130), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 130);
+        assert_eq!(
+            actor.output.executed_variables()["flag"],
+            VariableValue::Integer(2)
+        );
+        actor
+            .admit(&up(&plans[1], 140), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn empty_shared_main_projects_normal_and_group_after_up_children_and_restores_future_work() {
+        let cfg = snapshot(KeyUpWhen::Any, false, true, |extras| {
+            extras.after_key_up = vec![Action {
+                hold_down_ns: 30,
+                ..key("f").into()
+            }];
+            extras.simultaneous.as_mut().unwrap().after_key_up = vec![Action {
+                hold_down_ns: 50,
+                ..key("z").into()
+            }];
+        });
+        let (mut actor, plans) = setup(&cfg);
+        let reference = actor
+            .begin_descendant_projection(slot(2), MonoTime(0))
+            .unwrap();
+        admit(&mut actor, &plans, false);
+        assert!(drain(&mut actor, 110).0.is_empty());
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        assert!(drain(&mut actor, 120).0.is_empty());
+        actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert!(drain(&mut actor, 130).0.is_empty());
+        assert_eq!(actor.projection_groups[&slot(1)].outputs.len(), 2);
+        let restored = actor
+            .restore_descendant_projection_control(reference, MonoTime(135))
+            .unwrap();
+        assert_eq!(
+            restored
+                .outputs
+                .iter()
+                .map(|out| (out.key, out.edge))
+                .collect::<Vec<_>>(),
+            [(key("f"), KeyEdge::Down)]
+        );
+        assert!(drain(&mut actor, 135).0.is_empty());
+        assert_eq!(
+            drain(&mut actor, 150).0,
+            [(key("f"), KeyEdge::Up), (key("z"), KeyEdge::Down)]
+        );
+        let (last, released) = drain(&mut actor, 200);
+        assert_eq!(last, [(key("z"), KeyEdge::Up)]);
+        assert_eq!(released, [slot(1), slot(2)]);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn removing_either_projected_member_keeps_other_device_reference_and_never_revives_canceled_keys()
+     {
+        for removed_id in [1, 2] {
+            let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+            let (mut actor, plans) = setup(&cfg);
+            admit(&mut actor, &plans, false);
+            drain(&mut actor, 110);
+            let first = actor
+                .begin_descendant_projection(slot(1), MonoTime(115))
+                .unwrap();
+            drain(&mut actor, 115);
+            let second = actor
+                .begin_descendant_projection(slot(2), MonoTime(116))
+                .unwrap();
+            let control = actor
+                .observe_device(
+                    DeviceInstanceId {
+                        id: removed_id,
+                        generation: 1,
+                    },
+                    true,
+                    MonoTime(120),
+                )
+                .unwrap();
+            assert!(control.outputs.is_empty());
+            let (removed, surviving) = if removed_id == 1 {
+                (first, second)
+            } else {
+                (second, first)
+            };
+            assert_eq!(actor.descendant_projection_device(removed), None);
+            let survivor = if removed_id == 1 { 2 } else { 1 };
+            assert_eq!(
+                actor.descendant_projection_device(surviving),
+                Some(plans[(survivor - 1) as usize].origin.device)
+            );
+            assert_eq!(actor.projection_groups[&slot(1)].references, 1);
+            assert!(actor.projection_groups[&slot(1)].outputs.is_empty());
+            actor
+                .close_descendant_projection(surviving, MonoTime(125))
+                .unwrap();
+            assert!(drain(&mut actor, 125).0.is_empty());
+            actor
+                .admit(
+                    &up(&plans[(survivor - 1) as usize], 130),
+                    &ContextSnapshot::default(),
+                )
+                .unwrap();
+            assert_eq!(actor.pending_inputs(), 0);
+            assert!(
+                actor.projection_groups.is_empty()
+                    && actor.projection_handles.is_empty()
+                    && actor.projection_devices.is_empty()
+            );
+        }
+    }
+    #[test]
+    fn last_removed_reference_after_group_completion_releases_output_template_without_restoring_up_sources()
+     {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        actor
+            .begin_descendant_projection(slot(2), MonoTime(115))
+            .unwrap();
+        drain(&mut actor, 115);
+        let projection = actor.projection_groups[&slot(1)].outputs[0];
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 120);
+        actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.pending_inputs(), 0);
+        assert!(actor.output.has_key_projection(projection));
+        let control = actor
+            .observe_device(plans[1].origin.device, true, MonoTime(135))
+            .unwrap();
+        assert!(control.outputs.is_empty());
+        assert!(!actor.output.has_key_projection(projection));
+        assert!(
+            actor.projection_groups.is_empty()
+                && actor.projection_handles.is_empty()
+                && actor.projection_devices.is_empty()
+        );
+    }
+    #[test]
+    fn projected_group_reset_clears_alias_devices_and_restores_no_never_emitted_keys() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        actor
+            .begin_descendant_projection(slot(2), MonoTime(0))
+            .unwrap();
+        admit(&mut actor, &plans, false);
+        assert!(drain(&mut actor, 110).0.is_empty());
+        let reset = actor.reset(MonoTime(115)).unwrap();
+        assert!(reset.outputs.is_empty());
+        assert!(
+            actor.projection_groups.is_empty()
+                && actor.projection_handles.is_empty()
+                && actor.projection_devices.is_empty()
+        );
         assert_eq!(actor.reserved_sources(), 0);
     }
 }

@@ -68,6 +68,7 @@ pub struct ComplexStageActor {
     halted: BTreeSet<ActionSlot>,
     projection_groups: BTreeMap<ActionSlot, DescendantProjection>,
     projection_handles: BTreeMap<ComplexProjectionId, ActionSlot>,
+    projection_devices: BTreeMap<ComplexProjectionId, DeviceInstanceId>,
     groups: BTreeMap<ActionSlot, simultaneous::GroupBindingOwner>,
     group_members: BTreeMap<ActionSlot, ActionSlot>,
     quarantined_group_holds: Vec<stage_bindings::SharedRetention>,
@@ -163,6 +164,7 @@ impl ComplexStageActor {
             halted: BTreeSet::new(),
             projection_groups: BTreeMap::new(),
             projection_handles: BTreeMap::new(),
+            projection_devices: BTreeMap::new(),
             groups: BTreeMap::new(),
             group_members: BTreeMap::new(),
             quarantined_group_holds: Vec::new(),
@@ -1022,20 +1024,7 @@ impl ComplexStageActor {
             .map(|(&id, _)| id)
             .collect();
         self.discard_inputs(&ids)?;
-        let removed_slots: BTreeSet<_> = self
-            .projection_groups
-            .iter()
-            .filter(|(_, group)| {
-                group.device.id == device.id
-                    && (group.device.generation < device.generation
-                        || (removed && group.device.generation == device.generation))
-            })
-            .map(|(&slot, _)| slot)
-            .collect();
-        self.projection_groups
-            .retain(|slot, _| !removed_slots.contains(slot));
-        self.projection_handles
-            .retain(|_, slot| !removed_slots.contains(slot));
+        self.cleanup_projection_device(device, removed, at, &mut step)?;
         self.now = at;
         step.discarded_input_batches = ids;
         Ok(step)
@@ -1076,6 +1065,7 @@ impl ComplexStageActor {
         self.discard_inputs(&ids)?;
         self.projection_groups.clear();
         self.projection_handles.clear();
+        self.projection_devices.clear();
         self.now = at;
         self.failed = false;
         Ok(ComplexStep {

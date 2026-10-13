@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0168 shared group descendant projection aliases, born-projected joint admission and branch inheritance",
+  "source_base_commit": "a072d1d272d943e5f0e1a7d5e95bed81e891354c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "2fbbf615983027129543a7bdecabbabdcaae62f457666e1643f900909b910e39",
+    "crates/keyweave-engine/src/complex_actor/groups.rs": "7d846dbe864f009116136117846a532308f4cb45b0e64f1c6786e16982941de7",
+    "crates/keyweave-engine/src/complex_actor/projections.rs": "480583cc1e00743f0c9973fe1f1a052ee606a1be6eaa65228518025b243227b1",
+    "crates/keyweave-engine/src/output_stage.rs": "8bd71acc2926699efe7e5b9fca327568b9b7ede6dec1925bc6a537458702d86b",
+    "crates/keyweave-engine/src/output_stage/projections.rs": "971237dd228880fb1146598461830f1cd7c755aeecbf7dfaa96b9ecc26b6ac72",
+    "crates/keyweave-engine/src/simultaneous/owner.rs": "e23736c68ca7a6b5d1de49a82acea3529b3058a75e6b3d8ef47eae65751a2ac8",
+    "crates/keyweave-engine/tests/shared_output_admission.rs": "0f4391041dd5aaf58d1e556b9359abbb09cfe06bcd24a0fc96d471c8f85798be"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1555,
+    "new_tests": 10,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-group-projections/tests.log",
+        "sha256": "564f4ad4992e939f518b6a48e195b2f2c6d7b7c8de80ae2de01b6987760cd5bb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-group-projections/clippy.log",
+        "sha256": "c8d29fc6b5aed192f50bb3cf152c27056ccc71549209a97efa87a10f216bae8e"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-group-projections/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-group-projections/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New variable test initially used incorrect Action fields/query name; reused Action defaults and executed_variables API.",
+    "Two new assertions assumed a zero variable pause value and immediate normal close. Existing projection contract applies configured key_up_value during pause and normal close follows output FIFO. Corrected variable assertions and used explicit control restore for immediate/future-work restoration; final focused/full checks passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Shared group execution/projection tests use the same actual Complex actor through internal Output-based construction. Public constructors and compiler KW-SIM/runtime simultaneous gates remain strict.",
+    "Automatic waiting/frontier/replay and full Simple/Physical group-path integration remain pending.",
+    "Complete global source lease and native repeat integration remain pending.",
+    "Projection/cancellation intents and metadata restoration do not prove accepted native output or hardware recovery.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}

@@ -495,3 +495,66 @@ fn empty_shared_destination_rejection_does_not_activate_participants() {
     assert_eq!(arena.reserved_sources(), 2);
     assert!(drain(&mut output, 110).0.is_empty());
 }
+
+#[test]
+fn projected_shared_guard_abort_returns_inputs_and_commit_has_no_visible_down_until_close() {
+    let cfg = cfg(vec![key("c").into()]);
+    let mut arena = BindingArena::default();
+    let owned = inputs(&mut arena, &cfg);
+    let mut output = output(&cfg);
+    let registration = arena
+        .prepare_shared_child_with_down(origin(&cfg, 10, 1, Stage::Output, 110), 1, owned)
+        .unwrap();
+    let returned = output
+        .prepare_projected_shared_child_scoped(plan(&cfg, 10, 110), registration)
+        .unwrap()
+        .abort();
+    assert_eq!(
+        returned.iter().map(|(_, p)| p.0).collect::<Vec<_>>(),
+        [10, 20]
+    );
+    assert_eq!(arena.live_slots(), 0);
+    assert_eq!(arena.shared_retention_groups(), 0);
+    assert_eq!(output.pending_batches(), 0);
+    let registration = arena
+        .prepare_shared_child_with_down(origin(&cfg, 10, 1, Stage::Output, 110), 1, returned)
+        .unwrap();
+    let (handle, projection) = output
+        .prepare_projected_shared_child_scoped(plan(&cfg, 10, 110), registration)
+        .unwrap()
+        .commit();
+    assert_eq!(arena.live_slots(), 2);
+    assert_eq!(arena.shared_retention_references(), 2);
+    assert!(drain(&mut output, 110).0.is_empty());
+    output
+        .close_key_projection(projection, MonoTime(120))
+        .unwrap();
+    assert_eq!(drain(&mut output, 120).0, [(key("c"), KeyEdge::Down)]);
+    output.input_up(BatchId(10), MonoTime(130)).unwrap();
+    assert_eq!(drain(&mut output, 130).0, [(key("c"), KeyEdge::Up)]);
+    arena.cancel(BatchId(10)).unwrap();
+    arena.release_shared_retention(handle).unwrap();
+    assert_eq!(arena.take(slot(1)).unwrap().0, 10);
+    assert_eq!(arena.take(slot(2)).unwrap().0, 20);
+}
+
+#[test]
+fn projected_shared_child_plan_mismatch_does_not_activate_participants_or_output() {
+    let cfg = cfg(vec![key("c").into()]);
+    let mut arena = BindingArena::default();
+    let owned = inputs(&mut arena, &cfg);
+    let mut output = output(&cfg);
+    let registration = arena
+        .prepare_shared_child_with_down(origin(&cfg, 10, 1, Stage::Output, 110), 1, owned)
+        .unwrap();
+    assert!(
+        output
+            .prepare_projected_shared_child_scoped(plan(&cfg, 11, 110), registration)
+            .is_err()
+    );
+    assert_eq!(arena.live_slots(), 0);
+    assert_eq!(arena.shared_retention_references(), 0);
+    assert_eq!(arena.reserved_sources(), 2);
+    assert_eq!(output.pending_batches(), 0);
+    assert!(drain(&mut output, 110).0.is_empty());
+}

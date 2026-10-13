@@ -6,15 +6,65 @@ pub struct ComplexProjectionId(u64);
 pub(super) struct DescendantProjection {
     pub(super) device: DeviceInstanceId,
     pub(super) outputs: Vec<KeyProjectionId>,
-    references: usize,
+    pub(super) references: usize,
 }
 impl ComplexStageActor {
+    pub(super) fn prepared_group_projection_references(
+        &self,
+        members: &[ActionSlot],
+    ) -> Result<usize, ComplexActorError> {
+        let mut references = 0usize;
+        for slot in members {
+            if let Some(group) = self.projection_groups.get(slot) {
+                // Group Downs are Reserved; an existing actual child here is inconsistent.
+                if !group.outputs.is_empty() {
+                    return Err(ComplexActorError::Invariant);
+                }
+                references = references
+                    .checked_add(group.references)
+                    .ok_or(BindingError::Capacity)?;
+            }
+        }
+        if references > MAX_BINDINGS {
+            return Err(BindingError::Capacity.into());
+        }
+        Ok(references)
+    }
+    pub(super) fn merge_group_projections(
+        &mut self,
+        primary: ActionSlot,
+        members: &[ActionSlot],
+        device: DeviceInstanceId,
+        references: usize,
+        projection: Option<KeyProjectionId>,
+    ) {
+        if references == 0 {
+            return;
+        }
+        for slot in members {
+            self.projection_groups.remove(slot);
+        }
+        for slot in self.projection_handles.values_mut() {
+            if members.contains(slot) {
+                *slot = primary;
+            }
+        }
+        self.projection_groups.insert(
+            primary,
+            DescendantProjection {
+                device,
+                references,
+                outputs: projection.into_iter().collect(),
+            },
+        );
+    }
     pub(crate) fn descendant_projection_device(
         &self,
         id: ComplexProjectionId,
     ) -> Option<DeviceInstanceId> {
         let slot = self.projection_handles.get(&id)?;
-        Some(self.projection_groups.get(slot)?.device)
+        self.projection_groups.get(slot)?;
+        self.projection_devices.get(&id).copied()
     }
     pub(crate) fn begin_descendant_projection_group(
         &mut self,
@@ -85,6 +135,7 @@ impl ComplexStageActor {
             group.references -= 1;
         }
         self.projection_handles.remove(&id);
+        self.projection_devices.remove(&id);
         self.now = at;
         Ok(step)
     }
@@ -104,7 +155,15 @@ impl ComplexStageActor {
         slot: ActionSlot,
         at: MonoTime,
     ) -> Result<ComplexProjectionId, ComplexActorError> {
-        let device = if let Some(group) = self.projection_groups.get(&slot) {
+        let source_slot = slot;
+        let slot = self.group_members.get(&slot).copied().unwrap_or(slot);
+        if !self.projection_groups.contains_key(&slot) && self.producers.live(source_slot).is_none()
+        {
+            self.producers.check_down(source_slot)?;
+        }
+        let device = if let Some(input) = self.inputs.get(&source_slot.batch) {
+            input.plan.origin.device
+        } else if let Some(group) = self.projection_groups.get(&source_slot) {
             group.device
         } else {
             if self.producers.live(slot).is_none() {
@@ -117,6 +176,7 @@ impl ComplexStageActor {
                 .origin
                 .device
         };
+        self.output.check_live_device(device)?;
         if self.projection_handles.len() >= MAX_BINDINGS {
             return Err(BindingError::Capacity.into());
         }
@@ -156,6 +216,7 @@ impl ComplexStageActor {
             );
         }
         self.projection_handles.insert(id, slot);
+        self.projection_devices.insert(id, device);
         self.next_projection = id.0;
         self.now = at;
         Ok(id)
@@ -195,6 +256,7 @@ impl ComplexStageActor {
             group.references -= 1;
         }
         self.projection_handles.remove(&id);
+        self.projection_devices.remove(&id);
         self.now = at;
         Ok(())
     }
@@ -203,6 +265,54 @@ impl ComplexStageActor {
         self.check_time(at)?;
         if self.next_deadline().is_some_and(|due| due <= at) {
             return Err(ComplexActorError::DeadlinePending);
+        }
+        Ok(())
+    }
+    pub(super) fn cleanup_projection_device(
+        &mut self,
+        device: DeviceInstanceId,
+        removed: bool,
+        at: MonoTime,
+        step: &mut ComplexStep,
+    ) -> Result<(), ComplexActorError> {
+        for group in self.projection_groups.values_mut() {
+            group
+                .outputs
+                .retain(|id| self.output.has_key_projection(*id));
+        }
+        let ids: Vec<_> = self
+            .projection_devices
+            .iter()
+            .filter(|(_, source)| {
+                source.id == device.id
+                    && (source.generation < device.generation
+                        || (removed && source.generation == device.generation))
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        for id in ids {
+            let slot = *self
+                .projection_handles
+                .get(&id)
+                .ok_or(ComplexActorError::Invariant)?;
+            let group = self
+                .projection_groups
+                .get_mut(&slot)
+                .ok_or(ComplexActorError::Invariant)?;
+            if group.references == 1 {
+                for &projection in &group.outputs {
+                    step.outputs
+                        .extend(self.output.restore_key_projection_control(projection, at)?);
+                }
+                self.projection_groups.remove(&slot);
+            } else {
+                group.references = group
+                    .references
+                    .checked_sub(1)
+                    .ok_or(ComplexActorError::Invariant)?;
+            }
+            self.projection_handles.remove(&id);
+            self.projection_devices.remove(&id);
         }
         Ok(())
     }

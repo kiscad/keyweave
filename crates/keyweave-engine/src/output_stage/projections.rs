@@ -51,6 +51,9 @@ impl PreparedOutputKeyProjectionClose<'_> {
     }
 }
 impl OutputStageActor {
+    pub(crate) fn has_key_projection(&self, id: KeyProjectionId) -> bool {
+        self.projections.contains_key(&id)
+    }
     /// Lifecycle control: restore original surviving sources immediately and
     /// discard only this projection's future markers. Caller must retain intents.
     pub fn restore_key_projection_control(
@@ -254,6 +257,41 @@ impl OutputStageActor {
             output,
             registration,
         })
+    }
+    pub fn prepare_projected_shared_child_scoped<'a, T>(
+        &'a mut self,
+        plan: ScopedActionPlan,
+        registration: stage_bindings::SharedGroupReservation<'a, T>,
+    ) -> Result<PreparedProjectedSharedOutputChild<'a, T>, OutputStageError> {
+        self.running()?;
+        if plan.actions().events().is_empty() {
+            return Err(GeneratedError::Lifecycle.into());
+        }
+        let registration = registration.with_extra_sources(plan.scope().reservation())?;
+        let child = registration.child_admission()?;
+        let output = self.prepare_projected_inner(plan, Some(&child))?;
+        Ok(PreparedProjectedSharedOutputChild {
+            output,
+            registration,
+        })
+    }
+}
+
+#[must_use = "commit or abort participant activation and born-projected output together"]
+pub struct PreparedProjectedSharedOutputChild<'a, T> {
+    output: PreparedProjectedOutputBatch<'a>,
+    registration: stage_bindings::SharedGroupReservation<'a, T>,
+}
+impl<T> PreparedProjectedSharedOutputChild<'_, T> {
+    pub fn abort(self) -> stage_bindings::GroupDownInputs<T> {
+        drop(self.output);
+        self.registration.abort()
+    }
+    #[must_use = "retain the shared hold and projection identity until explicit cleanup"]
+    pub fn commit(self) -> (stage_bindings::SharedRetention, KeyProjectionId) {
+        let hold = self.registration.commit();
+        let projection = self.output.commit();
+        (hold, projection)
     }
 }
 
