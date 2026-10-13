@@ -635,3 +635,55 @@ fn startup_protocol_and_wait_faults_close_without_retries() {
     assert!(trace.borrow().iter().any(|v| v == "grab2:true"));
     inputs_closed_before_output(&trace);
 }
+#[test]
+fn staged_plan_propagates_mode_through_bootstrap_group_and_handoff_without_dispatch() {
+    let mut cfg = (*config()).clone();
+    cfg.complex.push(keyweave_engine::Mapping {
+        id: "timed".into(),
+        from: "a".parse().unwrap(),
+        to: vec![
+            keyweave_engine::Action {
+                hold_down_ns: 50,
+                .."b".parse::<keyweave_types::KeyId>().unwrap().into()
+            },
+            "c".parse::<keyweave_types::KeyId>().unwrap().into(),
+        ],
+        allow_extra_modifiers: true,
+        extras: Default::default(),
+    });
+    let cfg = Arc::new(cfg);
+    assert!(matches!(
+        Plan::new(inputs(), cfg.clone(), spec()),
+        Err(BootstrapError::Engine(EngineError::UnsupportedActionTiming))
+    ));
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let plan = Plan::new_with_mode(
+        inputs(),
+        cfg,
+        spec(),
+        crate::runtime::ExecutionMode::StagedKeyboard,
+    )
+    .unwrap();
+    let mut boot = Bootstrap::new(plan, mock);
+    drive(&mut boot).unwrap();
+    let Handoff {
+        runtime,
+        platform,
+        ready: _,
+    } = boot.finish().unwrap();
+    assert_eq!(
+        runtime.execution_mode(),
+        crate::runtime::ExecutionMode::StagedKeyboard
+    );
+    assert_eq!(runtime.progress_epoch(), 0);
+    assert!(
+        !trace
+            .borrow()
+            .iter()
+            .any(|event| event == "read" || event == "write")
+    );
+    drop(runtime);
+    drop(platform);
+    inputs_closed_before_output(&trace);
+}

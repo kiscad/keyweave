@@ -6,9 +6,9 @@ use crate::{
     emergency::EmergencyChord,
     output::RepeatPolicy,
     pump::FrameBackend,
-    runtime::{MAX_DEVICES, Runtime, RuntimeError, validate_config},
+    runtime::{ExecutionMode, MAX_DEVICES, Runtime, RuntimeError, validate_config},
 };
-use keyweave_engine::{ConfigSnapshot, Engine, EngineError};
+use keyweave_engine::{ConfigSnapshot, EngineError};
 use keyweave_types::DeviceInstanceId;
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -48,20 +48,33 @@ pub struct CaptureGroup<S: CaptureSource> {
     inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
     config: Arc<ConfigSnapshot>,
     phase: GroupPhase,
+    mode: ExecutionMode,
 }
 impl<S: CaptureSource> CaptureGroup<S> {
     pub fn new(
         inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, ActivationError> {
+        Self::new_with_mode(inputs, config, ExecutionMode::Legacy)
+    }
+    pub fn new_with_mode(
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        config: Arc<ConfigSnapshot>,
+        mode: ExecutionMode,
+    ) -> Result<Self, ActivationError> {
         let group = Self {
             inputs,
             config,
             phase: GroupPhase::Standby,
+            mode,
         };
         group.inventory()?;
         // Reject unsupported timing/expansion before any state query or grab.
-        let _engine = Engine::new(group.config.clone())?;
+        match mode.validate_snapshot(group.config.clone()) {
+            Err(RuntimeError::Engine(error)) => return Err(ActivationError::Engine(error)),
+            Err(error) => return Err(ActivationError::Runtime(error)),
+            Ok(()) => {}
+        }
         Ok(group)
     }
     fn inventory(&self) -> Result<(), ActivationError> {
@@ -212,7 +225,8 @@ impl<S: CaptureSource> CaptureGroup<S> {
             return Err(ActivationError::Phase);
         }
         let inputs = std::mem::take(&mut self.inputs);
-        Runtime::new(inputs, backend, self.config.clone()).map_err(ActivationError::Runtime)
+        Runtime::new_with_mode(inputs, backend, self.config.clone(), self.mode)
+            .map_err(ActivationError::Runtime)
     }
 }
 impl<S: CaptureSource> Drop for CaptureGroup<S> {
@@ -410,6 +424,37 @@ mod tests {
         Ok(bits(768, &[30]))
     }
     #[cfg(target_os = "linux")]
+    #[test]
+    fn staged_capture_group_pins_mode_through_runtime_transfer() {
+        let trace = Trace::default();
+        let mut cfg = (*config()).clone();
+        cfg.simple[0].to = vec![
+            keyweave_engine::Action {
+                hold_down_ns: 50,
+                .."b".parse::<KeyId>().unwrap().into()
+            },
+            "c".parse::<KeyId>().unwrap().into(),
+        ];
+        let mut group = CaptureGroup::new_with_mode(
+            inputs(vec![source(1, &trace)]),
+            Arc::new(cfg),
+            ExecutionMode::StagedKeyboard,
+        )
+        .unwrap();
+        assert!(trace.borrow().is_empty());
+        let backend = backend(&trace);
+        let node = probe(OUTPUT);
+        group.try_arm(&proof(&backend.spec, &node)).unwrap();
+        let runtime = group.into_runtime(backend).unwrap();
+        assert_eq!(runtime.execution_mode(), ExecutionMode::StagedKeyboard);
+        assert_eq!(runtime.progress_epoch(), 0);
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Submit(_, _)))
+        );
+    }
     #[test]
     fn console_rejection_precedes_all_queries_and_grabs_and_keeps_standby() {
         let trace = Trace::default();

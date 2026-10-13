@@ -12,6 +12,7 @@ use std::{io::Read, sync::Arc, thread::JoinHandle};
 #[derive(Clone)]
 pub enum Target {
     Linux(keyweave_linux::output::DeviceSpec),
+    LinuxStaged(keyweave_linux::output::DeviceSpec),
     Windows,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -22,6 +23,7 @@ enum Platform {
 struct Candidate {
     platform: Platform,
     snapshot: Arc<ConfigSnapshot>,
+    linux_mode: Option<keyweave_linux::runtime::ExecutionMode>,
 }
 struct Completion {
     request: Request,
@@ -101,7 +103,22 @@ impl PreparationSlot {
                     .map(|p| Candidate {
                         platform: Platform::Linux,
                         snapshot: p.snapshot().clone(),
+                        linux_mode: Some(p.execution_mode()),
                     }),
+                    Target::LinuxStaged(spec) => {
+                        linux::PreparedConfig::from_bytes_for_generation_with_mode(
+                            received.body,
+                            spec,
+                            request.target,
+                            keyweave_linux::runtime::ExecutionMode::StagedKeyboard,
+                        )
+                        .ok()
+                        .map(|p| Candidate {
+                            platform: Platform::Linux,
+                            snapshot: p.snapshot().clone(),
+                            linux_mode: Some(p.execution_mode()),
+                        })
+                    }
                     Target::Windows => windows::PreparedConfig::from_bytes_for_generation(
                         received.body,
                         request.target,
@@ -110,6 +127,7 @@ impl PreparationSlot {
                     .map(|p| Candidate {
                         platform: Platform::Windows,
                         snapshot: p.snapshot().clone(),
+                        linux_mode: None,
                     }),
                 };
                 // Exact bytes and cold diagnostics are dropped here, not on the
@@ -180,6 +198,9 @@ impl PreparationSlot {
         let accepted = result.candidate.is_some_and(|candidate| {
             candidate.snapshot.generation == result.request.target
                 && actor.supports(candidate.platform == Platform::Linux)
+                && candidate
+                    .linux_mode
+                    .is_none_or(|mode| actor.supports_linux_mode(mode))
                 && actor.apply(candidate.snapshot)
         });
         let outcome = if accepted {
@@ -202,6 +223,9 @@ mod sealed {
     pub trait Actor {
         fn generation(&self) -> ConfigGeneration;
         fn supports(&self, linux: bool) -> bool;
+        fn supports_linux_mode(&self, mode: keyweave_linux::runtime::ExecutionMode) -> bool {
+            mode == keyweave_linux::runtime::ExecutionMode::Legacy
+        }
         fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool;
     }
 }
@@ -227,6 +251,9 @@ impl<S: keyweave_linux::capture::CaptureSource, B: keyweave_linux::pump::FrameBa
     }
     fn supports(&self, linux: bool) -> bool {
         linux
+    }
+    fn supports_linux_mode(&self, mode: keyweave_linux::runtime::ExecutionMode) -> bool {
+        mode == self.execution_mode()
     }
     fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool {
         self.activate(snapshot).is_ok()

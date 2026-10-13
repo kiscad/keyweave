@@ -14,7 +14,7 @@ use crate::{
     uinput::UinputDevice,
     worker::WorkerParentGuard,
 };
-use keyweave_engine::{ConfigSnapshot, Engine, EngineError};
+use keyweave_engine::{ConfigSnapshot, EngineError};
 use keyweave_types::{DeviceInstanceId, MonoTime};
 use std::{
     collections::BTreeSet,
@@ -75,12 +75,21 @@ struct Plan {
     inputs: Vec<(DeviceInstanceId, PathBuf)>,
     config: Arc<ConfigSnapshot>,
     spec: DeviceSpec,
+    mode: crate::runtime::ExecutionMode,
 }
 impl Plan {
     fn new(
         inputs: Vec<(DeviceInstanceId, PathBuf)>,
         config: Arc<ConfigSnapshot>,
         spec: DeviceSpec,
+    ) -> Result<Self, BootstrapError> {
+        Self::new_with_mode(inputs, config, spec, crate::runtime::ExecutionMode::Legacy)
+    }
+    fn new_with_mode(
+        inputs: Vec<(DeviceInstanceId, PathBuf)>,
+        config: Arc<ConfigSnapshot>,
+        spec: DeviceSpec,
+        mode: crate::runtime::ExecutionMode,
     ) -> Result<Self, BootstrapError> {
         let mut ids = BTreeSet::new();
         let mut paths = BTreeSet::new();
@@ -100,11 +109,16 @@ impl Plan {
             return Err(RuntimeError::RepeatPolicy.into());
         }
         validate_config(&config, &spec)?;
-        let _engine = Engine::new(config.clone())?;
+        match mode.validate_snapshot(config.clone()) {
+            Err(RuntimeError::Engine(error)) => return Err(BootstrapError::Engine(error)),
+            Err(error) => return Err(BootstrapError::Runtime(error)),
+            Ok(()) => {}
+        }
         Ok(Self {
             inputs,
             config,
             spec,
+            mode,
         })
     }
 }
@@ -247,9 +261,10 @@ impl<P: Platform> Bootstrap<P> {
                 }
             }
             Phase::Group => {
-                self.group = Some(CaptureGroup::new(
+                self.group = Some(CaptureGroup::new_with_mode(
                     std::mem::take(&mut self.inputs),
                     self.plan.config.clone(),
+                    self.plan.mode,
                 )?);
                 self.phase = Phase::Arm;
             }
@@ -395,7 +410,31 @@ impl<'a> ConsoleBootstrap<'a> {
         config: Arc<ConfigSnapshot>,
         spec: DeviceSpec,
     ) -> Result<Self, BootstrapError> {
-        let plan = Plan::new(inputs, config, spec)?; // validate cold data before any device open
+        Self::new_with_mode(
+            guard,
+            vt,
+            uinput,
+            inputs,
+            config,
+            spec,
+            crate::runtime::ExecutionMode::Legacy,
+        )
+    }
+    pub fn new_with_mode(
+        guard: &'a WorkerParentGuard,
+        vt: &Path,
+        uinput: &Path,
+        inputs: Vec<(DeviceInstanceId, PathBuf)>,
+        config: Arc<ConfigSnapshot>,
+        spec: DeviceSpec,
+        mode: crate::runtime::ExecutionMode,
+    ) -> Result<Self, BootstrapError> {
+        let plan = match mode {
+            crate::runtime::ExecutionMode::Legacy => Plan::new(inputs, config, spec)?,
+            crate::runtime::ExecutionMode::StagedKeyboard => {
+                Plan::new_with_mode(inputs, config, spec, mode)?
+            }
+        }; // validate before opening devices
         if !uinput.is_absolute() {
             return Err(BootstrapError::Inputs);
         }

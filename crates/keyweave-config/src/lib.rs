@@ -669,6 +669,24 @@ impl Compiler<'_> {
             })
             .transpose()?
             .unwrap_or(true);
+        let hold_down_ns = object
+            .remove("hold_down_milliseconds")
+            .map(|value| {
+                let limit = keyweave_engine::action_plan::MAX_ACTION_DURATION_NS / 1_000_000;
+                value
+                    .as_u64()
+                    .filter(|milliseconds| *milliseconds <= limit)
+                    .and_then(|milliseconds| milliseconds.checked_mul(1_000_000))
+                    .ok_or_else(|| {
+                        diagnostic(
+                            &format!("{pointer}/hold_down_milliseconds"),
+                            "KW-CONFIG-001",
+                            "expected integer milliseconds in 0..=86400000",
+                        )
+                    })
+            })
+            .transpose()?
+            .unwrap_or(0);
         let mut boolean = |field: &str| -> Result<bool, Diagnostic> {
             object
                 .remove(field)
@@ -751,7 +769,7 @@ impl Compiler<'_> {
             repeat,
             lazy,
             halt,
-            hold_down_ns: 0,
+            hold_down_ns,
             modifiers,
             conditions,
         })

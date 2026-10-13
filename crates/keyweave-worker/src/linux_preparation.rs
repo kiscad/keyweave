@@ -2,11 +2,11 @@
 use crate::{
     LoadError, compile_config_bytes_for_generation, next_config_generation, read_config_bytes,
 };
-use keyweave_engine::{ConfigSnapshot, Engine, EngineError};
+use keyweave_engine::{ConfigSnapshot, EngineError};
 use keyweave_linux::{
     keys,
     output::{DeviceSpec, RepeatPolicy},
-    runtime::{RuntimeError, validate_config},
+    runtime::{ExecutionMode, RuntimeError, validate_config},
 };
 use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use std::{io::Read, sync::Arc};
@@ -33,12 +33,14 @@ pub struct PreparedConfig {
     bytes: Box<[u8]>,
     snapshot: Arc<ConfigSnapshot>,
     output: DeviceSpec,
+    mode: ExecutionMode,
 }
 impl std::fmt::Debug for PreparedConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LinuxPreparedConfig")
             .field("byte_length", &self.bytes.len())
             .field("generation", &self.snapshot.generation)
+            .field("execution_mode", &self.mode)
             .finish_non_exhaustive()
     }
 }
@@ -73,18 +75,46 @@ impl PreparedConfig {
         output: DeviceSpec,
         generation: ConfigGeneration,
     ) -> Result<Self, PreparationError> {
+        Self::from_bytes_for_generation_with_mode(bytes, output, generation, ExecutionMode::Legacy)
+    }
+    pub fn read_with_mode(
+        reader: impl Read,
+        output: DeviceSpec,
+        mode: ExecutionMode,
+    ) -> Result<Self, PreparationError> {
+        Self::from_bytes_for_generation_with_mode(
+            read_config_bytes(reader)?,
+            output,
+            ConfigGeneration(1),
+            mode,
+        )
+    }
+    pub fn from_bytes_for_generation_with_mode(
+        bytes: Vec<u8>,
+        output: DeviceSpec,
+        generation: ConfigGeneration,
+        mode: ExecutionMode,
+    ) -> Result<Self, PreparationError> {
         let snapshot =
             compile_config_bytes_for_generation(&bytes, &BackendCapabilities::linux(), generation)?;
         if output.repeat() != RepeatPolicy::Kernel {
             return Err(RuntimeError::RepeatPolicy.into());
         }
         validate_config(&snapshot, &output)?;
-        let _ = Engine::new(snapshot.clone())?;
+        match mode.validate_snapshot(snapshot.clone()) {
+            Err(RuntimeError::Engine(error)) => return Err(PreparationError::Engine(error)),
+            Err(error) => return Err(PreparationError::Runtime(error)),
+            Ok(()) => {}
+        }
         Ok(Self {
             bytes: bytes.into_boxed_slice(),
             snapshot,
             output,
+            mode,
         })
+    }
+    pub fn execution_mode(&self) -> ExecutionMode {
+        self.mode
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -111,6 +141,57 @@ mod tests {
 {"profiles":[{"name":"private name","selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b","modifiers":["left_control"]}]}]}]}"#;
     fn prepare(bytes: &[u8]) -> Result<PreparedConfig, PreparationError> {
         PreparedConfig::read(bytes, default_output_spec().unwrap())
+    }
+    const TIMED: &[u8] = br#"// exact staged bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"timed","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":50},{"key_code":"c"}]}]}]}}]}"#;
+    #[test]
+    fn explicit_staged_preparation_binds_mode_bytes_generation_and_default_gate() {
+        let prepared = PreparedConfig::read_with_mode(
+            TIMED,
+            default_output_spec().unwrap(),
+            ExecutionMode::StagedKeyboard,
+        )
+        .unwrap();
+        assert_eq!(prepared.bytes(), TIMED);
+        assert_eq!(prepared.execution_mode(), ExecutionMode::StagedKeyboard);
+        assert_eq!(
+            prepared.snapshot().complex[0].to[0].hold_down_ns,
+            50_000_000
+        );
+        assert!(matches!(
+            prepare(TIMED),
+            Err(PreparationError::Engine(
+                EngineError::UnsupportedActionTiming
+            ))
+        ));
+        let next = PreparedConfig::from_bytes_for_generation_with_mode(
+            TIMED.to_vec(),
+            default_output_spec().unwrap(),
+            ConfigGeneration(2),
+            prepared.execution_mode(),
+        )
+        .unwrap();
+        assert_eq!(next.snapshot().generation, ConfigGeneration(2));
+        assert_eq!(next.bytes(), prepared.bytes());
+    }
+    #[test]
+    fn staged_preparation_keeps_repeat_policy_and_output_capability_rejection() {
+        let external = DeviceSpec::new(
+            "external",
+            &keys::native_codes().collect::<Vec<_>>(),
+            RepeatPolicy::External,
+            false,
+        )
+        .unwrap();
+        assert!(matches!(
+            PreparedConfig::read_with_mode(TIMED, external, ExecutionMode::StagedKeyboard),
+            Err(PreparationError::Runtime(RuntimeError::RepeatPolicy))
+        ));
+        let narrow = DeviceSpec::new("narrow", &[48], RepeatPolicy::Kernel, false).unwrap();
+        assert!(matches!(
+            PreparedConfig::read_with_mode(TIMED, narrow, ExecutionMode::StagedKeyboard),
+            Err(PreparationError::Runtime(RuntimeError::ConfigurationKey(_)))
+        ));
     }
     #[test]
     fn exact_bytes_snapshot_and_spec_remain_bound() {

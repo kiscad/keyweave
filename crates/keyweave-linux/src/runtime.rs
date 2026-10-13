@@ -16,6 +16,25 @@ use std::{
     collections::{BTreeSet, VecDeque},
     sync::Arc,
 };
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Legacy,
+    StagedKeyboard,
+}
+impl ExecutionMode {
+    /// Pure snapshot validation, independent of actual input/output readiness.
+    pub fn validate_snapshot(self, config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
+        match self {
+            Self::Legacy => {
+                Engine::new(config)?;
+            }
+            Self::StagedKeyboard => {
+                keyweave_engine::physical_controller::PhysicalStageController::new(config)?;
+            }
+        }
+        Ok(())
+    }
+}
 pub const MAX_DEVICES: usize = 64;
 pub const MAX_WORK_PER_POLL: usize = 64;
 pub const MAX_RECOVERY_POLLS: usize = 8;
@@ -179,7 +198,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         backend: B,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        Self::new_inner(inputs, backend, config, false)
+        Self::new_with_mode(inputs, backend, config, ExecutionMode::Legacy)
     }
     /// Explicit staged keyboard mode; native bootstrap/worker do not select it yet.
     pub fn new_staged(
@@ -187,13 +206,13 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         backend: B,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        Self::new_inner(inputs, backend, config, true)
+        Self::new_with_mode(inputs, backend, config, ExecutionMode::StagedKeyboard)
     }
-    fn new_inner(
+    pub fn new_with_mode(
         mut inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
         backend: B,
         config: Arc<ConfigSnapshot>,
-        staged: bool,
+        mode: ExecutionMode,
     ) -> Result<Self, RuntimeError> {
         let prepared = (|| {
             if inputs.is_empty() || inputs.len() > MAX_DEVICES {
@@ -239,7 +258,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 return Err(RuntimeError::RepeatPolicy);
             }
             validate_config(&config, backend.spec())?;
-            let engine = if staged {
+            let engine = if mode == ExecutionMode::StagedKeyboard {
                 let devices: Vec<_> = inputs.iter().map(|(id, _)| *id).collect();
                 Machine::staged(config, &devices)?
             } else {
@@ -329,6 +348,9 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         self.progress_epoch
     }
     /// Metadata only; does not constitute a completed poll or readiness grant.
+    pub fn execution_mode(&self) -> ExecutionMode {
+        self.engine.execution_mode()
+    }
     pub fn config_generation(&self) -> ConfigGeneration {
         self.engine.config_generation()
     }

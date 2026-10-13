@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0149 pinned Linux execution mode across cold prep/bootstrap/group/runtime and reload; bounded lossless action duration compilation",
+  "source_base_commit": "83f8572e9a1107ed35563bbd241df539f3f5bec3",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/runtime.rs": "4216bb2ac9d95172755aeb2df5476882aaa09addba8dac860cdcc79802759438",
+    "crates/keyweave-linux/src/runtime/machine.rs": "402f6fe78a32e62c135bacc377dc4b642ad059e5283c68821b58d53321b51c66",
+    "crates/keyweave-linux/src/activation.rs": "f3cc0ec3b7a66e94e8f50789c83369f40fd673e1f7284d1bb050d1eafdacce62",
+    "crates/keyweave-linux/src/bootstrap.rs": "d13801bc96add916158703fdf071a53cbfd64148d94391446aee6c3b587ae091",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "4603e5681efcee44c08a784576897cd68ef291ee752d95bf8c5a091299067d0f",
+    "crates/keyweave-worker/src/linux_preparation.rs": "e2b92e475f36a836324f7a08fe974c7cb52fe4f00b43c503a758f7629f5f58a4",
+    "crates/keyweave-worker/src/reload_preparation.rs": "b86d9851689949a13c8aa3e037ba2603c9739795bee29fc0d2fe7f85f3269996",
+    "crates/keyweave-worker/tests/reload_preparation.rs": "ae2a391543c269ac0579219b474810cc84e51573e46a0ca516be52421fbacfc0",
+    "crates/keyweave-config/src/lib.rs": "2d086bca9a79995ce1a1e9ffacf4fdbc85bfea14dc6fef6ffbc5cb604c821d59",
+    "crates/keyweave-config/tests/compiler.rs": "0e244d06868848dff8deec1a0a4f4d31e6755363dbb76b19f261434338f9c6d2"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1374,
+    "new_tests": 7,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-execution-mode-admission/tests.log",
+        "sha256": "fec38d75478042a533f39bce93174bf82f76d44efa18364eafa7ee0516781484"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-execution-mode-admission/clippy.log",
+        "sha256": "70bfb85a4760879e703ae53c86b36a61f120d2837e60b34b643e500c7db33168"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-execution-mode-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-execution-mode-admission/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Plan::new became unused when all construction delegated directly to mode-aware method. Preserved default wrapper and used it for Legacy branch; no lint suppression.",
+    "Timed JSON fixture failed lossless compilation because action parser did not consume hold_down_milliseconds and always wrote duration zero. Added integer/bounded/checked ms-to-ns parsing and exact-pointer rejection tests; preparation then passed without weakening Legacy Engine gate."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending after earlier auto-review quota rejection; no Windows attempt or bypass this phase."
+  },
+  "limitations": [
+    "ExecutionMode is fixed at construction. PreparedConfig saves bytes/snapshot/spec/mode; default constructors remain Legacy. Mode-aware ConsoleBootstrap cold Plan validates before device opens, CaptureGroup validates before neutral query/grab, and transfers same mode to Runtime. All prior readiness/capability/kernel-repeat/input-before-output-close gates retained.",
+    "LinuxStaged reload target uses staged cold compiler and candidate stores execution mode. Sealed runtime requires exact platform+mode; legacy Engine rejects staged candidate even when its IR otherwise fits Legacy. Default Linux/Windows targets preserve behavior.",
+    "Config action hold_down_milliseconds now compiles exactly as integer 0..86400000 into checked nanoseconds. Fractional/negative/string/overflow/out-of-bound values disable rule with precise diagnostic pointer; unknown options still reject. Legacy native timing gate continues to reject nonzero duration after compilation.",
+    "Tests prove exact JSONC bytes/generation/mode retention, repeat/output narrowing rejection, staged mock bootstrap handoff with no read/write dispatch, CaptureGroup runtime mode pinning, legacy reload mode rejection, and duration boundary parsing. No real OS input/capture/sysfs/uinput/Hook/SendInput operation.",
+    "Mode is local ownership metadata; current config artifact seals only original bytes. Cross-process launch flag/host-worker selection is not yet implemented. No claim that default native worker or real device is staged-ready.",
+    "Native pointer/Windows async draining/native checks/Simple advanced branches/simultaneous/hardware/UI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure Rust mode state/factories/sealed reload predicate and compiler action scalar parsing; no unsafe/FFI/dependency/native packet ABI changes."
+}

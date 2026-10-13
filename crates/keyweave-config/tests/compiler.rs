@@ -1106,3 +1106,42 @@ fn malformed_lazy_and_halt_disable_outer_rule_with_existing_pointer() {
         }
     }
 }
+#[test]
+fn hold_down_milliseconds_is_preserved_and_bounded_without_removing_legacy_engine_gate() {
+    for milliseconds in [0u64, 50, 86_400_000] {
+        let compiled = compile_value(profile(
+            json!([{"description":"duration","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":milliseconds},{"key_code":"c"}]}]}]),
+        ));
+        assert!(compiled.executable_without_loss());
+        assert_eq!(
+            compiled.snapshot.complex[0].to[0].hold_down_ns,
+            milliseconds * 1_000_000
+        );
+        if milliseconds != 0 {
+            assert!(matches!(
+                Engine::new(Arc::new(compiled.snapshot)),
+                Err(keyweave_engine::EngineError::UnsupportedActionTiming)
+            ));
+        }
+    }
+}
+#[test]
+fn invalid_action_duration_is_lossy_rejection_at_exact_option_pointer() {
+    for milliseconds in [
+        json!(-1),
+        json!(1.5),
+        json!(86_400_001u64),
+        json!(u64::MAX),
+        json!("50"),
+    ] {
+        let compiled = compile_value(profile(
+            json!([{"description":"duration","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":milliseconds}]}]}]),
+        ));
+        assert!(!compiled.executable_without_loss());
+        assert_eq!(compiled.disabled_rules, 1);
+        assert!(compiled.diagnostics.iter().any(|diagnostic| {
+            diagnostic.pointer.ends_with("/hold_down_milliseconds")
+                && diagnostic.code == "KW-CONFIG-001"
+        }));
+    }
+}

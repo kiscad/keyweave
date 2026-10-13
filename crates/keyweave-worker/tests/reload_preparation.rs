@@ -247,3 +247,19 @@ fn actual_windows_actor_admission_and_platform_mismatch_never_submit_output() {
         assert_eq!(ack.active, actor.config_generation());
     }
 }
+#[test]
+fn staged_linux_candidate_cannot_apply_to_legacy_engine_even_when_ir_is_legacy_compatible() {
+    let mut actor = engine();
+    let mut rx = receiver(BODY);
+    let mut slot = PreparationSlot::new();
+    slot.start(
+        rx.take().unwrap(),
+        Target::LinuxStaged(linux::default_output_spec().unwrap()),
+    )
+    .unwrap();
+    assert_eq!(wait(&mut slot), PreparationStep::Ready);
+    let ack = slot.deliver(&mut rx, &mut actor).unwrap();
+    assert_eq!(ack.outcome, Outcome::Rejected);
+    assert_eq!(actor.config_generation(), ConfigGeneration(1));
+    assert_eq!(rx.active(), ConfigGeneration(1));
+}

@@ -18,6 +18,13 @@ fn keyboard_step(step: PhysicalStep) -> Result<EngineStep, RuntimeError> {
     })
 }
 impl Machine {
+    pub(super) fn execution_mode(&self) -> ExecutionMode {
+        match self {
+            Self::Legacy(_) => ExecutionMode::Legacy,
+            Self::Staged(_) => ExecutionMode::StagedKeyboard,
+        }
+    }
+
     pub(super) fn staged(
         config: Arc<ConfigSnapshot>,
         devices: &[DeviceInstanceId],
