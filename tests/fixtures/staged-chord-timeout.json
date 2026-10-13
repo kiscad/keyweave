@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "config": {
+    "profiles": [
+      {
+        "selected": true,
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "simultaneous": [
+                      {
+                        "key_code": "a"
+                      },
+                      {
+                        "key_code": "b"
+                      }
+                    ],
+                    "simultaneous_options": {
+                      "key_up_when": "all",
+                      "to_after_key_up": [
+                        {
+                          "key_code": "d"
+                        }
+                      ]
+                    }
+                  },
+                  "to": [
+                    {
+                      "key_code": "c"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "type": "input",
+      "input": {
+        "seq": 1,
+        "at_ns": 100,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "down"
+        }
+      }
+    },
+    {
+      "type": "advance",
+      "at_ns": 50000100
+    },
+    {
+      "type": "advance",
+      "at_ns": 50000101
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 2,
+        "at_ns": 60000000,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "up"
+        }
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 50000101,
+      "key": "a",
+      "edge": "down"
+    },
+    {
+      "at_ns": 60000000,
+      "key": "a",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0,
+    "pending_bindings": 0
+  }
+}

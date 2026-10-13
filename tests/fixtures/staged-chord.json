@@ -1,0 +1,156 @@
+{
+  "schema_version": 2,
+  "config": {
+    "profiles": [
+      {
+        "selected": true,
+        "complex_modifications": {
+          "rules": [
+            {
+              "manipulators": [
+                {
+                  "type": "basic",
+                  "from": {
+                    "simultaneous": [
+                      {
+                        "key_code": "a"
+                      },
+                      {
+                        "key_code": "b"
+                      }
+                    ],
+                    "simultaneous_options": {
+                      "key_up_when": "all",
+                      "to_after_key_up": [
+                        {
+                          "key_code": "d"
+                        }
+                      ]
+                    }
+                  },
+                  "to": [
+                    {
+                      "key_code": "c"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "type": "input",
+      "input": {
+        "seq": 1,
+        "at_ns": 100,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "down"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 2,
+        "at_ns": 110,
+        "device": {
+          "id": 2,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "b",
+          "edge": "down"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 3,
+        "at_ns": 115,
+        "device": {
+          "id": 2,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "b",
+          "edge": "repeat"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 4,
+        "at_ns": 120,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "up"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 5,
+        "at_ns": 130,
+        "device": {
+          "id": 2,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "b",
+          "edge": "up"
+        }
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 110,
+      "key": "c",
+      "edge": "down"
+    },
+    {
+      "at_ns": 130,
+      "key": "c",
+      "edge": "up"
+    },
+    {
+      "at_ns": 130,
+      "key": "d",
+      "edge": "down"
+    },
+    {
+      "at_ns": 130,
+      "key": "d",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0,
+    "pending_bindings": 0
+  }
+}

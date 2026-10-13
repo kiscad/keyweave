@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0174 staged CLI validation/import and deterministic virtual-clock replay",
+  "source_base_commit": "abc4482329181903ac89612091c2feb11b299800",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/physical_controller.rs": "1b697cfe3851098d848ace81c46e7c58f0992aae143c36179d51acf5b04acaaf",
+    "crates/keyweavectl/src/main.rs": "e1395b65c765dcb68e1ebe206a10dadbce4bbbe2caecb9e540ca0a3e1f3e94e0",
+    "crates/keyweavectl/src/replay.rs": "1489d20f8dbe4d0c23c9817b673854018e97b58c6da58dbef9eae6d97842e424",
+    "crates/keyweavectl/tests/commands.rs": "3b2457587352deea2dcab21cabc90073bddef2e8b65efc6c680f88228175d7b0",
+    "tests/fixtures/staged-chord-endpoint.json": "686e8c367d4a623cf36f20fdbbd955aad7a76a46f7e552f3fe74ff18f9c7b335",
+    "tests/fixtures/staged-chord-remove.json": "33ec8b39ea4bb07ecb0357cccd8215f4f16f9d6a83462317f78f63e8222cd250",
+    "tests/fixtures/staged-chord-timeout.json": "a9df234b2db6dfda1b0501b15e43c4487b0a614c26d11a5eac52e4bfed231e43",
+    "tests/fixtures/staged-chord.json": "67994374d51f1273f89b2d4d8328f1d4d2d9a1597f98b60b73836b658335aed7",
+    "tests/fixtures/staged-duration-reload.json": "68a48946f1b625decae8a758c1dad1c3e2942c5a4b2e6eebf411b9ce50104f39",
+    "tests/fixtures/staged-pointer-variable.json": "6f62de96f303cb300103f65d52b425ec85574f9315aa84d9ba74d60563ee2f23"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1620,
+    "new_tests": 9,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-staged-cli/tests.log",
+        "sha256": "043cf5e76dc0f7aad81b8ccd87cd7fdb4549302989d55806431f5f1f5cbbe454"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-staged-cli/clippy.log",
+        "sha256": "905dbb29994ae67dc588578705c15d1d3440ab7b54d857438dfe73a5be205c66"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-staged-cli/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261013-staged-cli/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "initial-clippy": {
+        "path": "target/validation/linux-20261013-staged-cli/initial-clippy.log",
+        "sha256": "3b94ef1450df2c013647e87675e7ef6064d897435e915265de70a4ae75fb051f"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial Clippy rejected unwrap in new CLI fixture assertions. Added the same test-only unwrap lint scope used elsewhere in the project; production code remains fallible. Final full checks passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Portable code and CLI tests ran on Linux; Windows native MSVC/SDK checks remain pending after prior automatic approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "Virtual polls run at exact deadlines; this is not native scheduling latency or application acceptance proof.",
+    "Schema 2 supports explicit input/advance/activate; schema 1 stays available and legacy is the default. No implicit future drain, Reset or fake timer input.",
+    "Pointer receipts preserve prior keyboard-output count; repeat targets are queries only, not software-repeat injection.",
+    "Native pointer, hardware, graphical Linux providers, GUI/packaging and driver acceptance remain pending."
+  ]
+}

@@ -1,0 +1,148 @@
+{
+  "schema_version": 2,
+  "config": {
+    "profiles": [
+      {
+        "selected": true,
+        "simple_modifications": [
+          {
+            "from": {
+              "key_code": "a"
+            },
+            "to": [
+              {
+                "key_code": "b",
+                "hold_down_milliseconds": 50
+              },
+              {
+                "key_code": "c"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "type": "input",
+      "input": {
+        "seq": 1,
+        "at_ns": 100,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "down"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 2,
+        "at_ns": 110,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "up"
+        }
+      }
+    },
+    {
+      "type": "activate",
+      "at_ns": 120,
+      "generation": 2,
+      "config": {
+        "profiles": [
+          {
+            "selected": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "advance",
+      "at_ns": 50000100
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 3,
+        "at_ns": 60000000,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "down"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "input": {
+        "seq": 4,
+        "at_ns": 60000010,
+        "device": {
+          "id": 1,
+          "generation": 1
+        },
+        "event": {
+          "type": "key",
+          "key": "a",
+          "edge": "up"
+        }
+      }
+    }
+  ],
+  "expected": [
+    {
+      "at_ns": 100,
+      "key": "b",
+      "edge": "down"
+    },
+    {
+      "at_ns": 50000100,
+      "key": "b",
+      "edge": "up"
+    },
+    {
+      "at_ns": 50000100,
+      "key": "c",
+      "edge": "down"
+    },
+    {
+      "at_ns": 50000100,
+      "key": "c",
+      "edge": "up"
+    },
+    {
+      "at_ns": 60000000,
+      "key": "a",
+      "edge": "down"
+    },
+    {
+      "at_ns": 60000010,
+      "key": "a",
+      "edge": "up"
+    }
+  ],
+  "expected_state": {
+    "bindings": 0,
+    "output_owners": 0,
+    "pressed_outputs": [],
+    "binding_generations": [],
+    "pending_deadlines": 0,
+    "pending_bindings": 0
+  }
+}

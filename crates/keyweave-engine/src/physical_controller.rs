@@ -104,6 +104,10 @@ impl PhysicalStageController {
             pending_bindings: self.pending.len(),
         }
     }
+    /// Actual Output generated variables, independent of native accepted output.
+    pub fn output_variable_values(&self) -> BTreeMap<String, VariableValue> {
+        self.simple.output_generated_variables()
+    }
     pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
         self.simple.snapshot()
     }

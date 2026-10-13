@@ -1,6 +1,7 @@
+mod replay;
 use clap::{Parser, Subcommand, ValueEnum};
-use keyweave_config::{CompiledConfig, MAX_CONFIG_BYTES, compile};
-use keyweave_engine::{Engine, EngineState};
+use keyweave_config::{CompileMode, CompiledConfig, MAX_CONFIG_BYTES, compile_with_mode};
+use keyweave_engine::EngineState;
 use keyweave_types::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,6 +29,8 @@ struct Cli {
 enum Command {
     /// Parse and compile a configuration. No scripts or device access.
     Validate {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: ExecutionMode,
         #[arg(long)]
         config: PathBuf,
         #[arg(long, value_enum, default_value = "offline")]
@@ -37,6 +40,8 @@ enum Command {
     },
     /// Replay a schema-versioned synthetic fixture without reading any keyboard.
     Replay {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: ExecutionMode,
         #[arg(long)]
         fixture: PathBuf,
         #[arg(long = "assert")]
@@ -44,6 +49,8 @@ enum Command {
     },
     /// Import a lossless configuration copy; writes diagnostics and refuses lossy activation.
     ImportKarabiner {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: ExecutionMode,
         #[arg(long)]
         input: PathBuf,
         #[arg(long)]
@@ -57,6 +64,21 @@ enum Command {
     Doctor,
     /// List known physical HID key names and aliases.
     KeyNames,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ExecutionMode {
+    Legacy,
+    StagedKeyboard,
+}
+impl ExecutionMode {
+    fn compile_mode(self) -> CompileMode {
+        match self {
+            Self::Legacy => CompileMode::Legacy,
+            Self::StagedKeyboard => CompileMode::StagedKeyboard,
+        }
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -85,7 +107,12 @@ enum Format {
 struct Fixture {
     schema_version: u32,
     config: Value,
+    #[serde(default)]
     inputs: Vec<InputEnvelope>,
+    #[serde(default)]
+    steps: Vec<replay::Step>,
+    #[serde(default)]
+    expected_pointers: Option<Vec<Value>>,
     #[serde(default)]
     expected: Option<Vec<OutputIntent>>,
     #[serde(default)]
@@ -104,12 +131,19 @@ fn read_bounded(path: &Path) -> Result<String> {
     }
     Ok(String::from_utf8(bytes)?)
 }
-fn compile_file(path: &Path, backend: Backend) -> Result<CompiledConfig> {
-    Ok(compile(
+fn compile_file(path: &Path, backend: Backend, mode: ExecutionMode) -> Result<CompiledConfig> {
+    let compiled = compile_with_mode(
         &read_bounded(path)?,
         &backend.capabilities(),
         ConfigGeneration(1),
-    )?)
+        mode.compile_mode(),
+    )?;
+    if mode == ExecutionMode::StagedKeyboard && compiled.executable_without_loss() {
+        keyweave_engine::physical_controller::PhysicalStageController::new_with_chord_model(
+            Arc::new(compiled.snapshot.clone()),
+        )?;
+    }
+    Ok(compiled)
 }
 fn print_json(value: impl Serialize) -> Result<()> {
     let stdout = std::io::stdout();
@@ -142,11 +176,12 @@ fn run(command: Command) -> Result<()> {
             config,
             backend,
             format,
+            execution_mode,
         } => {
-            let compiled = compile_file(&config, backend)?;
+            let compiled = compile_file(&config, backend, execution_mode)?;
             match format {
                 Format::Json => print_json(
-                    json!({"valid": compiled.executable_without_loss(), "backend": backend.capabilities(), "profile": compiled.snapshot.name, "simple_rules": compiled.snapshot.simple.len(), "complex_rules": compiled.snapshot.complex.len(), "disabled_rules": compiled.disabled_rules, "diagnostics": compiled.diagnostics}),
+                    json!({"execution_mode":execution_mode,"valid": compiled.executable_without_loss(), "backend": backend.capabilities(), "profile": compiled.snapshot.name, "simple_rules": compiled.snapshot.simple.len(), "complex_rules": compiled.snapshot.complex.len(), "disabled_rules": compiled.disabled_rules, "diagnostics": compiled.diagnostics}),
                 )?,
                 Format::Text => {
                     println!(
@@ -166,32 +201,25 @@ fn run(command: Command) -> Result<()> {
         Command::Replay {
             fixture,
             assert_expected,
+            execution_mode,
         } => {
             let fixture: Fixture =
                 serde_json::from_value(keyweave_config::parse_jsonc(&read_bounded(&fixture)?)?)?;
-            if fixture.schema_version != 1 {
-                return Err("replay schema_version must be 1".into());
-            }
-            if fixture.inputs.len() > 100_000 {
-                return Err("replay input limit exceeded".into());
-            }
-            let config = compile(
-                &serde_json::to_string(&fixture.config)?,
-                &BackendCapabilities::offline(),
-                ConfigGeneration(1),
-            )?;
-            ensure_lossless(&config)?;
-            let mut engine = Engine::new(Arc::new(config.snapshot))?;
-            let mut outputs = Vec::new();
-            for input in fixture.inputs {
-                outputs.extend(engine.handle(input)?.outputs);
-            }
-            let state = engine.state();
+            let result = replay::run(&fixture, execution_mode)?;
+            let outputs = result.outputs;
+            let state = result.state;
             if assert_expected {
+                if fixture
+                    .expected_pointers
+                    .as_ref()
+                    .is_some_and(|expected| *expected != result.pointers)
+                {
+                    return Err("pointer receipt assertion mismatch".into());
+                }
                 if fixture
                     .expected_variables
                     .as_ref()
-                    .is_some_and(|expected| *expected != engine.variable_values())
+                    .is_some_and(|expected| *expected != result.variables)
                 {
                     return Err("final variable assertion mismatch".into());
                 }
@@ -224,7 +252,7 @@ fn run(command: Command) -> Result<()> {
                 }
             }
             print_json(
-                json!({"mode":"offline_synthetic_no_device_access", "asserted":assert_expected, "outputs":outputs, "state":state, "next_deadline":engine.next_deadline().map(|(at,token)| json!({"at_ns":at,"token":token}))}),
+                json!({"mode":"offline_synthetic_no_device_access", "asserted":assert_expected, "outputs":outputs, "state":state, "execution_mode":execution_mode,"forwarded_pointers":result.pointers,"repeat_targets":result.repeat_targets,"next_deadline":result.next_deadline}),
             )?;
         }
         Command::ImportKarabiner {
@@ -232,21 +260,22 @@ fn run(command: Command) -> Result<()> {
             output,
             report,
             backend,
+            execution_mode,
         } => {
             if output == report || input == output || input == report {
                 return Err("input, output and report paths must differ".into());
             }
-            let compiled = compile_file(&input, backend)?;
+            let compiled = compile_file(&input, backend, execution_mode)?;
             write_new_json(
                 &report,
-                json!({"source":input, "backend":backend.capabilities(), "disabled_rules":compiled.disabled_rules, "diagnostics":compiled.diagnostics, "activation":"never"}),
+                json!({"source":input, "backend":backend.capabilities(), "disabled_rules":compiled.disabled_rules, "diagnostics":compiled.diagnostics, "execution_mode":execution_mode,"activation":"never"}),
             )?;
             ensure_lossless(&compiled)?;
             write_new_json(&output, compiled.raw)?;
             println!("Wrote lossless editable copy; no configuration activated");
         }
         Command::Doctor => print_json(
-            json!({"os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "version":env!("CARGO_PKG_VERSION"), "implemented":["offline_replay","basic_key_mapping","jsonc","hot_snapshot_binding","output_ownership","typed_variables","held_deadlines","delayed_actions","lazy_modifiers","binding_halt","context_conditions"], "linux_input_present":Path::new("/dev/input").is_dir(), "linux_uinput_present":Path::new("/dev/uinput").exists(), "hardware_validated":false, "platform_backends_implemented":false}),
+            json!({"os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "version":env!("CARGO_PKG_VERSION"), "implemented":["offline_replay","basic_key_mapping","jsonc","hot_snapshot_binding","output_ownership","typed_variables","held_deadlines","delayed_actions","lazy_modifiers","binding_halt","context_conditions","staged_keyboard_replay","complex_simultaneous","timed_action_queues"], "linux_input_present":Path::new("/dev/input").is_dir(), "linux_uinput_present":Path::new("/dev/uinput").exists(), "hardware_validated":false, "platform_backends_implemented":true,"native_acceptance":"unverified"}),
         )?,
         Command::KeyNames => print_json(KeyId::standard_names())?,
     }

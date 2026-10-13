@@ -15,6 +15,8 @@ keyweave-host check-linux --execution-mode staged-keyboard --config examples/sta
 keyweave-host check-windows --execution-mode staged-keyboard --config examples/staged-chord.json
 ```
 
+分阶段确定性回放可用 `keyweavectl replay --execution-mode staged-keyboard --fixture tests/fixtures/staged-chord.json --assert`；虚拟时间、配置替换、指针与变量断言见 [回放说明](docs/REPLAY.zh-CN.md)。
+
 ## 构建与使用
 
 工具链固定为 Rust 1.97.1，执行：
