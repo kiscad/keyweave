@@ -15,6 +15,8 @@ pub enum GroupOwnerError {
     Up(#[from] ProducerUpError),
     #[error(transparent)]
     Output(#[from] OutputStageError),
+    #[error(transparent)]
+    Plan(#[from] crate::action_plan::PlanError),
     #[error("group sources/output do not match prepared ownership")]
     Ownership,
     #[error("group still has member/output/branch work")]
@@ -38,6 +40,12 @@ pub struct UnfinishedGroupOwner {
     pub error: GroupOwnerError,
     pub owner: GroupBindingOwner,
 }
+/// Actual child admission facts for outer scheduling, separate from native acceptance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GroupBranchAdmission {
+    pub batch: Option<crate::action_plan::BatchId>,
+    pub generated_halt: bool,
+}
 impl std::fmt::Debug for UnfinishedGroupOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnfinishedGroupOwner")
@@ -54,6 +62,8 @@ pub struct GroupBindingOwner {
     main: Option<crate::action_plan::BatchId>,
     output_done: bool,
     all_up: bool,
+    after_up_pending: bool,
+    last_up: Option<crate::action_plan::ActionSlot>,
     failed: bool,
 }
 impl GroupBindingOwner {
@@ -109,6 +119,14 @@ impl GroupBindingOwner {
                 handle,
             }));
         }
+        let last_up = group.events().iter().rev().find_map(|event| {
+            (event.event.payload.edge == KeyEdge::Up
+                && group
+                    .members()
+                    .iter()
+                    .any(|member| provenance(&member.down().event, &event.event)))
+            .then_some(event.event.payload.slot)
+        });
         let (active, events) = group.into_active();
         Ok((
             Self {
@@ -118,6 +136,8 @@ impl GroupBindingOwner {
                 main,
                 output_done: main.is_none(),
                 all_up: false,
+                after_up_pending: false,
+                last_up,
                 failed: false,
             },
             events,
@@ -154,6 +174,7 @@ impl GroupBindingOwner {
         // Original Up guard is cold; only commit after group and saved output Up admission.
         let marker = arena.prepare_producer_up(receipt)?;
         let facts = self.active.up(receipt)?;
+        self.last_up = Some(receipt.event.payload.slot);
         if let Err(error) = self.apply_facts(facts, receipt.delivered_at, output) {
             self.failed = true;
             return Err(error);
@@ -173,7 +194,92 @@ impl GroupBindingOwner {
             output.input_up(main, at)?;
         }
         self.all_up = facts.finished;
+        if facts.after_group_up && !self.active.spec.after_key_up.is_empty() {
+            self.after_up_pending = true;
+        }
         Ok(())
+    }
+    /// Generate the saved group-after-up tap once, using fresh conditions of the last Up member.
+    /// Outer scheduling still owns child retirement, ordinary branches and native output delivery.
+    pub fn dispatch_group_after_up(
+        &mut self,
+        batch: crate::action_plan::BatchId,
+        at: MonoTime,
+        context: &crate::ContextSnapshot,
+        halted: bool,
+        arena: &mut BindingArena<ProducerDecision>,
+        output: &mut OutputStageActor,
+    ) -> Result<GroupBranchAdmission, GroupOwnerError> {
+        if self.failed {
+            return Err(GroupOwnerError::Failed);
+        }
+        if !self.all_up {
+            return Err(GroupOwnerError::Pending);
+        }
+        if !self.after_up_pending {
+            return Ok(GroupBranchAdmission::default());
+        }
+        let result = self.dispatch_after_up_inner(batch, at, context, halted, arena, output);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+    fn dispatch_after_up_inner(
+        &mut self,
+        batch: crate::action_plan::BatchId,
+        at: MonoTime,
+        context: &crate::ContextSnapshot,
+        halted: bool,
+        arena: &mut BindingArena<ProducerDecision>,
+        output: &mut OutputStageActor,
+    ) -> Result<GroupBranchAdmission, GroupOwnerError> {
+        if at < self.active.now {
+            return Err(ChordError::Time.into());
+        }
+        let primary = *self.members.first().ok_or(GroupOwnerError::Ownership)?;
+        let saved = arena.live(primary).ok_or(GroupOwnerError::Ownership)?;
+        let trigger = arena
+            .live(self.last_up.ok_or(GroupOwnerError::Ownership)?)
+            .ok_or(GroupOwnerError::Ownership)?;
+        let branch = saved
+            .selection()
+            .ok_or(GroupOwnerError::Ownership)?
+            .select_branch(
+                crate::rule_selection::RuleBranch::GroupAfterKeyUp,
+                halted,
+                |condition| output.condition_truth_for_producer(condition, context, trigger, at),
+            )
+            .ok_or(GroupOwnerError::Ownership)?;
+        if branch.actions().len() == 0 {
+            self.after_up_pending = false;
+            return Ok(GroupBranchAdmission::default());
+        }
+        let plan = crate::modifier_scope::ScopedActionPlan::branch(
+            &branch,
+            batch,
+            at,
+            saved.down().device,
+            saved.down().source,
+        )?;
+        let slots = plan
+            .actions()
+            .events()
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+            .count();
+        let generated_halt = plan
+            .actions()
+            .events()
+            .iter()
+            .any(|event| event.payload.halt);
+        let registration = arena.prepare(plan.actions().origin.clone(), slots, Some(primary))?;
+        output.prepare_child_scoped(plan, registration)?.commit();
+        self.after_up_pending = false;
+        Ok(GroupBranchAdmission {
+            batch: Some(batch),
+            generated_halt,
+        })
     }
     pub fn observe_output_step(
         &mut self,
@@ -227,7 +333,7 @@ impl GroupBindingOwner {
             if self.failed {
                 return Err(GroupOwnerError::Failed);
             }
-            if !self.all_up || !self.output_done || !outer_work_done {
+            if !self.all_up || !self.output_done || self.after_up_pending || !outer_work_done {
                 return Err(GroupOwnerError::Pending);
             }
             let handle = self.handle.as_ref().ok_or(GroupOwnerError::Ownership)?;
@@ -349,9 +455,23 @@ mod tests {
         OutputStageActor,
         Arc<crate::ConfigSnapshot>,
     ) {
+        setup_full(when, timed, empty, vec![])
+    }
+    fn setup_full(
+        when: KeyUpWhen,
+        timed: bool,
+        empty: bool,
+        group_after: Vec<crate::Action>,
+    ) -> (
+        GroupBindingOwner,
+        BindingArena<ProducerDecision>,
+        OutputStageActor,
+        Arc<crate::ConfigSnapshot>,
+    ) {
         let mut spec = Simultaneous::new(vec![key("a"), key("b")]);
         spec.threshold_ns = 50;
         spec.key_up_when = when;
+        spec.after_key_up = group_after;
         let cfg = Arc::new(crate::ConfigSnapshot {
             generation: ConfigGeneration(1),
             name: "owned group".into(),
@@ -708,5 +828,375 @@ mod tests {
             assert_eq!(arena.shared_retention_references(), 0);
             assert_eq!(arena.live_slots(), 0);
         }
+    }
+    fn release_group(
+        owner: &mut GroupBindingOwner,
+        arena: &mut BindingArena<ProducerDecision>,
+        output: &mut OutputStageActor,
+        cfg: &Arc<crate::ConfigSnapshot>,
+    ) {
+        drain(owner, output, 110);
+        owner
+            .up(&raw(cfg, 1, "a", KeyEdge::Up, 120), arena, output)
+            .unwrap();
+        drain(owner, output, 120);
+        owner
+            .up(&raw(cfg, 2, "b", KeyEdge::Up, 130), arena, output)
+            .unwrap();
+        drain(owner, output, 130);
+        arena.cancel(BatchId(10)).unwrap();
+    }
+    #[test]
+    fn group_after_up_waits_all_members_then_runs_once_with_old_snapshot_and_duration() {
+        for when in [KeyUpWhen::Any, KeyUpWhen::All] {
+            let (mut owner, mut arena, mut output, cfg) = setup_full(
+                when,
+                false,
+                false,
+                vec![
+                    crate::Action {
+                        hold_down_ns: 50,
+                        ..key("z").into()
+                    },
+                    key("x").into(),
+                ],
+            );
+            drain(&mut owner, &mut output, 110);
+            owner
+                .up(
+                    &raw(&cfg, 1, "a", KeyEdge::Up, 120),
+                    &mut arena,
+                    &mut output,
+                )
+                .unwrap();
+            drain(&mut owner, &mut output, 120);
+            assert!(matches!(
+                owner.dispatch_group_after_up(
+                    BatchId(11),
+                    MonoTime(120),
+                    &crate::ContextSnapshot::default(),
+                    false,
+                    &mut arena,
+                    &mut output
+                ),
+                Err(GroupOwnerError::Pending)
+            ));
+            owner
+                .up(
+                    &raw(&cfg, 2, "b", KeyEdge::Up, 130),
+                    &mut arena,
+                    &mut output,
+                )
+                .unwrap();
+            drain(&mut owner, &mut output, 130);
+            arena.cancel(BatchId(10)).unwrap();
+            let pending = owner.finish(&mut arena, true).err().unwrap();
+            assert!(matches!(pending.error, GroupOwnerError::Pending));
+            owner = pending.owner;
+            output
+                .activate(Arc::new(crate::ConfigSnapshot::empty(ConfigGeneration(2))))
+                .unwrap();
+            let admitted = owner
+                .dispatch_group_after_up(
+                    BatchId(11),
+                    MonoTime(130),
+                    &crate::ContextSnapshot::default(),
+                    false,
+                    &mut arena,
+                    &mut output,
+                )
+                .unwrap();
+            assert_eq!(admitted.batch, Some(BatchId(11)));
+            let mut child_seen = false;
+            arena
+                .visit_subtree(
+                    ActionSlot {
+                        batch: BatchId(1),
+                        index: 0,
+                    },
+                    |node| {
+                        if node.slot.batch == BatchId(11) {
+                            assert!(Arc::ptr_eq(&node.origin.config, &cfg));
+                            child_seen = true;
+                        }
+                    },
+                )
+                .unwrap();
+            assert!(child_seen);
+            assert_eq!(
+                drain(&mut owner, &mut output, 130),
+                [(key("z"), KeyEdge::Down)]
+            );
+            let pending = owner.finish(&mut arena, true).err().unwrap();
+            owner = pending.owner;
+            assert_eq!(
+                owner
+                    .dispatch_group_after_up(
+                        BatchId(12),
+                        MonoTime(140),
+                        &crate::ContextSnapshot::default(),
+                        false,
+                        &mut arena,
+                        &mut output
+                    )
+                    .unwrap(),
+                GroupBranchAdmission::default()
+            );
+            assert!(drain(&mut owner, &mut output, 179).is_empty());
+            assert_eq!(
+                drain(&mut owner, &mut output, 180),
+                [
+                    (key("z"), KeyEdge::Up),
+                    (key("x"), KeyEdge::Down),
+                    (key("x"), KeyEdge::Up)
+                ]
+            );
+            arena.cancel(BatchId(11)).unwrap();
+            assert_eq!(owner.finish(&mut arena, true).unwrap().len(), 2);
+        }
+    }
+    #[test]
+    fn halted_group_after_up_consumes_pending_without_creating_child() {
+        let (mut owner, mut arena, mut output, cfg) =
+            setup_full(KeyUpWhen::Any, false, false, vec![key("z").into()]);
+        release_group(&mut owner, &mut arena, &mut output, &cfg);
+        assert_eq!(
+            owner
+                .dispatch_group_after_up(
+                    BatchId(11),
+                    MonoTime(130),
+                    &crate::ContextSnapshot::default(),
+                    true,
+                    &mut arena,
+                    &mut output
+                )
+                .unwrap(),
+            GroupBranchAdmission::default()
+        );
+        assert!(output.parent_binding(BatchId(11)).is_none());
+        assert!(drain(&mut owner, &mut output, 130).is_empty());
+        assert_eq!(owner.finish(&mut arena, true).unwrap().len(), 2);
+    }
+    #[test]
+    fn group_branch_failure_latches_and_keeps_shared_ownership_for_control() {
+        let (mut owner, mut arena, mut output, cfg) =
+            setup_full(KeyUpWhen::Any, false, false, vec![key("z").into()]);
+        release_group(&mut owner, &mut arena, &mut output, &cfg);
+        // The already-consumed destination ID must be rejected, with no original activation lost.
+        assert!(
+            owner
+                .dispatch_group_after_up(
+                    BatchId(10),
+                    MonoTime(130),
+                    &crate::ContextSnapshot::default(),
+                    false,
+                    &mut arena,
+                    &mut output
+                )
+                .is_err()
+        );
+        assert!(matches!(
+            owner.dispatch_group_after_up(
+                BatchId(11),
+                MonoTime(130),
+                &crate::ContextSnapshot::default(),
+                false,
+                &mut arena,
+                &mut output
+            ),
+            Err(GroupOwnerError::Failed)
+        ));
+        assert_eq!(arena.shared_retention_references(), 2);
+        assert_eq!(arena.live_slots(), 2);
+        assert!(output.parent_binding(BatchId(11)).is_none());
+        let (handle, _, _) = owner.into_control_ownership();
+        arena.release_shared_retention(handle).unwrap();
+    }
+    #[test]
+    fn group_after_up_filters_using_last_member_fresh_device_and_preserves_unknown_unless() {
+        for (vendor, unless, fresh, accepted) in [
+            (Some(20), false, true, true),
+            (Some(30), false, true, false),
+            (None, false, true, false),
+            (None, true, true, false),
+            (Some(30), true, false, false),
+        ] {
+            let condition = crate::Condition::Device {
+                identifiers: vec![DeviceProperties {
+                    vendor_id: Some(20),
+                    ..Default::default()
+                }],
+                unless,
+                exists: false,
+            };
+            let (mut owner, mut arena, mut output, cfg) = setup_full(
+                KeyUpWhen::Any,
+                false,
+                false,
+                vec![crate::Action {
+                    conditions: vec![condition],
+                    ..key("z").into()
+                }],
+            );
+            release_group(&mut owner, &mut arena, &mut output, &cfg);
+            let context = crate::ContextSnapshot {
+                revision: 1,
+                observed_at_ns: MonoTime(129),
+                valid_until_ns: MonoTime(if fresh { 200 } else { 130 }),
+                devices: Some(vec![
+                    DeviceContext {
+                        device: DeviceInstanceId {
+                            id: 1,
+                            generation: 1,
+                        },
+                        properties: DeviceProperties {
+                            vendor_id: Some(10),
+                            ..Default::default()
+                        },
+                    },
+                    DeviceContext {
+                        device: DeviceInstanceId {
+                            id: 2,
+                            generation: 1,
+                        },
+                        properties: DeviceProperties {
+                            vendor_id: vendor,
+                            ..Default::default()
+                        },
+                    },
+                ]),
+                ..Default::default()
+            };
+            let admitted = owner
+                .dispatch_group_after_up(
+                    BatchId(11),
+                    MonoTime(130),
+                    &context,
+                    false,
+                    &mut arena,
+                    &mut output,
+                )
+                .unwrap();
+            assert_eq!(admitted.batch.is_some(), accepted);
+            let edges = drain(&mut owner, &mut output, 130);
+            if accepted {
+                assert_eq!(edges, [(key("z"), KeyEdge::Down), (key("z"), KeyEdge::Up)]);
+                arena.cancel(BatchId(11)).unwrap();
+            } else {
+                assert!(edges.is_empty());
+            }
+            assert_eq!(owner.finish(&mut arena, true).unwrap().len(), 2);
+        }
+    }
+    #[test]
+    fn group_branch_keeps_current_modifier_policy_tap_plan_and_generated_halt_fact() {
+        let (mut owner, mut arena, mut output, cfg) = setup_full(
+            KeyUpWhen::Any,
+            false,
+            false,
+            vec![crate::Action {
+                halt: true,
+                ..key("z").into()
+            }],
+        );
+        release_group(&mut owner, &mut arena, &mut output, &cfg);
+        let saved = arena
+            .live(ActionSlot {
+                batch: BatchId(1),
+                index: 0,
+            })
+            .unwrap();
+        let branch = saved
+            .selection()
+            .unwrap()
+            .select_branch(
+                crate::rule_selection::RuleBranch::GroupAfterKeyUp,
+                false,
+                |_| crate::Truth::True,
+            )
+            .unwrap();
+        assert_eq!(
+            branch.modifier_policy(),
+            crate::rule_selection::BranchModifierPolicy::CurrentMinusConsumed
+        );
+        let plan = branch
+            .plan(
+                BatchId(11),
+                MonoTime(130),
+                saved.down().device,
+                saved.down().source,
+            )
+            .unwrap();
+        assert!(plan.releases().is_empty());
+        assert_eq!(
+            plan.events()
+                .iter()
+                .map(|event| event.payload.edge)
+                .collect::<Vec<_>>(),
+            [KeyEdge::Down, KeyEdge::Up]
+        );
+        let admitted = owner
+            .dispatch_group_after_up(
+                BatchId(11),
+                MonoTime(130),
+                &crate::ContextSnapshot::default(),
+                false,
+                &mut arena,
+                &mut output,
+            )
+            .unwrap();
+        assert!(admitted.generated_halt);
+        assert_eq!(
+            drain(&mut owner, &mut output, 130),
+            [(key("z"), KeyEdge::Down), (key("z"), KeyEdge::Up)]
+        );
+        arena.cancel(BatchId(11)).unwrap();
+        assert_eq!(owner.finish(&mut arena, true).unwrap().len(), 2);
+    }
+    #[test]
+    fn group_after_up_keeps_modifier_pressed_after_group_down_visible_during_actual_tap() {
+        let (mut owner, mut arena, mut output, cfg) =
+            setup_full(KeyUpWhen::Any, false, false, vec![key("z").into()]);
+        release_group(&mut owner, &mut arena, &mut output, &cfg);
+        let mut modifier_origin = origin(&cfg, 11, Stage::Output, 130);
+        modifier_origin.device = DeviceInstanceId {
+            id: 1,
+            generation: 1,
+        };
+        modifier_origin.source = SourceToken(1);
+        output
+            .enqueue(plan_actions(&[key("left_shift").into()], modifier_origin, false).unwrap())
+            .unwrap();
+        assert_eq!(
+            drain(&mut owner, &mut output, 130),
+            [(key("left_shift"), KeyEdge::Down)]
+        );
+        owner
+            .dispatch_group_after_up(
+                BatchId(12),
+                MonoTime(140),
+                &crate::ContextSnapshot::default(),
+                false,
+                &mut arena,
+                &mut output,
+            )
+            .unwrap();
+        assert_eq!(
+            drain(&mut owner, &mut output, 140),
+            [(key("z"), KeyEdge::Down), (key("z"), KeyEdge::Up)]
+        );
+        arena.cancel(BatchId(12)).unwrap();
+        assert_eq!(owner.finish(&mut arena, true).unwrap().len(), 2);
+        assert!(output.pressed_outputs().contains(&key("left_shift")));
+        output.input_up(BatchId(11), MonoTime(150)).unwrap();
+        let mut edges = vec![];
+        while let Some(step) = output.poll(MonoTime(150)).unwrap() {
+            edges.extend(
+                step.outputs
+                    .into_iter()
+                    .map(|intent| (intent.key, intent.edge)),
+            );
+        }
+        assert_eq!(edges, [(key("left_shift"), KeyEdge::Up)]);
     }
 }

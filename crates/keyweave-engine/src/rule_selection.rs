@@ -198,6 +198,7 @@ pub enum RuleBranch {
     Held,
     Alone,
     AfterKeyUp,
+    GroupAfterKeyUp,
     DelayedInvoked,
     DelayedCanceled,
 }
@@ -232,7 +233,9 @@ impl BranchSelection {
     }
     pub fn modifier_policy(&self) -> BranchModifierPolicy {
         match self.branch {
-            RuleBranch::Held | RuleBranch::AfterKeyUp => BranchModifierPolicy::CurrentMinusConsumed,
+            RuleBranch::Held | RuleBranch::AfterKeyUp | RuleBranch::GroupAfterKeyUp => {
+                BranchModifierPolicy::CurrentMinusConsumed
+            }
             _ => BranchModifierPolicy::DownSnapshotMinusConsumed,
         }
     }
@@ -275,6 +278,7 @@ fn branch_actions(mapping: &Mapping, branch: RuleBranch) -> Option<&[Action]> {
         RuleBranch::Held => &mapping.extras.if_held_down,
         RuleBranch::Alone => &mapping.extras.if_alone,
         RuleBranch::AfterKeyUp => &mapping.extras.after_key_up,
+        RuleBranch::GroupAfterKeyUp => &mapping.extras.simultaneous.as_ref()?.after_key_up,
         RuleBranch::DelayedInvoked => &mapping.extras.delayed.as_ref()?.if_invoked,
         RuleBranch::DelayedCanceled => &mapping.extras.delayed.as_ref()?.if_canceled,
     })

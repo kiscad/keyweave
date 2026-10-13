@@ -10,7 +10,10 @@ pub use arbiter::{
     Arbitration, ArbitrationChoice, ChordArbiter, MAX_ARBITER_RULES, MAX_ARBITRATION_WORK,
 };
 use keyweave_types::{KEYBOARD_PAGE, KeyEdge, KeyId, MonoTime};
-pub use owner::{GroupBindingOwner, GroupOwnerError, RejectedGroupOwner, UnfinishedGroupOwner};
+pub use owner::{
+    GroupBindingOwner, GroupBranchAdmission, GroupOwnerError, RejectedGroupOwner,
+    UnfinishedGroupOwner,
+};
 use thiserror::Error;
 
 pub const MAX_CHORD_KEYS: usize = 32;

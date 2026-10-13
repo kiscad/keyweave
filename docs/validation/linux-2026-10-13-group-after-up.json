@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0165 saved simultaneous group after-up Output branch and pending ownership barrier",
+  "source_base_commit": "baa4fdca6681053100b5491b4bec571963503c13",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/rule_selection.rs": "9e40a33d3e88a86dcad65ec067ab4eaeeb62bf52be1946bbfa4045ecfdf284cd",
+    "crates/keyweave-engine/src/complex_actor.rs": "9cb37ffee02eed46658faf959cd8789d76c8586f8238c64235cb9c2d5ff3d887",
+    "crates/keyweave-engine/src/simple_actor.rs": "2056d74734ea222385a3b595e786c151d9bd06418309b2f8ca4305a9458fc78d",
+    "crates/keyweave-engine/src/simultaneous.rs": "376c933001ba6afdde34cd2afd9475b5f5a7267a2976a2f0d1fbc2c3ca9f3108",
+    "crates/keyweave-engine/src/simultaneous/owner.rs": "3e1464189b2ca5196fed251ae9ae66010a1449db5b4279ef85368c9a6ff1154e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1523,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-group-after-up/tests.log",
+        "sha256": "764f95a9c6988d5a21b8ad9cf1d16270b4aa24c0af30031572483ee0519fcfe6"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-group-after-up/clippy.log",
+        "sha256": "8e75128417aaf4ec04810edc5f2abdd48b15a72c1dac0bfa3ba3e07c2ec65d08"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-group-after-up/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-group-after-up/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Group-after-up owner dispatch is a pure actor component; unified production Complex group scheduling remains unimplemented. Compiler KW-SIM/runtime simultaneous gates remain.",
+    "Ordinary branch ordering, projections, device/reset scheduling, source lease, replay and repeat remain to integrate.",
+    "Branch condition identity uses the last Up member; output lifecycle uses saved primary parent/device/source. Group device control must handle any member invalidation.",
+    "Child completion must still be retired by outer scheduling. No native or accepted-output proof is claimed.",
+    "Initial lookahead all-Up provenance path remains without a dedicated integrated flow test.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}

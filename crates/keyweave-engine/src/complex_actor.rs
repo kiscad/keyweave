@@ -655,6 +655,12 @@ impl ComplexStageActor {
             rule_selection::RuleBranch::AfterKeyUp => {
                 selection.mapping().extras.after_key_up.is_empty()
             }
+            rule_selection::RuleBranch::GroupAfterKeyUp => selection
+                .mapping()
+                .extras
+                .simultaneous
+                .as_ref()
+                .is_none_or(|group| group.after_key_up.is_empty()),
         };
         if empty {
             return Ok(None);
