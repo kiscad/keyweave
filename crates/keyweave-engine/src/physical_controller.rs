@@ -100,6 +100,44 @@ impl PhysicalStageController {
         }
         Ok(())
     }
+    /// Query the retained actual leaf without selection or repeat generation.
+    pub fn physical_repeat_target(&self, device: DeviceInstanceId, key: KeyId) -> Option<KeyId> {
+        if self.failed {
+            return None;
+        }
+        self.active
+            .get(&(device, key))
+            .and_then(|plan| plan.events().first())
+            .and_then(|event| self.simple.physical_repeat_target(event.payload.slot))
+    }
+    /// Lifecycle reset does not consume input sequence or reuse source identities.
+    /// Native callers must stop capture first and recover their accepted ledger separately.
+    pub fn reset(&mut self, at: MonoTime) -> Result<PhysicalStep, PhysicalControllerError> {
+        self.check_time(at)?;
+        self.now = at;
+        let mut step = self.step(CaptureDecision::Capture);
+        let result = self.reset_inner(at, &mut step);
+        self.failed = result.is_err();
+        result?;
+        step.next_deadline = self.next_deadline();
+        Ok(step)
+    }
+    fn reset_inner(
+        &mut self,
+        at: MonoTime,
+        step: &mut PhysicalStep,
+    ) -> Result<(), PhysicalControllerError> {
+        let actual = self.simple.reset(at)?;
+        self.history.reset(at)?;
+        self.collect(actual, step)?;
+        self.active.clear();
+        self.pending.clear();
+        if !self.source_leases.is_empty() || self.reserved_sources != 0 {
+            return Err(PhysicalControllerError::Invariant);
+        }
+        self.failed = false;
+        Ok(())
+    }
     pub fn active_bindings(&self) -> usize {
         self.active.len()
     }
@@ -412,13 +450,7 @@ impl PhysicalStageController {
                         self.collect(actual, step)?;
                     }
                     KeyEdge::Repeat => {
-                        step.repeat_target = self
-                            .active
-                            .get(&identity)
-                            .and_then(|plan| plan.events().first())
-                            .and_then(|event| {
-                                self.simple.physical_repeat_target(event.payload.slot)
-                            });
+                        step.repeat_target = self.physical_repeat_target(input.device, key);
                     }
                 }
             }
@@ -449,17 +481,7 @@ impl PhysicalStageController {
                 step.capture = CaptureDecision::Pass;
             }
             InputEvent::DeviceRemoved => self.observe(input.device, true, input.at_ns, step)?,
-            InputEvent::Reset => {
-                let actual = self.simple.reset(input.at_ns)?;
-                self.history.reset(input.at_ns)?;
-                self.collect(actual, step)?;
-                self.active.clear();
-                self.pending.clear();
-                if !self.source_leases.is_empty() || self.reserved_sources != 0 {
-                    return Err(PhysicalControllerError::Invariant);
-                }
-                self.failed = false;
-            }
+            InputEvent::Reset => self.reset_inner(input.at_ns, step)?,
             InputEvent::TimerFired { .. } | InputEvent::CancelDelayed { .. } => {
                 return Err(PhysicalControllerError::UnsupportedControl);
             }

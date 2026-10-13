@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0147 explicitly staged Windows SessionActor and accepted output pump",
+  "source_base_commit": "2e1fb668328bd23490395bea265248bf6364c821",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/physical_controller.rs": "a2432e5e06025eb8e86b664fdd793551eaecd210b57bf0fae670fe5d2f9ce3f9",
+    "crates/keyweave-engine/tests/physical_controller.rs": "5852ae0e29a6fa2b3a6026525e1be95b1bc6e067d78876f7f711cf71edfcb000",
+    "crates/keyweave-windows/src/runtime.rs": "5e7d64ec6c421deb6fe5a154a8cdcca07e533586bb28e98be4d3b4430ea5671b",
+    "crates/keyweave-windows/src/runtime/machine.rs": "e20af3bb29c4d8d28433066be1eaa158219438fa0354d4ba3bfd644e72ba6b49",
+    "crates/keyweave-windows/src/runtime/tests.rs": "cfc61a35c6ece820bb70727b88c904a195c9bc7ff20f0fd9502fa4a320265239"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1358,
+    "new_staged_session_tests": 13,
+    "new_controller_lifecycle_test": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "focused_before_final_context_case": 12,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-staged-windows-actor/tests.log",
+        "sha256": "8e8f036e257faf75b591f093c1e2ab53b5b68ab6051fb00f9c3dbf9c48ea2835"
+      },
+      "focused": {
+        "path": "target/validation/linux-20261013-staged-windows-actor/focused.log",
+        "sha256": "d9abaaf6f23ff4db4ddf0b4b41c4740d04ba23bfc688f55876b02c903f24e5da"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-staged-windows-actor/clippy.log",
+        "sha256": "920519c113b326bc065109dfbbc563c46b16f42e5f9a90e9f76a298ed7f571bd"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-staged-windows-actor/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-staged-windows-actor/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Clippy identified a large Machine enum variant: staged controller 2680 bytes vs legacy Engine 600 bytes. Boxed both exclusively owned machines at cold construction; no lint suppression. Final full workspace/Clippy/fmt passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native x64/i686 compilation and platform fixtures remain pending after earlier auto-review quota rejection. No Windows attempt, date-change retry or bypass this phase."
+  },
+  "limitations": [
+    "SessionActor::new_staged/preflight_staged_config explicitly select one staged keyboard controller, using existing OutputPump/accepted ledger, standby/neutral caller gate, 64 work budget and unhook-first recovery. Default constructor/preflight/native worker preparation retain Engine timing gate and do not select staged mode.",
+    "Due processing prioritizes pending accepted-output pump before one stage poll, then legacy timer. Stage poll does not fabricate DeadlineToken/input sequence. Original early Up retains FIFO durations; reload retains saved old array/up while new root uses new config.",
+    "Stage repeat queries saved actual leaf and still requires desired/submitted key before native Repeat. Tests cover pending primary, held replacement, delayed invoked/canceled FIFO, context update at held deadline, ordinary descendant consumed scope and own-injected dispatcher bypass.",
+    "Known zero acceptance and work-budget failures stop then recover only known accepted ledger after unhook. Unknown acceptance remains quarantined/nonempty with no speculative cleanup. Controller reset output intents are not platform acceptance evidence.",
+    "PhysicalStageController exposes read-only repeat query and lifecycle reset shared with InputEvent::Reset path; reset preserves input seq/source cursor. Source-domain pointer receipt in pure core test proves cursor advancement without performing native pointer IO.",
+    "Box allocation occurs at cold actor construction. No new unsafe/FFI/dependency/native ABI changes; old test-only Engine state queries now use explicit legacy accessor.",
+    "Backend handles keyboard packets only; no staged native mouse capture/forwarding, no native entry mode switch and no consumer-ready assertion. Large immediate arrays can exhaust the existing 64-work callback budget and stop safely; asynchronous draining/native lifecycle admission remains work before enabling broad native mode.",
+    "Durations are earliest logical dispatch times; mock API prefix receipts do not prove real keyboard timing/application delivery. Simple advanced branches/simultaneous/Linux staged runtime/Windows native integration/hardware/UI/packaging/driver and full objective remain incomplete. No actual Hook/SendInput/input device/driver operation executed."
+  ],
+  "abi": "Pure Rust Machine ownership and scheduler dispatch plus core query/reset methods. Native packet layouts/FFI unchanged; native ABI oracle not rerun."
+}

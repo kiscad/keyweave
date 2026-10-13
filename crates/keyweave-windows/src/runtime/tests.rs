@@ -284,7 +284,7 @@ fn held_deadline_runs_before_same_time_input_and_does_not_survive_stop() {
             < scans.iter().position(|scan| *scan == 0x20).unwrap()
     );
     actor.stop_after_unhook().unwrap();
-    assert_eq!(actor.engine.state().pending_deadlines, 0);
+    assert_eq!(actor.engine.legacy().state().pending_deadlines, 0);
     assert!(actor.next_wakeup().is_none());
 }
 #[test]
@@ -420,7 +420,7 @@ fn exhausted_callback_budget_keeps_unsent_timer_edges_out_of_recovery() {
     assert_eq!(actor.output().ledger().submitted().len(), 1);
     assert_eq!(calls.borrow().len(), 1);
     actor.stop_after_unhook().unwrap();
-    assert_eq!(actor.engine.state().pending_deadlines, 0);
+    assert_eq!(actor.engine.legacy().state().pending_deadlines, 0);
     assert!(actor.output().ledger().submitted().is_empty());
     assert_eq!(calls.borrow()[1][0].scan, 0x30);
     assert_eq!(calls.borrow()[1][0].flags, 10);
@@ -469,7 +469,7 @@ fn physical_repeat_uses_its_binding_not_last_global_output() {
     actor.key(event(6, KeyEdge::Down), MonoTime(1)).unwrap();
     actor.key(event(4, KeyEdge::Repeat), MonoTime(2)).unwrap();
     assert_eq!(packets(&calls), vec![(0x30, 8), (0x2e, 8), (0x30, 8)]);
-    assert_eq!(actor.engine.state().bindings, 2);
+    assert_eq!(actor.engine.legacy().state().bindings, 2);
     assert_eq!(actor.output().ledger().submitted().len(), 2);
     actor.stop_after_unhook().unwrap();
     assert_eq!(packets(&calls)[3..], [(0x30, 10), (0x2e, 10)]);
@@ -665,7 +665,7 @@ fn untracked_input_retains_submitted_and_cancels_engine_timers_without_cleanup()
         actor.stop_for_untracked_input_after_unhook(),
         Err(RuntimeError::Unresolved)
     ));
-    assert_eq!(actor.engine.state().pending_deadlines, 0);
+    assert_eq!(actor.engine.legacy().state().pending_deadlines, 0);
     assert_eq!(actor.output().ledger().submitted().len(), 1);
     assert_eq!(actor.output().phase(), Phase::Quarantined);
     assert_eq!(calls.borrow().len(), 1);
@@ -729,4 +729,373 @@ fn pure_preflight_shares_engine_timing_gate_and_does_not_construct_output() {
         Err(RuntimeError::Engine(EngineError::UnsupportedActionTiming))
     ));
     assert!(calls.borrow().is_empty());
+}
+fn staged_actor(
+    config: Arc<ConfigSnapshot>,
+    replies: Vec<Result<Insertion, SubmitError>>,
+) -> (SessionActor<Backend>, Calls) {
+    let calls = Rc::new(RefCell::new(vec![]));
+    let backend = Backend {
+        calls: calls.clone(),
+        replies: replies.into(),
+        zero: false,
+    };
+    let mut actor =
+        SessionActor::new_staged(backend, InjectionTag::new(1).unwrap(), config).unwrap();
+    actor.start_after_neutral().unwrap();
+    (actor, calls)
+}
+fn timed_config() -> Arc<ConfigSnapshot> {
+    let mut rule = mapping(4, 5);
+    rule.to = vec![
+        keyweave_engine::Action {
+            hold_down_ns: 50,
+            ..key(5).into()
+        },
+        key(6).into(),
+    ];
+    config(1, vec![rule])
+}
+fn packet_edges(calls: &Calls) -> Vec<(u16, u32)> {
+    calls
+        .borrow()
+        .iter()
+        .flatten()
+        .map(|packet| (packet.scan, packet.flags))
+        .collect()
+}
+#[test]
+fn staged_early_up_keeps_array_duration_and_no_timer_input_sequences_are_fabricated() {
+    let (mut actor, calls) = staged_actor(timed_config(), vec![]);
+    assert_eq!(
+        actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap(),
+        CaptureDecision::Capture
+    );
+    assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+    assert_eq!(actor.next_wakeup(), Some(MonoTime(150)));
+    actor.key(event(4, KeyEdge::Up), MonoTime(110)).unwrap();
+    actor.tick(MonoTime(149)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+    actor.tick(MonoTime(150)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
+    );
+    assert_eq!(actor.seq, 2);
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert_eq!(actor.next_wakeup(), None);
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(actor.phase(), ActorPhase::Stopped);
+}
+#[test]
+fn staged_repeat_waits_for_actual_saved_primary_and_accepted_desired_owner() {
+    let (mut actor, calls) = staged_actor(timed_config(), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(110)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+    actor.tick(MonoTime(150)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10), (0x2e, 8)]);
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(160)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 8)]
+    );
+    actor.key(event(4, KeyEdge::Up), MonoTime(170)).unwrap();
+    assert_eq!(packet_edges(&calls).last(), Some(&(0x2e, 10)));
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_reload_preserves_old_array_and_up_while_new_physical_root_uses_new_snapshot() {
+    let (mut actor, calls) = staged_actor(timed_config(), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.activate(config(2, vec![mapping(4, 7)])).unwrap();
+    assert_eq!(actor.config_generation(), ConfigGeneration(2));
+    actor.tick(MonoTime(150)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(170)).unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(180)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(190)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [
+            (0x30, 8),
+            (0x30, 10),
+            (0x2e, 8),
+            (0x2e, 10),
+            (0x20, 8),
+            (0x20, 10)
+        ]
+    );
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_known_zero_submission_stops_and_discards_future_array_before_ledger_recovery() {
+    let (mut actor, calls) = staged_actor(
+        timed_config(),
+        vec![Ok(Insertion {
+            accepted: 0,
+            last_error: Some(5),
+        })],
+    );
+    assert!(matches!(
+        actor.key(event(4, KeyEdge::Down), MonoTime(100)),
+        Err(RuntimeError::Incomplete)
+    ));
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert!(actor.output().ledger().submitted().is_empty());
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+    assert_eq!(actor.phase(), ActorPhase::Stopped);
+    assert!(matches!(
+        actor.tick(MonoTime(150)),
+        Err(RuntimeError::NotActive)
+    ));
+}
+#[test]
+fn staged_callback_budget_failure_keeps_only_known_accepted_recovery_and_drops_future_stage_work() {
+    let mut rule = mapping(4, 5);
+    rule.to = vec![
+        keyweave_engine::Action {
+            repeat: false,
+            ..key(5).into()
+        };
+        512
+    ];
+    let (mut actor, calls) = staged_actor(config(1, vec![rule]), vec![]);
+    assert!(matches!(
+        actor.key(event(4, KeyEdge::Down), MonoTime(100)),
+        Err(RuntimeError::Budget)
+    ));
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    let submitted = actor.output().ledger().submitted().clone();
+    let before = packet_edges(&calls).len();
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packet_edges(&calls).len(), before + submitted.len());
+    assert!(
+        packet_edges(&calls)[before..]
+            .iter()
+            .all(|(_, flags)| *flags == 10)
+    );
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert!(matches!(actor.engine, Machine::Staged(_)));
+    assert_eq!(actor.engine.next_deadline(), None);
+}
+#[test]
+fn staged_preflight_is_explicit_and_default_native_timing_gate_is_retained() {
+    assert!(preflight_staged_config(timed_config()).is_ok());
+    assert!(matches!(
+        preflight_config(timed_config()),
+        Err(RuntimeError::Engine(EngineError::UnsupportedActionTiming))
+    ));
+}
+fn complex_config(rule: Mapping) -> Arc<ConfigSnapshot> {
+    Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "staged complex".into(),
+        simple: vec![],
+        complex: vec![rule],
+    })
+}
+#[test]
+fn staged_same_time_held_repeat_drains_old_up_and_replacement_before_repeat_submission() {
+    let mut rule = mapping(4, 5);
+    rule.extras.if_held_down = vec![key(6).into()];
+    rule.extras.held_threshold_ns = 50;
+    let (mut actor, calls) = staged_actor(complex_config(rule), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(150)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 8)]
+    );
+    actor.key(event(4, KeyEdge::Up), MonoTime(160)).unwrap();
+    assert_eq!(packet_edges(&calls).last(), Some(&(0x2e, 10)));
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_delayed_after_original_up_runs_once_and_stop_recovers_only_accepted_live_tap() {
+    let mut rule = mapping(4, 5);
+    rule.extras.delayed = Some(keyweave_engine::DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![keyweave_engine::Action {
+            hold_down_ns: 10,
+            ..key(6).into()
+        }],
+        if_canceled: vec![],
+    });
+    let (mut actor, calls) = staged_actor(complex_config(rule), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(110)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10)]);
+    assert_eq!(actor.next_wakeup(), Some(MonoTime(150)));
+    actor.tick(MonoTime(150)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10), (0x2e, 8)]);
+    assert_eq!(actor.next_wakeup(), Some(MonoTime(160)));
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
+    );
+    assert_eq!(actor.seq, 2);
+    assert_eq!(actor.engine.next_deadline(), None);
+}
+#[test]
+fn staged_delayed_cancellation_keeps_cancel_array_fifo_before_new_source_saved_down_and_up() {
+    let mut rule = mapping(4, 5);
+    rule.extras.delayed = Some(keyweave_engine::DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![key(6).into()],
+        if_canceled: vec![keyweave_engine::Action {
+            hold_down_ns: 10,
+            ..key(7).into()
+        }],
+    });
+    let (mut actor, calls) = staged_actor(complex_config(rule), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(110)).unwrap();
+    actor.key(event(5, KeyEdge::Down), MonoTime(120)).unwrap();
+    actor.key(event(5, KeyEdge::Up), MonoTime(125)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10), (0x20, 8)]);
+    actor.tick(MonoTime(130)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [
+            (0x30, 8),
+            (0x30, 10),
+            (0x20, 8),
+            (0x20, 10),
+            (0x30, 8),
+            (0x30, 10)
+        ]
+    );
+    actor.tick(MonoTime(150)).unwrap();
+    assert_eq!(packet_edges(&calls).len(), 6);
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_unknown_acceptance_quarantines_known_old_owner_and_does_not_guess_recovery() {
+    let (mut actor, calls) = staged_actor(
+        timed_config(),
+        vec![
+            Ok(Insertion {
+                accepted: 1,
+                last_error: None,
+            }),
+            Err(SubmitError::Unknown),
+        ],
+    );
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    assert!(actor.tick(MonoTime(150)).is_err());
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert_eq!(actor.output().phase(), Phase::Quarantined);
+    assert!(actor.output().ledger().submitted().contains(&key(5)));
+    let count = calls.borrow().len();
+    assert!(matches!(
+        actor.stop_after_unhook(),
+        Err(RuntimeError::Unresolved)
+    ));
+    assert_eq!(calls.borrow().len(), count);
+    assert_eq!(actor.phase(), ActorPhase::Unresolved);
+    assert!(actor.output().ledger().submitted().contains(&key(5)));
+}
+#[test]
+fn staged_simple_consumed_scope_restores_saved_ordinary_descendant_through_accepted_pump() {
+    let mut trigger = mapping(4, 0xe4);
+    trigger
+        .extras
+        .from_modifiers
+        .mandatory
+        .insert(keyweave_engine::Modifier::LeftShift);
+    let cfg = Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "staged source scope".into(),
+        simple: vec![trigger],
+        complex: vec![mapping(0xe1, 0x1b)],
+    });
+    let (mut actor, calls) = staged_actor(cfg, vec![]);
+    actor
+        .key(event(0xe1, KeyEdge::Down), MonoTime(100))
+        .unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(110)).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(120)).unwrap();
+    actor.key(event(0xe1, KeyEdge::Up), MonoTime(130)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [
+            (0x2d, 8),
+            (0x2d, 10),
+            (0x1d, 9),
+            (0x1d, 11),
+            (0x2d, 8),
+            (0x2d, 10)
+        ]
+    );
+    assert!(actor.output().ledger().submitted().is_empty());
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_hook_dispatcher_bypasses_own_injected_output_without_new_sequence_or_source() {
+    let (actor, calls) = staged_actor(timed_config(), vec![]);
+    let actor = Rc::new(RefCell::new(actor));
+    let time = Rc::new(std::cell::Cell::new(100u64));
+    let sampled = time.clone();
+    let handler = ActorHandler {
+        actor: actor.clone(),
+        clock: move || Some(MonoTime(sampled.get())),
+    };
+    let mut dispatcher = HookDispatcher::new(
+        handler,
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+    );
+    assert_eq!(
+        dispatcher.dispatch(0, Some(record(false))),
+        CaptureDecision::Capture
+    );
+    assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+    let injected = HookRecord {
+        message: 0x100,
+        vk_code: 0x42,
+        scan_code: 0x30,
+        flags: 0x10,
+        extra_info: 1,
+    };
+    assert_eq!(
+        dispatcher.dispatch(0, Some(injected)),
+        CaptureDecision::Pass
+    );
+    assert_eq!(actor.borrow().seq, 1);
+    assert_eq!(packet_edges(&calls), [(0x30, 8)]);
+    time.set(150);
+    actor.borrow_mut().tick(MonoTime(150)).unwrap();
+    time.set(160);
+    assert_eq!(
+        dispatcher.dispatch(0, Some(record(true))),
+        CaptureDecision::Capture
+    );
+    assert_eq!(
+        packet_edges(&calls),
+        [(0x30, 8), (0x30, 10), (0x2e, 8), (0x2e, 10)]
+    );
+    actor.borrow_mut().stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_context_change_at_held_deadline_runs_due_branch_with_previous_valid_snapshot() {
+    let mut rule = mapping(4, 5);
+    rule.extras.if_held_down = vec![keyweave_engine::Action {
+        conditions: vec![application_condition(false)],
+        ..key(6).into()
+    }];
+    rule.extras.held_threshold_ns = 49;
+    let (mut actor, calls) = staged_actor(complex_config(rule), vec![]);
+    actor
+        .context_changed(context(1, 100, 300, Some("editor")), MonoTime(100))
+        .unwrap();
+    actor.key(event(4, KeyEdge::Down), MonoTime(101)).unwrap();
+    actor
+        .context_changed(context(2, 150, 300, Some("other")), MonoTime(150))
+        .unwrap();
+    assert_eq!(packet_edges(&calls), [(0x30, 8), (0x30, 10), (0x2e, 8)]);
+    actor.key(event(4, KeyEdge::Up), MonoTime(160)).unwrap();
+    assert_eq!(packet_edges(&calls).last(), Some(&(0x2e, 10)));
+    actor.stop_after_unhook().unwrap();
 }

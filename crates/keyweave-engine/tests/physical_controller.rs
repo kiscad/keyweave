@@ -1136,3 +1136,39 @@ fn new_real_key_down_still_flushes_lazy_modifier_before_key_after_pointer_deferr
         ]
     );
 }
+#[test]
+fn lifecycle_reset_and_repeat_query_do_not_consume_input_sequence_or_reuse_source_cursor() {
+    let mut actor = PhysicalStageController::new(config(vec![], vec![])).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 100), [(key("a"), KeyEdge::Down)]);
+    assert_eq!(actor.physical_repeat_target(dev, key("a")), Some(key("a")));
+    let reset = actor.reset(MonoTime(110)).unwrap();
+    assert_eq!(edges(reset.outputs), [(key("a"), KeyEdge::Up)]);
+    assert_eq!(actor.physical_repeat_target(dev, key("a")), None);
+    assert_eq!(actor.reserved_sources(), 0);
+    assert!(matches!(
+        actor.handle(keyboard(1, 120, dev, "a", KeyEdge::Down)),
+        Err(PhysicalControllerError::Engine(
+            EngineError::SequenceBackwards
+        ))
+    ));
+    assert!(!actor.is_failed());
+    actor
+        .handle(keyboard(2, 120, dev, "a", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 120), [(key("a"), KeyEdge::Down)]);
+    actor
+        .handle(envelope(
+            3,
+            130,
+            dev,
+            InputEvent::PointerMove { x: 1, y: 0 },
+        ))
+        .unwrap();
+    let (_, pointers) = drain_mixed(&mut actor, 130);
+    assert_eq!(pointers.len(), 1);
+    assert_eq!(pointers[0].event.source, SourceToken((1u64 << 63) | 3));
+}

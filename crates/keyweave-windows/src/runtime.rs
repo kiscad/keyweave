@@ -1,4 +1,5 @@
 //! Single-thread engine/output owner. Lifecycle gates belong to the session host.
+mod machine;
 use crate::{
     hook::{HookEvent, HookFault, HookHandler},
     keys::{self, InjectionTag, KeyError},
@@ -6,6 +7,7 @@ use crate::{
 };
 use keyweave_engine::{Condition, ConfigSnapshot, Engine, EngineError};
 use keyweave_types::*;
+use machine::Machine;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 pub const MAX_WORK: usize = 64;
 pub const MAX_RECOVERY: usize = 8;
@@ -31,6 +33,10 @@ pub enum RuntimeError {
     AccessLost,
     #[error(transparent)]
     Engine(#[from] EngineError),
+    #[error(transparent)]
+    Staged(#[from] keyweave_engine::physical_controller::PhysicalControllerError),
+    #[error("keyboard session does not support staged pointer input or delivery")]
+    StagedPointer,
     #[error(transparent)]
     Output(#[from] PumpError),
     #[error(transparent)]
@@ -86,8 +92,12 @@ fn prepare_engine(config: Arc<ConfigSnapshot>) -> Result<Engine, RuntimeError> {
 pub fn preflight_config(config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
     prepare_engine(config).map(drop)
 }
+/// Cold staged keyboard validation only; no neutral/access/output acceptance proof.
+pub fn preflight_staged_config(config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
+    Machine::staged(config).map(drop)
+}
 pub struct SessionActor<B: SendBackend> {
-    engine: Engine,
+    engine: Machine,
     output: OutputPump<B>,
     phase: ActorPhase,
     now: MonoTime,
@@ -100,7 +110,23 @@ impl<B: SendBackend> SessionActor<B> {
         tag: InjectionTag,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        let engine = prepare_engine(config)?;
+        let engine = Machine::Legacy(Box::new(prepare_engine(config)?));
+        Ok(Self {
+            engine,
+            output: OutputPump::new(backend, tag),
+            phase: ActorPhase::Standby,
+            now: MonoTime(0),
+            seq: 0,
+            failure: None,
+        })
+    }
+    /// Explicit staged keyboard mode. No native entry selects this constructor yet.
+    pub fn new_staged(
+        backend: B,
+        tag: InjectionTag,
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, RuntimeError> {
+        let engine = Machine::staged(config)?;
         Ok(Self {
             engine,
             output: OutputPump::new(backend, tag),
@@ -132,7 +158,7 @@ impl<B: SendBackend> SessionActor<B> {
         }
         [
             self.output.ledger().next_deadline(),
-            self.engine.next_deadline().map(|(at, _)| at),
+            self.engine.next_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -213,11 +239,14 @@ impl<B: SendBackend> SessionActor<B> {
                 if self.output.phase() != Phase::Normal {
                     return Err(RuntimeError::Incomplete);
                 }
-            } else if let Some((_, token)) = self
-                .engine
-                .next_deadline()
-                .filter(|(at, _)| *at <= self.now)
-            {
+            } else if self.engine.stage_due(self.now) {
+                Self::spend(work)?;
+                let step = self
+                    .engine
+                    .poll_stage(self.now)?
+                    .ok_or(RuntimeError::Decision)?;
+                self.output.enqueue(&step.outputs)?;
+            } else if let Some(token) = self.engine.legacy_timer_due(self.now) {
                 self.dispatch(InputEvent::TimerFired { token }, work)?;
             } else {
                 return Ok(());
