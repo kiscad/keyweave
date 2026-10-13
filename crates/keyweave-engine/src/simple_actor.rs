@@ -91,8 +91,14 @@ impl SimpleStageActor {
         Ok(Self::from_components(generated, complex, false))
     }
     pub fn new_with_chord_model(config: Arc<ConfigSnapshot>) -> Result<Self, SimpleActorError> {
+        Self::new_chord_model_with_source_limit(config, u64::MAX)
+    }
+    pub(crate) fn new_chord_model_with_source_limit(
+        config: Arc<ConfigSnapshot>,
+        max_source_end: u64,
+    ) -> Result<Self, SimpleActorError> {
         let generated = GeneratedStageQueue::new_complex_chord_model(config.clone())?;
-        let complex = ComplexStageActor::new_with_chord_model(config)?;
+        let complex = ComplexStageActor::new_chord_model_with_source_limit(config, max_source_end)?;
         Ok(Self::from_components(generated, complex, true))
     }
     fn from_components(

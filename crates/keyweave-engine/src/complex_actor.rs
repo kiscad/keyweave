@@ -161,10 +161,19 @@ impl ComplexStageActor {
         )?))
     }
     pub fn new_with_chord_model(config: Arc<ConfigSnapshot>) -> Result<Self, ComplexActorError> {
+        Self::new_chord_model_with_source_limit(config, u64::MAX)
+    }
+    pub(crate) fn new_chord_model_with_source_limit(
+        config: Arc<ConfigSnapshot>,
+        max_source_end: u64,
+    ) -> Result<Self, ComplexActorError> {
         config
             .validate_complex_chord_model()
             .map_err(GeneratedError::from)?;
-        let mut actor = Self::from_output(OutputStageActor::new(config)?);
+        let mut actor = Self::from_output(OutputStageActor::new_with_source_limit(
+            config,
+            max_source_end,
+        )?);
         actor.chord_model = true;
         Ok(actor)
     }

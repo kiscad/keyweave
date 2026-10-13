@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0171 Physical chord model source domains and conservative leases",
+  "source_base_commit": "4943842024b33efd29abb9e16f4a4658364a367c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "c502667fe3e548e107dd186a5ce89947b84b9e35cfc5906cd15d1e7c149ff9ff",
+    "crates/keyweave-engine/src/simple_actor.rs": "6509ba6d7bd2a4c2d9ee9bc9d7354a91e07ed1483b0de1dcf5e2abe56325f8b6",
+    "crates/keyweave-engine/src/physical_controller.rs": "90c82022641b550052bfd408293d0b37910235739e13eea350fbdb28bf3761bc",
+    "crates/keyweave-engine/src/source_budget.rs": "1af07e65deabde21139cce9cd243d04582f3b0dcebdc03472770424dc0cfaa17",
+    "crates/keyweave-engine/tests/physical_chord_model.rs": "b4efed1ee340bd1a92efabde5a1bb1bc1e45e498e80b75786a9a84911da60d05"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1588,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-physical-chord/tests.log",
+        "sha256": "f4a7f747c098ab2aba86098d692f7c537c132a9d24763381cce6772a8908aebb"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-physical-chord/clippy.log",
+        "sha256": "374d3184875da739c65ccd321b5e69fbaaf44dafdf919b72a2fac04d0e0d791e"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-physical-chord/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261013-physical-chord/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection; no retry or bypass in this session."
+  },
+  "limitations": [
+    "Physical new_with_chord_model is an explicit pure model entry; default factories, compiler KW-SIM and native runtime gates remain strict.",
+    "Source leases conservatively charge each possible primary; retention and projection handles do not allocate source identities.",
+    "No native capture/session, pointer/repeat acceptance, hardware, GUI/packaging or driver proof."
+  ]
+}

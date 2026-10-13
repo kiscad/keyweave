@@ -29,12 +29,22 @@ impl ConfigSnapshot {
                     }
                 }
             }
+            if let Some(group) = &extras.simultaneous {
+                output = output.saturating_add(weight(&group.after_key_up));
+            }
             // One Complex identity, plus selected output or pass-through.
             let cost = 1usize.saturating_add(output.max(1));
-            complex
-                .entry(mapping.from)
-                .and_modify(|bound| *bound = (*bound).max(cost))
-                .or_insert(cost);
+            let keys = mapping
+                .extras
+                .simultaneous
+                .as_ref()
+                .map_or_else(|| vec![mapping.from], |group| group.keys.clone());
+            for key in keys {
+                complex
+                    .entry(key)
+                    .and_modify(|bound| *bound = (*bound).max(cost))
+                    .or_insert(cost);
+            }
         }
         let mut bounds: BTreeMap<_, _> = complex
             .iter()

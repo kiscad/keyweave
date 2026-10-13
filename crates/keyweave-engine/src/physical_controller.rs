@@ -56,14 +56,27 @@ pub struct PhysicalStageController {
 }
 impl PhysicalStageController {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, PhysicalControllerError> {
-        Ok(Self {
-            source_bounds: config.timed_stage_source_bounds(),
+        let simple = SimpleStageActor::new_with_source_limit(
+            config,
+            crate::source_identity::ORIGIN_DOMAIN_START,
+        )?;
+        Ok(Self::from_simple(simple))
+    }
+    pub fn new_with_chord_model(
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, PhysicalControllerError> {
+        let simple = SimpleStageActor::new_chord_model_with_source_limit(
+            config,
+            crate::source_identity::ORIGIN_DOMAIN_START,
+        )?;
+        Ok(Self::from_simple(simple))
+    }
+    fn from_simple(simple: SimpleStageActor) -> Self {
+        Self {
+            source_bounds: simple.snapshot().timed_stage_source_bounds(),
             source_leases: BTreeMap::new(),
             reserved_sources: 0,
-            simple: SimpleStageActor::new_with_source_limit(
-                config,
-                crate::source_identity::ORIGIN_DOMAIN_START,
-            )?,
+            simple,
             active: BTreeMap::new(),
             pending: BTreeSet::new(),
             history: StageTimeline::new(),
@@ -72,7 +85,7 @@ impl PhysicalStageController {
             now: MonoTime(0),
             last_seq: None,
             failed: false,
-        })
+        }
     }
     /// Model diagnostics, not native API acceptance. Queued stage work is counted
     /// once; the Output generation mirror is not another deadline task.
