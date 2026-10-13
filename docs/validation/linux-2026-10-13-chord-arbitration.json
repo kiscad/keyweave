@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0159 ordered old-snapshot chord arbitration with fresh waiting eligibility and bounded work",
+  "source_base_commit": "2928fa2246e7bc536488be67d48a2b82e1ed112f",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/rule_selection.rs": "a28be86328259b16a103fb6abfb3b3e9c1762e8bb91d6ee5b50e9eac0d74bbd2",
+    "crates/keyweave-engine/src/simultaneous.rs": "9161f30205bbc70d4444712eae0740f7fdcd72e543adc6a1e6e1a3f21a82d841",
+    "crates/keyweave-engine/src/simultaneous/arbiter.rs": "2e40d5c9481be88c4204f9622ddb841df531a5ec37a42b33f80f1577c84c8bc0",
+    "crates/keyweave-engine/tests/chord_arbitration.rs": "bbdaf80b45a4fc7cfee09d3025cf45f80135a32616149ce22fb55c25639df1f8"
+  },
+  "upstream_evidence_sha256": {
+    "src/share/manipulator/manipulators/basic/basic.hpp": "7e6c71f0e9db479314665b20ee69549236dbf9c0d1703104fe76d05fb62a0706"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1478,
+    "new_tests": 19,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-chord-arbitration/tests.log",
+        "sha256": "a8dc7d301494e7094b509d2b57d6e55eddbced95de4dba96a9a066afa80445e9"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-chord-arbitration/clippy.log",
+        "sha256": "2f6d9c770b71df00a29a0eb09090b1d8052d05908da984d9f8b75c6eaf8e6878"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-chord-arbitration/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-chord-arbitration/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Updated constructor API after source audit required two new test fixtures to drop obsolete eligibility arguments; corrected E0061 calls.",
+    "Source audit corrected initial freeze-before-wait design: upstream rechecks conditions/modifier manager before each lookahead manipulation. New advance uses one fresh view; only committed RuleSelection is frozen. ADR-0158 follow-up checklist corrected.",
+    "Manual budget review found charging repeated header search separately would starve budget=1; resumed eligibility check belongs to next receipt work step, added one-work regression."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection; no new native attempt, bypass or valid capture/session."
+  },
+  "limitations": [
+    "ChordArbiter pins original first receipt Arc, searches ordered relevant Complex rules, permits only one window, waits earlier overlapping candidate before later shorter match/ordinary rule, and monotonically skips failed candidates. Original buffer/tail are moved, not replicated per candidate.",
+    "Every uncommitted advance rechecks current trusted condition/modifier view, as source requires; selected main conditions filter once and matched-empty consumes. Private RuleHeader creates frozen old-index/Arc/consumed RuleSelection; normal selector reuses same helper with existing behavior preserved.",
+    "Observe only queues validated owned input; preflight reject returns incoming unchanged. Resolution errors retain accepted inputs for consuming into_inputs. Match/ordinary/pass returns original events/tail and distinct current generation clock; future actual replay must refresh admission delivery at current stage clock without overwriting original history.",
+    "Default64 work budget and explicit1..64 yield preserve cursor/window/old Arc/tail. Resumed eligibility is part of next receipt step to avoid one-budget starvation. Individual predicate/action filtering retains existing bounded IR and is not a hard wall-clock guarantee.",
+    "19 tests cover ordinary priority, overlapping wait/match, interruption/early-Up fallback, original tail/order and separate generation clock, unknown/fresh eligibility/modifiers/action filters, old and new-peer Arc retention, boundary/frontier/provenance/abort/capacity/definition, one-work/long-list yield and invalid budgets.",
+    "This remains a pure arbitration component. Shared Complex group bindings/scopes/lease/branch/replay/repeat integration is still required; KW-SIM-001/UnsupportedSimultaneous stay. Native pointer/platform/hardware, GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure shared Rust selection/owned-buffer arbitration; no new unsafe/FFI/dependencies/native packet layouts."
+}

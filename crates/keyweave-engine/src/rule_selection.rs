@@ -18,6 +18,72 @@ pub struct RuleSelection {
     consumed: BTreeSet<KeyId>,
     actions: Vec<usize>,
 }
+/// Private header eligibility; main action conditions are filtered only when chosen.
+pub(crate) struct RuleHeader {
+    config: Arc<ConfigSnapshot>,
+    stage: MappingStage,
+    index: usize,
+    modifiers: BTreeSet<KeyId>,
+    consumed: BTreeSet<KeyId>,
+}
+impl RuleHeader {
+    pub(crate) fn mapping(&self) -> &Mapping {
+        match self.stage {
+            MappingStage::Simple => &self.config.simple[self.index],
+            MappingStage::Complex => &self.config.complex[self.index],
+        }
+    }
+    pub(crate) fn select(self, mut evaluate: impl FnMut(&Condition) -> Truth) -> RuleSelection {
+        let actions = self
+            .mapping()
+            .to
+            .iter()
+            .enumerate()
+            .filter(|(_, action)| action_matches(action, &mut evaluate))
+            .map(|(index, _)| index)
+            .collect();
+        RuleSelection {
+            config: self.config,
+            stage: self.stage,
+            index: self.index,
+            modifiers: self.modifiers,
+            consumed: self.consumed,
+            actions,
+        }
+    }
+}
+pub(crate) fn freeze_header(
+    config: Arc<ConfigSnapshot>,
+    stage: MappingStage,
+    index: usize,
+    modifiers: &BTreeSet<KeyId>,
+    evaluate: &mut impl FnMut(&Condition) -> Truth,
+) -> Option<RuleHeader> {
+    let mappings = match stage {
+        MappingStage::Simple => &config.simple,
+        MappingStage::Complex => &config.complex,
+    };
+    let mapping = mappings.get(index)?;
+    if !mapping
+        .extras
+        .conditions
+        .iter()
+        .all(|condition| evaluate(condition) == Truth::True)
+    {
+        return None;
+    }
+    let consumed = mapping
+        .extras
+        .from_modifiers
+        .consumed(modifiers, mapping.allow_extra_modifiers)?;
+    Some(RuleHeader {
+        config,
+        stage,
+        index,
+        modifiers: modifiers.clone(),
+        consumed,
+    })
+}
 impl RuleSelection {
     pub fn snapshot(&self) -> &Arc<ConfigSnapshot> {
         &self.config
@@ -114,38 +180,14 @@ pub fn select_rule(
         MappingStage::Complex => &config.complex,
     };
     for (index, mapping) in mappings.iter().enumerate() {
-        if mapping.extras.simultaneous.is_some()
-            || mapping.from != key
-            || !mapping
-                .extras
-                .conditions
-                .iter()
-                .all(|condition| evaluate(condition) == Truth::True)
-        {
+        if mapping.extras.simultaneous.is_some() || mapping.from != key {
             continue;
         }
-        let Some(consumed) = mapping
-            .extras
-            .from_modifiers
-            .consumed(&modifiers, mapping.allow_extra_modifiers)
+        let Some(header) = freeze_header(config.clone(), stage, index, &modifiers, &mut evaluate)
         else {
             continue;
         };
-        let actions = mapping
-            .to
-            .iter()
-            .enumerate()
-            .filter(|(_, action)| action_matches(action, &mut evaluate))
-            .map(|(index, _)| index)
-            .collect();
-        return Some(RuleSelection {
-            config,
-            stage,
-            index,
-            modifiers,
-            consumed,
-            actions,
-        });
+        return Some(header.select(evaluate));
     }
     None
 }

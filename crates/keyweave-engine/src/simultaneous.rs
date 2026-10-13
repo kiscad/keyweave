@@ -1,8 +1,12 @@
 //! Bounded Complex-stage lookahead. Matching is separate from output/binding ownership.
+mod arbiter;
 use crate::{
     Action, ActionTarget,
     action_plan::PlannedAction,
     timeline::{DueEvent, Stage, StageEvent},
+};
+pub use arbiter::{
+    Arbitration, ArbitrationChoice, ChordArbiter, MAX_ARBITER_RULES, MAX_ARBITRATION_WORK,
 };
 use keyweave_types::{KEYBOARD_PAGE, KeyEdge, KeyId, MonoTime};
 use thiserror::Error;
@@ -213,6 +217,9 @@ fn ordered(actual: impl Iterator<Item = KeyId>, keys: &[KeyId], order: KeyOrder)
     }
 }
 impl ChordWindow {
+    pub(super) fn into_buffer(self) -> Vec<DueEvent<PlannedAction>> {
+        self.events
+    }
     pub fn new(
         spec: Simultaneous,
         first: DueEvent<PlannedAction>,
