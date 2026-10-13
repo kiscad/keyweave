@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0158 simultaneous keyboard IR and bounded lookahead/active-up protocol",
+  "source_base_commit": "16f9a660dc6242524d630fbaa26483f840ddcc28",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-config/src/lib.rs": "793afb2f57d07681486b027f1b66ff9814e15f6d0409509d3d98ec6a45dfec18",
+    "crates/keyweave-config/src/simultaneous.rs": "7c4864fa6d76f511177526d68d8f27ee6b61c730f5ec852906a31e7790d9d86e",
+    "crates/keyweave-config/tests/simultaneous.rs": "6baef8f069e3a2c2359fb608024d1e0df4986172b5658cc4571e15698845c3a0",
+    "crates/keyweave-engine/src/lib.rs": "3865c6c0d709a2ea8ea4fe42d37dc71f592de673ecb7119aaa3de9a56cf28f2c",
+    "crates/keyweave-engine/src/rule_selection.rs": "a5056f9367522b79103ba7d24047c9a1b6faf8eee959abf51fd58ba2946070a7",
+    "crates/keyweave-engine/src/simultaneous.rs": "c63e13b2570dd396af6b9130cc98a3ba670bc9239b41dadd18a2d05e5b6c8318",
+    "crates/keyweave-engine/tests/simultaneous.rs": "5ddebf0b6bc77fd7316b3b096a3aca35354fe555cee3c446e2152c092c5c24a7",
+    "crates/keyweave-engine/tests/tap_lifecycle.rs": "a1b1b5dcac0bea4d8ee89e1f4f4b25c45b4e5aa6a6f059e393e0c5c7a62b89f1",
+    "crates/keyweave-host/tests/cli.rs": "4aaadb6570cea9ed18e2522f53f42a1fe266467a6f03196429b13f0e26513383"
+  },
+  "upstream_evidence_sha256": {
+    "src/share/manipulator/manipulators/basic/basic.hpp": "7e6c71f0e9db479314665b20ee69549236dbf9c0d1703104fe76d05fb62a0706",
+    "src/share/manipulator/manipulators/basic/from_event_definition.hpp": "7586c75550f7035104d6b382e0a88883aec7f637f5dac9ef419624f2ce4b9ea3",
+    "src/share/manipulator/manipulators/basic/simultaneous_options.hpp": "5da3221f288138589382bc59ebac7e0db4aa5a773a333e616f7d7919b046f3d7",
+    "src/share/core_configuration/details/profile/complex_modifications_parameters.hpp": "63e6db342dd09ec344d20de4c0d7cfcb44c4a3d63358022fe062663318cb1ec7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1459,
+    "new_tests": 24,
+    "updated_fixtures": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-simultaneous-protocol/tests.log",
+        "sha256": "437de5d4410bbfedb433a368b5fa01df85644d58444e46ea2dd5e855f795ab3b"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-simultaneous-protocol/clippy.log",
+        "sha256": "cb4f5088da703794d0633bb6a51361455a8bf1ec9f5d37e4b6cbf06a75056cff"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-simultaneous-protocol/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-simultaneous-protocol/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "initial-tests": {
+        "path": "target/validation/linux-20261013-simultaneous-protocol/initial-tests.log",
+        "sha256": "a50a09124a284b55a767be278cbf59f7d284dec862d9d42a5521b56ca6aaeb72"
+      },
+      "initial-clippy": {
+        "path": "target/validation/linux-20261013-simultaneous-protocol/initial-clippy.log",
+        "sha256": "f817ea671178acc8b2bd7cc71f70b239adb41872d5eeb655316b38b741bf526a"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial member observations assumed DueEvent Clone. Kept original DueEvent non-Clone and uniquely owned; added read-only copied ChordObservation metadata instead. Active Up now borrows original receipt for actual binding admission.",
+    "JSON fixture initially used unsupported json! array-repeat syntax; corrected to explicit Value::Array of cloned JSON values.",
+    "Full workspace compile found one explicit MappingExtras fixture missing new simultaneous=None field; filled metadata without changing lifecycle assertions.",
+    "Clippy flagged large owned rejected receipt result; boxed RejectedChordEvent while retaining original event and cold rejection state."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows compilation remains pending after prior automatic approval quota rejection; no new native attempt, bypass or valid capture/session."
+  },
+  "limitations": [
+    "No simultaneous runtime/binding implementation existed. New typed keyboard IR and pure protocol are prerequisites, not a completed remapper feature. Compile preserves raw JSON and parsed IR but emits KW-SIM-001 and disabled rule; Legacy/staged cold constructors reject UnsupportedSimultaneous, normal selector skips chord. Offline host mode tests reject without body leakage or file mutation.",
+    "Parser supports distinct 1..32 standard keyboard keys, modifiers, all down/up orders, uninterrupted flag, any/all, options after-up actions and profile/rule thresholds. Effective threshold follows upstream 1000ms clamp/default50ms; raw unchanged. Invalid/unknown fields and same-rule failed sibling refuse whole rule.",
+    "ChordWindow retains <=256 original receipts, first matching key/device source, inclusive earliest-time window and independent actual delivery clock. Maturity needs source frontier; strict Up waits n-1 prefix or mature window and does not retrospectively constrain future Up. Original source provenance/clock/capacity reject returns owned incoming unchanged; match/replay returns original buffer.",
+    "ActiveChord records saved participants and independently emits any/all output-release and all-up branch facts once. It borrows original Up so caller retains receipt; outside/duplicate/foreign/early Up cannot release. No native output or resource recovery claim.",
+    "24 new tests cover all option families, inclusive/zero/max-key boundaries, queued-frontier maturity, exact replay/owned rejection/cross-device duplicate/early Up/provenance/capacity, strict Up and any/all independent facts, caller Up ownership, typed runtime/single-key gate, parsing/metadata/threshold/whole-rule loss and offline host privacy.",
+    "Ordered candidate arbitration, Complex shared-group ownership/scopes/lease, normal replay, full branches/device/reset/repeat and actual runtime integration remain required before gates can be removed. Native pointer/platform/hardware, GUI/packaging/driver and full objective also remain incomplete."
+  ],
+  "abi": "Pure Rust IR/observation/owned receipt protocol; no new unsafe/FFI/dependencies/native packet layouts. DueEvent public Clone was not added."
+}

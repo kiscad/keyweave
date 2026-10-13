@@ -1,4 +1,5 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
+mod simultaneous;
 mod unique_json;
 use keyweave_engine::{
     Action, ActionTarget, Condition, ConfigSnapshot, DelayedAction, InputSourceFilter, Mapping,
@@ -199,6 +200,7 @@ pub fn compile(
         delayed_delay_ns: 500_000_000,
         held_threshold_ns: 500_000_000,
         alone_timeout_ns: 1_000_000_000,
+        simultaneous_threshold_ns: 50_000_000,
         pattern_count: std::cell::Cell::new(0),
     };
     compiler.reject_unknown_fields(root, "", &["profiles", "keyweave"]);
@@ -311,6 +313,12 @@ pub fn compile(
             compiler.delayed_delay_ns = delay;
         }
         if let Some(rules) = object.get("rules") {
+            if let Ok(Some(threshold)) = simultaneous::threshold(
+                object.get("parameters"),
+                &format!("{pointer}/complex_modifications/parameters"),
+            ) {
+                compiler.simultaneous_threshold_ns = threshold;
+            }
             for (index, rule) in array(rules, &format!("{pointer}/complex_modifications/rules"))?
                 .iter()
                 .enumerate()
@@ -373,6 +381,12 @@ pub fn compile(
                 if failed {
                     compiler.disabled += 1;
                 } else {
+                    if compiled
+                        .iter()
+                        .any(|mapping| mapping.extras.simultaneous.is_some())
+                    {
+                        compiler.reject(&location, "KW-SIM-001", "simultaneous parsed for inspection; output-group runtime integration is pending, activation refused");
+                    }
                     complex.extend(compiled);
                 }
             }
@@ -428,6 +442,7 @@ struct Compiler<'a> {
     delayed_delay_ns: u64,
     held_threshold_ns: u64,
     alone_timeout_ns: u64,
+    simultaneous_threshold_ns: u64,
     pattern_count: std::cell::Cell<usize>,
 }
 impl Compiler<'_> {
@@ -495,8 +510,15 @@ impl Compiler<'_> {
                 "only basic manipulators are implemented",
             ));
         }
-        let (from, from_modifiers) =
-            self.input_key(object.get("from"), &format!("{pointer}/from"), complex)?;
+        let threshold =
+            simultaneous::threshold(object.get("parameters"), &format!("{pointer}/parameters"))?
+                .unwrap_or(self.simultaneous_threshold_ns);
+        let (from, from_modifiers, chord) = self.chord_input(
+            object.get("from"),
+            &format!("{pointer}/from"),
+            complex,
+            threshold,
+        )?;
         let to = self.actions(object.get("to"), &format!("{pointer}/to"), complex)?;
         if !complex
             && to
@@ -510,6 +532,7 @@ impl Compiler<'_> {
             ));
         }
         let extras = MappingExtras {
+            simultaneous: chord,
             delayed: self.delayed_action(
                 object.get("to_delayed_action"),
                 object.get("parameters"),
@@ -552,6 +575,10 @@ impl Compiler<'_> {
             && extras.if_held_down.is_empty()
             && extras.if_alone.is_empty()
             && extras.after_key_up.is_empty()
+            && extras
+                .simultaneous
+                .as_ref()
+                .is_none_or(|chord| chord.after_key_up.is_empty())
         {
             return Err(diagnostic(
                 pointer,

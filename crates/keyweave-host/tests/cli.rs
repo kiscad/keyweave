@@ -368,3 +368,25 @@ fn windows_staged_run_remains_unavailable_on_non_windows_before_file_access() {
         "run-windows requires Windows"
     );
 }
+
+#[test]
+fn parsed_chord_is_refused_offline_in_all_windows_modes_without_private_body() {
+    let root = dir("simultaneous-gate");
+    let path = root.join("config.jsonc");
+    let body=br#"// private-chord-comment
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"private-chord-description","manipulators":[{"type":"basic","from":{"simultaneous":[{"key_code":"a"},{"key_code":"b"}],"simultaneous_options":{"description":"private-chord-options","key_up_when":"all"}},"to":[{"key_code":"x"}]}]}]}}]}"#;
+    fs::write(&path, body).unwrap();
+    for mode in ["legacy", "staged-keyboard"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+            .args(["check-windows", "--execution-mode", mode, "--config"])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert!(!text.contains("private-chord"));
+    }
+    assert_eq!(fs::read(&path).unwrap(), body);
+    fs::remove_dir_all(root).unwrap();
+}

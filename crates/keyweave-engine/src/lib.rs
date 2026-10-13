@@ -11,6 +11,7 @@ pub mod pointer_work;
 pub mod producer_decision;
 pub mod rule_selection;
 pub mod simple_actor;
+pub mod simultaneous;
 mod source_budget;
 mod source_identity;
 pub mod stage_bindings;
@@ -98,6 +99,7 @@ impl DelayedAction {
 
 #[derive(Clone, Debug)]
 pub struct MappingExtras {
+    pub simultaneous: Option<simultaneous::Simultaneous>,
     pub from_modifiers: ModifierFilter,
     pub conditions: Vec<Condition>,
     pub delayed: Option<DelayedAction>,
@@ -110,6 +112,7 @@ pub struct MappingExtras {
 impl Default for MappingExtras {
     fn default() -> Self {
         Self {
+            simultaneous: None,
             from_modifiers: ModifierFilter::default(),
             conditions: Vec::new(),
             delayed: None,
@@ -145,6 +148,12 @@ impl Mapping {
             .chain(&self.extras.if_held_down)
             .chain(&self.extras.if_alone)
             .chain(&self.extras.after_key_up)
+            .chain(
+                self.extras
+                    .simultaneous
+                    .iter()
+                    .flat_map(|chord| &chord.after_key_up),
+            )
             .chain(
                 self.extras
                     .delayed
@@ -305,6 +314,14 @@ impl ConfigSnapshot {
         Ok(names)
     }
     fn validate_timed_stages(&self, allow_action_timing: bool) -> Result<(), EngineError> {
+        if self
+            .simple
+            .iter()
+            .chain(&self.complex)
+            .any(|mapping| mapping.extras.simultaneous.is_some())
+        {
+            return Err(EngineError::UnsupportedSimultaneous);
+        }
         if !allow_action_timing
             && self
                 .simple
@@ -460,6 +477,8 @@ pub struct EngineStep {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum EngineError {
+    #[error("simultaneous output-group execution is not implemented")]
+    UnsupportedSimultaneous,
     #[error("input time went backwards")]
     TimeBackwards,
     #[error("input sequence must strictly increase")]

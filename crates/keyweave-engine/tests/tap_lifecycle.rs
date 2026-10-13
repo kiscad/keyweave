@@ -17,6 +17,7 @@ fn config(generation: u64, alone: &str, after: &str) -> Arc<ConfigSnapshot> {
             to: vec![key("left_control").into()],
             allow_extra_modifiers: true,
             extras: MappingExtras {
+                simultaneous: None,
                 from_modifiers: ModifierFilter::default(),
                 conditions: vec![],
                 delayed: None,

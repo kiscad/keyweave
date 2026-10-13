@@ -114,7 +114,8 @@ pub fn select_rule(
         MappingStage::Complex => &config.complex,
     };
     for (index, mapping) in mappings.iter().enumerate() {
-        if mapping.from != key
+        if mapping.extras.simultaneous.is_some()
+            || mapping.from != key
             || !mapping
                 .extras
                 .conditions
