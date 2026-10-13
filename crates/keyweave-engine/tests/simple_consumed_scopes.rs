@@ -893,3 +893,57 @@ fn snapshot_modifier_saved_complex_after_up_retains_unknown_device_identity() {
     );
     assert_eq!(actor.reserved_sources(), 0);
 }
+
+#[test]
+fn simple_delayed_invoked_and_canceled_restore_missing_snapshot_through_complex() {
+    for canceled in [false, true] {
+        let mut trigger = mapping("a", vec![]);
+        trigger.extras.delayed = Some(DelayedAction {
+            delay_ns: 50,
+            if_invoked: vec![Action {
+                hold_down_ns: 10,
+                ..key("d").into()
+            }],
+            if_canceled: vec![Action {
+                hold_down_ns: 10,
+                ..key("e").into()
+            }],
+        });
+        let mut actor = actor(config(
+            vec![trigger],
+            vec![mapping("left_shift", vec![key("x").into()])],
+        ));
+        let (shift, _) = press(&mut actor, "left_shift", 1, 100);
+        let (trigger, _) = press(&mut actor, "a", 2, 110);
+        assert_eq!(release(&mut actor, &shift, 120), [(key("x"), KeyEdge::Up)]);
+        assert!(release(&mut actor, &trigger, 125).is_empty());
+        let branch = key(if canceled { "e" } else { "d" });
+        let (other, at) = if canceled {
+            let (other, outputs) = press(&mut actor, "b", 2, 130);
+            assert_eq!(
+                outputs,
+                [(key("x"), KeyEdge::Down), (branch, KeyEdge::Down)]
+            );
+            (Some(other), 130)
+        } else {
+            assert_eq!(
+                drain(&mut actor, 160).0,
+                [(key("x"), KeyEdge::Down), (branch, KeyEdge::Down)]
+            );
+            (None, 160)
+        };
+        let (outputs, _) = drain(&mut actor, at + 10);
+        let mut expected = vec![(branch, KeyEdge::Up), (key("x"), KeyEdge::Up)];
+        if canceled {
+            expected.push((key("b"), KeyEdge::Down));
+        }
+        assert_eq!(outputs, expected);
+        if let Some(other) = other {
+            assert_eq!(
+                release(&mut actor, &other, at + 20),
+                [(key("b"), KeyEdge::Up)]
+            );
+        }
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}

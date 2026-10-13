@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0157 Simple Delayed retained parents and invoked/canceled branches",
+  "source_base_commit": "e460b8c3951076fae2fc53d3f182b2dd56c6afe5",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "f83c5edb8f369f8cf8e120c7279ba59f60a43be389459e6885fdc82d278e8e16",
+    "crates/keyweave-engine/src/simple_actor.rs": "a5c1aec40ed73efe29bc94bfe1820d70280d284c48432d4b7a29743f6a0136c7",
+    "crates/keyweave-engine/src/source_budget.rs": "03200b663a522ba462b0e305000e1e667dccf0bec591eed751151817f31104f9",
+    "crates/keyweave-engine/tests/physical_controller.rs": "b729c890da0eedc3fb551ebedd9e97b2f4359784ad53d97dea4e9a240196ce06",
+    "crates/keyweave-engine/tests/producer_decisions.rs": "dd90926a732f46aa5c2724e0466be9b3469974cb9b4606f6300e633a5f93134a",
+    "crates/keyweave-engine/tests/simple_actor.rs": "dec417d70ac70047c986025e7d5d35c6090bdef2dec4887622441de240e1847a",
+    "crates/keyweave-engine/tests/simple_consumed_scopes.rs": "cccf77518c10490d0364a72fbb507bafac6c8e8d347919d6cd4530d13484e218",
+    "crates/keyweave-engine/tests/timed_source_budget.rs": "9e5bf5daa1caa3da88a7e7263e2d1104503590912c166e7d574e612f01b0f1be"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1435,
+    "new_tests": 10,
+    "updated_tests": 2,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-simple-delayed/tests.log",
+        "sha256": "c793f474bf945755ab670bb05c4730adc43190592e32e73e2ce4244b03471022"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-simple-delayed/clippy.log",
+        "sha256": "3490b9c39ee3a47714ba136eb9789fa250ee44c00e8ee03ac6fa54216d3eacf8"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-simple-delayed/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-simple-delayed/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No new native attempt, bypass or valid capture/session."
+  },
+  "limitations": [
+    "Simple owns one checked Delayed candidate; original Up retains pending parent and physical source lease. New Down takes previous candidate once, generates old canceled branch before selecting new rule, including cancellation variable effects. Invoked generates at actual poll time and empty branch still terminates candidate.",
+    "Due downstream/generated work takes precedence; among due Simple Held/Delayed timers earlier deadline wins and equal deadlines choose Held. Candidate removal/reset preserves monotonic IDs/source. Wheel changes Alone only.",
+    "All Simple branches now use existing frozen rule/old Arc, joint child registration, snapshot differences through Complex and synthetic identity rules. Root retirement still requires actual children and scope close. Default Legacy Engine rejects Simple Held/Delayed; staged common validation accepts. No JSON Simple schema expansion.",
+    "Static source lease includes both delayed action arrays and each independent eight-standard-modifier Complex snapshot ceiling. Tests prove physical lease retained after Up and released only on actual completion.",
+    "10 new tests cover invoked after Up/reload, cancellation variable effects before new selection, cancellation FIFO/duration, empty invoked, equal and overdue timer ordering, device/reset/overflow, missing snapshot through Complex for both branches, physical diagnostics/lease/Legacy gate, static source bound. Two old invalid-schema/gate fixtures updated to current behavior while preserving malformed-variable rejection.",
+    "Simultaneous, native pointer, Windows platform/hardware and Linux graphical consumer/hot-add, caps-lock/fn expansion, GUI, packaging, driver and full objective remain incomplete."
+  ],
+  "abi": "Pure shared Rust engine logic; no unsafe/FFI/native packet layouts/dependencies."
+}

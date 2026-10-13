@@ -315,14 +315,16 @@ impl ConfigSnapshot {
         {
             return Err(EngineError::UnsupportedActionTiming);
         }
-        if self.simple.iter().any(|mapping| {
-            (!allow_action_timing && !mapping.extras.if_held_down.is_empty())
-                || mapping
-                    .extras
-                    .delayed
-                    .as_ref()
-                    .is_some_and(DelayedAction::enabled)
-        }) {
+        if !allow_action_timing
+            && self.simple.iter().any(|mapping| {
+                !mapping.extras.if_held_down.is_empty()
+                    || mapping
+                        .extras
+                        .delayed
+                        .as_ref()
+                        .is_some_and(DelayedAction::enabled)
+            })
+        {
             return Err(EngineError::InvalidMapping);
         }
         Ok(())

@@ -1402,3 +1402,42 @@ fn old_wheel_future_delivery_does_not_interrupt_new_simple_alone_candidate() {
     assert_eq!(drain(&mut actor, 220), [(key("c"), KeyEdge::Up)]);
     assert_eq!(actor.reserved_sources(), 0);
 }
+
+#[test]
+fn simple_delayed_keeps_physical_lease_after_up_and_legacy_still_rejects() {
+    let mut rule = mapping("a", vec![]);
+    rule.extras.delayed = Some(DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![key("d").into()],
+        if_canceled: vec![],
+    });
+    let cfg = config(vec![rule], vec![]);
+    assert!(matches!(
+        Engine::new(cfg.clone()),
+        Err(EngineError::InvalidMapping)
+    ));
+    let mut actor = PhysicalStageController::new(cfg).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    assert_eq!(actor.state().pending_deadlines, 1);
+    actor
+        .handle(keyboard(2, 110, dev, "a", KeyEdge::Up))
+        .unwrap();
+    assert!(drain(&mut actor, 110).is_empty());
+    assert_eq!(actor.pending_bindings(), 1);
+    assert_eq!(actor.reserved_sources(), 19);
+    assert_eq!(
+        drain(&mut actor, 150),
+        [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+    );
+    assert_eq!(actor.pending_bindings(), 0);
+    assert_eq!(actor.reserved_sources(), 0);
+    actor
+        .handle(keyboard(3, 160, dev, "x", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 160), [(key("x"), KeyEdge::Down)]);
+    actor.reset(MonoTime(160)).unwrap();
+}

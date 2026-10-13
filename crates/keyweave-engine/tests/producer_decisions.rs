@@ -425,19 +425,24 @@ fn future_foreign_same_generation_and_invalid_old_schema_are_not_selectable_prod
         ));
     }
     let mut invalid = rule("a", vec![key("b").into()]);
-    // Simple Held is now valid on the staged path; Delayed remains gated.
-    invalid.extras.delayed = Some(DelayedAction {
-        delay_ns: 50,
-        if_invoked: vec![key("c").into()],
-        if_canceled: vec![],
-    });
+    // All Simple branches are valid on the staged path; malformed variables are not.
+    invalid.to = vec![Action {
+        target: ActionTarget::SetVariable(VariableAction {
+            name: "invalid".into(),
+            operation: VariableOperation::Set {
+                value: None,
+                key_up_value: None,
+            },
+        }),
+        ..key("vk_none").into()
+    }];
     let invalid = config(vec![invalid], vec![], 0);
     assert!(matches!(
         queue.decide_producer_down(
             &down(invalid, Stage::Complex, key("a").into(), 125),
             &ContextSnapshot::default()
         ),
-        Err(GeneratedError::Engine(EngineError::InvalidMapping))
+        Err(GeneratedError::Engine(EngineError::InvalidVariable))
     ));
 }
 

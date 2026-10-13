@@ -2,7 +2,7 @@
 use crate::*;
 impl ConfigSnapshot {
     /// Reserve every possible descendant once, including retained snapshot scopes.
-    /// Includes Simple main/held/alone/after-up; Delayed remains rejected.
+    /// Includes every Simple branch, including independent snapshot differences.
     /// The result is a conservative lease, not an actual owner count or SourceToken allocator.
     pub fn timed_stage_source_bounds(&self) -> BTreeMap<KeyId, usize> {
         let weight = |actions: &[Action]| {
@@ -47,6 +47,13 @@ impl ConfigSnapshot {
                 .chain(&mapping.extras.after_key_up)
                 .chain(&mapping.extras.if_held_down)
                 .chain(&mapping.extras.if_alone)
+                .chain(
+                    mapping
+                        .extras
+                        .delayed
+                        .iter()
+                        .flat_map(|action| action.if_invoked.iter().chain(&action.if_canceled)),
+                )
                 .map(|action| {
                     let main = match action.target {
                         ActionTarget::Key(key) => complex.get(&key).copied().unwrap_or(2),
@@ -59,7 +66,12 @@ impl ConfigSnapshot {
                         .fold(main, usize::saturating_add)
                 })
                 .fold(0usize, usize::saturating_add);
-            let snapshot = if mapping.extras.if_alone.is_empty() {
+            let snapshot_branches = usize::from(!mapping.extras.if_alone.is_empty())
+                + mapping.extras.delayed.as_ref().map_or(0, |action| {
+                    usize::from(!action.if_invoked.is_empty())
+                        + usize::from(!action.if_canceled.is_empty())
+                });
+            let snapshot = if snapshot_branches == 0 {
                 0
             } else {
                 (0xe0..=0xe7)
@@ -70,6 +82,7 @@ impl ConfigSnapshot {
                             .unwrap_or(2)
                     })
                     .fold(0usize, usize::saturating_add)
+                    .saturating_mul(snapshot_branches)
             };
             let cost = 1usize.saturating_add(descendants).saturating_add(snapshot);
             let fallback = complex

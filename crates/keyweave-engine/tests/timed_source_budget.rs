@@ -110,3 +110,15 @@ fn simple_alone_reserves_each_possible_snapshot_modifier_complex_expansion() {
     let bounds = cfg(vec![simple], vec![complex]).timed_stage_source_bounds();
     assert_eq!(bounds[&key("a")], 20); // root + alone(2) + shift(3) + seven other modifiers(14)
 }
+
+#[test]
+fn simple_delayed_reserves_both_branches_with_independent_snapshot_expansions() {
+    let mut simple = mapping("a", vec![]);
+    simple.extras.delayed = Some(DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![key("d").into()],
+        if_canceled: vec![key("e").into()],
+    });
+    let bounds = cfg(vec![simple], vec![]).timed_stage_source_bounds();
+    assert_eq!(bounds[&key("a")], 37); // root + two actions(4) + two eight-modifier snapshots(32)
+}
