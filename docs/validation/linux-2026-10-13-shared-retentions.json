@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0160 shared participant binding retentions and subtree cancellation preflight",
+  "source_base_commit": "407d7a8106b823d1b047c8ff1d2198eb0f5d0e0e",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/stage_bindings.rs": "66ecb77954795cc2b34c8f07eac62259dc06a1cbea87955df0db91a40498c078",
+    "crates/keyweave-engine/src/stage_bindings/retentions.rs": "dc70b340c3db7d4651726b21134cc5afc6e07792724ca23607a1642ff01ad0ad",
+    "crates/keyweave-engine/tests/shared_retentions.rs": "d0f1230af4bbfd882ceb6ba074207fdd22fed163d450c06b65ca2ab3077709c7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1491,
+    "new_tests": 13,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-shared-retentions/tests.log",
+        "sha256": "941c8938c98589fb1681d09b763a4790b935f3aaa224837a25bb8dadb533078e"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-shared-retentions/clippy.log",
+        "sha256": "03955ffefce33901b0ef1af49f48635d541cb21b9a7d532e4c9438dc70b7c5ad"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-shared-retentions/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-shared-retentions/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection; no new native attempt, bypass or valid capture/session."
+  },
+  "limitations": [
+    "BindingArena stores bounded same-stage Reserved/Live participant retentions (32 members/group,4096 groups,16384 total refs). Exclusive prepare guard abort/drop uses no ID/ref/payload; commit returns must-use non-Clone arena-identity handle. No output/source allocation or fabricated Up.",
+    "Overlapping retentions independently block take/finish_producer/cancel until all corresponding handles released. Source units and actual payload lifecycles remain unchanged; actual saved ProducerDecision Up may commit, but finish is blocked until metadata retention ends.",
+    "cancel_subtree checks all postorder batch retentions before removing any node, preventing sibling/descendant partial deletion. Read-only blocker keys/member queries permit owning actor to identify cross-device groups before explicit output/scope/queue cleanup and retention release.",
+    "Release checks arena identity and complete reverse references before mutation; rejected release returns original handle. Same-number foreign handle cannot release victim. IDs monotonically persist after release; overflow rejects and never wraps. Dropping committed handle does not perform metadata/native cleanup.",
+    "13 new tests cover Reserved/Live, guard abort/drop, overlapping/unrelated slots, same-number foreign arena, cross-device old/new snapshots, subtree atomic preflight, malformed/mixed-stage members, exact refs/group limits, real ProducerDecision finish, committed Drop, exhausted counter and inconsistent reverse-link release rejection.",
+    "Actual Complex shared-group activation/output/branches/projections/lease/replay/repeat integration remains required. This retainer is metadata lifetime only, no OS acceptance or whole-graph rollback proof. KW-SIM/runtime gate stays; native pointer/platform/hardware/GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure shared Rust binding ownership metadata; no new unsafe/FFI/dependencies/native packet layouts."
+}

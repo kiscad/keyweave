@@ -1,8 +1,14 @@
 //! Bounded saved bindings, independent of platform output and source allocation.
+mod retentions;
 use crate::{
     MAX_BINDINGS, MAX_OUTPUT_OWNERS,
     action_plan::{ActionSlot, BatchId, PlanOrigin, PlannedAction},
     timeline::{DueEvent, Stage},
+};
+use retentions::RetentionState;
+pub use retentions::{
+    MAX_RETENTION_GROUPS, MAX_RETENTION_MEMBERS, MAX_RETENTION_REFERENCES, PreparedSharedRetention,
+    RejectedSharedRetention, RetentionKey, SharedRetention,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -55,6 +61,7 @@ pub struct CanceledBatch<T> {
 }
 /// Payloads represent executed downs only. Dropping this arena is not OS recovery.
 pub struct BindingArena<T> {
+    retentions: RetentionState,
     batches: BTreeMap<BatchId, Batch<T>>,
     reserved: usize,
     live: usize,
@@ -63,6 +70,7 @@ pub struct BindingArena<T> {
 impl<T> Default for BindingArena<T> {
     fn default() -> Self {
         Self {
+            retentions: RetentionState::default(),
             batches: BTreeMap::new(),
             reserved: 0,
             live: 0,
@@ -356,6 +364,9 @@ impl<T> BindingArena<T> {
         Ok(())
     }
     pub fn take(&mut self, slot: ActionSlot) -> Result<T, BindingError> {
+        if self.retentions.has_slot(slot) {
+            return Err(BindingError::ChildPending);
+        }
         let batch = self
             .batches
             .get_mut(&slot.batch)
@@ -391,6 +402,9 @@ impl<T> BindingArena<T> {
             .collect())
     }
     fn remove_batch(&mut self, id: BatchId) -> Result<CanceledBatch<T>, BindingError> {
+        if self.retentions.has_batch(id) {
+            return Err(BindingError::ChildPending);
+        }
         let batch = self.batches.get(&id).ok_or(BindingError::Lifecycle)?;
         if batch.children.iter().any(|children| !children.is_empty()) {
             return Err(BindingError::ChildPending);
@@ -505,6 +519,9 @@ impl<T> BindingArena<T> {
     pub fn cancel_subtree(&mut self, id: BatchId) -> Result<Vec<CanceledBatch<T>>, BindingError> {
         let mut order = Vec::new();
         self.cancellation_order(id, &mut order)?;
+        if order.iter().any(|&id| self.retentions.has_batch(id)) {
+            return Err(BindingError::ChildPending);
+        }
         // Private strict next-stage edges make depth <= 3 and each batch has one
         // parent. Preflight completes before mutation; removal cannot fail after
         // its children have been detached under this exclusive borrow.
