@@ -29,7 +29,7 @@ impl ExecutionMode {
                 Engine::new(config)?;
             }
             Self::StagedKeyboard => {
-                keyweave_engine::physical_controller::PhysicalStageController::new(config)?;
+                keyweave_engine::physical_controller::PhysicalStageController::new_with_chord_model(config)?;
             }
         }
         Ok(())
@@ -3733,5 +3733,142 @@ mod tests {
             );
             assert!(report.termination.unwrap().output_recovery_confirmed);
         }
+    }
+
+    fn chord_config(all: bool) -> Arc<ConfigSnapshot> {
+        use keyweave_engine::simultaneous::{KeyUpWhen, Simultaneous};
+        let mut cfg = (*config(1, "c")).clone();
+        let mut rule = cfg.simple.remove(0);
+        let mut group = Simultaneous::new(vec!["a".parse().unwrap(), "b".parse().unwrap()]);
+        group.threshold_ns = 50;
+        if all {
+            group.key_up_when = KeyUpWhen::All;
+        }
+        rule.extras.simultaneous = Some(group);
+        cfg.complex.push(rule);
+        Arc::new(cfg)
+    }
+    #[test]
+    fn staged_chord_cross_device_all_up_keeps_kernel_repeat_without_extra_packets() {
+        let (mut runtime, trace) = make_staged(
+            vec![
+                vec![frame(30, 1), frame(30, 2), frame(30, 0)],
+                vec![frame(48, 1), frame(48, 2), frame(48, 0)],
+            ],
+            chord_config(true),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        assert!(native_edges(&trace).is_empty());
+        runtime.poll(MonoTime(110)).unwrap();
+        assert_eq!(native_edges(&trace), [(46, 1)]);
+        runtime.poll(MonoTime(115)).unwrap();
+        runtime.poll(MonoTime(116)).unwrap();
+        assert_eq!(native_edges(&trace), [(46, 1)]);
+        runtime.poll(MonoTime(120)).unwrap();
+        assert!(!runtime.submitted().is_empty());
+        runtime.poll(MonoTime(130)).unwrap();
+        assert_eq!(native_edges(&trace), [(46, 1), (46, 0)]);
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.engine_state().pending_bindings, 0);
+    }
+    #[test]
+    fn staged_chord_timeout_is_inclusive_and_replays_to_actual_output_pump() {
+        let (mut runtime, trace) = make_staged(vec![vec![frame(30, 1)]], chord_config(false));
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(150)).unwrap();
+        assert!(native_edges(&trace).is_empty());
+        runtime.poll(MonoTime(151)).unwrap();
+        assert_eq!(native_edges(&trace), [(30, 1)]);
+        runtime.pause(MonoTime(160)).unwrap();
+        runtime.poll(MonoTime(160)).unwrap();
+        assert_eq!(native_edges(&trace), [(30, 1), (30, 0)]);
+    }
+    #[test]
+    fn staged_chord_reload_retains_old_group_and_after_up_output_capabilities() {
+        let mut cfg = (*chord_config(false)).clone();
+        cfg.complex[0]
+            .extras
+            .simultaneous
+            .as_mut()
+            .unwrap()
+            .after_key_up = vec!["d".parse::<KeyId>().unwrap().into()];
+        let (mut runtime, trace) = make_staged(
+            vec![vec![frame(30, 1), frame(48, 1), frame(30, 0), frame(48, 0)]],
+            Arc::new(cfg),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.activate(config(2, "e")).unwrap();
+        runtime.poll(MonoTime(120)).unwrap();
+        assert_eq!(native_edges(&trace), [(46, 1), (46, 0)]);
+        runtime.poll(MonoTime(130)).unwrap();
+        assert_eq!(native_edges(&trace), [(46, 1), (46, 0), (32, 1), (32, 0)]);
+        assert!(runtime.submitted().is_empty());
+    }
+    #[test]
+    fn staged_chord_preflight_checks_full_group_after_up_and_legacy_stays_strict() {
+        let (_, backend, _) = resources(vec![vec![]]);
+        assert!(preflight_staged_config(chord_config(false), &backend.spec).is_ok());
+        assert!(
+            ExecutionMode::Legacy
+                .validate_snapshot(chord_config(false))
+                .is_err()
+        );
+        assert!(
+            ExecutionMode::StagedKeyboard
+                .validate_snapshot(chord_config(false))
+                .is_ok()
+        );
+        let mut cfg = (*chord_config(false)).clone();
+        cfg.complex[0]
+            .extras
+            .simultaneous
+            .as_mut()
+            .unwrap()
+            .after_key_up = vec!["button1".parse::<KeyId>().unwrap().into()];
+        assert!(preflight_staged_config(Arc::new(cfg), &backend.spec).is_err());
+    }
+
+    #[test]
+    fn staged_chord_member_removal_closes_capture_before_release_and_skips_after_up() {
+        let mut cfg = (*chord_config(false)).clone();
+        cfg.complex[0]
+            .extras
+            .simultaneous
+            .as_mut()
+            .unwrap()
+            .after_key_up = vec!["d".parse::<KeyId>().unwrap().into()];
+        let (mut runtime, trace) = make_staged(
+            vec![vec![frame(30, 1), frame(30, 0)], vec![frame(48, 1)]],
+            Arc::new(cfg),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        let before = trace.borrow().len();
+        runtime
+            .remove_device(
+                DeviceInstanceId {
+                    id: 2,
+                    generation: 1,
+                },
+                MonoTime(115),
+            )
+            .unwrap();
+        assert_eq!(trace.borrow()[before], Call::InputClose(2));
+        runtime.poll(MonoTime(120)).unwrap();
+        assert_eq!(native_edges(&trace), [(46, 1), (46, 0)]);
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.engine_state().pending_bindings, 0);
+        assert_eq!(runtime.phase(), RuntimePhase::Active);
+    }
+    #[test]
+    fn staged_chord_window_stop_never_emits_a_fabricated_up() {
+        let (mut runtime, trace) = make_staged(vec![vec![frame(30, 1)]], chord_config(false));
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.pause(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        assert!(native_edges(&trace).is_empty());
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
     }
 }

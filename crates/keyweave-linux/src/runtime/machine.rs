@@ -29,7 +29,7 @@ impl Machine {
         config: Arc<ConfigSnapshot>,
         devices: &[DeviceInstanceId],
     ) -> Result<Self, RuntimeError> {
-        let mut controller = PhysicalStageController::new(config)?;
+        let mut controller = PhysicalStageController::new_with_chord_model(config)?;
         for &device in devices {
             controller.observe_device(device, false, MonoTime(0))?;
         }

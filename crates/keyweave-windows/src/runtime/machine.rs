@@ -42,7 +42,7 @@ impl Machine {
 
     pub(super) fn staged(config: Arc<ConfigSnapshot>) -> Result<Self, RuntimeError> {
         validate(&config)?;
-        let mut controller = PhysicalStageController::new(config)?;
+        let mut controller = PhysicalStageController::new_with_chord_model(config)?;
         controller.observe_device(STREAM, false, MonoTime(0))?;
         Ok(Self::Staged(Box::new(controller)))
     }

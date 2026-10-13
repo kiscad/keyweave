@@ -1279,3 +1279,155 @@ fn staged_context_revision_validation_includes_unprocessed_queued_snapshot() {
     actor.stop_after_unhook().unwrap();
     assert_eq!(actor.queued_inputs(), 0);
 }
+
+fn chord_config(all: bool) -> Arc<ConfigSnapshot> {
+    use keyweave_engine::simultaneous::{KeyUpWhen, Simultaneous};
+    let mut rule = mapping(4, 6);
+    let mut group = Simultaneous::new(vec![key(4), key(5)]);
+    group.threshold_ns = 50;
+    if all {
+        group.key_up_when = KeyUpWhen::All;
+    }
+    rule.extras.simultaneous = Some(group);
+    Arc::new(ConfigSnapshot {
+        generation: ConfigGeneration(1),
+        name: "session chord".into(),
+        simple: vec![],
+        complex: vec![rule],
+    })
+}
+#[test]
+fn staged_chord_capture_repeat_and_all_up_use_actual_accepted_leaf() {
+    let (mut actor, calls) = staged_actor(chord_config(true), vec![]);
+    assert_eq!(
+        actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap(),
+        CaptureDecision::Capture
+    );
+    assert!(packet_edges(&calls).is_empty());
+    actor.key(event(4, KeyEdge::Repeat), MonoTime(105)).unwrap();
+    assert!(packet_edges(&calls).is_empty());
+    actor.key(event(5, KeyEdge::Down), MonoTime(110)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x2e, 8)]);
+    actor.key(event(5, KeyEdge::Repeat), MonoTime(115)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x2e, 8), (0x2e, 8)]);
+    actor.key(event(4, KeyEdge::Up), MonoTime(120)).unwrap();
+    assert_eq!(
+        actor
+            .output()
+            .ledger()
+            .submitted()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![key(6)]
+    );
+    actor.key(event(5, KeyEdge::Up), MonoTime(130)).unwrap();
+    assert_eq!(packet_edges(&calls).last(), Some(&(0x2e, 10)));
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert_eq!(actor.seq, 6);
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_chord_timeout_and_window_stop_use_actual_sent_ownership() {
+    let (mut actor, calls) = staged_actor(chord_config(false), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.tick(MonoTime(150)).unwrap();
+    assert!(packet_edges(&calls).is_empty());
+    actor.tick(MonoTime(151)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x1e, 8)]);
+    actor.key(event(4, KeyEdge::Up), MonoTime(160)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x1e, 8), (0x1e, 10)]);
+    actor.stop_after_unhook().unwrap();
+    let (mut actor, calls) = staged_actor(chord_config(false), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(actor.phase(), ActorPhase::Stopped);
+    assert!(packet_edges(&calls).is_empty());
+}
+#[test]
+fn staged_chord_reload_retains_old_group_and_after_up_snapshot() {
+    let mut cfg = (*chord_config(false)).clone();
+    cfg.complex[0]
+        .extras
+        .simultaneous
+        .as_mut()
+        .unwrap()
+        .after_key_up = vec![key(7).into()];
+    let (mut actor, calls) = staged_actor(Arc::new(cfg), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(5, KeyEdge::Down), MonoTime(110)).unwrap();
+    actor.activate(config(2, vec![])).unwrap();
+    actor.key(event(4, KeyEdge::Up), MonoTime(120)).unwrap();
+    assert_eq!(packet_edges(&calls), [(0x2e, 8), (0x2e, 10)]);
+    actor.key(event(5, KeyEdge::Up), MonoTime(130)).unwrap();
+    assert_eq!(
+        packet_edges(&calls),
+        [(0x2e, 8), (0x2e, 10), (0x20, 8), (0x20, 10)]
+    );
+    assert!(actor.output().ledger().submitted().is_empty());
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_chord_cold_preflight_keeps_legacy_and_windows_capability_gates() {
+    assert!(preflight_staged_config(chord_config(false)).is_ok());
+    assert!(preflight_config(chord_config(false)).is_err());
+    let mut cfg = (*chord_config(false)).clone();
+    cfg.complex[0]
+        .extras
+        .simultaneous
+        .as_mut()
+        .unwrap()
+        .after_key_up = vec!["button1".parse::<KeyId>().unwrap().into()];
+    assert!(preflight_staged_config(Arc::new(cfg)).is_err());
+    let mut cfg = (*chord_config(false)).clone();
+    cfg.simple = cfg.complex.clone();
+    cfg.complex.clear();
+    assert!(preflight_staged_config(Arc::new(cfg)).is_err());
+}
+#[test]
+fn staged_chord_zero_acceptance_prevents_repeat_and_future_group_after_up() {
+    let mut cfg = (*chord_config(false)).clone();
+    cfg.complex[0]
+        .extras
+        .simultaneous
+        .as_mut()
+        .unwrap()
+        .after_key_up = vec![key(7).into()];
+    let (mut actor, calls) = staged_actor(
+        Arc::new(cfg),
+        vec![Ok(Insertion {
+            accepted: 0,
+            last_error: Some(5),
+        })],
+    );
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    assert!(matches!(
+        actor.key(event(5, KeyEdge::Down), MonoTime(110)),
+        Err(RuntimeError::Incomplete)
+    ));
+    assert_eq!(actor.phase(), ActorPhase::StopRequired);
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert!(matches!(
+        actor.key(event(5, KeyEdge::Repeat), MonoTime(115)),
+        Err(RuntimeError::NotActive)
+    ));
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packet_edges(&calls), [(0x2e, 8)]);
+}
+#[test]
+fn staged_chord_stop_releases_accepted_main_without_firing_after_up() {
+    let mut cfg = (*chord_config(false)).clone();
+    cfg.complex[0]
+        .extras
+        .simultaneous
+        .as_mut()
+        .unwrap()
+        .after_key_up = vec![key(7).into()];
+    let (mut actor, calls) = staged_actor(Arc::new(cfg), vec![]);
+    actor.key(event(4, KeyEdge::Down), MonoTime(100)).unwrap();
+    actor.key(event(5, KeyEdge::Down), MonoTime(110)).unwrap();
+    actor.stop_after_unhook().unwrap();
+    assert_eq!(packet_edges(&calls), [(0x2e, 8), (0x2e, 10)]);
+    assert!(actor.output().ledger().submitted().is_empty());
+    assert_eq!(actor.next_wakeup(), None);
+}

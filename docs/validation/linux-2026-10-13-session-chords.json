@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0172 Linux and Windows staged session chord execution using the existing pumps",
+  "source_base_commit": "dfee163c691cdc65eb567a105447a68c65a4eafc",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/runtime.rs": "078dd1ed694440047a9fc4867a2cca0047afe88c315002c03959c8e94f4074ea",
+    "crates/keyweave-linux/src/runtime/machine.rs": "7f8b3b6f291d55816ca050cebc501b1b863c8a4ae59563b735ba34ff5da44916",
+    "crates/keyweave-windows/src/runtime/machine.rs": "69e455dc3443ba550794985ef55dbe7f683b5707f16eeefd0784851cdba9836f",
+    "crates/keyweave-windows/src/runtime/tests.rs": "c46b22bf39bfdee1068a6265d4232177fb96409754e7df758b2206d00015c1a7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1600,
+    "new_tests": 12,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-session-chords/tests.log",
+        "sha256": "f7eeeb4f44b0e349604a367ebc781f7683546eb7b9b22c8c34cb494408e813ce"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-session-chords/clippy.log",
+        "sha256": "26b681acf58107961def34004c0ddf4529f3b6f9c1fede75948b7a4928d98deb"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-session-chords/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261013-session-chords/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Linux fixture initially called a nonexistent request_stop method; corrected it to the existing pause(now) API. Focused and full checks subsequently passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Portable Windows actor tests ran on Linux; native MSVC/SDK verification remains pending after prior automatic approval quota rejection, without retry or bypass."
+  },
+  "limitations": [
+    "Only explicit StagedKeyboard factories admit Complex simultaneous snapshots; Legacy remains strict and compiler KW-SIM-001 still prevents user-config native activation.",
+    "Linux tests use captured-device/frame mocks; Windows tests use HookEvent/SendBackend mocks. No real capture or OS output calls.",
+    "Windows merged input stream has no per-device identities, rejects Device conditions, and repeats only saved accepted desired leaves. Linux uses kernel repeat.",
+    "Native pointer, hardware, graphical Linux providers, GUI/packaging and driver acceptance remain pending."
+  ]
+}
