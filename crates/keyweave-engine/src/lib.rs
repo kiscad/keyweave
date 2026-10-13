@@ -314,13 +314,41 @@ impl ConfigSnapshot {
         Ok(names)
     }
     fn validate_timed_stages(&self, allow_action_timing: bool) -> Result<(), EngineError> {
-        if self
-            .simple
-            .iter()
-            .chain(&self.complex)
-            .any(|mapping| mapping.extras.simultaneous.is_some())
+        self.validate_stage_metadata(allow_action_timing, false)
+    }
+    fn validate_output_metadata(&self) -> Result<(), EngineError> {
+        self.validate_stage_metadata(true, true)
+    }
+    fn validate_destination(&self, stage: timeline::Stage) -> Result<(), EngineError> {
+        if stage == timeline::Stage::Output {
+            self.validate_output_metadata()
+        } else {
+            self.validate_timed_stages(true)
+        }
+    }
+    fn validate_stage_metadata(
+        &self,
+        allow_action_timing: bool,
+        output_only: bool,
+    ) -> Result<(), EngineError> {
+        if !output_only
+            && self
+                .simple
+                .iter()
+                .chain(&self.complex)
+                .any(|mapping| mapping.extras.simultaneous.is_some())
         {
             return Err(EngineError::UnsupportedSimultaneous);
+        }
+        if output_only
+            && self
+                .simple
+                .iter()
+                .chain(&self.complex)
+                .filter_map(|mapping| mapping.extras.simultaneous.as_ref())
+                .any(|spec| spec.validate().is_err())
+        {
+            return Err(EngineError::InvalidMapping);
         }
         if !allow_action_timing
             && self
@@ -616,11 +644,16 @@ impl Engine {
     pub fn new(config: Arc<ConfigSnapshot>) -> Result<Self, EngineError> {
         Self::new_inner(config, false)
     }
+    /// `true` is the private Terminal output-model path; public input Engine uses `false`.
     fn new_inner(
         config: Arc<ConfigSnapshot>,
         allow_action_timing: bool,
     ) -> Result<Self, EngineError> {
-        config.validate_timed_stages(allow_action_timing)?;
+        if allow_action_timing {
+            config.validate_output_metadata()?;
+        } else {
+            config.validate_timed_stages(false)?;
+        }
         let variables = config
             .variable_names()?
             .into_iter()
@@ -731,7 +764,11 @@ impl Engine {
         if config.generation <= self.config.generation {
             return Err(EngineError::InvalidGeneration);
         }
-        config.validate_timed_stages(allow_action_timing)?;
+        if allow_action_timing {
+            config.validate_output_metadata()?;
+        } else {
+            config.validate_timed_stages(false)?;
+        }
         let names = config.variable_names()?;
         if self
             .variables

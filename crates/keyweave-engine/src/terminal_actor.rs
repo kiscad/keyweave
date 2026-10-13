@@ -392,7 +392,7 @@ impl TerminalActor {
             {
                 return Err(ActorError::InvalidSnapshot);
             }
-            plan.origin.config.validate_timed_stages(true)?;
+            plan.origin.config.validate_output_metadata()?;
             plan.origin.config.variable_names()?;
         } else if !Arc::ptr_eq(&plan.origin.config, &self.core.config) {
             return Err(ActorError::InvalidSnapshot);

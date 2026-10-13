@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0162 complete chord snapshot metadata through actual Output model flow",
+  "source_base_commit": "c6b487672eef2ca010aac317fd7c62fdbc6e8348",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "d0580d78e67c79e93ad68eb1fbd763bfd28743ea5699b87ce41d1988e4a6c14a",
+    "crates/keyweave-engine/src/generated_stage.rs": "59160792e5e331325dbf1e2b9f4bca0e892bd7d57925c1a5358bf3973e0bc9f8",
+    "crates/keyweave-engine/src/terminal_actor.rs": "22270ffdb89297cc558aed578ae85a343b5b7a9870664b580933c0fdc77248de",
+    "crates/keyweave-engine/src/complex_actor.rs": "5f514fa34550efeeeb041589a12dfd66de3386e17fa9e7377244e5cec88ebabf",
+    "crates/keyweave-engine/tests/chord_output_flow.rs": "07641f18f7d655dedcc883afc2217a4e63e124547d4e297a8b5d8a1cc8e7a4c8"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1507,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-chord-output-flow/tests.log",
+        "sha256": "0bb4c63ab0ed4ead18dfb4f616f7bc3175496180beeeffa52cf5b1178a83b960"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-chord-output-flow/clippy.log",
+        "sha256": "5f15b4231289d340d2dc5177e6df0c2b50ca7844a522191705f9792df218b03b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-chord-output-flow/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-chord-output-flow/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New test initially omitted TerminalActor module import; added explicit import, final focused/full workspace passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No new native attempt/bypass or real capture/session."
+  },
+  "limitations": [
+    "Output/Terminal private model validates full simultaneous definition metadata without dropping definitions or changing Arc. Legacy input Engine, Complex/Simple input actors, Physical controller and non-Output generated queue retain strict UnsupportedSimultaneous gate. Config remains disabled KW-SIM-001 and normal selector skips chord.",
+    "Private Engine allow_action_timing=true is the Terminal output-model path, now permits bounded chord metadata; public input Engine false remains strict. Destination-specific constructor, old-plan and activation validation consistently apply same boundary.",
+    "Tests pass actual ChordArbiter Matched selection/original receipts through shared Down+Output guard and execute actual Output actor. ActiveChord any/all facts drive saved input_up; participants remain retained until all physical Up and actual completion. Timed array survives early any Up, full old Arc survives destination reload, and output equal to chord member executes leaf without recursive input selection.",
+    "Malformed chord metadata rejected even by output model. Six tests cover real interface flow and admission boundary, not production Complex group actor or native/OS acceptance.",
+    "Unified actual group actor still needs empty main/branches/projections/group-after-up/condition identity/device/reset/scope/lease/replay/repeat integration. Runtime gates remain. Native pointer/platform/hardware/GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure shared Rust metadata role and actual Output integration tests; no new unsafe/FFI/dependencies/native packet layout changes."
+}

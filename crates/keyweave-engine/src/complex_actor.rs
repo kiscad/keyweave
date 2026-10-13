@@ -136,6 +136,9 @@ impl ComplexStageActor {
         config: Arc<ConfigSnapshot>,
         max_source_end: u64,
     ) -> Result<Self, ComplexActorError> {
+        config
+            .validate_timed_stages(true)
+            .map_err(GeneratedError::from)?;
         Ok(Self {
             output: OutputStageActor::new_with_source_limit(config, max_source_end)?,
             producers: BindingArena::default(),

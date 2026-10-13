@@ -428,7 +428,7 @@ pub struct GeneratedStageQueue {
 }
 impl GeneratedStageQueue {
     pub fn new(stage: Stage, config: Arc<ConfigSnapshot>) -> Result<Self, GeneratedError> {
-        config.validate_timed_stages(true)?;
+        config.validate_destination(stage)?;
         let variables = config
             .variable_names()?
             .into_iter()
@@ -614,7 +614,7 @@ impl GeneratedStageQueue {
             }
             // Current Arc was validated at construction/activation. Caller-supplied
             // old snapshots still need schema validation before immutable selection.
-            event.config.validate_timed_stages(true)?;
+            event.config.validate_destination(self.environment.stage)?;
             event.config.variable_names()?;
         }
         let selection = match event.payload.target {
@@ -771,7 +771,10 @@ impl GeneratedStageQueue {
             {
                 return Err(GeneratedError::Provenance);
             }
-            actions.origin.config.validate_timed_stages(true)?;
+            actions
+                .origin
+                .config
+                .validate_destination(self.environment.stage)?;
             actions.origin.config.variable_names()?;
         } else if !Arc::ptr_eq(&actions.origin.config, &self.environment.config) {
             return Err(GeneratedError::Provenance);
@@ -1098,7 +1101,7 @@ impl GeneratedStageQueue {
         if config.generation <= self.environment.config.generation {
             return Err(EngineError::InvalidGeneration.into());
         }
-        config.validate_timed_stages(true)?;
+        config.validate_destination(self.environment.stage)?;
         let names = config.variable_names()?;
         if self
             .environment
