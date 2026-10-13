@@ -134,3 +134,53 @@ fn worker_builder_preserves_non_unicode_path_units() {
     .unwrap();
     assert_eq!(extra[1], path.as_os_str());
 }
+#[test]
+fn staged_windows_preparation_retains_exact_timed_bytes_and_default_gate() {
+    let timed = br#"// original bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"timed","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":50},{"key_code":"c"}]}]}]}}]}"#;
+    let prepared =
+        PreparedConfig::read_with_mode(timed.as_slice(), ExecutionMode::StagedKeyboard).unwrap();
+    assert_eq!(prepared.execution_mode(), ExecutionMode::StagedKeyboard);
+    assert_eq!(prepared.bytes(), timed);
+    assert_eq!(
+        prepared.snapshot().complex[0].to[0].hold_down_ns,
+        50_000_000
+    );
+    assert!(matches!(
+        PreparedConfig::read(timed.as_slice()),
+        Err(PreparationError::Runtime(RuntimeError::Engine(
+            keyweave_engine::EngineError::UnsupportedActionTiming
+        )))
+    ));
+}
+#[test]
+fn staged_worker_builder_binds_mode_before_config_handle_and_rejects_bad_modes_or_duplicates() {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("unused config with spaces.json");
+    let extra = worker_arguments_with_mode(
+        &path,
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+        ExecutionMode::StagedKeyboard,
+    )
+    .unwrap();
+    let mut args = vec![crate::WORKER_ARGUMENT.into(), "42".into(), "57".into()];
+    args.extend(extra);
+    let parsed = Arguments::parse(args.clone()).unwrap();
+    assert_eq!(parsed.execution_mode, ExecutionMode::StagedKeyboard);
+    assert_eq!(parsed.config, path);
+    args.extend(["--keyweave-config-handle".into(), "512".into()]);
+    assert_eq!(
+        Arguments::parse(args.clone()).unwrap().config_handle,
+        Some(512)
+    );
+    let mut unknown = args.clone();
+    unknown[10] = "auto".into();
+    assert!(Arguments::parse(unknown).is_err());
+    let mut reordered = args.clone();
+    reordered.swap(9, 11);
+    assert!(Arguments::parse(reordered).is_err());
+    args.extend(["--execution-mode".into(), "legacy".into()]);
+    assert!(Arguments::parse(args).is_err());
+}

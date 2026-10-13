@@ -14,6 +14,7 @@ pub enum Target {
     Linux(keyweave_linux::output::DeviceSpec),
     LinuxStaged(keyweave_linux::output::DeviceSpec),
     Windows,
+    WindowsStaged,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Platform {
@@ -24,6 +25,7 @@ struct Candidate {
     platform: Platform,
     snapshot: Arc<ConfigSnapshot>,
     linux_mode: Option<keyweave_linux::runtime::ExecutionMode>,
+    windows_mode: Option<keyweave_windows::runtime::ExecutionMode>,
 }
 struct Completion {
     request: Request,
@@ -104,6 +106,7 @@ impl PreparationSlot {
                         platform: Platform::Linux,
                         snapshot: p.snapshot().clone(),
                         linux_mode: Some(p.execution_mode()),
+                        windows_mode: None,
                     }),
                     Target::LinuxStaged(spec) => {
                         linux::PreparedConfig::from_bytes_for_generation_with_mode(
@@ -117,6 +120,21 @@ impl PreparationSlot {
                             platform: Platform::Linux,
                             snapshot: p.snapshot().clone(),
                             linux_mode: Some(p.execution_mode()),
+                            windows_mode: None,
+                        })
+                    }
+                    Target::WindowsStaged => {
+                        windows::PreparedConfig::from_bytes_for_generation_with_mode(
+                            received.body,
+                            request.target,
+                            keyweave_windows::runtime::ExecutionMode::StagedKeyboard,
+                        )
+                        .ok()
+                        .map(|p| Candidate {
+                            platform: Platform::Windows,
+                            snapshot: p.snapshot().clone(),
+                            linux_mode: None,
+                            windows_mode: Some(p.execution_mode()),
                         })
                     }
                     Target::Windows => windows::PreparedConfig::from_bytes_for_generation(
@@ -128,6 +146,7 @@ impl PreparationSlot {
                         platform: Platform::Windows,
                         snapshot: p.snapshot().clone(),
                         linux_mode: None,
+                        windows_mode: Some(p.execution_mode()),
                     }),
                 };
                 // Exact bytes and cold diagnostics are dropped here, not on the
@@ -201,6 +220,9 @@ impl PreparationSlot {
                 && candidate
                     .linux_mode
                     .is_none_or(|mode| actor.supports_linux_mode(mode))
+                && candidate
+                    .windows_mode
+                    .is_none_or(|mode| actor.supports_windows_mode(mode))
                 && actor.apply(candidate.snapshot)
         });
         let outcome = if accepted {
@@ -225,6 +247,9 @@ mod sealed {
         fn supports(&self, linux: bool) -> bool;
         fn supports_linux_mode(&self, mode: keyweave_linux::runtime::ExecutionMode) -> bool {
             mode == keyweave_linux::runtime::ExecutionMode::Legacy
+        }
+        fn supports_windows_mode(&self, mode: keyweave_windows::runtime::ExecutionMode) -> bool {
+            mode == keyweave_windows::runtime::ExecutionMode::Legacy
         }
         fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool;
     }
@@ -271,6 +296,9 @@ impl<B: keyweave_windows::pump::SendBackend> sealed::Actor
     }
     fn supports(&self, linux: bool) -> bool {
         !linux
+    }
+    fn supports_windows_mode(&self, mode: keyweave_windows::runtime::ExecutionMode) -> bool {
+        mode == self.execution_mode()
     }
     fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool {
         self.activate(snapshot).is_ok()

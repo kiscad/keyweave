@@ -11,6 +11,11 @@ use keyweave_types::*;
 use machine::Machine;
 use staged::PendingInput;
 use std::{cell::RefCell, collections::VecDeque, rc::Rc, sync::Arc};
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Legacy,
+    StagedKeyboard,
+}
 pub const MAX_WORK: usize = 64;
 pub const MAX_RECOVERY: usize = 8;
 pub const MAX_PENDING_INPUTS: usize = 128;
@@ -143,6 +148,9 @@ impl<B: SendBackend> SessionActor<B> {
             failure: None,
             pending_inputs: VecDeque::new(),
         })
+    }
+    pub fn execution_mode(&self) -> ExecutionMode {
+        self.engine.execution_mode()
     }
     pub fn phase(&self) -> ActorPhase {
         self.phase

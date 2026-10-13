@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0152 Windows immutable mode cold preparation, strict argv and reload candidate contract",
+  "source_base_commit": "385afb8bb5683fa5d6a27201d972cfbe9cb55995",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/runtime.rs": "eaf30031adc00f7f4ae89078c5ebf10cb4bc3fd8e8193f936aaaf49ef1cf22a2",
+    "crates/keyweave-windows/src/runtime/machine.rs": "c933a4f4a52b9db37e84420c9c8694d40377b4fc51c61d63b11467ed1b811430",
+    "crates/keyweave-worker/src/preparation.rs": "43fc1020806f95ec709aec95853bb4671d783f08c792f2c454903c1e391daa30",
+    "crates/keyweave-worker/src/preparation/tests.rs": "637009c57deae1e35fd8a25e35eaba968162d5842d33b0be02d0c1bd103a0cb0",
+    "crates/keyweave-worker/src/lib.rs": "63236cbb9574d5115717de781b413a038d69a7dddbf218632a24d963c99d0eb1",
+    "crates/keyweave-worker/src/main.rs": "ef8142c3d545078cae02f720231cb5934c91afc46d7dd04bbc2f03c731d561e4",
+    "crates/keyweave-worker/src/reload_preparation.rs": "7b4a1aefabf95c7bdbbe5a4c04bcb621cd32547539de46213c6b814460f5bafb",
+    "crates/keyweave-worker/tests/reload_preparation.rs": "928abe98b3d8d0994dee02e768a4ea3b68bb38065da35ef45fb42894592acfe8"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1387,
+    "new_tests": 4,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-windows-mode-preparation/tests.log",
+        "sha256": "5994ae51ecf6f6b8cc3944a38a3b22420dfa8a2335b3796f49099edb2b71b14e"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-windows-mode-preparation/clippy.log",
+        "sha256": "b91624b852ab05829a047d1afff67a78866d303f018ca9c6ad2fcba6066c2c34"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-windows-mode-preparation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-windows-mode-preparation/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "New test fixture duplicated existing NoOutput backend declaration/impl. Removed duplicate and reused existing no-output fixture; final workspace/Clippy passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native x64/i686 compilation/capture remains pending after earlier auto-review quota rejection; no native attempt or bypass. Windows-only staged entry rejects before backend/capture while factory handoff remains incomplete."
+  },
+  "limitations": [
+    "Windows PreparedConfig now retains exact bytes/snapshot/ExecutionMode with default Legacy and explicit staged preflight. Debug exposes mode metadata only. Existing Windows output scan/device condition/preparation callback constraints remain.",
+    "Strict worker Arguments parser accepts default old 9/11 lengths plus staged 11/13 lengths; optional mode pair follows identity and precedes inherited config-handle suffix. New builder retains OS path units and fixed args, rejects unknown/reordered/duplicate forms.",
+    "SessionActor reports its immutable execution mode. WindowsStaged preparation candidate retains mode, sealed actor requires exact platform/mode before apply. Tests exercise actual shared SessionActor: staged candidate accepted only on staged actor, Legacy candidate rejected on staged actor without generation change; no output calls.",
+    "Windows-only native execute explicitly refuses non-Legacy mode before backend/capture until native factory/worker handoff is implemented. This code is not Windows platform-compiled this phase; no claim of native staged reachability. Existing Linux host/worker path remains unchanged.",
+    "Default Windows preparation/native timing gate retained. Native Windows mode handoff/platform checks, native pointer, Simple advanced branches/simultaneous/hardware/GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure Rust mode/argv/candidate metadata; no unsafe/FFI/dependency/native packet layout changes."
+}

@@ -263,3 +263,66 @@ fn staged_linux_candidate_cannot_apply_to_legacy_engine_even_when_ir_is_legacy_c
     assert_eq!(actor.config_generation(), ConfigGeneration(1));
     assert_eq!(rx.active(), ConfigGeneration(1));
 }
+#[test]
+fn windows_staged_candidate_applies_only_to_same_fixed_session_mode() {
+    for staged in [false, true] {
+        let snapshot = windows::PreparedConfig::from_bytes(BODY.to_vec())
+            .unwrap()
+            .snapshot()
+            .clone();
+        let tag = keyweave_windows::keys::InjectionTag::new(1).unwrap();
+        let mut actor = if staged {
+            keyweave_windows::runtime::SessionActor::new_staged(NoOutput, tag, snapshot).unwrap()
+        } else {
+            keyweave_windows::runtime::SessionActor::new(NoOutput, tag, snapshot).unwrap()
+        };
+        let mut rx = receiver(BODY);
+        let mut slot = PreparationSlot::new();
+        slot.start(rx.take().unwrap(), Target::WindowsStaged)
+            .unwrap();
+        assert_eq!(wait(&mut slot), PreparationStep::Ready);
+        let ack = slot.deliver(&mut rx, &mut actor).unwrap();
+        assert_eq!(
+            ack.outcome,
+            if staged {
+                Outcome::Accepted
+            } else {
+                Outcome::Rejected
+            }
+        );
+        assert_eq!(
+            actor.config_generation(),
+            ConfigGeneration(if staged { 2 } else { 1 })
+        );
+        assert_eq!(
+            actor.execution_mode(),
+            if staged {
+                keyweave_windows::runtime::ExecutionMode::StagedKeyboard
+            } else {
+                keyweave_windows::runtime::ExecutionMode::Legacy
+            }
+        );
+    }
+}
+#[test]
+fn windows_legacy_candidate_cannot_switch_staged_actor_mode() {
+    let snapshot = windows::PreparedConfig::from_bytes(BODY.to_vec())
+        .unwrap()
+        .snapshot()
+        .clone();
+    let mut actor = keyweave_windows::runtime::SessionActor::new_staged(
+        NoOutput,
+        keyweave_windows::keys::InjectionTag::new(1).unwrap(),
+        snapshot,
+    )
+    .unwrap();
+    let mut rx = receiver(BODY);
+    let mut slot = PreparationSlot::new();
+    slot.start(rx.take().unwrap(), Target::Windows).unwrap();
+    assert_eq!(wait(&mut slot), PreparationStep::Ready);
+    assert_eq!(
+        slot.deliver(&mut rx, &mut actor).unwrap().outcome,
+        Outcome::Rejected
+    );
+    assert_eq!(actor.config_generation(), ConfigGeneration(1));
+}

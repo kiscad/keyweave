@@ -5,9 +5,10 @@ use crate::{
 };
 use keyweave_engine::ConfigSnapshot;
 use keyweave_types::{BackendCapabilities, ConfigGeneration};
+pub use keyweave_windows::runtime::ExecutionMode;
 use keyweave_windows::{
     keys::{IdentityPolicy, InjectionTag},
-    runtime::{RuntimeError, preflight_config},
+    runtime::{RuntimeError, preflight_config, preflight_staged_config},
 };
 use std::{ffi::OsString, io::Read, path::Path, sync::Arc};
 #[derive(Debug, thiserror::Error)]
@@ -20,12 +21,14 @@ pub enum PreparationError {
 pub struct PreparedConfig {
     bytes: Box<[u8]>,
     snapshot: Arc<ConfigSnapshot>,
+    mode: ExecutionMode,
 }
 impl std::fmt::Debug for PreparedConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PreparedConfig")
             .field("byte_length", &self.bytes.len())
             .field("generation", &self.snapshot.generation)
+            .field("execution_mode", &self.mode)
             .finish_non_exhaustive()
     }
 }
@@ -59,16 +62,41 @@ impl PreparedConfig {
         bytes: Vec<u8>,
         generation: ConfigGeneration,
     ) -> Result<Self, PreparationError> {
+        Self::from_bytes_for_generation_with_mode(bytes, generation, ExecutionMode::Legacy)
+    }
+    pub fn read_with_mode(
+        reader: impl Read,
+        mode: ExecutionMode,
+    ) -> Result<Self, PreparationError> {
+        Self::from_bytes_for_generation_with_mode(
+            read_config_bytes(reader)?,
+            ConfigGeneration(1),
+            mode,
+        )
+    }
+    pub fn from_bytes_for_generation_with_mode(
+        bytes: Vec<u8>,
+        generation: ConfigGeneration,
+        mode: ExecutionMode,
+    ) -> Result<Self, PreparationError> {
         let snapshot = compile_config_bytes_for_generation(
             &bytes,
             &BackendCapabilities::windows_hook(),
             generation,
         )?;
-        preflight_config(snapshot.clone())?;
+        match mode {
+            ExecutionMode::Legacy => preflight_config(snapshot.clone())?,
+            ExecutionMode::StagedKeyboard => preflight_staged_config(snapshot.clone())?,
+        }
+
         Ok(Self {
             bytes: bytes.into_boxed_slice(),
             snapshot,
+            mode,
         })
+    }
+    pub fn execution_mode(&self) -> ExecutionMode {
+        self.mode
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -92,10 +120,18 @@ pub fn worker_arguments(
     tag: InjectionTag,
     identity: IdentityPolicy,
 ) -> Result<Vec<OsString>, ArgumentError> {
+    worker_arguments_with_mode(path, tag, identity, ExecutionMode::Legacy)
+}
+pub fn worker_arguments_with_mode(
+    path: &Path,
+    tag: InjectionTag,
+    identity: IdentityPolicy,
+    mode: ExecutionMode,
+) -> Result<Vec<OsString>, ArgumentError> {
     if !path.is_absolute() || tag.value() > u32::MAX as usize {
         return Err(ArgumentError);
     }
-    Ok(vec![
+    let mut args = vec![
         "--config".into(),
         path.as_os_str().to_owned(),
         "--tag".into(),
@@ -106,7 +142,11 @@ pub fn worker_arguments(
             IdentityPolicy::CanonicalScan => "canonical-scan",
         }
         .into(),
-    ])
+    ];
+    if mode == ExecutionMode::StagedKeyboard {
+        args.extend(["--execution-mode".into(), "staged-keyboard".into()]);
+    }
+    Ok(args)
 }
 #[cfg(test)]
 mod tests;

@@ -13,7 +13,7 @@ pub mod reload_preparation;
 
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
 pub const ARGUMENT_COUNT: usize = 9;
-pub const MAX_ARGUMENT_COUNT: usize = 11;
+pub const MAX_ARGUMENT_COUNT: usize = 13;
 
 mod exit;
 mod terminal;
@@ -32,6 +32,7 @@ pub struct Arguments {
     pub config_handle: Option<usize>,
     pub tag: InjectionTag,
     pub identity: IdentityPolicy,
+    pub execution_mode: preparation::ExecutionMode,
 }
 
 fn decimal(value: &std::ffi::OsStr) -> Result<u64, ArgumentError> {
@@ -48,11 +49,11 @@ fn decimal(value: &std::ffi::OsStr) -> Result<u64, ArgumentError> {
 }
 
 impl Arguments {
-    /// Consume at most twelve OS arguments; preserve non-Unicode configuration paths.
+    /// Consume at most fourteen OS arguments; preserve non-Unicode configuration paths.
     /// Fixed ordering prevents duplicate/unknown switches from reaching admission.
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, ArgumentError> {
         let args: Vec<_> = args.into_iter().take(MAX_ARGUMENT_COUNT + 1).collect();
-        if ![ARGUMENT_COUNT, MAX_ARGUMENT_COUNT].contains(&args.len())
+        if ![ARGUMENT_COUNT, 11, MAX_ARGUMENT_COUNT].contains(&args.len())
             || args[0] != WORKER_ARGUMENT
             || args[3] != "--config"
             || args[5] != "--tag"
@@ -60,17 +61,34 @@ impl Arguments {
         {
             return Err(ArgumentError);
         }
-        let config_handle = if args.len() == MAX_ARGUMENT_COUNT {
-            if args[9] != "--keyweave-config-handle" {
+        let mut suffix = 9;
+        let execution_mode = if args
+            .get(suffix)
+            .is_some_and(|arg| arg == "--execution-mode")
+        {
+            let mode = match args.get(suffix + 1).and_then(|arg| arg.to_str()) {
+                Some("legacy") => preparation::ExecutionMode::Legacy,
+                Some("staged-keyboard") => preparation::ExecutionMode::StagedKeyboard,
+                _ => return Err(ArgumentError),
+            };
+            suffix += 2;
+            mode
+        } else {
+            preparation::ExecutionMode::Legacy
+        };
+        let config_handle = if args.len() == suffix + 2 {
+            if args[suffix] != "--keyweave-config-handle" {
                 return Err(ArgumentError);
             }
-            let value = usize::try_from(decimal(&args[10])?).map_err(|_| ArgumentError)?;
+            let value = usize::try_from(decimal(&args[suffix + 1])?).map_err(|_| ArgumentError)?;
             if value == usize::MAX {
                 return Err(ArgumentError);
             }
             Some(value)
-        } else {
+        } else if args.len() == suffix {
             None
+        } else {
+            return Err(ArgumentError);
         };
         let parent = u32::try_from(decimal(&args[1])?).map_err(|_| ArgumentError)?;
         let run_id = decimal(&args[2])?;
@@ -93,6 +111,7 @@ impl Arguments {
             config_handle,
             tag,
             identity,
+            execution_mode,
         })
     }
 }

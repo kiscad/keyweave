@@ -313,6 +313,11 @@ fn execute(args: Arguments) -> NativeWorkerExit {
         Ok(config) => config,
         Err(_) => return WorkerExit::Config.into(),
     };
+    // Staged argv must never be silently installed as Legacy. Native factory
+    // mode handoff remains pending platform validation and is not enabled yet.
+    if args.execution_mode != keyweave_worker::preparation::ExecutionMode::Legacy {
+        return WorkerExit::UnsupportedPlatform.into();
+    }
     // This constructor allocates only; it does not install or inject input.
     let backend = SendInputBackend::new(args.tag);
     let mut worker = match Worker::install(startup, backend, args.tag, args.identity, config) {
