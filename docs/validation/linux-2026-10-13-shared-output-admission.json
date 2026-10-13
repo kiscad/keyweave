@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0161 shared participant Down/retention and actual Output joint preparation",
+  "source_base_commit": "ee411eb5105f98248ec9891f7533b7641a61abd3",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/stage_bindings.rs": "5203530a7e9e2add64fe58d3b1fddcf72de7b2faab2f24105572f9569b9f7490",
+    "crates/keyweave-engine/src/stage_bindings/retentions.rs": "445038dbbb0e16a3ff51334d6588f3c64114966880dc5daec8991afef908ff67",
+    "crates/keyweave-engine/src/stage_bindings/shared_downs.rs": "a10d6cb6326d57db7da4d1d3b34ee0b29a3bec8543d14afacfa86e0a27bb44ad",
+    "crates/keyweave-engine/src/output_stage.rs": "976ee8fa73b34158908b7b9c50a014ffb7ac315f724f4f68499f8db521073369",
+    "crates/keyweave-engine/tests/shared_output_admission.rs": "2aa7f82a1aea3511308948d7302cee81517dd9c98f9bc88348e2eb1e875f57fd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1501,
+    "new_tests": 10,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-shared-output-admission/tests.log",
+        "sha256": "f4f4dd7bbaf629b3842dcba6538bdb32b76f7bbf666bbcaaccc2c105ac796d95"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-shared-output-admission/clippy.log",
+        "sha256": "0eca978ea73da8da6d6135492a3238c840a92db8cd632fb5dbf8dd93ad91f56b"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-shared-output-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-shared-output-admission/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows compilation remains pending after prior automatic approval quota rejection; no new native attempt/bypass or valid capture/session."
+  },
+  "limitations": [
+    "SharedGroupReservation owns all original Down/payloads, same-stage participants, primary single child and shared retention preparation under one exclusive arena borrow. Full source/Arc/time/slot/resource checks precede mutation; rejected group preparation returns all inputs; abort returns originals and commit activates every participant/child/retention once.",
+    "Reservation checks/commit and retention validation were factored for common paths without changing ordinary semantics. Shared group uses primary provenance for actual Output child, retains peer device/old or new snapshot metadata independently, and preserves non-Clone payloads.",
+    "OutputStageActor.prepare_shared_child_scoped combines group preparation with Generated/Terminal output guards; complete abort/drop/refusal causes no upstream activation/ID/ref/output/variable effects. Complete commit returns must-use shared handle and exposes one output recipe.",
+    "Tests drive real Output actor variable and timed keyboard arrays, early saved Up/duration/completion, empty prepared queues on abort/refusal, old destination reload and cross-device/snapshot retention, malformed peer/duplicate/time/slot/resource rejections. No native submission/OS recovery claim.",
+    "This interface currently requires nonempty main. Actual Complex arbiter-driven group actor, empty matched main, projected inheritance/branches, any/all/group after-up/device/reset/scope/lease/replay/repeat integration remain required. KW-SIM/runtime gate stays; native pointer/platform/hardware/GUI/packaging/driver and full objective incomplete."
+  ],
+  "abi": "Pure shared Rust exclusive group/output preparation; no new unsafe/FFI/dependencies/native packet layout changes."
+}

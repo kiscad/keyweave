@@ -98,6 +98,23 @@ impl<T> PreparedOutputChild<'_, T> {
         self.output.commit();
     }
 }
+/// Joint multi-participant activation/retention and both actual output preparations.
+#[must_use = "commit or abort the complete shared output admission"]
+pub struct PreparedSharedOutputChild<'a, T> {
+    output: PreparedOutputAppend<'a>,
+    registration: stage_bindings::SharedGroupReservation<'a, T>,
+}
+impl<T> PreparedSharedOutputChild<'_, T> {
+    pub fn abort(self) -> stage_bindings::GroupDownInputs<T> {
+        drop(self.output);
+        self.registration.abort()
+    }
+    pub fn commit(self) -> stage_bindings::SharedRetention {
+        let handle = self.registration.commit();
+        self.output.commit();
+        handle
+    }
+}
 /// Empty main consumes the output ID and activates only the saved producer parent.
 #[must_use = "commit or discard the consumed producer and empty output together"]
 pub struct PreparedEmptyOutputChild<'a, T> {
@@ -283,6 +300,23 @@ impl OutputStageActor {
         let child = registration.child_admission()?;
         let output = self.prepare_inner(plan, Some(&child))?;
         Ok(PreparedOutputChild {
+            output,
+            registration,
+        })
+    }
+    pub fn prepare_shared_child_scoped<'a, T>(
+        &'a mut self,
+        plan: ScopedActionPlan,
+        registration: stage_bindings::SharedGroupReservation<'a, T>,
+    ) -> Result<PreparedSharedOutputChild<'a, T>, OutputStageError> {
+        self.running()?;
+        if plan.actions().events().is_empty() {
+            return Err(GeneratedError::Lifecycle.into());
+        }
+        let registration = registration.with_extra_sources(plan.scope().reservation())?;
+        let child = registration.child_admission()?;
+        let output = self.prepare_inner(plan, Some(&child))?;
+        Ok(PreparedSharedOutputChild {
             output,
             registration,
         })

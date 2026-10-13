@@ -1,5 +1,6 @@
 //! Bounded saved bindings, independent of platform output and source allocation.
 mod retentions;
+mod shared_downs;
 use crate::{
     MAX_BINDINGS, MAX_OUTPUT_OWNERS,
     action_plan::{ActionSlot, BatchId, PlanOrigin, PlannedAction},
@@ -10,6 +11,7 @@ pub use retentions::{
     MAX_RETENTION_GROUPS, MAX_RETENTION_MEMBERS, MAX_RETENTION_REFERENCES, PreparedSharedRetention,
     RejectedSharedRetention, RetentionKey, SharedRetention,
 };
+pub use shared_downs::{GroupDownInputs, RejectedGroupDowns, SharedGroupReservation};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -130,7 +132,7 @@ impl ChildAdmission<'_> {
         self.parent
     }
 }
-impl<T> Reservation<'_, T> {
+impl<'a, T> Reservation<'a, T> {
     /// Add source units to this uncommitted batch. Failure/drop changes no arena state.
     /// Retain them until whole-batch retirement/cancellation, not individual slot Up.
     pub fn with_extra_sources(mut self, additional: usize) -> Result<Self, BindingError> {
@@ -152,6 +154,9 @@ impl<T> Reservation<'_, T> {
         })
     }
     pub fn commit(self) {
+        let _ = self.commit_into_arena();
+    }
+    fn commit_into_arena(self) -> &'a mut BindingArena<T> {
         if let Some((slot, payload)) = self.activation {
             self.arena.activate_down(slot, payload);
         }
@@ -168,6 +173,7 @@ impl<T> Reservation<'_, T> {
         self.arena
             .batches
             .insert(self.batch.origin.batch, self.batch);
+        self.arena
     }
 }
 impl<T> BindingArena<T> {
@@ -292,6 +298,31 @@ impl<T> BindingArena<T> {
         parent: Option<ActionSlot>,
         activation: Option<(ActionSlot, T)>,
     ) -> Result<Reservation<'_, T>, BindingError> {
+        self.check_reservation(
+            &origin,
+            slots,
+            parent,
+            activation.as_ref().map(|(slot, _)| *slot),
+        )?;
+        Ok(Reservation {
+            arena: self,
+            batch: Batch {
+                origin,
+                parent,
+                slots: (0..slots).map(|_| Slot::Reserved).collect(),
+                children: (0..slots).map(|_| BTreeSet::new()).collect(),
+                extra_sources: 0,
+            },
+            activation,
+        })
+    }
+    fn check_reservation(
+        &self,
+        origin: &PlanOrigin,
+        slots: usize,
+        parent: Option<ActionSlot>,
+        activation: Option<ActionSlot>,
+    ) -> Result<(), BindingError> {
         if self.batches.contains_key(&origin.batch) {
             return Err(BindingError::Lifecycle);
         }
@@ -309,27 +340,15 @@ impl<T> BindingArena<T> {
                 .ok_or(BindingError::Lifecycle)?;
             let valid_parent = match batch.slots.get(usize::from(parent.index)) {
                 Some(Slot::Live(_)) => activation.is_none(),
-                Some(Slot::Reserved) => {
-                    activation.as_ref().is_some_and(|(slot, _)| *slot == parent)
-                }
+                Some(Slot::Reserved) => activation == Some(parent),
                 _ => false,
             };
             if !valid_parent {
                 return Err(BindingError::Lifecycle);
             }
-            self.check_child_origin(parent, &origin)?;
+            self.check_child_origin(parent, origin)?;
         }
-        Ok(Reservation {
-            arena: self,
-            batch: Batch {
-                origin,
-                parent,
-                slots: (0..slots).map(|_| Slot::Reserved).collect(),
-                children: (0..slots).map(|_| BTreeSet::new()).collect(),
-                extra_sources: 0,
-            },
-            activation,
-        })
+        Ok(())
     }
     /// Read an executed payload without changing its lifecycle or cloning it.
     /// Reserved/released/unknown slots have no actual payload.

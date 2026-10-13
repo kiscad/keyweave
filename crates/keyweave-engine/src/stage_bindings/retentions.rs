@@ -66,7 +66,7 @@ impl RetentionState {
             )
             .flat_map(|(_, keys)| keys.iter().copied())
     }
-    fn install(&mut self, key: RetentionKey, slots: Vec<ActionSlot>) -> SharedRetention {
+    pub(super) fn install(&mut self, key: RetentionKey, slots: Vec<ActionSlot>) -> SharedRetention {
         for &slot in &slots {
             self.by_slot.entry(slot).or_default().insert(key);
         }
@@ -99,6 +99,17 @@ impl<T> BindingArena<T> {
         &mut self,
         slots: Vec<ActionSlot>,
     ) -> Result<PreparedSharedRetention<'_, T>, BindingError> {
+        let key = self.check_shared_retention(&slots)?;
+        Ok(PreparedSharedRetention {
+            arena: self,
+            key,
+            slots,
+        })
+    }
+    pub(super) fn check_shared_retention(
+        &self,
+        slots: &[ActionSlot],
+    ) -> Result<RetentionKey, BindingError> {
         if slots.is_empty()
             || slots.len() > MAX_RETENTION_MEMBERS
             || self.retentions.entries.len() >= MAX_RETENTION_GROUPS
@@ -114,7 +125,7 @@ impl<T> BindingArena<T> {
         );
         let mut unique = BTreeSet::new();
         let mut stage = None;
-        for &slot in &slots {
+        for &slot in slots {
             if !unique.insert(slot) {
                 return Err(BindingError::Lifecycle);
             }
@@ -133,11 +144,7 @@ impl<T> BindingArena<T> {
             }
             stage = Some(batch.origin.stage);
         }
-        Ok(PreparedSharedRetention {
-            arena: self,
-            key,
-            slots,
-        })
+        Ok(key)
     }
     pub fn shared_retention_groups(&self) -> usize {
         self.retentions.entries.len()
