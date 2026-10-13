@@ -326,3 +326,155 @@ fn windows_legacy_candidate_cannot_switch_staged_actor_mode() {
     );
     assert_eq!(actor.config_generation(), ConfigGeneration(1));
 }
+
+const CHORD: &[u8] = br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"simultaneous":[{"key_code":"a"},{"key_code":"b"}],"simultaneous_options":{"to_after_key_up":[{"key_code":"d"}]}},"to":[{"key_code":"c"}]}]}]}}]}"#;
+struct ChordOutput(std::rc::Rc<std::cell::RefCell<Vec<(u16, u32)>>>);
+impl keyweave_windows::pump::SendBackend for ChordOutput {
+    fn submit(
+        &mut self,
+        packets: &[keyweave_windows::keys::KeyboardPacket],
+    ) -> Result<keyweave_windows::pump::Insertion, keyweave_windows::pump::SubmitError> {
+        self.0
+            .borrow_mut()
+            .extend(packets.iter().map(|p| (p.scan, p.flags)));
+        Ok(keyweave_windows::pump::Insertion {
+            accepted: packets.len(),
+            last_error: None,
+        })
+    }
+}
+fn chord_event(usage: u16, edge: keyweave_types::KeyEdge) -> keyweave_windows::hook::HookEvent {
+    keyweave_windows::hook::HookEvent {
+        identity: keyweave_windows::keys::ResolvedKey {
+            key: keyweave_types::KeyId::new(keyweave_types::KEYBOARD_PAGE, usage),
+            known_aliases: false,
+        },
+        edge,
+        binding: if edge == keyweave_types::KeyEdge::Down {
+            None
+        } else {
+            Some(keyweave_types::CaptureDecision::Capture)
+        },
+    }
+}
+#[test]
+fn staged_chord_reload_ack_follows_actual_session_activation_and_execution() {
+    use keyweave_types::{KeyEdge, MonoTime};
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+    let mut actor = keyweave_windows::runtime::SessionActor::new_staged(
+        ChordOutput(calls.clone()),
+        keyweave_windows::keys::InjectionTag::new(1).unwrap(),
+        windows::PreparedConfig::from_bytes(BODY.to_vec())
+            .unwrap()
+            .snapshot()
+            .clone(),
+    )
+    .unwrap();
+    let mut rx = receiver(CHORD);
+    let mut slot = PreparationSlot::new();
+    slot.start(rx.take().unwrap(), Target::WindowsStaged)
+        .unwrap();
+    assert_eq!(wait(&mut slot), PreparationStep::Ready);
+    assert!(calls.borrow().is_empty());
+    assert_eq!(actor.config_generation(), ConfigGeneration(1));
+    let ack = slot.deliver(&mut rx, &mut actor).unwrap();
+    assert_eq!(ack.outcome, Outcome::Accepted);
+    assert_eq!(ack.active, actor.config_generation());
+    assert_eq!(rx.active(), ConfigGeneration(2));
+    let mut writer = AckWriter::new(Vec::new(), ack).unwrap();
+    rx.ack_sent(writer.poll().unwrap().unwrap()).unwrap();
+    actor.start_after_neutral().unwrap();
+    actor
+        .key(chord_event(4, KeyEdge::Down), MonoTime(100))
+        .unwrap();
+    assert!(calls.borrow().is_empty());
+    actor
+        .key(chord_event(5, KeyEdge::Down), MonoTime(110))
+        .unwrap();
+    actor
+        .key(chord_event(4, KeyEdge::Up), MonoTime(120))
+        .unwrap();
+    actor
+        .key(chord_event(5, KeyEdge::Up), MonoTime(130))
+        .unwrap();
+    assert_eq!(
+        *calls.borrow(),
+        [(0x2e, 8), (0x2e, 10), (0x20, 8), (0x20, 10)]
+    );
+    assert!(actor.output().ledger().submitted().is_empty());
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_chord_reload_keeps_held_old_group_after_acknowledging_new_config() {
+    use keyweave_types::{KeyEdge, MonoTime};
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+    let snapshot =
+        windows::PreparedConfig::read_with_mode(CHORD, windows::ExecutionMode::StagedKeyboard)
+            .unwrap()
+            .snapshot()
+            .clone();
+    let mut actor = keyweave_windows::runtime::SessionActor::new_staged(
+        ChordOutput(calls.clone()),
+        keyweave_windows::keys::InjectionTag::new(1).unwrap(),
+        snapshot,
+    )
+    .unwrap();
+    actor.start_after_neutral().unwrap();
+    actor
+        .key(chord_event(4, KeyEdge::Down), MonoTime(100))
+        .unwrap();
+    actor
+        .key(chord_event(5, KeyEdge::Down), MonoTime(110))
+        .unwrap();
+    let mut rx = receiver(BODY);
+    let mut slot = PreparationSlot::new();
+    slot.start(rx.take().unwrap(), Target::WindowsStaged)
+        .unwrap();
+    wait(&mut slot);
+    assert_eq!(
+        slot.deliver(&mut rx, &mut actor).unwrap().outcome,
+        Outcome::Accepted
+    );
+    actor
+        .key(chord_event(4, KeyEdge::Up), MonoTime(120))
+        .unwrap();
+    actor
+        .key(chord_event(5, KeyEdge::Up), MonoTime(130))
+        .unwrap();
+    assert_eq!(
+        *calls.borrow(),
+        [(0x2e, 8), (0x2e, 10), (0x20, 8), (0x20, 10)]
+    );
+    actor
+        .key(chord_event(4, KeyEdge::Down), MonoTime(140))
+        .unwrap();
+    actor
+        .key(chord_event(4, KeyEdge::Up), MonoTime(150))
+        .unwrap();
+    assert_eq!(&calls.borrow()[4..], [(0x30, 8), (0x30, 10)]);
+    actor.stop_after_unhook().unwrap();
+}
+#[test]
+fn staged_chord_reload_rejects_wrong_mode_and_legacy_compilation_without_activation() {
+    for (staged, target) in [(false, Target::WindowsStaged), (true, Target::Windows)] {
+        let snapshot = windows::PreparedConfig::from_bytes(BODY.to_vec())
+            .unwrap()
+            .snapshot()
+            .clone();
+        let tag = keyweave_windows::keys::InjectionTag::new(1).unwrap();
+        let mut actor = if staged {
+            keyweave_windows::runtime::SessionActor::new_staged(NoOutput, tag, snapshot).unwrap()
+        } else {
+            keyweave_windows::runtime::SessionActor::new(NoOutput, tag, snapshot).unwrap()
+        };
+        let mut rx = receiver(CHORD);
+        let mut slot = PreparationSlot::new();
+        slot.start(rx.take().unwrap(), target).unwrap();
+        wait(&mut slot);
+        let ack = slot.deliver(&mut rx, &mut actor).unwrap();
+        assert_eq!(ack.outcome, Outcome::Rejected);
+        assert_eq!(ack.active, ConfigGeneration(1));
+        assert_eq!(actor.config_generation(), ConfigGeneration(1));
+        assert_eq!(rx.active(), ConfigGeneration(1));
+    }
+}

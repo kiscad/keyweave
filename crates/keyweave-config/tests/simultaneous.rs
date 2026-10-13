@@ -180,3 +180,104 @@ fn effective_threshold_clamps_to_upstream_one_second_while_raw_value_is_preserve
         86400000
     );
 }
+
+fn staged_compile(manipulators: Value, capabilities: &BackendCapabilities) -> CompiledConfig {
+    let text = json!({"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":manipulators}]}}]}).to_string();
+    compile_with_mode(
+        &text,
+        capabilities,
+        ConfigGeneration(3),
+        CompileMode::StagedKeyboard,
+    )
+    .unwrap()
+}
+#[test]
+fn staged_mode_preserves_full_chord_ir_and_default_mode_stays_lossy() {
+    let mut rule = chord();
+    rule["type"] = json!("basic");
+    rule["from"]["simultaneous_options"] = json!({"key_down_order":"strict_inverse","key_up_order":"strict","key_up_when":"all","detect_key_down_uninterruptedly":true,"to_after_key_up":[{"key_code":"y","hold_down_milliseconds":10}]});
+    let result = staged_compile(json!([rule.clone()]), &BackendCapabilities::offline());
+    assert!(result.executable_without_loss());
+    assert!(result.diagnostics.is_empty());
+    let spec = result.snapshot.complex[0]
+        .extras
+        .simultaneous
+        .as_ref()
+        .unwrap();
+    assert_eq!(spec.key_down_order, KeyOrder::StrictInverse);
+    assert_eq!(spec.key_up_when, KeyUpWhen::All);
+    assert_eq!(spec.after_key_up[0].hold_down_ns, 10_000_000);
+    assert_eq!(result.snapshot.generation, ConfigGeneration(3));
+    assert!(
+        keyweave_engine::physical_controller::PhysicalStageController::new_with_chord_model(
+            Arc::new(result.snapshot.clone())
+        )
+        .is_ok()
+    );
+    assert!(
+        compile_value(rule, json!({}))
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "KW-SIM-001")
+    );
+}
+#[test]
+fn staged_mode_keeps_containing_rule_atomic_on_bad_options_or_sibling() {
+    let mut valid = chord();
+    valid["type"] = json!("basic");
+    for invalid in [
+        json!({"type":"basic","from":{"key_code":"c"},"to":[{"shell_command":"ignored"}]}),
+        {
+            let mut bad = valid.clone();
+            bad["from"]["simultaneous_options"] = json!({"key_up_when":"invalid"});
+            bad
+        },
+    ] {
+        let result = staged_compile(
+            json!([valid.clone(), invalid]),
+            &BackendCapabilities::offline(),
+        );
+        assert!(!result.executable_without_loss());
+        assert_eq!(result.disabled_rules, 1);
+        assert!(result.snapshot.complex.is_empty());
+    }
+}
+#[test]
+fn staged_mode_keeps_backend_gate_for_group_after_up_and_device_conditions() {
+    let mut rule = chord();
+    rule["type"] = json!("basic");
+    rule["from"]["simultaneous_options"] =
+        json!({"to_after_key_up":[{"consumer_key_code":"volume_increment"}]});
+    assert!(
+        staged_compile(json!([rule.clone()]), &BackendCapabilities::linux())
+            .executable_without_loss()
+    );
+    assert!(
+        !staged_compile(json!([rule]), &BackendCapabilities::windows_hook())
+            .executable_without_loss()
+    );
+    let mut rule = chord();
+    rule["type"] = json!("basic");
+    rule["conditions"] = json!([{"type":"device_if","identifiers":[{"vendor_id":1}]}]);
+    assert!(
+        staged_compile(json!([rule.clone()]), &BackendCapabilities::linux())
+            .executable_without_loss()
+    );
+    assert!(
+        !staged_compile(json!([rule]), &BackendCapabilities::windows_hook())
+            .executable_without_loss()
+    );
+}
+#[test]
+fn staged_mode_does_not_enable_simple_simultaneous() {
+    let text = json!({"profiles":[{"selected":true,"simple_modifications":[{"from":{"simultaneous":[{"key_code":"a"},{"key_code":"b"}]},"to":[{"key_code":"c"}]}]}]}).to_string();
+    let result = compile_with_mode(
+        &text,
+        &BackendCapabilities::offline(),
+        ConfigGeneration(1),
+        CompileMode::StagedKeyboard,
+    )
+    .unwrap();
+    assert!(!result.executable_without_loss());
+    assert!(result.snapshot.simple.is_empty());
+}

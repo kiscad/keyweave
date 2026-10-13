@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+ADR-0173：新增 CompileMode 与 compile_with_mode，仅显式 StagedKeyboard 接受 Complex simultaneous；默认 compile/load_config/keyweavectl/Legacy 继续 KW-SIM-001。Linux/Windows PreparedConfig 按固定会话模式编译，原 bytes/generation、整规则禁用、平台能力和原生输出冷预检保持；启动与 reload 共用工厂。新增 11 tests，并更新真实 host CLI 检查；冷准备线程与实际 Windows actor 证明 apply 后 ack、旧组保旧 Arc及模式拒绝。Linux 1611 项测试及 Clippy、格式、60 项源码哈希核验通过；J+K 示例经两平台离线 check。Windows 原生补验、native pointer、硬件、图形 Linux providers、GUI、包装和 driver 尚待完成。无新增 unsafe/FFI/依赖。见 [ADR-0173](ADR-0173-staged-chord-compilation.md)、[验证记录](validation/linux-2026-10-13-chord-compilation.json)。
+
 ADR-0172：Linux Runtime 与 Windows SessionActor 的显式 StagedKeyboard 工厂已接入完整 Physical 组合键模型，模式冷校验同路。继续复用时钟、来源域、64-work、输出泵与 accepted ledger；Windows repeat 只跟实际已接受 desired leaf，Linux 保持 Kernel repeat。新增 12 tests 覆盖跨设备 all-up、窗口端点/超时、reload、完整 after-up 能力检查、撤销/停止及零接受失败。Linux 1600 项测试及 Clippy、格式、60 项源码哈希核验通过。Legacy 和 compiler KW-SIM-001 仍严格；用户配置能力接入、Windows 原生补验、native pointer、硬件、图形 Linux providers、GUI、包装和 driver 尚待完成。无新增 unsafe/FFI/依赖。见 [ADR-0172](ADR-0172-staged-session-chords.md)、[验证记录](validation/linux-2026-10-13-session-chords.json)。
 
 ADR-0171：Physical new_with_chord_model 已接通同一 Simple/Complex 模型，Output 保持低位来源域，Physical/pointer 原来源保持高位域。预算覆盖每个可能 primary 成员、全组抬键分支及其修饰键，Simple 目的键沿同一表展开；旧 root lease 保留至真实完成，reload 只改变新 root。新增 8 tests，Linux 1588 项测试及 Clippy、格式、60 项源码哈希核验通过。默认 Native 工厂与 compiler KW-SIM/runtime gate 仍关闭；统一原生模式、native pointer/repeat、Windows 原生补验、硬件、图形 Linux providers、GUI、包装和 driver 仍待完成。无新增 unsafe/FFI/依赖。见 [ADR-0171](ADR-0171-physical-chord-source-leases.md)、[验证记录](validation/linux-2026-10-13-physical-chord.json)。
@@ -206,10 +208,10 @@ Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 con
 | 其他功能字段 | 不静默忽略。未知根/profile/complex/rule 字段明确拒绝；非空 profile parameters/virtual_hid_keyboard、捕获 policy、未知 timing parameters 目前也拒绝 |
 | macOS global | 当前明确拒绝整个 global 对象；后续区分 UI 元数据与平台功能设置，不能将其一概当无影响元数据 |
 | 设备/Fn | 空数组接受；非空明确拒绝；结构错误直接拒绝快照 |
-| 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。windows-hook 拒绝设备条件；两个后端尚无实现，声明只用于提前检查 |
+| 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。windows-hook 拒绝设备条件；后端代码与显式分阶段会话已实现；声明只用于提前检查，真实设备/原生验收另行记录 |
 
 
-尚未实现：simultaneous、expression/系统变量、hold_down_milliseconds、布局/锁状态、Linux 应用及两平台输入源 provider、Unicode 条件正则与会话动作。含不支持必要字段的规则准确拒绝；支持的条件没有可信 provider 值时保持 Unknown。Windows 应用 provider 代码的接入与未验证范围见 ADR-0074。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，显式 lazy/halt 的状态与预算见 ADR-0013。
+显式 StagedKeyboard 会话及其冷准备/热重载现已支持 Complex simultaneous 与 hold_down_milliseconds；Legacy 编译/引擎仍拒绝这两项，Simple simultaneous 仍拒绝。尚未实现：expression/系统变量、布局/锁状态、Linux 应用及两平台输入源 provider、Unicode 条件正则与会话动作。含不支持必要字段的规则准确拒绝；支持的条件没有可信 provider 值时保持 Unknown。Windows 应用 provider 代码的接入与未验证范围见 ADR-0074。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，显式 lazy/halt 的状态与预算见 ADR-0013。
 
 展开限额、不同来源 tap 冲突见 ADR-0003；轻触/松开生命周期与预算见 ADR-0004；实现与测试状态见 STATUS。不要通过删除不支持字段生成看似可执行的导入结果。
 

@@ -1,12 +1,19 @@
 # KeyWeave
 
-Linux 的实验阶段模式已贯通 host/worker：可用 `keyweave-host check-linux --execution-mode staged-keyboard --config PATH` 离线校验含持续时间的规则；默认 `legacy` 保留原限制。显式模式会随启动参数固定传递并在 worker 独立重验。本轮验证限定离线与 `session-provider none`，真实 VT、设备抓取和输出尚未验收。见 [ADR-0150](docs/ADR-0150-linux-mode-host-worker-handoff.md)。
+Linux 的实验阶段模式已贯通 host/worker：可用 `keyweave-host check-linux --execution-mode staged-keyboard --config PATH` 离线校验含持续时间与 Complex 组合键的规则；默认 `legacy` 保留原限制。显式模式会随启动参数固定传递并在 worker 独立重验。本轮验证限定离线与 `session-provider none`，真实 VT、设备抓取和输出尚未验收。Windows 对应离线入口为 `keyweave-host check-windows --execution-mode staged-keyboard --config PATH`，启动与 reload 均使用固定模式的同一编译器。默认 `keyweavectl` 编译/回放仍使用 Legacy。见 [ADR-0173](docs/ADR-0173-staged-chord-compilation.md)。
 
 用 Rust 开发、面向 Linux 与 Windows 的键盘映射工具。名称取自“编织按键行为”，是本项目的工作名称，尚未核验商标或包名可用性。
 
 当前已实现 Rust workspace、HID 键名、JSONC 配置校验、基础与部分复杂规则、确定性离线回放和多来源输出账本。Linux 已连接 owned evdev/uinput、文本控制台消费者、有限 bootstrap、活动消费者续期、独立 worker 与进度/信号监督，并提供实验 `run-linux` 入口和可选 `--watch-config` 文件监听；真实 VT、设备抓取/输出与终端停机仍待真机验收。Windows 已连接 Hook/SendInput、共享引擎会话 actor、桌面/权限/会话租约、独立监督与 host 入口；固定 Rust 1.97.1 x64/i686 的既有验证记录已保存，近期新增改动的 Windows 原生补验仍受自动审批额度错误影响。图形消费者、完整高级规则、设备热添加、LED、热配置、GUI、包装与 Rust 驱动继续开发，准确范围见 [STATUS](docs/STATUS.md) 和 [兼容说明](docs/COMPATIBILITY.zh-CN.md)。原始 `../Karabiner-Elements/` 保持不变。
 
 Linux 构建、永久无设备模式与显式文本控制台参数见 [Linux 使用说明](docs/LINUX_USAGE.zh-CN.md)。普通 WSL2 终端无法提供当前文本 VT 消费者授权。
+
+组合键示例见 [staged-chord.json](examples/staged-chord.json)：50ms 内按 J+K 输出 Escape，两键都抬起后释放；窗口超时则正常回放 J。可用以下离线入口核验配置，结果不证明设备或桌面就绪：
+
+```sh
+keyweave-host check-linux --execution-mode staged-keyboard --config examples/staged-chord.json
+keyweave-host check-windows --execution-mode staged-keyboard --config examples/staged-chord.json
+```
 
 ## 构建与使用
 

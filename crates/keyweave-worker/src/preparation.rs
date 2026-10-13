@@ -1,7 +1,7 @@
 //! Cold host preparation. No backend, input API, timers or process creation.
 use crate::{
-    ArgumentError, LoadError, compile_config_bytes_for_generation, next_config_generation,
-    read_config_bytes,
+    ArgumentError, LoadError, compile_config_bytes_for_generation_with_mode,
+    next_config_generation, read_config_bytes,
 };
 use keyweave_engine::ConfigSnapshot;
 use keyweave_types::{BackendCapabilities, ConfigGeneration};
@@ -79,10 +79,14 @@ impl PreparedConfig {
         generation: ConfigGeneration,
         mode: ExecutionMode,
     ) -> Result<Self, PreparationError> {
-        let snapshot = compile_config_bytes_for_generation(
+        let snapshot = compile_config_bytes_for_generation_with_mode(
             &bytes,
             &BackendCapabilities::windows_hook(),
             generation,
+            match mode {
+                ExecutionMode::Legacy => keyweave_config::CompileMode::Legacy,
+                ExecutionMode::StagedKeyboard => keyweave_config::CompileMode::StagedKeyboard,
+            },
         )?;
         match mode {
             ExecutionMode::Legacy => preflight_config(snapshot.clone())?,

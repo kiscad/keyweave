@@ -180,6 +180,19 @@ fn compile_config_bytes_for_generation(
     capabilities: &BackendCapabilities,
     generation: ConfigGeneration,
 ) -> Result<Arc<ConfigSnapshot>, LoadError> {
+    compile_config_bytes_for_generation_with_mode(
+        bytes,
+        capabilities,
+        generation,
+        keyweave_config::CompileMode::Legacy,
+    )
+}
+fn compile_config_bytes_for_generation_with_mode(
+    bytes: &[u8],
+    capabilities: &BackendCapabilities,
+    generation: ConfigGeneration,
+    mode: keyweave_config::CompileMode,
+) -> Result<Arc<ConfigSnapshot>, LoadError> {
     if generation.0 == 0 {
         return Err(LoadError::Generation);
     }
@@ -188,7 +201,7 @@ fn compile_config_bytes_for_generation(
         return Err(LoadError::TooLarge);
     }
     let text = std::str::from_utf8(bytes)?;
-    let compiled = keyweave_config::compile(text, capabilities, generation)?;
+    let compiled = keyweave_config::compile_with_mode(text, capabilities, generation, mode)?;
     if !compiled.executable_without_loss() {
         return Err(LoadError::Loss {
             disabled: compiled.disabled_rules,

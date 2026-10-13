@@ -117,10 +117,29 @@ pub fn parse_jsonc(text: &str) -> Result<Value, ConfigError> {
     Ok(serde_json::from_slice::<unique_json::UniqueValue>(&output)?.0)
 }
 
+/// Compiler admission must match the selected engine; backend key support is separate.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CompileMode {
+    #[default]
+    Legacy,
+    StagedKeyboard,
+}
+
 pub fn compile(
     text: &str,
     capabilities: &BackendCapabilities,
     generation: ConfigGeneration,
+) -> Result<CompiledConfig, ConfigError> {
+    compile_with_mode(text, capabilities, generation, CompileMode::Legacy)
+}
+
+/// Compile for a caller-selected engine. Native preparation must still validate
+/// output encoding and runtime admission before taking any input resources.
+pub fn compile_with_mode(
+    text: &str,
+    capabilities: &BackendCapabilities,
+    generation: ConfigGeneration,
+    mode: CompileMode,
 ) -> Result<CompiledConfig, ConfigError> {
     let raw = parse_jsonc(text)?;
     let root = raw
@@ -381,11 +400,12 @@ pub fn compile(
                 if failed {
                     compiler.disabled += 1;
                 } else {
-                    if compiled
-                        .iter()
-                        .any(|mapping| mapping.extras.simultaneous.is_some())
+                    if mode == CompileMode::Legacy
+                        && compiled
+                            .iter()
+                            .any(|mapping| mapping.extras.simultaneous.is_some())
                     {
-                        compiler.reject(&location, "KW-SIM-001", "simultaneous parsed for inspection; output-group runtime integration is pending, activation refused");
+                        compiler.reject(&location, "KW-SIM-001", "simultaneous requires explicit StagedKeyboard compilation and runtime admission");
                     }
                     complex.extend(compiled);
                 }

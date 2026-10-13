@@ -1,6 +1,7 @@
 //! Cold Linux configuration validation. No device or process resources.
 use crate::{
-    LoadError, compile_config_bytes_for_generation, next_config_generation, read_config_bytes,
+    LoadError, compile_config_bytes_for_generation_with_mode, next_config_generation,
+    read_config_bytes,
 };
 use keyweave_engine::{ConfigSnapshot, EngineError};
 pub use keyweave_linux::runtime::ExecutionMode;
@@ -96,8 +97,15 @@ impl PreparedConfig {
         generation: ConfigGeneration,
         mode: ExecutionMode,
     ) -> Result<Self, PreparationError> {
-        let snapshot =
-            compile_config_bytes_for_generation(&bytes, &BackendCapabilities::linux(), generation)?;
+        let snapshot = compile_config_bytes_for_generation_with_mode(
+            &bytes,
+            &BackendCapabilities::linux(),
+            generation,
+            match mode {
+                ExecutionMode::Legacy => keyweave_config::CompileMode::Legacy,
+                ExecutionMode::StagedKeyboard => keyweave_config::CompileMode::StagedKeyboard,
+            },
+        )?;
         if output.repeat() != RepeatPolicy::Kernel {
             return Err(RuntimeError::RepeatPolicy.into());
         }
@@ -288,5 +296,32 @@ mod tests {
             PreparedConfig::read(Broken, default_output_spec().unwrap()),
             Err(PreparationError::Load(LoadError::Io(_)))
         ));
+    }
+
+    const CHORD: &[u8] = br#"// exact chord bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"simultaneous":[{"key_code":"a"},{"key_code":"b"}],"simultaneous_options":{"to_after_key_up":[{"key_code":"d"}]}},"to":[{"key_code":"c"}]}]}]}}]}"#;
+    #[test]
+    fn staged_chord_linux_preparation_binds_bytes_generation_and_mode() {
+        let prepared = PreparedConfig::from_bytes_for_generation_with_mode(
+            CHORD.to_vec(),
+            default_output_spec().unwrap(),
+            ConfigGeneration(2),
+            ExecutionMode::StagedKeyboard,
+        )
+        .unwrap();
+        assert_eq!(prepared.bytes(), CHORD);
+        assert_eq!(prepared.snapshot().generation, ConfigGeneration(2));
+        assert_eq!(prepared.execution_mode(), ExecutionMode::StagedKeyboard);
+        assert!(matches!(
+            prepare(CHORD),
+            Err(PreparationError::Load(LoadError::Loss { .. }))
+        ));
+    }
+    #[test]
+    fn staged_chord_linux_preparation_checks_after_up_actual_output_spec() {
+        let narrow = DeviceSpec::new("narrow", &[30, 48, 46], RepeatPolicy::Kernel, false).unwrap();
+        assert!(
+            matches!(PreparedConfig::read_with_mode(CHORD, narrow, ExecutionMode::StagedKeyboard), Err(PreparationError::Runtime(RuntimeError::ConfigurationKey(key))) if key == "d".parse().unwrap())
+        );
     }
 }

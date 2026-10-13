@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0173 explicit staged chord compilation and shared startup/reload preparation",
+  "source_base_commit": "3adfe0b08cbd0cbf64902b35fd9d37723d61c3ba",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-config/src/lib.rs": "9beca4d01f36848e408d7ba5e517ff6846f33a77da0ff9a4840f9f29b19129de",
+    "crates/keyweave-config/tests/simultaneous.rs": "1173e725f282087f372a52651cbda219d660b5cb52d862d35d3580900e7fcb82",
+    "crates/keyweave-worker/src/lib.rs": "f0033f067429cf27f000ddbd19fd19c19de2128814a6e5eae68a1713bc02aa43",
+    "crates/keyweave-worker/src/linux_preparation.rs": "6d3fcacb89bd81020ba9d8a4410770bb646b635d6a58dcaac4f2892e021c19a6",
+    "crates/keyweave-worker/src/preparation.rs": "693dc3ed9ced665a146fe9f8210c96e6c9424cecd09c94507e55798c967d5c16",
+    "crates/keyweave-worker/src/preparation/tests.rs": "5cdb58c91ce02d5ac3de224318ebe5fc93eadacf5420283b1cbe543db539a774",
+    "crates/keyweave-worker/tests/reload_preparation.rs": "3fe0d65a59f268f865b1b29a1f27ea249a3473e092fbeb6eabc2324c1c7d8b09",
+    "crates/keyweave-host/tests/cli.rs": "c97dedaa08d8f62ccc848701865cf67ef04d44277e58d1161f2ff40023a322a4",
+    "examples/staged-chord.json": "a45459ccff532a612cf5375fd14271e7dd5e0e95dc0bae6b9e5dac1f73bc9a93"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1611,
+    "new_tests": 11,
+    "updated_cli_test": "Both check-linux and check-windows require explicit staged mode for chord admission and preserve private bytes.",
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "linux_example": 0,
+      "windows_example": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-chord-compilation/tests.log",
+        "sha256": "d10fc3a15676b272cf900e14a7417652d6f459f8e8ac9d2b2b56cc6f825d587a"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-chord-compilation/clippy.log",
+        "sha256": "892b06fd02c44b7f0054a18144dfb4f1c1b209acc4856fd913b861e38c6671fc"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-chord-compilation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261013-chord-compilation/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "linux-example": {
+        "path": "target/validation/linux-20261013-chord-compilation/linux-example.log",
+        "sha256": "832b503bc16056b8441ebe0ee4b963863eea0917cf1010730b62773454b5de14"
+      },
+      "windows-example": {
+        "path": "target/validation/linux-20261013-chord-compilation/windows-example.log",
+        "sha256": "eeeae59664a7e2fa930862785761ab31ee51c1f9b26d178a8ac0119040c256af"
+      },
+      "initial-tests": {
+        "path": "target/validation/linux-20261013-chord-compilation/initial-tests.log",
+        "sha256": "8af70929f462e4809f364c70a4ed0531524d7eff048f8c4621f387ce71c79b4b"
+      }
+    }
+  },
+  "initial_failures": [
+    "First full run found the previous host test requiring chord refusal in every mode. Updated it to prove legacy refusal and explicit staged admission for both platforms, then passed focused and full checks. Initial failure log retained."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Windows actor, compiler, preparation and host check tests executed as portable Linux mocks/offline commands. Native MSVC/SDK verification remains pending after prior automatic approval quota rejection; no retry/bypass."
+  },
+  "limitations": [
+    "Only explicit StagedKeyboard compilation/factories admit Complex simultaneous. Default compiler/load_config/keyweavectl and Legacy engine remain strict. Simple simultaneous is unsupported.",
+    "Reload accepted ack proves actual actor activation, not native OS/application output acceptance. Old held group retains its original snapshot.",
+    "No real capture/session. Native pointer, hardware, graphical Linux providers, GUI/packaging and Rust driver remain pending."
+  ]
+}

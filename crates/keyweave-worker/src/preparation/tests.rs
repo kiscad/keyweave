@@ -184,3 +184,51 @@ fn staged_worker_builder_binds_mode_before_config_handle_and_rejects_bad_modes_o
     args.extend(["--execution-mode".into(), "legacy".into()]);
     assert!(Arguments::parse(args).is_err());
 }
+
+const CHORD: &[u8] = br#"// exact chord bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"chord","manipulators":[{"type":"basic","from":{"simultaneous":[{"key_code":"a"},{"key_code":"b"}],"simultaneous_options":{"key_up_when":"all","to_after_key_up":[{"key_code":"d"}]}},"to":[{"key_code":"c"}]}]}]}}]}"#;
+#[test]
+fn staged_chord_windows_preparation_binds_exact_bytes_generation_and_default_rejection() {
+    let prepared = PreparedConfig::from_bytes_for_generation_with_mode(
+        CHORD.to_vec(),
+        ConfigGeneration(2),
+        ExecutionMode::StagedKeyboard,
+    )
+    .unwrap();
+    assert_eq!(prepared.bytes(), CHORD);
+    assert_eq!(prepared.snapshot().generation, ConfigGeneration(2));
+    assert_eq!(prepared.execution_mode(), ExecutionMode::StagedKeyboard);
+    assert_eq!(
+        prepared.snapshot().complex[0]
+            .extras
+            .simultaneous
+            .as_ref()
+            .unwrap()
+            .after_key_up[0]
+            .key(),
+        Some("d".parse().unwrap())
+    );
+    assert!(matches!(
+        PreparedConfig::read(CHORD),
+        Err(PreparationError::Load(LoadError::Loss { .. }))
+    ));
+    assert!(crate::load_config(CHORD).is_err());
+}
+#[test]
+fn staged_chord_windows_preparation_checks_native_group_after_up_encoding() {
+    let bytes = std::str::from_utf8(CHORD)
+        .unwrap()
+        .replace("\"d\"", "\"print_screen\"");
+    assert!(matches!(
+        PreparedConfig::read_with_mode(bytes.as_bytes(), ExecutionMode::StagedKeyboard),
+        Err(PreparationError::Runtime(RuntimeError::Key(_)))
+    ));
+    let bytes = std::str::from_utf8(CHORD).unwrap().replace(
+        "\"key_code\":\"d\"",
+        "\"consumer_key_code\":\"volume_increment\"",
+    );
+    assert!(matches!(
+        PreparedConfig::read_with_mode(bytes.as_bytes(), ExecutionMode::StagedKeyboard),
+        Err(PreparationError::Load(LoadError::Loss { .. }))
+    ));
+}
