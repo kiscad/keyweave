@@ -115,6 +115,23 @@ impl<T> PreparedSharedOutputChild<'_, T> {
         handle
     }
 }
+/// Complete empty main admission, preserving all participants until explicit group finish.
+#[must_use = "commit or abort the complete empty shared output admission"]
+pub struct PreparedSharedEmptyOutputChild<'a, T> {
+    output: PreparedOutputAppend<'a>,
+    activation: stage_bindings::SharedConsumedDown<'a, T>,
+}
+impl<T> PreparedSharedEmptyOutputChild<'_, T> {
+    pub fn abort(self) -> stage_bindings::GroupDownInputs<T> {
+        drop(self.output);
+        self.activation.abort()
+    }
+    pub fn commit(self) -> stage_bindings::SharedRetention {
+        let handle = self.activation.commit();
+        self.output.commit();
+        handle
+    }
+}
 /// Empty main consumes the output ID and activates only the saved producer parent.
 #[must_use = "commit or discard the consumed producer and empty output together"]
 pub struct PreparedEmptyOutputChild<'a, T> {
@@ -320,6 +337,20 @@ impl OutputStageActor {
             output,
             registration,
         })
+    }
+    /// Empty main must not allocate a fictitious child or lose the original producer binding.
+    pub fn prepare_shared_empty_child_scoped<'a, T>(
+        &'a mut self,
+        plan: ScopedActionPlan,
+        activation: stage_bindings::SharedConsumedDown<'a, T>,
+    ) -> Result<PreparedSharedEmptyOutputChild<'a, T>, OutputStageError> {
+        self.running()?;
+        if !plan.actions().events().is_empty() || !plan.actions().releases().is_empty() {
+            return Err(GeneratedError::Lifecycle.into());
+        }
+        let admission = activation.admission();
+        let output = self.prepare_inner(plan, Some(&admission))?;
+        Ok(PreparedSharedEmptyOutputChild { output, activation })
     }
     /// Empty main must not allocate a fictitious child or lose the original producer binding.
     pub fn prepare_empty_child_scoped<'a, T>(

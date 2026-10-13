@@ -337,6 +337,18 @@ mod tests {
         OutputStageActor,
         Arc<crate::ConfigSnapshot>,
     ) {
+        setup_main(when, timed, false)
+    }
+    fn setup_main(
+        when: KeyUpWhen,
+        timed: bool,
+        empty: bool,
+    ) -> (
+        GroupBindingOwner,
+        BindingArena<ProducerDecision>,
+        OutputStageActor,
+        Arc<crate::ConfigSnapshot>,
+    ) {
         let mut spec = Simultaneous::new(vec![key("a"), key("b")]);
         spec.threshold_ns = 50;
         spec.key_up_when = when;
@@ -347,7 +359,9 @@ mod tests {
             complex: vec![crate::Mapping {
                 id: "group".into(),
                 from: key("a"),
-                to: if timed {
+                to: if empty {
+                    vec![]
+                } else if timed {
                     vec![
                         crate::Action {
                             hold_down_ns: 50,
@@ -361,6 +375,7 @@ mod tests {
                 allow_extra_modifiers: true,
                 extras: crate::MappingExtras {
                     simultaneous: Some(spec),
+                    after_key_up: if empty { vec![key("z").into()] } else { vec![] },
                     ..Default::default()
                 },
             }],
@@ -431,15 +446,31 @@ mod tests {
                 .observe_device(DeviceInstanceId { id, generation: 1 }, false, MonoTime(0))
                 .unwrap();
         }
-        let registration = arena
-            .prepare_shared_child_with_down(origin(&cfg, 10, Stage::Output, 110), slots, inputs)
-            .unwrap();
-        let handle = output
-            .prepare_shared_child_scoped(plan, registration)
-            .unwrap()
-            .commit();
-        let (mut owner, events) =
-            GroupBindingOwner::new(group, handle, Some(BatchId(10)), &arena, &output).unwrap();
+        let handle = if slots == 0 {
+            let activation = arena
+                .prepare_shared_consumed_down(origin(&cfg, 10, Stage::Output, 110), inputs)
+                .unwrap();
+            output
+                .prepare_shared_empty_child_scoped(plan, activation)
+                .unwrap()
+                .commit()
+        } else {
+            let registration = arena
+                .prepare_shared_child_with_down(origin(&cfg, 10, Stage::Output, 110), slots, inputs)
+                .unwrap();
+            output
+                .prepare_shared_child_scoped(plan, registration)
+                .unwrap()
+                .commit()
+        };
+        let (mut owner, events) = GroupBindingOwner::new(
+            group,
+            handle,
+            if empty { None } else { Some(BatchId(10)) },
+            &arena,
+            &output,
+        )
+        .unwrap();
         assert_eq!(events.len(), 2);
         assert!(
             !owner
@@ -610,5 +641,72 @@ mod tests {
         arena.release_shared_retention(handle).unwrap();
         assert_eq!(arena.live_slots(), 2);
         assert_eq!(output.parent_binding(BatchId(10)), Some(members[0]));
+    }
+    #[test]
+    fn empty_matched_main_retains_every_member_and_real_after_up_child_until_finished() {
+        for when in [KeyUpWhen::Any, KeyUpWhen::All] {
+            let (mut owner, mut arena, mut output, cfg) = setup_main(when, false, true);
+            assert!(owner.main_done());
+            assert!(drain(&mut owner, &mut output, 110).is_empty());
+            let first = owner
+                .up(
+                    &raw(&cfg, 1, "a", KeyEdge::Up, 120),
+                    &mut arena,
+                    &mut output,
+                )
+                .unwrap();
+            assert_eq!(first.release_output, when == KeyUpWhen::Any);
+            let pending = owner.finish(&mut arena, true).err().unwrap();
+            assert!(matches!(pending.error, GroupOwnerError::Pending));
+            owner = pending.owner;
+            owner
+                .up(
+                    &raw(&cfg, 2, "b", KeyEdge::Up, 130),
+                    &mut arena,
+                    &mut output,
+                )
+                .unwrap();
+            let primary = ActionSlot {
+                batch: BatchId(1),
+                index: 0,
+            };
+            let saved = arena.live(primary).unwrap();
+            let branch = saved
+                .selection()
+                .unwrap()
+                .select_branch(crate::rule_selection::RuleBranch::AfterKeyUp, false, |_| {
+                    crate::Truth::True
+                })
+                .unwrap();
+            let plan = ScopedActionPlan::branch(
+                &branch,
+                BatchId(11),
+                MonoTime(130),
+                saved.down().device,
+                saved.down().source,
+            )
+            .unwrap();
+            let registration = arena
+                .prepare(plan.actions().origin.clone(), 1, Some(primary))
+                .unwrap();
+            output
+                .prepare_child_scoped(plan, registration)
+                .unwrap()
+                .commit();
+            let pending = owner.finish(&mut arena, true).err().unwrap();
+            assert!(matches!(pending.error, GroupOwnerError::Pending));
+            owner = pending.owner;
+            assert_eq!(arena.shared_retention_references(), 2);
+            assert_eq!(
+                drain(&mut owner, &mut output, 130),
+                [(key("z"), KeyEdge::Down), (key("z"), KeyEdge::Up)]
+            );
+            arena.cancel(BatchId(11)).unwrap();
+            let pending = owner.finish(&mut arena, false).err().unwrap();
+            assert!(matches!(pending.error, GroupOwnerError::Pending));
+            assert_eq!(pending.owner.finish(&mut arena, true).unwrap().len(), 2);
+            assert_eq!(arena.shared_retention_references(), 0);
+            assert_eq!(arena.live_slots(), 0);
+        }
     }
 }

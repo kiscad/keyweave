@@ -48,7 +48,79 @@ impl<T> SharedGroupReservation<'_, T> {
         self.base.child_admission()
     }
 }
+/// All participant activations and one shared hold, without a fictitious child batch.
+#[must_use = "commit or abort all consumed group Downs and their shared retention"]
+pub struct SharedConsumedDown<'a, T> {
+    arena: &'a mut BindingArena<T>,
+    inputs: GroupDownInputs<T>,
+    destination: PlanOrigin,
+    key: RetentionKey,
+    members: Vec<ActionSlot>,
+}
+impl<T> SharedConsumedDown<'_, T> {
+    pub fn abort(self) -> GroupDownInputs<T> {
+        self.inputs
+    }
+    pub fn commit(self) -> SharedRetention {
+        for (down, payload) in self.inputs {
+            self.arena.activate_down(down.event.payload.slot, payload);
+        }
+        self.arena.retentions.install(self.key, self.members)
+    }
+    pub(crate) fn admission(&self) -> ChildAdmission<'_> {
+        ChildAdmission {
+            origin: &self.destination,
+            parent: self.members[0],
+            slots: 0,
+        }
+    }
+}
 impl<T> BindingArena<T> {
+    fn check_group_downs(
+        &self,
+        origin: &PlanOrigin,
+        inputs: &GroupDownInputs<T>,
+    ) -> Result<(RetentionKey, Vec<ActionSlot>), BindingError> {
+        if inputs.is_empty() || inputs.len() > MAX_RETENTION_MEMBERS {
+            return Err(BindingError::Capacity);
+        }
+        let mut members = Vec::with_capacity(inputs.len());
+        for (down, _) in inputs {
+            let member = self.validate_down(down)?;
+            if origin.start < down.delivered_at {
+                return Err(BindingError::Provenance);
+            }
+            members.push(member);
+        }
+        let key = self.check_shared_retention(&members)?;
+        Ok((key, members))
+    }
+    /// Consume a matched group with no main actions; jointly prepare the empty destination.
+    pub fn prepare_shared_consumed_down(
+        &mut self,
+        destination: PlanOrigin,
+        inputs: GroupDownInputs<T>,
+    ) -> Result<SharedConsumedDown<'_, T>, RejectedGroupDowns<T>> {
+        let checked = (|| {
+            let (key, members) = self.check_group_downs(&destination, &inputs)?;
+            if self.batches.contains_key(&destination.batch) {
+                return Err(BindingError::Lifecycle);
+            }
+            self.check_child_origin(members[0], &destination)?;
+            Ok((key, members))
+        })();
+        let (key, members) = match checked {
+            Ok(prepared) => prepared,
+            Err(error) => return Err(RejectedGroupDowns { error, inputs }),
+        };
+        Ok(SharedConsumedDown {
+            arena: self,
+            inputs,
+            destination,
+            key,
+            members,
+        })
+    }
     /// Every payload must still be effect-free. Rejection returns every original owned input.
     pub fn prepare_shared_child_with_down(
         &mut self,
@@ -57,18 +129,7 @@ impl<T> BindingArena<T> {
         mut inputs: GroupDownInputs<T>,
     ) -> Result<SharedGroupReservation<'_, T>, RejectedGroupDowns<T>> {
         let checked = (|| {
-            if inputs.is_empty() || inputs.len() > MAX_RETENTION_MEMBERS {
-                return Err(BindingError::Capacity);
-            }
-            let mut members = Vec::with_capacity(inputs.len());
-            for (down, _) in &inputs {
-                let member = self.validate_down(down)?;
-                if origin.start < down.delivered_at {
-                    return Err(BindingError::Provenance);
-                }
-                members.push(member);
-            }
-            let key = self.check_shared_retention(&members)?;
+            let (key, members) = self.check_group_downs(&origin, &inputs)?;
             self.check_reservation(&origin, slots, Some(members[0]), Some(members[0]))?;
             Ok((key, members))
         })();

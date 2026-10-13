@@ -415,3 +415,83 @@ fn child_source_capacity_rejection_returns_participants_and_does_not_install_ret
     arena.cancel(BatchId(10)).unwrap();
     arena.release_shared_retention(handle).unwrap();
 }
+
+#[test]
+fn empty_shared_abort_preserves_owned_inputs_ids_and_output_state() {
+    let cfg = cfg(vec![]);
+    let mut arena = BindingArena::default();
+    let owned = inputs(&mut arena, &cfg);
+    let mut output = output(&cfg);
+    let activation = arena
+        .prepare_shared_consumed_down(origin(&cfg, 10, 1, Stage::Output, 110), owned)
+        .unwrap();
+    let returned = output
+        .prepare_shared_empty_child_scoped(plan(&cfg, 10, 110), activation)
+        .unwrap()
+        .abort();
+    assert_eq!(
+        returned.iter().map(|(_, p)| p.0).collect::<Vec<_>>(),
+        [10, 20]
+    );
+    assert_eq!(arena.live_slots(), 0);
+    assert_eq!(arena.reserved_sources(), 2);
+    assert_eq!(arena.shared_retention_groups(), 0);
+    assert!(output.parent_binding(BatchId(10)).is_none());
+    // Aborting consumed neither the destination ID nor the next shared retention key.
+    let activation = arena
+        .prepare_shared_consumed_down(origin(&cfg, 10, 1, Stage::Output, 110), returned)
+        .unwrap();
+    let handle = output
+        .prepare_shared_empty_child_scoped(plan(&cfg, 10, 110), activation)
+        .unwrap()
+        .commit();
+    assert_eq!(arena.live_slots(), 2);
+    assert_eq!(arena.reserved_sources(), 2);
+    assert!(!arena.has_child_work(slot(1)).unwrap());
+    let (edges, completed) = drain(&mut output, 110);
+    assert!(edges.is_empty() && completed.is_empty());
+    assert!(output.parent_binding(BatchId(10)).is_none());
+    assert!(arena.take(slot(1)).is_err());
+    arena.release_shared_retention(handle).unwrap();
+    assert_eq!(arena.take(slot(1)).unwrap().0, 10);
+    assert_eq!(arena.take(slot(2)).unwrap().0, 20);
+    // A committed empty destination consumes its ID despite producing no recipe.
+    assert!(output.prepare_scoped(plan(&cfg, 10, 110)).is_err());
+}
+
+#[test]
+fn empty_shared_bad_secondary_is_cold_and_returns_all_payloads() {
+    let cfg = cfg(vec![]);
+    let mut arena = BindingArena::default();
+    let mut owned = inputs(&mut arena, &cfg);
+    owned[1].0.event.source = SourceToken(99);
+    let rejected = arena
+        .prepare_shared_consumed_down(origin(&cfg, 10, 1, Stage::Output, 110), owned)
+        .err()
+        .unwrap();
+    assert_eq!(rejected.error, BindingError::Provenance);
+    assert_eq!(rejected.inputs.len(), 2);
+    assert_eq!(rejected.inputs[1].1.0, 20);
+    assert_eq!(arena.live_slots(), 0);
+    assert_eq!(arena.shared_retention_references(), 0);
+}
+
+#[test]
+fn empty_shared_destination_rejection_does_not_activate_participants() {
+    let cfg = cfg(vec![key("c").into()]);
+    let mut arena = BindingArena::default();
+    let owned = inputs(&mut arena, &cfg);
+    let mut output = output(&cfg);
+    let activation = arena
+        .prepare_shared_consumed_down(origin(&cfg, 10, 1, Stage::Output, 110), owned)
+        .unwrap();
+    assert!(
+        output
+            .prepare_shared_empty_child_scoped(plan(&cfg, 10, 110), activation)
+            .is_err()
+    );
+    assert_eq!(arena.live_slots(), 0);
+    assert_eq!(arena.shared_retention_references(), 0);
+    assert_eq!(arena.reserved_sources(), 2);
+    assert!(drain(&mut output, 110).0.is_empty());
+}

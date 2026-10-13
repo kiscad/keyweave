@@ -11,7 +11,9 @@ pub use retentions::{
     MAX_RETENTION_GROUPS, MAX_RETENTION_MEMBERS, MAX_RETENTION_REFERENCES, PreparedSharedRetention,
     RejectedSharedRetention, RetentionKey, SharedRetention,
 };
-pub use shared_downs::{GroupDownInputs, RejectedGroupDowns, SharedGroupReservation};
+pub use shared_downs::{
+    GroupDownInputs, RejectedGroupDowns, SharedConsumedDown, SharedGroupReservation,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]

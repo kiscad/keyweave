@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0164 empty shared matched main joint admission and actual saved branch flow",
+  "source_base_commit": "9e940ffb4dc43e9e10578541a1da6eb86cfe0d97",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/output_stage.rs": "8fa2f815a79f184bc9479fae9494e0b0169910e9ede32e5ca50d71d571f07f82",
+    "crates/keyweave-engine/src/simultaneous/owner.rs": "bebf2592450321ea86430146759e58df68464f4e818a4d894509b2f4fc90bbb6",
+    "crates/keyweave-engine/src/stage_bindings.rs": "0112b747a64a17d70d653a9d996d2c4c5539a1f5047cc068f65e8a6a958e2e88",
+    "crates/keyweave-engine/src/stage_bindings/shared_downs.rs": "07ceeb5aadc53fa5fe1cedf81c94392ace69fb77ae1fe50b06e1f608f6511731",
+    "crates/keyweave-engine/tests/shared_output_admission.rs": "0af63a49124df3214e86b373cbc225b82a2e564e3902ff5b58b8988dd3ec0ec6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1517,
+    "new_tests": 4,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-empty-group/tests.log",
+        "sha256": "872f83a2e4bc6378fe78f74d9e0b76f22d3b94eb1492c77337f4be9f20e7068e"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-empty-group/clippy.log",
+        "sha256": "b61fad71da9718a4c1bf3753afcdfe04ed0f89e6b689aa5efa66f4feb096f484"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-empty-group/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-empty-group/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Empty shared admission is a pure component, not yet integrated into production Complex scheduling. Compiler KW-SIM/runtime simultaneous gates remain.",
+    "Actual arbiter match and saved ProducerDecision tests cover empty main and separately scheduled actual after-up child, not the complete native or unified actor path.",
+    "Group after-up, projections, device/reset scheduling, source lease, replay, repeat and unified branch scheduling remain to integrate.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}
