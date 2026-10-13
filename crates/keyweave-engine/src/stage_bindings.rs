@@ -177,6 +177,17 @@ impl<'a, T> Reservation<'a, T> {
     }
 }
 impl<T> BindingArena<T> {
+    pub fn has_child_work(&self, slot: ActionSlot) -> Result<bool, BindingError> {
+        let batch = self
+            .batches
+            .get(&slot.batch)
+            .ok_or(BindingError::Lifecycle)?;
+        Ok(!batch
+            .children
+            .get(usize::from(slot.index))
+            .ok_or(BindingError::Lifecycle)?
+            .is_empty())
+    }
     pub fn live_slots(&self) -> usize {
         self.live
     }

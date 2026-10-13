@@ -356,6 +356,9 @@ impl ComplexStageActor {
     }
     pub fn activate(&mut self, config: Arc<ConfigSnapshot>) -> Result<(), ComplexActorError> {
         self.running()?;
+        config
+            .validate_timed_stages(true)
+            .map_err(GeneratedError::from)?;
         self.output.activate(config)?;
         Ok(())
     }

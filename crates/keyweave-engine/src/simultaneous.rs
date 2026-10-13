@@ -1,5 +1,6 @@
 //! Bounded Complex-stage lookahead. Matching is separate from output/binding ownership.
 mod arbiter;
+mod owner;
 use crate::{
     Action, ActionTarget,
     action_plan::PlannedAction,
@@ -9,6 +10,7 @@ pub use arbiter::{
     Arbitration, ArbitrationChoice, ChordArbiter, MAX_ARBITER_RULES, MAX_ARBITRATION_WORK,
 };
 use keyweave_types::{KEYBOARD_PAGE, KeyEdge, KeyId, MonoTime};
+pub use owner::{GroupBindingOwner, GroupOwnerError, RejectedGroupOwner, UnfinishedGroupOwner};
 use thiserror::Error;
 
 pub const MAX_CHORD_KEYS: usize = 32;
@@ -27,7 +29,7 @@ pub enum KeyUpWhen {
     Any,
     All,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Simultaneous {
     pub keys: Vec<KeyId>,
     pub threshold_ns: u64,

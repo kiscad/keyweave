@@ -325,6 +325,21 @@ fn malformed_chord_metadata_is_rejected_even_for_output_only_model() {
 }
 
 #[test]
+fn complex_reload_rejects_chord_metadata_before_mutating_output_generation() {
+    let empty = Arc::new(ConfigSnapshot::empty(ConfigGeneration(1)));
+    let mut actor = complex_actor::ComplexStageActor::new(empty).unwrap();
+    let mut candidate = (*cfg(KeyUpWhen::Any, false)).clone();
+    candidate.generation = ConfigGeneration(2);
+    assert!(actor.activate(Arc::new(candidate)).is_err());
+    // A rejected candidate must leave the original generation available for activation.
+    assert!(
+        actor
+            .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+            .is_ok()
+    );
+}
+
+#[test]
 fn output_target_equal_to_chord_member_executes_leaf_without_reentering_input_selector() {
     let mut snapshot = (*cfg(KeyUpWhen::Any, false)).clone();
     snapshot.complex[0].to = vec![key("a").into()];

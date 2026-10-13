@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0163 actual producer Up and Output completion shared group owner",
+  "source_base_commit": "b4b90dba665e95ce92a35104082e51606d4006e7",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "742385705c80d186230fef3cad3d4798dfe9d655105225757a9ba3480a288448",
+    "crates/keyweave-engine/src/simultaneous.rs": "14c52590141a7c19525de28120086ed658cab424091b22851bc21d226621f42e",
+    "crates/keyweave-engine/src/simultaneous/owner.rs": "a7082fbe7e90f051d97df84515711b9f6619ad06e50fb9e2ec7132cd63878320",
+    "crates/keyweave-engine/src/stage_bindings.rs": "ec50229c16430a40a4e5f917a4212370d24271ad97cfbc5e99f3e263d8088f07",
+    "crates/keyweave-engine/tests/chord_output_flow.rs": "4e0e1749bb90e1a196adc88d5590d208eb446ebe5352e6661c5a0f8fa7364e65"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1513,
+    "new_tests": 6,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-group-owner/tests.log",
+        "sha256": "f8d7a7e0d7b10e6014a64c2ea2a230bfaae52fcb765abdd67f9fcd8140fead5c"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-group-owner/clippy.log",
+        "sha256": "24217d6b1b3bcd3dd6f1ae947945af7385b72dddf0398750492456c296ead8d1"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-group-owner/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-group-owner/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Clippy rejected two nested if statements; collapsed conditions and reran fmt, full workspace tests and Clippy successfully."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "Shared owner is a pure component, not integrated into the production Complex scheduler. Compiler KW-SIM/runtime simultaneous gates remain.",
+    "Empty main admission, branches, projection, group after-up, device/reset scheduling, source lease, replay and repeat remain to integrate.",
+    "Control ownership transfer alone performs no actual output release, retention release, producer finish or native recovery.",
+    "Original lookahead Up must already be admitted to the real producer before owner construction.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}
