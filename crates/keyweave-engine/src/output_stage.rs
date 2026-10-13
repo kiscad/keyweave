@@ -234,24 +234,39 @@ impl OutputStageActor {
     ) -> Result<PreparedOutputChild<'a, T>, OutputStageError> {
         self.prepare_child_scoped(ScopedActionPlan::plain(plan), registration)
     }
-    pub(crate) fn condition_truth(
-        &self,
-        condition: &Condition,
-        context: &ContextSnapshot,
-        device: DeviceInstanceId,
-        at: MonoTime,
-    ) -> Truth {
-        self.generated
-            .condition_truth(condition, context, device, at)
-    }
     /// Save the delivered Complex producer's original decision before binding admission.
     pub fn decide_producer_down(
         &self,
         down: &timeline::DueEvent<PlannedAction>,
         context: &ContextSnapshot,
     ) -> Result<producer_decision::ProducerDecision, OutputStageError> {
+        self.decide_producer_down_with_identity(down, context, true)
+    }
+    pub(crate) fn decide_producer_down_with_identity(
+        &self,
+        down: &timeline::DueEvent<PlannedAction>,
+        context: &ContextSnapshot,
+        has_identity: bool,
+    ) -> Result<producer_decision::ProducerDecision, OutputStageError> {
         self.running()?;
-        Ok(self.generated.decide_producer_down(down, context)?)
+        Ok(self
+            .generated
+            .decide_producer_down_with_identity(down, context, has_identity)?)
+    }
+    pub(crate) fn condition_truth_for_producer(
+        &self,
+        condition: &Condition,
+        context: &ContextSnapshot,
+        decision: &producer_decision::ProducerDecision,
+        at: MonoTime,
+    ) -> Truth {
+        self.generated.condition_truth_with_identity(
+            condition,
+            context,
+            decision.down().device,
+            at,
+            decision.has_device_identity(),
+        )
     }
     pub fn prepare_child_scoped<'a, T>(
         &'a mut self,

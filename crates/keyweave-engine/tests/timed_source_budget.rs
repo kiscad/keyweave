@@ -101,3 +101,12 @@ fn simple_held_counts_retained_main_and_replacement_descendants_together() {
     let bounds = cfg(vec![simple], vec![complex]).timed_stage_source_bounds();
     assert_eq!(bounds[&key("a")], 6); // root + old main(2) + replacement(Complex+2 Output)
 }
+
+#[test]
+fn simple_alone_reserves_each_possible_snapshot_modifier_complex_expansion() {
+    let mut simple = mapping("a", vec![]);
+    simple.extras.if_alone = vec![key("d").into()];
+    let complex = mapping("left_shift", vec![key("x").into(), key("y").into()]);
+    let bounds = cfg(vec![simple], vec![complex]).timed_stage_source_bounds();
+    assert_eq!(bounds[&key("a")], 20); // root + alone(2) + shift(3) + seven other modifiers(14)
+}

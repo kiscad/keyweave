@@ -399,6 +399,7 @@ impl ComplexStageActor {
                     .inputs
                     .get(&slot.batch)
                     .ok_or(ComplexActorError::Input)?;
+                let has_identity = !input.plan.snapshot_modifier_slots.contains(&slot);
                 let expected = input
                     .plan
                     .events()
@@ -436,7 +437,7 @@ impl ComplexStageActor {
                 }
                 let decision = self
                     .output
-                    .decide_producer_down(due, context)?
+                    .decide_producer_down_with_identity(due, context, has_identity)?
                     .with_original_up(&up)?;
                 let id = self.next_batch_id()?;
                 let plan = decision.plan_main(id)?;
@@ -655,7 +656,7 @@ impl ComplexStageActor {
         let branch = selection
             .select_branch(kind, self.halted.contains(&slot), |condition| {
                 self.output
-                    .condition_truth(condition, context, decision.down().device, at)
+                    .condition_truth_for_producer(condition, context, decision, at)
             })
             .ok_or(ComplexActorError::Invariant)?;
         if branch.actions().len() == 0 {

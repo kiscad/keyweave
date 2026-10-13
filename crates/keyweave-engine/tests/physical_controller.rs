@@ -1264,3 +1264,141 @@ fn simple_held_physical_repeat_and_state_follow_actual_replacement_without_new_i
     assert_eq!(actor.reserved_sources(), 0);
     assert_eq!(actor.pending_bindings(), 0);
 }
+
+#[test]
+fn physical_repeat_does_not_interrupt_alone_and_lease_waits_actual_tap_up() {
+    let mut rule = mapping("a", vec![]);
+    rule.extras.if_alone = vec![Action {
+        hold_down_ns: 50,
+        ..key("d").into()
+    }];
+    let mut actor = PhysicalStageController::new(config(vec![rule], vec![])).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    assert!(drain(&mut actor, 100).is_empty());
+    assert_eq!(actor.reserved_sources(), 19);
+    let repeat = actor
+        .handle(keyboard(2, 110, dev, "a", KeyEdge::Repeat))
+        .unwrap();
+    assert_eq!(repeat.capture, CaptureDecision::Capture);
+    assert_eq!(repeat.repeat_target, None);
+    actor
+        .handle(keyboard(3, 120, dev, "a", KeyEdge::Up))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 120), [(key("d"), KeyEdge::Down)]);
+    assert_eq!(actor.reserved_sources(), 19);
+    assert_eq!(actor.pending_bindings(), 1);
+    assert_eq!(drain(&mut actor, 170), [(key("d"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+    assert_eq!(actor.pending_bindings(), 0);
+    actor
+        .handle(keyboard(4, 180, dev, "x", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 180), [(key("x"), KeyEdge::Down)]);
+    actor.reset(MonoTime(180)).unwrap();
+}
+
+#[test]
+fn wheel_admission_interrupts_simple_alone_before_its_future_complex_delivery() {
+    let mut rule = mapping(
+        "a",
+        vec![
+            Action {
+                hold_down_ns: 100,
+                ..key("b").into()
+            },
+            key("c").into(),
+        ],
+    );
+    rule.extras.if_alone = vec![key("d").into()];
+    let mut actor = PhysicalStageController::new(config(vec![rule], vec![])).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .handle(envelope(
+            2,
+            110,
+            dev,
+            InputEvent::Wheel {
+                horizontal: 0,
+                vertical: 1,
+            },
+        ))
+        .unwrap();
+    actor
+        .handle(keyboard(3, 120, dev, "a", KeyEdge::Up))
+        .unwrap();
+    assert_eq!(actor.next_deadline(), Some(MonoTime(200)));
+    let (outputs, pointers) = drain_mixed(&mut actor, 200);
+    assert_eq!(
+        outputs,
+        [
+            (key("b"), KeyEdge::Up),
+            (key("c"), KeyEdge::Down),
+            (key("c"), KeyEdge::Up)
+        ]
+    );
+    assert_eq!(pointers.len(), 1);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn old_wheel_future_delivery_does_not_interrupt_new_simple_alone_candidate() {
+    let mut rule = mapping("a", vec![]);
+    rule.extras.if_alone = vec![key("d").into()];
+    let mut actor = PhysicalStageController::new(config(
+        vec![
+            rule,
+            mapping(
+                "x",
+                vec![
+                    Action {
+                        hold_down_ns: 100,
+                        ..key("b").into()
+                    },
+                    key("c").into(),
+                ],
+            ),
+        ],
+        vec![],
+    ))
+    .unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "x", KeyEdge::Down))
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .handle(envelope(
+            2,
+            110,
+            dev,
+            InputEvent::Wheel {
+                horizontal: 0,
+                vertical: 1,
+            },
+        ))
+        .unwrap();
+    actor
+        .handle(keyboard(3, 150, dev, "a", KeyEdge::Down))
+        .unwrap();
+    let (_, pointers) = drain_mixed(&mut actor, 200);
+    assert_eq!(pointers.len(), 1);
+    actor
+        .handle(keyboard(4, 210, dev, "a", KeyEdge::Up))
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 210),
+        [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+    );
+    actor
+        .handle(keyboard(5, 220, dev, "x", KeyEdge::Up))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 220), [(key("c"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}

@@ -42,6 +42,8 @@ pub struct PlanOrigin {
 
 #[derive(Clone, Debug)]
 pub struct ActionPlan {
+    /// Lifecycle owner and condition identity are separate for snapshot differences.
+    pub(crate) snapshot_modifier_slots: std::collections::BTreeSet<ActionSlot>,
     pub(crate) events: Vec<StageEvent<PlannedAction>>,
     /// Up commands that must wait for original input up; duration never replaces it.
     pub(crate) release_on_input_up: Vec<PlannedAction>,
@@ -201,6 +203,7 @@ pub(crate) fn plan_action_refs<'a>(
         }
     }
     Ok(ActionPlan {
+        snapshot_modifier_slots: Default::default(),
         events,
         release_on_input_up,
         ends_at: MonoTime(end),

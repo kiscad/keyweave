@@ -16,6 +16,7 @@ pub struct ProducerDecision {
     selection: Option<RuleSelection>,
     up_delivered_at: Option<MonoTime>,
     up_lazy: bool,
+    device_identity: bool,
 }
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum ProducerUpError {
@@ -57,6 +58,7 @@ impl ProducerDecision {
             selection,
             up_delivered_at: None,
             up_lazy,
+            device_identity: true,
         }
     }
     /// Preserve a registered input plan's original Up flags, including asymmetric modifier lazy Up.
@@ -73,6 +75,13 @@ impl ProducerDecision {
     }
     pub fn up_delivered_at(&self) -> Option<MonoTime> {
         self.up_delivered_at
+    }
+    pub(crate) fn with_device_identity(mut self, known: bool) -> Self {
+        self.device_identity = known;
+        self
+    }
+    pub(crate) fn has_device_identity(&self) -> bool {
+        self.device_identity
     }
     pub fn prepare_up(
         &mut self,

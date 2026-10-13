@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0156 Simple Alone and snapshot differences through Complex",
+  "source_base_commit": "cc81a0ca219a806db5beb3902498cb6943d06673",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/action_plan.rs": "4b778dfe3130c8a55332323f5898a307ef12afe314ea1735bda90b9e20e10125",
+    "crates/keyweave-engine/src/complex_actor.rs": "b51f2b86c68f11108e939861f8674ad798ca1d9076bdf658a90358bb5e06b01d",
+    "crates/keyweave-engine/src/generated_stage.rs": "4cdff9d93c173e5b10ca51c884bdd4fd20658097802ef164a2c4f0271e29fa1f",
+    "crates/keyweave-engine/src/modifier_scope.rs": "2778c28c5c59cd8df194cdb3a344f5971c7dc5872c97cf2c4fe419b61f664fe0",
+    "crates/keyweave-engine/src/output_stage.rs": "97d7921dc75f158413f709a8e7655dc4dbd10a358b39aedb699c14fe66860a35",
+    "crates/keyweave-engine/src/producer_decision.rs": "9c81992f24b03b194d81e405aef09f64550752bae210da40111822d0ff6a14bf",
+    "crates/keyweave-engine/src/simple_actor.rs": "d6140ce1d1905cdac75f686ca730ec8b8476ca3bce904aef6b77201bfc6d69fa",
+    "crates/keyweave-engine/src/source_budget.rs": "c747dc87d1f27434daef5f72acac32b23e7fb7c2f1b46563b0f7e3b4575bb913",
+    "crates/keyweave-engine/tests/physical_controller.rs": "212cb6ece5d1f5c04f7dde0c1cdcdb7a95f188fb3d5a57db6cc28ebbaf7ff669",
+    "crates/keyweave-engine/tests/simple_actor.rs": "23bd0087a984863d3632e68ed3ef0058c9879715f752aa9678dbaa4e989f362c",
+    "crates/keyweave-engine/tests/simple_consumed_scopes.rs": "975ae5d8cd481410c285e4b21a748de86dbe9f876f430b7c46fa5f9336f24534",
+    "crates/keyweave-engine/tests/timed_source_budget.rs": "61bc4477dfcd38df4106e15bf5df69460de8182e78ecbc7a9dff0f94eddc3f1b"
+  },
+  "upstream_evidence_sha256": {
+    "src/share/manipulator/manipulators/basic/event_sender.hpp": "7eb3e8d0dcee3759eb0ac2cd093760054d96e717dcd61fa3d11e3ea74b86e3a8",
+    "src/share/modifier_flag_manager/scoped_modifier_flags.hpp": "e817d06aedc5e34439bef91802109a3ccfe83d30da2d09333c5db825a2f35787",
+    "src/share/manipulator/manipulators/shared_event_sender.hpp": "ac5ca8ef64939dc0a4c11e458269ac0aaaa41d67c643a534a366b9a584ba703a",
+    "src/share/manipulator/manipulators/basic/basic.hpp": "7e6c71f0e9db479314665b20ee69549236dbf9c0d1703104fe76d05fb62a0706"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1425,
+    "new_tests": 16,
+    "updated_tests": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-simple-alone/tests.log",
+        "sha256": "8569044c6740667a20708562d5b0d23890d2722b35158eb6f7184a6b86ae3576"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-simple-alone/clippy.log",
+        "sha256": "b06f827b35bc1028139688ec7f6eb2633ff81e48128b8009784db1423e038be7"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-simple-alone/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-simple-alone/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Complex identity metadata read initially extended immutable input borrow across delayed cancellation mutation (E0502). Moved scalar identity sampling before mutations; subsequent check/tests passed.",
+    "Replacing output condition evaluation made old private helper unused. Removed obsolete helper before final Clippy.",
+    "Updated existing unsupported-Simple fixture from newly supported Alone to still-gated Delayed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows verification still pending after prior automatic approval quota rejection. No native attempt or bypass, no real capture/session."
+  },
+  "limitations": [
+    "Simple Alone uses strict timeout/frozen old rule and fresh action conditions; key/nonzero wheel interrupt, variable/zero wheel preserve. Held/main/Alone actual children retain parent; due arrays preserve FIFO/duration and resets/removal discard future work.",
+    "Down-snapshot missing standard modifiers are materialized as lazy Complex input slots around entire array, preserving original action indices and old Arc. Present modifiers retain original binding without duplicate remap. Outside-snapshot sources use existing actual descendant projection scope and restore only live sources.",
+    "Materialized snapshot slots have private metadata distinguishing lifecycle ownership from real condition identity. Complex per-event Device if/unless is Unknown; independent device_exists still evaluates inventory. Saved ProducerDecision carries identity into branch conditions.",
+    "Simple wheel interruption happens on pointer admission commit, before future Complex delivery; that late delivery only interrupts Complex candidates. Two physical tests cover old/current candidate ordering.",
+    "Static root lease reserves Alone actions and all eight standard modifier Complex expansions; capacity reject before child registration, physical Repeat cannot interrupt Alone or create owner, actual tap Up releases lease.",
+    "16 new tests cover timeouts/reload/conditions/interruption/held coexistence/cleanup/capacity, three snapshot scope/remap scenarios, physical lease/repeat/two wheel ordering cases, identity if/unless/exists and saved after-up identity, source bound.",
+    "Delayed remains gated. This is actor IR behavior, no JSON Simple schema expansion. Standard keyboard modifiers only; no new caps-lock/fn policy. Simultaneous, native pointer/platform/hardware, Linux graphical consumer/hot-add, GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure shared Rust logic/private plan/producer metadata; no unsafe/FFI/dependencies/native packet layout changes."
+}

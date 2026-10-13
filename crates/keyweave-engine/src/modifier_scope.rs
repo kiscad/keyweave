@@ -10,6 +10,7 @@ pub(crate) struct ModifierScope {
     snapshot: BTreeSet<KeyId>,
     consumed: BTreeSet<KeyId>,
     until_input_up: bool,
+    snapshot_events: bool,
 }
 impl ModifierScope {
     fn main(selection: &RuleSelection) -> Self {
@@ -17,6 +18,7 @@ impl ModifierScope {
             policy: BranchModifierPolicy::CurrentMinusConsumed,
             snapshot: selection.modifiers_at_down().clone(),
             consumed: selection.consumed_modifiers().clone(),
+            snapshot_events: false,
             until_input_up: selection
                 .actions()
                 .next_back()
@@ -28,6 +30,7 @@ impl ModifierScope {
             policy: selection.modifier_policy(),
             snapshot: selection.modifiers_at_down().clone(),
             consumed: selection.consumed_modifiers().clone(),
+            snapshot_events: false,
             until_input_up: selection.branch() == RuleBranch::Held
                 && selection
                     .actions()
@@ -48,7 +51,7 @@ impl ModifierScope {
         self.until_input_up
     }
     pub(crate) fn reservation(&self) -> usize {
-        if self.policy == BranchModifierPolicy::DownSnapshotMinusConsumed {
+        if self.policy == BranchModifierPolicy::DownSnapshotMinusConsumed && !self.snapshot_events {
             self.snapshot.len()
         } else {
             0
@@ -148,6 +151,7 @@ impl ScopedActionPlan {
                 snapshot: BTreeSet::new(),
                 consumed: BTreeSet::new(),
                 until_input_up: false,
+                snapshot_events: false,
             },
         }
     }
@@ -183,6 +187,73 @@ impl ScopedActionPlan {
     }
     pub fn actions(&self) -> &crate::action_plan::ActionPlan {
         &self.plan
+    }
+    /// Simple snapshot differences must pass through Complex rather than bypass it.
+    /// Existing current modifiers retain their saved bindings; only missing keys are added.
+    pub(crate) fn materialize_complex_snapshot(
+        mut self,
+        visible: &BTreeSet<KeyId>,
+    ) -> Result<Self, crate::action_plan::PlanError> {
+        use crate::action_plan::{ActionSlot, PlanError, PlannedAction};
+        use crate::timeline::{Stage, StageEvent};
+        if self.scope.policy != BranchModifierPolicy::DownSnapshotMinusConsumed {
+            return Ok(self);
+        }
+        if self.plan.origin.stage != Stage::Complex || !self.plan.releases().is_empty() {
+            return Err(PlanError::InvalidScope);
+        }
+        if self.plan.events.is_empty() {
+            return Ok(self);
+        }
+        let missing: Vec<_> = self
+            .scope
+            .snapshot
+            .difference(visible)
+            .filter(|key| !self.scope.consumed.contains(key))
+            .copied()
+            .collect();
+        let slots = self
+            .plan
+            .events
+            .iter()
+            .filter(|event| event.payload.edge == KeyEdge::Down)
+            .count();
+        if slots.saturating_add(missing.len()).saturating_mul(2) > MAX_OUTPUTS_PER_EVENT {
+            return Err(PlanError::Capacity);
+        }
+        let mut events = Vec::with_capacity(self.plan.events.len() + missing.len() * 2);
+        let mut ups = Vec::with_capacity(missing.len());
+        for (offset, key) in missing.into_iter().enumerate() {
+            let payload = PlannedAction {
+                slot: ActionSlot {
+                    batch: self.plan.origin.batch,
+                    index: (slots + offset) as u16,
+                },
+                target: ActionTarget::Key(key),
+                edge: KeyEdge::Down,
+                lazy: true,
+                halt: false,
+            };
+            self.plan.snapshot_modifier_slots.insert(payload.slot);
+            let event = StageEvent {
+                stage: Stage::Complex,
+                at_ns: self.plan.origin.start,
+                device: self.plan.origin.device,
+                source: self.plan.origin.source,
+                config: self.plan.origin.config.clone(),
+                payload,
+            };
+            let mut up = event.clone();
+            up.at_ns = self.plan.ends_at;
+            up.payload.edge = KeyEdge::Up;
+            events.push(event);
+            ups.push(up);
+        }
+        events.append(&mut self.plan.events);
+        events.extend(ups.into_iter().rev());
+        self.plan.events = events;
+        self.scope.snapshot_events = true;
+        Ok(self)
     }
     pub(crate) fn scope(&self) -> &ModifierScope {
         &self.scope

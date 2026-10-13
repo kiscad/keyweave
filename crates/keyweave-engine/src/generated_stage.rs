@@ -541,6 +541,19 @@ impl GeneratedStageQueue {
         device: DeviceInstanceId,
         at: MonoTime,
     ) -> Truth {
+        self.condition_truth_with_identity(condition, context, device, at, true)
+    }
+    pub(crate) fn condition_truth_with_identity(
+        &self,
+        condition: &Condition,
+        context: &ContextSnapshot,
+        device: DeviceInstanceId,
+        at: MonoTime,
+        has_identity: bool,
+    ) -> Truth {
+        if !has_identity && matches!(condition, Condition::Device { exists: false, .. }) {
+            return Truth::Unknown;
+        }
         variable_truth(&self.environment.variables, condition)
             .unwrap_or_else(|| condition.evaluate(context, device, at))
     }
@@ -571,6 +584,14 @@ impl GeneratedStageQueue {
         &self,
         down: &DueEvent<PlannedAction>,
         context: &ContextSnapshot,
+    ) -> Result<producer_decision::ProducerDecision, GeneratedError> {
+        self.decide_producer_down_with_identity(down, context, true)
+    }
+    pub(crate) fn decide_producer_down_with_identity(
+        &self,
+        down: &DueEvent<PlannedAction>,
+        context: &ContextSnapshot,
+        has_identity: bool,
     ) -> Result<producer_decision::ProducerDecision, GeneratedError> {
         let (incoming, mapping) = match self.environment.stage {
             Stage::Complex => (Stage::Simple, MappingStage::Simple),
@@ -603,7 +624,13 @@ impl GeneratedStageQueue {
                 key,
                 self.modifiers(),
                 |condition| {
-                    self.condition_truth(condition, context, event.device, down.delivered_at)
+                    self.condition_truth_with_identity(
+                        condition,
+                        context,
+                        event.device,
+                        down.delivered_at,
+                        has_identity,
+                    )
                 },
             ),
             ActionTarget::SetVariable(_) => None,
@@ -613,7 +640,8 @@ impl GeneratedStageQueue {
             down.delivered_at,
             self.environment.stage,
             selection,
-        ))
+        )
+        .with_device_identity(has_identity))
     }
     /// Prepare all logical effects before queue admission; commit only on success.
     pub fn enqueue(
@@ -761,7 +789,13 @@ impl GeneratedStageQueue {
         if nonempty {
             for (slot, down) in &self.environment.down {
                 if let ActionTarget::Key(key) = down.target {
-                    if spec.consumed().contains(&key) {
+                    if spec.consumed().contains(&key)
+                        || (self.propagate_consumed
+                            && spec.policy()
+                                == rule_selection::BranchModifierPolicy::DownSnapshotMinusConsumed
+                            && key.is_modifier()
+                            && !spec.snapshot().contains(&key))
+                    {
                         hidden.push(*slot);
                     } else if key.is_modifier()
                         && spec.policy()

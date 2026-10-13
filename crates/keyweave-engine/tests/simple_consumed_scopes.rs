@@ -638,3 +638,258 @@ fn held_modifier_replacement_keeps_consumed_descendant_hidden_until_original_up(
     assert_eq!(release(&mut actor, &shift, 180), [(key("x"), KeyEdge::Up)]);
     assert_eq!(actor.reserved_sources(), 0);
 }
+
+#[test]
+fn alone_snapshot_keeps_present_saved_modifier_without_duplicate_complex_remap() {
+    let mut trigger = mapping("a", vec![]);
+    trigger.extras.if_alone = vec![key("d").into()];
+    let mut actor = actor(config(
+        vec![trigger],
+        vec![mapping("left_shift", vec![key("x").into()])],
+    ));
+    let (shift, outputs) = press(&mut actor, "left_shift", 1, 100);
+    assert_eq!(outputs, [(key("x"), KeyEdge::Down)]);
+    let (trigger, outputs) = press(&mut actor, "a", 2, 110);
+    assert!(outputs.is_empty());
+    assert_eq!(
+        release(&mut actor, &trigger, 120),
+        [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+    );
+    assert_eq!(release(&mut actor, &shift, 130), [(key("x"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn alone_missing_snapshot_modifier_passes_through_old_complex_remap_for_whole_array() {
+    let mut trigger = mapping("a", vec![]);
+    trigger.extras.if_alone = vec![Action {
+        hold_down_ns: 50,
+        ..key("d").into()
+    }];
+    let mut actor = actor(config(
+        vec![trigger],
+        vec![
+            mapping("left_shift", vec![key("x").into()]),
+            mapping("d", vec![key("e").into()]),
+        ],
+    ));
+    let (shift, outputs) = press(&mut actor, "left_shift", 1, 100);
+    assert_eq!(outputs, [(key("x"), KeyEdge::Down)]);
+    let (trigger, outputs) = press(&mut actor, "a", 2, 110);
+    assert!(outputs.is_empty());
+    actor
+        .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+        .unwrap();
+    assert_eq!(release(&mut actor, &shift, 120), [(key("x"), KeyEdge::Up)]);
+    assert_eq!(
+        release(&mut actor, &trigger, 130),
+        [(key("x"), KeyEdge::Down), (key("e"), KeyEdge::Down)]
+    );
+    assert_eq!(actor.pending_inputs(), 1);
+    assert!(drain(&mut actor, 179).0.is_empty());
+    let (outputs, released) = drain(&mut actor, 180);
+    assert_eq!(outputs, [(key("e"), KeyEdge::Up), (key("x"), KeyEdge::Up)]);
+    assert_eq!(released, [trigger.events()[0].payload.slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn alone_snapshot_projects_newly_restored_outside_modifier_and_restores_actual_descendant() {
+    let mut held = mapping("a", vec![key("right_control").into()]);
+    held.extras
+        .from_modifiers
+        .mandatory
+        .insert(Modifier::LeftShift);
+    let mut trigger = mapping("b", vec![]);
+    trigger.extras.if_alone = vec![Action {
+        hold_down_ns: 50,
+        ..key("d").into()
+    }];
+    let mut actor = actor(config(
+        vec![held, trigger],
+        vec![mapping("left_shift", vec![key("x").into()])],
+    ));
+    let (shift, _) = press(&mut actor, "left_shift", 1, 100);
+    let (held, outputs) = press(&mut actor, "a", 2, 110);
+    assert_eq!(
+        outputs,
+        [
+            (key("x"), KeyEdge::Up),
+            (key("right_control"), KeyEdge::Down)
+        ]
+    );
+    let (trigger, outputs) = press(&mut actor, "b", 2, 120);
+    assert!(outputs.is_empty());
+    assert_eq!(
+        release(&mut actor, &held, 130),
+        [
+            (key("right_control"), KeyEdge::Up),
+            (key("x"), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(
+        release(&mut actor, &trigger, 140),
+        [
+            (key("x"), KeyEdge::Up),
+            (key("right_control"), KeyEdge::Down),
+            (key("d"), KeyEdge::Down)
+        ]
+    );
+    let (outputs, released) = drain(&mut actor, 190);
+    assert_eq!(
+        outputs,
+        [
+            (key("d"), KeyEdge::Up),
+            (key("right_control"), KeyEdge::Up),
+            (key("x"), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(released, [trigger.events()[0].payload.slot]);
+    assert_eq!(release(&mut actor, &shift, 200), [(key("x"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+fn drain_with_fresh_context(
+    actor: &mut SimpleStageActor,
+    at: u64,
+    context: &ContextSnapshot,
+) -> Vec<(KeyId, KeyEdge)> {
+    let mut outputs = vec![];
+    for _ in 0..10000 {
+        let Some(step) = actor.poll_with_context(MonoTime(at), context).unwrap() else {
+            return outputs;
+        };
+        outputs.extend(edges(step.outputs));
+    }
+    panic!("bounded context fixture did not drain");
+}
+fn known_device_context() -> ContextSnapshot {
+    ContextSnapshot {
+        revision: 1,
+        provider: "synthetic fixture".into(),
+        observed_at_ns: MonoTime(0),
+        valid_until_ns: MonoTime(1000),
+        devices: Some(vec![
+            DeviceContext {
+                device: device(1),
+                properties: DeviceProperties {
+                    vendor_id: Some(123),
+                    ..Default::default()
+                },
+            },
+            DeviceContext {
+                device: device(2),
+                properties: DeviceProperties {
+                    vendor_id: Some(123),
+                    ..Default::default()
+                },
+            },
+        ]),
+        ..Default::default()
+    }
+}
+#[test]
+fn synthetic_snapshot_modifiers_have_unknown_event_device_but_inventory_exists_still_works() {
+    for (unless, exists, vendor) in [(false, false, 123), (true, false, 999), (false, true, 123)] {
+        let mut trigger = mapping("a", vec![]);
+        trigger.extras.if_alone = vec![key("d").into()];
+        let mut conditional = mapping("left_shift", vec![key("x").into()]);
+        conditional.extras.conditions = vec![Condition::Device {
+            identifiers: vec![DeviceProperties {
+                vendor_id: Some(vendor),
+                ..Default::default()
+            }],
+            unless,
+            exists,
+        }];
+        let mut actor = actor(config(
+            vec![trigger],
+            vec![conditional, mapping("left_shift", vec![key("y").into()])],
+        ));
+        let context = known_device_context();
+        let shift = input(&mut actor, &[key("left_shift").into()], 1, 100);
+        actor.admit(&down(&shift, 100), &context).unwrap();
+        assert_eq!(
+            drain_with_fresh_context(&mut actor, 100, &context),
+            [(key("x"), KeyEdge::Down)]
+        );
+        let trigger = input(&mut actor, &[key("a").into()], 2, 110);
+        actor.admit(&down(&trigger, 110), &context).unwrap();
+        drain_with_fresh_context(&mut actor, 110, &context);
+        actor.admit(&up(&shift, 120), &context).unwrap();
+        assert_eq!(
+            drain_with_fresh_context(&mut actor, 120, &context),
+            [(key("x"), KeyEdge::Up)]
+        );
+        actor.admit(&up(&trigger, 130), &context).unwrap();
+        let restored = key(if exists { "x" } else { "y" });
+        assert_eq!(
+            drain_with_fresh_context(&mut actor, 130, &context),
+            [
+                (restored, KeyEdge::Down),
+                (key("d"), KeyEdge::Down),
+                (key("d"), KeyEdge::Up),
+                (restored, KeyEdge::Up)
+            ]
+        );
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+
+#[test]
+fn snapshot_modifier_saved_complex_after_up_retains_unknown_device_identity() {
+    let mut trigger = mapping("a", vec![]);
+    trigger.extras.if_alone = vec![Action {
+        hold_down_ns: 10,
+        ..key("d").into()
+    }];
+    let mut shift_rule = mapping("left_shift", vec![key("x").into()]);
+    shift_rule.extras.after_key_up = vec![
+        Action {
+            conditions: vec![Condition::Device {
+                identifiers: vec![DeviceProperties {
+                    vendor_id: Some(123),
+                    ..Default::default()
+                }],
+                unless: false,
+                exists: false,
+            }],
+            ..key("z").into()
+        },
+        key("y").into(),
+    ];
+    let mut actor = actor(config(vec![trigger], vec![shift_rule]));
+    let context = known_device_context();
+    let shift = input(&mut actor, &[key("left_shift").into()], 1, 100);
+    actor.admit(&down(&shift, 100), &context).unwrap();
+    drain_with_fresh_context(&mut actor, 100, &context);
+    let trigger = input(&mut actor, &[key("a").into()], 2, 110);
+    actor.admit(&down(&trigger, 110), &context).unwrap();
+    drain_with_fresh_context(&mut actor, 110, &context);
+    actor.admit(&up(&shift, 120), &context).unwrap();
+    assert_eq!(
+        drain_with_fresh_context(&mut actor, 120, &context),
+        [
+            (key("x"), KeyEdge::Up),
+            (key("z"), KeyEdge::Down),
+            (key("z"), KeyEdge::Up),
+            (key("y"), KeyEdge::Down),
+            (key("y"), KeyEdge::Up)
+        ]
+    );
+    actor.admit(&up(&trigger, 130), &context).unwrap();
+    assert_eq!(
+        drain_with_fresh_context(&mut actor, 130, &context),
+        [(key("x"), KeyEdge::Down), (key("d"), KeyEdge::Down)]
+    );
+    assert_eq!(
+        drain_with_fresh_context(&mut actor, 140, &context),
+        [
+            (key("d"), KeyEdge::Up),
+            (key("x"), KeyEdge::Up),
+            (key("y"), KeyEdge::Down),
+            (key("y"), KeyEdge::Up)
+        ]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+}

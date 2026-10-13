@@ -1,4 +1,4 @@
-//! Owned Simple main/held/after-up generation and downstream Complex/Output execution.
+//! Owned Simple main/held/alone/after-up generation and downstream Complex/Output execution.
 //! Pure stage component; native acceptance remains separate.
 mod scopes;
 use crate::{
@@ -72,6 +72,7 @@ pub struct SimpleStageActor {
     scope_runs: BTreeMap<BatchId, ScopeRun>,
     removed_scope_sources: BTreeSet<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
+    alone_candidate: Option<ActionSlot>,
     last_batch: u64,
     now: MonoTime,
     failed: bool,
@@ -80,11 +81,10 @@ impl SimpleStageActor {
     fn check_simple(config: &ConfigSnapshot) -> Result<(), SimpleActorError> {
         if config.simple.iter().any(|mapping| {
             let extras = &mapping.extras;
-            !extras.if_alone.is_empty()
-                || extras
-                    .delayed
-                    .as_ref()
-                    .is_some_and(|d| !d.if_invoked.is_empty() || !d.if_canceled.is_empty())
+            extras
+                .delayed
+                .as_ref()
+                .is_some_and(|d| !d.if_invoked.is_empty() || !d.if_canceled.is_empty())
         }) {
             return Err(SimpleActorError::UnsupportedSimpleSemantics);
         }
@@ -109,6 +109,7 @@ impl SimpleStageActor {
             scope_runs: BTreeMap::new(),
             removed_scope_sources: BTreeSet::new(),
             held: None,
+            alone_candidate: None,
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
@@ -177,7 +178,11 @@ impl SimpleStageActor {
             return Err(SimpleActorError::Input);
         }
         let at = event.at_ns;
+        let cancels_alone = matches!(event.payload, crate::pointer_work::PointerMotion::Wheel {horizontal, vertical} if horizontal != 0 || vertical != 0);
         self.generated.prepare_pointer(event)?.commit();
+        if cancels_alone {
+            self.alone_candidate = None;
+        }
         self.now = at;
         Ok(())
     }
@@ -307,6 +312,11 @@ impl SimpleStageActor {
                     .decide_producer_down(due, context)?
                     .with_original_up(up)?;
                 let halt = decision.originating_halt();
+                let momentary = matches!(due.event.payload.target, ActionTarget::Key(_));
+                let alone = momentary
+                    && decision
+                        .selection()
+                        .is_some_and(|rule| !rule.mapping().extras.if_alone.is_empty());
                 let held = decision
                     .selection()
                     .filter(|rule| !rule.mapping().extras.if_held_down.is_empty())
@@ -370,6 +380,9 @@ impl SimpleStageActor {
                 }
                 self.last_batch = id.0;
                 self.held = held;
+                if momentary {
+                    self.alone_candidate = alone.then_some(slot);
+                }
                 if generated_halt {
                     self.halted.insert(slot);
                 }
@@ -423,6 +436,24 @@ impl SimpleStageActor {
                 if self.held.is_some_and(|(_, candidate)| candidate == slot) {
                     self.held = None;
                 }
+                if self.alone_candidate == Some(slot) {
+                    self.alone_candidate = None;
+                    let decision = self
+                        .producers
+                        .live(slot)
+                        .ok_or(SimpleActorError::Invariant)?;
+                    if decision.selection().is_some_and(|rule| {
+                        due.delivered_at.0 - decision.delivered_at().0
+                            < rule.mapping().extras.alone_timeout_ns
+                    }) {
+                        self.branch(
+                            slot,
+                            rule_selection::RuleBranch::Alone,
+                            context,
+                            due.delivered_at,
+                        )?;
+                    }
+                }
                 self.branch(
                     slot,
                     rule_selection::RuleBranch::AfterKeyUp,
@@ -468,6 +499,7 @@ impl SimpleStageActor {
             rule_selection::RuleBranch::AfterKeyUp => {
                 selection.mapping().extras.after_key_up.is_empty()
             }
+            rule_selection::RuleBranch::Alone => selection.mapping().extras.if_alone.is_empty(),
             _ => return Err(SimpleActorError::Invariant),
         };
         if empty {
@@ -489,7 +521,8 @@ impl SimpleStageActor {
             at,
             decision.down().device,
             decision.down().source,
-        )?;
+        )?
+        .materialize_complex_snapshot(&self.generated.modifiers())?;
         let slots = plan
             .actions()
             .events()
@@ -722,6 +755,9 @@ impl SimpleStageActor {
     ) -> Result<(), SimpleActorError> {
         self.running()?;
         self.check_time(at)?;
+        if horizontal != 0 || vertical != 0 {
+            self.alone_candidate = None;
+        }
         let result = self
             .complex
             .observe_wheel(horizontal, vertical, at)
@@ -778,6 +814,12 @@ impl SimpleStageActor {
         })
     }
     fn discard_inputs(&mut self, ids: &[BatchId]) -> Result<(), SimpleActorError> {
+        if self
+            .alone_candidate
+            .is_some_and(|slot| ids.contains(&slot.batch))
+        {
+            self.alone_candidate = None;
+        }
         if self.held.is_some_and(|(_, slot)| ids.contains(&slot.batch)) {
             self.held = None;
         }

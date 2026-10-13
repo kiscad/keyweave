@@ -393,7 +393,11 @@ fn due_first_retries_without_selection_and_other_invalid_receipt_latches_failure
 #[test]
 fn unsupported_simple_branches_reject_but_consumed_modifiers_are_supported() {
     let mut mapping = mapping("a", vec![key("b").into()]);
-    mapping.extras.if_alone.push(key("c").into());
+    mapping.extras.delayed = Some(DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![key("c").into()],
+        if_canceled: vec![],
+    });
     assert!(matches!(
         SimpleStageActor::new(config(vec![mapping], vec![])),
         Err(SimpleActorError::UnsupportedSimpleSemantics)
@@ -969,5 +973,275 @@ fn held_deadline_overflow_fails_before_down_activation_and_reset_clears_state() 
     assert!(actor.producer(root.events()[0].payload.slot).is_none());
     assert_eq!(actor.pending_children(), 0);
     assert!(actor.reset(MonoTime(at)).unwrap().outputs.is_empty());
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+fn alone_rule(main: Vec<Action>, alone: Vec<Action>) -> Mapping {
+    let mut rule = mapping("a", main);
+    rule.extras.if_alone = alone;
+    rule.extras.alone_timeout_ns = 100;
+    rule
+}
+
+#[test]
+fn simple_alone_timeout_is_strict_and_original_up_runs_only_once() {
+    for elapsed in [99, 100, 101] {
+        let mut actor = actor(config(
+            vec![alone_rule(vec![key("b").into()], vec![key("d").into()])],
+            vec![],
+        ));
+        let root = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&root, 100), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 100);
+        actor
+            .admit(&up(&root, 100 + elapsed), &ContextSnapshot::default())
+            .unwrap();
+        let outputs = drain(&mut actor, 100 + elapsed).0;
+        if elapsed < 100 {
+            assert_eq!(
+                outputs,
+                [
+                    (key("b"), KeyEdge::Up),
+                    (key("d"), KeyEdge::Down),
+                    (key("d"), KeyEdge::Up)
+                ]
+            );
+        } else {
+            assert_eq!(outputs, [(key("b"), KeyEdge::Up)]);
+        }
+        assert!(drain(&mut actor, 300).0.is_empty());
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+
+#[test]
+fn alone_frozen_old_simple_and_complex_rules_keep_timed_child_after_reload() {
+    let mut actor = actor(config(
+        vec![alone_rule(
+            vec![],
+            vec![Action {
+                hold_down_ns: 50,
+                ..key("d").into()
+            }],
+        )],
+        vec![mapping("d", vec![key("e").into()])],
+    ));
+    let root = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&root, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .activate(Arc::new(ConfigSnapshot::empty(ConfigGeneration(2))))
+        .unwrap();
+    actor
+        .admit(&up(&root, 120), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(drain(&mut actor, 120).0, [(key("e"), KeyEdge::Down)]);
+    assert_eq!(actor.pending_inputs(), 1);
+    assert!(drain(&mut actor, 169).0.is_empty());
+    let (outputs, released) = drain(&mut actor, 170);
+    assert_eq!(outputs, [(key("e"), KeyEdge::Up)]);
+    assert_eq!(released, [root.events()[0].payload.slot]);
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn alone_key_and_nonzero_wheel_interrupt_but_zero_wheel_and_variable_do_not() {
+    for kind in ["key", "wheel", "zero-wheel", "variable"] {
+        let assign = Action {
+            target: ActionTarget::SetVariable(VariableAction {
+                name: "flag".into(),
+                operation: VariableOperation::Set {
+                    value: Some(VariableValue::Integer(1)),
+                    key_up_value: None,
+                },
+            }),
+            ..key("vk_none").into()
+        };
+        let mut actor = actor(config(
+            vec![
+                alone_rule(vec![], vec![key("d").into()]),
+                mapping("z", vec![assign.clone()]),
+            ],
+            vec![],
+        ));
+        let root = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&root, 100), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 100);
+        match kind {
+            "wheel" => actor.observe_wheel(0, 1, MonoTime(110)).unwrap(),
+            "zero-wheel" => actor.observe_wheel(0, 0, MonoTime(110)).unwrap(),
+            _ => {
+                let other = input(
+                    &mut actor,
+                    &[if kind == "key" {
+                        key("x").into()
+                    } else {
+                        assign
+                    }],
+                    2,
+                    110,
+                );
+                actor
+                    .admit(&down(&other, 110), &ContextSnapshot::default())
+                    .unwrap();
+                drain(&mut actor, 110);
+                actor
+                    .admit(&up(&other, 115), &ContextSnapshot::default())
+                    .unwrap();
+                drain(&mut actor, 115);
+            }
+        }
+        actor
+            .admit(&up(&root, 120), &ContextSnapshot::default())
+            .unwrap();
+        let outputs = drain(&mut actor, 120).0;
+        if kind == "key" || kind == "wheel" {
+            assert!(outputs.is_empty());
+        } else {
+            assert_eq!(
+                outputs,
+                [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+            );
+        }
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+
+#[test]
+fn alone_condition_uses_main_saved_variable_up_then_filters_branch_once() {
+    let assign = Action {
+        target: ActionTarget::SetVariable(VariableAction {
+            name: "flag".into(),
+            operation: VariableOperation::Set {
+                value: Some(VariableValue::Integer(1)),
+                key_up_value: Some(VariableValue::Integer(2)),
+            },
+        }),
+        ..key("vk_none").into()
+    };
+    let action = Action {
+        conditions: vec![Condition::Variable {
+            name: "flag".into(),
+            value: VariableValue::Integer(2),
+            unless: false,
+        }],
+        ..key("d").into()
+    };
+    let mut actor = actor(config(vec![alone_rule(vec![assign], vec![action])], vec![]));
+    let root = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&root, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    actor
+        .admit(&up(&root, 120), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 120).0,
+        [(key("d"), KeyEdge::Down), (key("d"), KeyEdge::Up)]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn held_and_alone_share_saved_parent_but_alone_is_tap_after_current_main_up() {
+    let mut rule = alone_rule(vec![key("b").into()], vec![key("e").into()]);
+    rule.extras.if_held_down = vec![key("d").into()];
+    rule.extras.held_threshold_ns = 50;
+    let mut actor = actor(config(vec![rule], vec![]));
+    let root = input(&mut actor, &[key("a").into()], 1, 100);
+    actor
+        .admit(&down(&root, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    assert_eq!(
+        drain(&mut actor, 150).0,
+        [(key("b"), KeyEdge::Up), (key("d"), KeyEdge::Down)]
+    );
+    actor
+        .admit(&up(&root, 160), &ContextSnapshot::default())
+        .unwrap();
+    assert_eq!(
+        drain(&mut actor, 160).0,
+        [
+            (key("d"), KeyEdge::Up),
+            (key("e"), KeyEdge::Down),
+            (key("e"), KeyEdge::Up)
+        ]
+    );
+    assert_eq!(actor.reserved_sources(), 0);
+}
+
+#[test]
+fn alone_device_or_reset_control_cancels_timed_branch_and_clears_candidate() {
+    for reset in [false, true] {
+        let mut actor = actor(config(
+            vec![alone_rule(
+                vec![],
+                vec![
+                    Action {
+                        hold_down_ns: 50,
+                        ..key("d").into()
+                    },
+                    key("e").into(),
+                ],
+            )],
+            vec![],
+        ));
+        let root = input(&mut actor, &[key("a").into()], 1, 100);
+        actor
+            .admit(&down(&root, 100), &ContextSnapshot::default())
+            .unwrap();
+        drain(&mut actor, 100);
+        actor
+            .admit(&up(&root, 120), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 120).0, [(key("d"), KeyEdge::Down)]);
+        let step = if reset {
+            actor.reset(MonoTime(130)).unwrap()
+        } else {
+            actor
+                .observe_device(device(1), true, MonoTime(130))
+                .unwrap()
+        };
+        assert_eq!(edges(step.outputs), [(key("d"), KeyEdge::Up)]);
+        assert!(drain(&mut actor, 200).0.is_empty());
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+}
+
+#[test]
+fn alone_snapshot_expansion_capacity_rejects_before_child_registration_then_reset() {
+    let mut actor = actor(config(
+        vec![alone_rule(vec![], vec![key("d").into(); 512])],
+        vec![],
+    ));
+    let shift = input(&mut actor, &[key("left_shift").into()], 1, 100);
+    actor
+        .admit(&down(&shift, 100), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 100);
+    let root = input(&mut actor, &[key("a").into()], 2, 110);
+    actor
+        .admit(&down(&root, 110), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 110);
+    actor
+        .admit(&up(&shift, 115), &ContextSnapshot::default())
+        .unwrap();
+    drain(&mut actor, 115);
+    assert!(matches!(
+        actor.admit(&up(&root, 120), &ContextSnapshot::default()),
+        Err(SimpleActorError::Plan(PlanError::Capacity))
+    ));
+    assert!(actor.is_failed());
+    assert_eq!(actor.pending_children(), 0);
+    assert!(actor.reset(MonoTime(120)).unwrap().outputs.is_empty());
     assert_eq!(actor.reserved_sources(), 0);
 }
