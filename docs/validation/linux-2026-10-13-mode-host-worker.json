@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0150 fixed Linux host/worker execution mode and independent worker revalidation",
+  "source_base_commit": "810673e55dcdc1641e90ff2989e49a223bb29c20",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-worker/src/linux_arguments.rs": "772effd0428af4b66ca1327a096eacf9ddf27c8d3b869bd2733caefe2edb240b",
+    "crates/keyweave-worker/src/linux_preparation.rs": "d61b0636489de67fbcbee476b7db3cca1718e3c39d14ed78c8c2cdac11c7be14",
+    "crates/keyweave-worker/src/main.rs": "80e7b7f7b15ed13409c7e22337ca99443533eebe0be2bd3aeed4ff6fa805a770",
+    "crates/keyweave-worker/tests/entry.rs": "1a293103f02e49a13c17ed99e809e80a28d58df375ce445fd2ac9f48699d8384",
+    "crates/keyweave-linux/src/worker.rs": "8465d1ca1665778d88129b3a0353e181b8f35d7e9c301e50b293fdc1da2485e0",
+    "crates/keyweave-host/src/main.rs": "cba2005de7a9f75b22f233b093406ec7d0539e06821566298eba7e3adfbb95dd",
+    "crates/keyweave-host/src/linux/startup.rs": "a1b5bee0b01107a6ce79538aa38b8f0bf85fb61161f998cdd3beece5b4398d35",
+    "crates/keyweave-host/tests/linux_session.rs": "ca3d1b63be683c7899e47121f82b08941d2bbc0753913b80a1ed58632cd805f2",
+    "crates/keyweave-host/tests/cli.rs": "9be5f20263bf8d0b3806fd74e0e5864504e7fac38c3b1b49e39d0018fb8370bf"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1378,
+    "new_tests": 4,
+    "extended_real_main_entry_cases": 2,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-mode-host-worker/tests.log",
+        "sha256": "011a54fe123ddec2e23d8e590886d4a280964fe45c00510bcbbf63d752fa79ab"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-mode-host-worker/clippy.log",
+        "sha256": "851a24f3c29fdb035b8fa52dd671995dd699a0a7c6465502ba0dad1d4c34645a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-mode-host-worker/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-mode-host-worker/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native checks remain pending after earlier auto-review quota rejection. Shared host CLI uses worker mode re-export because host has Linux-only direct Linux dependency; no native Windows attempt/bypass."
+  },
+  "limitations": [
+    "LinuxArguments accepts a fixed optional mode pair after provider/VT before inputs, defaults Legacy, and staged builder must emit it. Full 64 inputs roundtrip; unknown/duplicate/reordered/missing mode/input forms reject, original process protections and path validation unchanged.",
+    "Host run-linux/check-linux expose explicit mode default Legacy. Cold launch validates exact bytes in same mode and binds argv before spawning. Worker independently compiles sealed bytes against parsed mode before any possible device operation. Mode is immutable across reload; target LinuxStaged selected for staged worker.",
+    "ConsoleConfig bundles cold snapshot/output/mode as plain data, not readiness proof. Mode-aware guarded console reporting transaction preserves original Stop, parent/progress/VT/bootstrap/consumer-ready/terminal/reload closure behavior. Public old wrappers use Legacy.",
+    "Offline CLI proves timed JSON accepted only for explicit staged mode, reports readiness unverified and no private description/comment. Host sealing test preserves bytes/mode with None provider. Real owned worker process tests observe Legacy timed Config error vs staged None UnsupportedPlatform, with actual exit and Missing terminal report, not fake clean Runtime evidence.",
+    "No valid Console session, evdev/uinput creation/grab, Hook/SendInput, driver/install or physical keyboard testing. Native Linux staged mode is now reachable through explicit argument in code but readiness/hardware/graphical consumer acceptance remains unverified. Windows mode handoff/async/native checks, native pointer, Simple advanced branches/simultaneous/hardware/GUI/packaging/driver and full objective remain incomplete."
+  ],
+  "abi": "Pure Rust argv/launch/worker mode dispatch and cold bundle; no unsafe/FFI/dependency/native packet ABI changes."
+}

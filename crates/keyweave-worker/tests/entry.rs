@@ -114,24 +114,33 @@ fn linux_real_main_consumes_sealed_config_and_preserves_cold_failures() {
     use std::time::{Duration, Instant};
     let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
     let valid = br#"{"profiles":[{"selected":true,"simple_modifications":[]}]}"#;
-    for (bytes, header_run, expected) in [
-        (&b"invalid json"[..], 57, WorkerExit::Config),
-        (&b"\xff"[..], 57, WorkerExit::Config),
-        (&valid[..], 58, WorkerExit::Admission),
-        (&valid[..], 57, WorkerExit::UnsupportedPlatform),
+    let timed = br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"timed","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":50},{"key_code":"c"}]}]}]}}]}"#;
+    for (bytes, header_run, expected, staged) in [
+        (&b"invalid json"[..], 57, WorkerExit::Config, false),
+        (&b"\xff"[..], 57, WorkerExit::Config, false),
+        (&valid[..], 58, WorkerExit::Admission, false),
+        (&valid[..], 57, WorkerExit::UnsupportedPlatform, false),
+        (&timed[..], 57, WorkerExit::Config, false),
+        (&timed[..], 57, WorkerExit::UnsupportedPlatform, true),
     ] {
         let mut command = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"));
-        command.args([
+        let parent_text = std::process::id().to_string();
+        let run_text = header_run.to_string();
+        let mut args = vec![
             LINUX_WORKER_ARGUMENT,
-            &std::process::id().to_string(),
-            &header_run.to_string(),
+            &parent_text,
+            &run_text,
             "--uinput",
             "/keyweave-absent-output",
             "--session-provider",
             "none",
             "--input",
             "/keyweave-absent-input",
-        ]);
+        ];
+        if staged {
+            args.splice(7..7, ["--execution-mode", "staged-keyboard"]);
+        }
+        command.args(args);
         // None is an invariant: no provider grant, no device lookup/open, even
         // with valid config. Never change this test to a capture-enabled provider.
         let start = Instant::now();

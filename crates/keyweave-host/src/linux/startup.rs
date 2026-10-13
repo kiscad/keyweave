@@ -75,6 +75,7 @@ pub struct LaunchOptions {
     pub uinput: PathBuf,
     pub inputs: Vec<PathBuf>,
     pub session_provider: SessionProvider,
+    pub execution_mode: keyweave_linux::runtime::ExecutionMode,
 }
 /// Consumed once by start; no Clone, no config pathname reopen after preparation.
 pub struct PreparedLaunch {
@@ -130,6 +131,7 @@ impl PreparedLaunch {
         LinuxArguments {
             parent: std::process::id(),
             run_id: 1,
+            execution_mode: options.execution_mode,
             uinput: options.uinput.clone(),
             inputs: options.inputs.clone(),
             session_provider: options.session_provider.clone(),
@@ -157,7 +159,7 @@ impl PreparedLaunch {
         }
         let output = default_output_spec()
             .map_err(|e| StartupError::system(StartupStage::Configuration, e))?;
-        let prepared = PreparedConfig::read(file, output)
+        let prepared = PreparedConfig::read_with_mode(file, output, options.execution_mode)
             .map_err(|_| StartupError::plain(StartupStage::Configuration))?;
         // Absolute lexical source path preserves symlink identity for later
         // replacements. No canonical target cache and no second config read.
@@ -176,6 +178,7 @@ impl PreparedLaunch {
         let argv = LinuxArguments {
             parent: std::process::id(),
             run_id: identity.run_id(),
+            execution_mode: options.execution_mode,
             uinput: options.uinput,
             inputs: options.inputs,
             session_provider: options.session_provider,
@@ -284,6 +287,7 @@ mod tests {
         }
         fn options(&self) -> LaunchOptions {
             LaunchOptions {
+                execution_mode: keyweave_linux::runtime::ExecutionMode::Legacy,
                 config: self.config.clone(),
                 worker: None,
                 uinput: "/absent-output".into(),
@@ -296,6 +300,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+    #[test]
+    fn staged_launch_seals_timed_bytes_and_passes_fixed_mode_while_none_stays_no_input() {
+        let f = Fixture::new();
+        let timed = br#"// retained exact bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"timed","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":50},{"key_code":"c"}]}]}]}}]}"#;
+        fs::write(&f.config, timed).unwrap();
+        assert!(PreparedLaunch::prepare(&f.host, f.options()).is_err());
+        let mut options = f.options();
+        options.execution_mode = keyweave_linux::runtime::ExecutionMode::StagedKeyboard;
+        let prepared = PreparedLaunch::prepare(&f.host, options).unwrap();
+        assert_eq!(prepared.artifact.read_bytes().unwrap(), timed);
+        let args = LinuxArguments::parse(prepared.argv).unwrap();
+        assert_eq!(
+            args.execution_mode,
+            keyweave_linux::runtime::ExecutionMode::StagedKeyboard
+        );
+        assert_eq!(args.session_provider, SessionProvider::None);
     }
     #[test]
     fn preparation_seals_exact_config_and_binds_validated_native_argv() {

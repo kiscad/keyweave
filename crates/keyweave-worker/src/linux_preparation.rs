@@ -3,10 +3,11 @@ use crate::{
     LoadError, compile_config_bytes_for_generation, next_config_generation, read_config_bytes,
 };
 use keyweave_engine::{ConfigSnapshot, EngineError};
+pub use keyweave_linux::runtime::ExecutionMode;
 use keyweave_linux::{
     keys,
     output::{DeviceSpec, RepeatPolicy},
-    runtime::{ExecutionMode, RuntimeError, validate_config},
+    runtime::{RuntimeError, validate_config},
 };
 use keyweave_types::{BackendCapabilities, ConfigGeneration};
 use std::{io::Read, sync::Arc};

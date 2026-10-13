@@ -12,6 +12,8 @@ struct Cli {
 enum Command {
     /// Run an experimental Linux session. Ctrl+C, SIGTERM or SIGHUP requests stop.
     RunLinux {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: LinuxExecution,
         #[arg(long)]
         config: PathBuf,
         #[arg(long)]
@@ -30,6 +32,8 @@ enum Command {
     },
     /// Check Linux configuration against the full supported output table; no input access.
     CheckLinux {
+        #[arg(long, value_enum, default_value = "legacy")]
+        execution_mode: LinuxExecution,
         #[arg(long)]
         config: PathBuf,
     },
@@ -61,6 +65,21 @@ struct WatchArgs {
     #[arg(long, requires = "watch_config", value_parser = clap::value_parser!(u64).range(100..=60000))]
     watch_interval_ms: Option<u64>,
 }
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum LinuxExecution {
+    Legacy,
+    StagedKeyboard,
+}
+impl LinuxExecution {
+    fn runtime(self) -> keyweave_worker::linux_preparation::ExecutionMode {
+        match self {
+            Self::Legacy => keyweave_worker::linux_preparation::ExecutionMode::Legacy,
+            Self::StagedKeyboard => {
+                keyweave_worker::linux_preparation::ExecutionMode::StagedKeyboard
+            }
+        }
+    }
+}
 #[derive(Clone, Copy, ValueEnum)]
 enum LinuxProvider {
     None,
@@ -82,6 +101,7 @@ impl From<Identity> for IdentityPolicy {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::RunLinux {
+            execution_mode,
             config,
             worker,
             uinput,
@@ -89,13 +109,25 @@ fn main() -> ExitCode {
             session_provider,
             vt,
             watch,
-        } => run_linux(config, worker, uinput, input, session_provider, vt, watch),
-        Command::CheckLinux { config } => match check_linux(config) {
+        } => run_linux(
+            config,
+            worker,
+            uinput,
+            input,
+            session_provider,
+            vt,
+            (watch, execution_mode),
+        ),
+        Command::CheckLinux {
+            config,
+            execution_mode,
+        } => match check_linux(config, execution_mode) {
             Ok(config) => {
                 println!(
-                    "Linux configuration accepted (offline): bytes={}, generation={}; device readiness unverified",
+                    "Linux configuration accepted (offline): bytes={}, generation={}, mode={:?}; device readiness unverified",
                     config.bytes().len(),
-                    config.snapshot().generation.0
+                    config.snapshot().generation.0,
+                    config.execution_mode()
                 );
                 ExitCode::SUCCESS
             }
@@ -237,10 +269,12 @@ fn run(
 
 fn check_linux(
     path: PathBuf,
+    mode: LinuxExecution,
 ) -> Result<keyweave_worker::linux_preparation::PreparedConfig, String> {
-    keyweave_worker::linux_preparation::PreparedConfig::read(
+    keyweave_worker::linux_preparation::PreparedConfig::read_with_mode(
         std::fs::File::open(path).map_err(|e| e.to_string())?,
         keyweave_worker::linux_preparation::default_output_spec().map_err(|e| e.to_string())?,
+        mode.runtime(),
     )
     .map_err(|e| e.to_string())
 }
@@ -253,7 +287,7 @@ fn run_linux(
     _: Vec<PathBuf>,
     _: LinuxProvider,
     _: Option<PathBuf>,
-    _: WatchArgs,
+    _: (WatchArgs, LinuxExecution),
 ) -> ExitCode {
     eprintln!("run-linux requires Linux");
     ExitCode::from(78)
@@ -266,7 +300,7 @@ fn run_linux(
     input: Vec<PathBuf>,
     provider: LinuxProvider,
     vt: Option<PathBuf>,
-    watch: WatchArgs,
+    (watch, execution_mode): (WatchArgs, LinuxExecution),
 ) -> ExitCode {
     use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};
     use keyweave_worker::linux_arguments::SessionProvider;
@@ -286,6 +320,7 @@ fn run_linux(
         }
     };
     let options = LaunchOptions {
+        execution_mode: execution_mode.runtime(),
         config,
         worker,
         uinput,

@@ -1,5 +1,7 @@
 # KeyWeave
 
+Linux 的实验阶段模式已贯通 host/worker：可用 `keyweave-host check-linux --execution-mode staged-keyboard --config PATH` 离线校验含持续时间的规则；默认 `legacy` 保留原限制。显式模式会随启动参数固定传递并在 worker 独立重验。本轮验证限定离线与 `session-provider none`，真实 VT、设备抓取和输出尚未验收。见 [ADR-0150](docs/ADR-0150-linux-mode-host-worker-handoff.md)。
+
 用 Rust 开发、面向 Linux 与 Windows 的键盘映射工具。名称取自“编织按键行为”，是本项目的工作名称，尚未核验商标或包名可用性。
 
 当前已实现 Rust workspace、HID 键名、JSONC 配置校验、基础与部分复杂规则、确定性离线回放和多来源输出账本。Linux 已连接 owned evdev/uinput、文本控制台消费者、有限 bootstrap、活动消费者续期、独立 worker 与进度/信号监督，并提供实验 `run-linux` 入口和可选 `--watch-config` 文件监听；真实 VT、设备抓取/输出与终端停机仍待真机验收。Windows 已连接 Hook/SendInput、共享引擎会话 actor、桌面/权限/会话租约、独立监督与 host 入口；固定 Rust 1.97.1 x64/i686 的既有验证记录已保存，近期新增改动的 Windows 原生补验仍受自动审批额度错误影响。图形消费者、完整高级规则、设备热添加、LED、热配置、GUI、包装与 Rust 驱动继续开发，准确范围见 [STATUS](docs/STATUS.md) 和 [兼容说明](docs/COMPATIBILITY.zh-CN.md)。原始 `../Karabiner-Elements/` 保持不变。

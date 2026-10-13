@@ -189,6 +189,7 @@ fn main() {
         let prepared = PreparedLaunch::prepare(
             &host,
             LaunchOptions {
+                execution_mode: keyweave_linux::runtime::ExecutionMode::Legacy,
                 config: config.clone(),
                 worker: Some(host.clone()),
                 uinput: "/keyweave-absent-output".into(),

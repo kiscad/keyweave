@@ -712,6 +712,12 @@ pub enum ConsoleSessionError {
     #[error(transparent)]
     Worker(#[from] WorkerError),
 }
+/// Plain cold data. Bootstrap independently validates it before opening devices.
+pub struct ConsoleConfig {
+    pub snapshot: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
+    pub output: crate::output::DeviceSpec,
+    pub mode: crate::runtime::ExecutionMode,
+}
 /// Full guarded console transaction, with cold configuration already compiled.
 /// No endpoint logging and no fabricated Runtime report during startup.
 pub fn run_reporting_console_session(
@@ -727,8 +733,11 @@ pub fn run_reporting_console_session(
         vt,
         uinput,
         inputs,
-        config,
-        spec,
+        ConsoleConfig {
+            snapshot: config,
+            output: spec,
+            mode: crate::runtime::ExecutionMode::Legacy,
+        },
         |runtime, client, guard, provider, clock, ready| {
             run_console_worker_controlled_report(runtime, client, guard, provider, clock, ready)
         },
@@ -753,8 +762,55 @@ where
         vt,
         uinput,
         inputs,
+        ConsoleConfig {
+            snapshot: config,
+            output: spec,
+            mode: crate::runtime::ExecutionMode::Legacy,
+        },
+        |runtime, client, guard, provider, clock, ready| {
+            run_console_worker_with_extension(
+                runtime, client, guard, provider, clock, ready, extension,
+            )
+        },
+    );
+    extension.close();
+    result
+}
+pub fn run_reporting_console_session_prepared(
+    startup: ReportingStartup,
+    vt: &std::path::Path,
+    uinput: &std::path::Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, std::path::PathBuf)>,
+    config: ConsoleConfig,
+) -> Result<ConsoleSessionResult, ConsoleSessionError> {
+    run_reporting_console_session_using(
+        startup,
+        vt,
+        uinput,
+        inputs,
         config,
-        spec,
+        |runtime, client, guard, provider, clock, ready| {
+            run_console_worker_controlled_report(runtime, client, guard, provider, clock, ready)
+        },
+    )
+}
+pub fn run_reporting_console_session_prepared_with_extension<E>(
+    startup: ReportingStartup,
+    vt: &std::path::Path,
+    uinput: &std::path::Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, std::path::PathBuf)>,
+    config: ConsoleConfig,
+    extension: &mut E,
+) -> Result<ConsoleSessionResult, ConsoleSessionError>
+where
+    E: WorkerExtension<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+{
+    let result = run_reporting_console_session_using(
+        startup,
+        vt,
+        uinput,
+        inputs,
+        config,
         |runtime, client, guard, provider, clock, ready| {
             run_console_worker_with_extension(
                 runtime, client, guard, provider, clock, ready, extension,
@@ -769,8 +825,7 @@ fn run_reporting_console_session_using<F>(
     vt: &std::path::Path,
     uinput: &std::path::Path,
     inputs: Vec<(keyweave_types::DeviceInstanceId, std::path::PathBuf)>,
-    config: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
-    spec: crate::output::DeviceSpec,
+    config: ConsoleConfig,
     run: F,
 ) -> Result<ConsoleSessionResult, ConsoleSessionError>
 where
@@ -797,7 +852,15 @@ where
     {
         return Ok(ConsoleSessionResult::StartupStopped);
     }
-    let boot = crate::bootstrap::ConsoleBootstrap::new(&guard, vt, uinput, inputs, config, spec)?;
+    let boot = crate::bootstrap::ConsoleBootstrap::new_with_mode(
+        &guard,
+        vt,
+        uinput,
+        inputs,
+        config.snapshot,
+        config.output,
+        config.mode,
+    )?;
     let Some(crate::bootstrap::ConsolePrepared {
         runtime,
         provider,

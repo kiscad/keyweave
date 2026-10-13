@@ -73,7 +73,12 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
         Ok(spec) => spec,
         Err(_) => return WorkerExit::Config.into(),
     };
-    let prepared = match PreparedConfig::from_bytes(bytes, spec) {
+    let prepared = match PreparedConfig::from_bytes_for_generation_with_mode(
+        bytes,
+        spec,
+        keyweave_types::ConfigGeneration(1),
+        args.execution_mode,
+    ) {
         Ok(prepared) => prepared,
         Err(_) => return WorkerExit::Config.into(),
     };
@@ -105,22 +110,35 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
                     args.run_id,
                     prepared.snapshot().generation,
                     5_000_000_000,
-                    keyweave_worker::reload_preparation::Target::Linux(
-                        prepared.output_spec().clone(),
-                    ),
+                    match prepared.execution_mode() {
+                        keyweave_worker::linux_preparation::ExecutionMode::Legacy => {
+                            keyweave_worker::reload_preparation::Target::Linux(
+                                prepared.output_spec().clone(),
+                            )
+                        }
+                        keyweave_worker::linux_preparation::ExecutionMode::StagedKeyboard => {
+                            keyweave_worker::reload_preparation::Target::LinuxStaged(
+                                prepared.output_spec().clone(),
+                            )
+                        }
+                    },
                 ) {
                     Ok(controller) => controller,
                     Err(_) => return WorkerExit::Admission.into(),
                 };
-                let result = keyweave_linux::worker::run_reporting_console_session_with_extension(
-                    startup,
-                    &vt,
-                    &args.uinput,
-                    inputs,
-                    prepared.snapshot().clone(),
-                    prepared.output_spec().clone(),
-                    &mut controller,
-                );
+                let result =
+                    keyweave_linux::worker::run_reporting_console_session_prepared_with_extension(
+                        startup,
+                        &vt,
+                        &args.uinput,
+                        inputs,
+                        keyweave_linux::worker::ConsoleConfig {
+                            snapshot: prepared.snapshot().clone(),
+                            output: prepared.output_spec().clone(),
+                            mode: prepared.execution_mode(),
+                        },
+                        &mut controller,
+                    );
                 // Original owner retained through input recovery/terminal send.
                 // A bounded closed-job observation never restarts or activates it.
                 if keyweave_worker::reload_control::reap_after_shutdown(&mut controller).is_err() {
@@ -128,13 +146,16 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
                 }
                 result
             } else {
-                keyweave_linux::worker::run_reporting_console_session(
+                keyweave_linux::worker::run_reporting_console_session_prepared(
                     startup,
                     &vt,
                     &args.uinput,
                     inputs,
-                    prepared.snapshot().clone(),
-                    prepared.output_spec().clone(),
+                    keyweave_linux::worker::ConsoleConfig {
+                        snapshot: prepared.snapshot().clone(),
+                        output: prepared.output_spec().clone(),
+                        mode: prepared.execution_mode(),
+                    },
                 )
             };
             match result {

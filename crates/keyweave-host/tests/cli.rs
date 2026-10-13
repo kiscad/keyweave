@@ -279,3 +279,34 @@ fn watch_console_invalid_config_stops_before_any_signal_or_child_admission() {
     assert!(!text.contains("worker_exit="));
     fs::remove_dir_all(root).unwrap();
 }
+#[test]
+fn linux_offline_mode_explicitly_admits_timed_json_and_reports_unverified_readiness() {
+    let root = dir("staged-offline");
+    let path = root.join("private config.jsonc");
+    let body = br#"// private-duration-comment
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"private-duration-rule","manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","hold_down_milliseconds":50},{"key_code":"c"}]}]}]}}]}"#;
+    fs::write(&path, body).unwrap();
+    let legacy = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args(["check-linux", "--config"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!legacy.status.success());
+    let staged = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+        .args([
+            "check-linux",
+            "--execution-mode",
+            "staged-keyboard",
+            "--config",
+        ])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(staged.status.success());
+    assert!(staged.stderr.is_empty());
+    let text = String::from_utf8(staged.stdout).unwrap();
+    assert!(text.contains("mode=StagedKeyboard") && text.contains("device readiness unverified"));
+    assert!(!text.contains("private-duration"));
+    assert_eq!(fs::read(&path).unwrap(), body);
+    fs::remove_dir_all(root).unwrap();
+}
