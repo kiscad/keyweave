@@ -839,7 +839,7 @@ impl SimpleStageActor {
     ) -> Result<SimpleStep, SimpleActorError> {
         self.generated.check_device(device, removed)?;
         let canceled = self.generated.slots_for_device_removal(device, removed);
-        let actual = self.complex.observe_device(device, removed, at)?;
+        let mut actual = self.complex.observe_device(device, removed, at)?;
         self.remember_scope_source_removal(&canceled);
         let restored = self.cleanup_scope_device(device, removed, at)?;
         self.generated.observe_device(device, removed)?;
@@ -854,12 +854,14 @@ impl SimpleStageActor {
             })
             .map(|(&id, _)| id)
             .collect();
+        // Cross-device group cancellation can complete an already-Up surviving child.
+        // Consume those real completions before discarding this device's own input roots.
+        actual.discarded_input_batches.clear();
+        let mut step = self.absorb(actual)?;
+        step.outputs.extend(restored);
         self.discard_inputs(&ids)?;
-        Ok(SimpleStep {
-            outputs: actual.outputs.into_iter().chain(restored).collect(),
-            discarded_input_batches: ids,
-            ..Default::default()
-        })
+        step.discarded_input_batches = ids;
+        Ok(step)
     }
     fn discard_inputs(&mut self, ids: &[BatchId]) -> Result<(), SimpleActorError> {
         if self

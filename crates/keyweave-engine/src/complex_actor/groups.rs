@@ -433,6 +433,83 @@ impl ComplexStageActor {
         }
         Ok(())
     }
+    pub(super) fn cancel_groups_for_device(
+        &mut self,
+        device: DeviceInstanceId,
+        removed: bool,
+        at: MonoTime,
+        step: &mut ComplexStep,
+    ) -> Result<(), ComplexActorError> {
+        let invalidated = |saved: DeviceInstanceId| {
+            saved.id == device.id
+                && (saved.generation < device.generation
+                    || (removed && saved.generation == device.generation))
+        };
+        let mut affected = Vec::new();
+        for (&primary, group) in &self.groups {
+            for &member in group.members() {
+                let saved = self
+                    .producers
+                    .live(member)
+                    .ok_or(ComplexActorError::Invariant)?;
+                if invalidated(saved.down().device) {
+                    affected.push(primary);
+                    break;
+                }
+            }
+        }
+        for primary in affected {
+            let children: Vec<_> = self
+                .children
+                .iter()
+                .filter(|(_, parent)| **parent == primary)
+                .map(|(&id, _)| id)
+                .collect();
+            for id in children {
+                step.outputs.extend(self.output.cancel_batch(id, at)?);
+                let canceled = self.producers.cancel_subtree(id)?;
+                if canceled.len() != 1 || !canceled[0].payloads.is_empty() {
+                    return Err(ComplexActorError::Invariant);
+                }
+                self.children.remove(&id);
+            }
+            if self.held.is_some_and(|(_, slot)| slot == primary) {
+                self.held = None;
+            }
+            if self.delayed.is_some_and(|(_, slot)| slot == primary) {
+                self.delayed = None;
+            }
+            if self.alone_candidate == Some(primary) {
+                self.alone_candidate = None;
+            }
+            self.pending_group_initial.remove(&primary);
+            let group = self
+                .groups
+                .remove(&primary)
+                .ok_or(ComplexActorError::Invariant)?;
+            let (handle, members, _) = group.into_control_ownership();
+            if let Err(rejected) = self.producers.release_shared_retention(handle) {
+                self.quarantined_group_holds.push(rejected.handle);
+                return Err(rejected.error.into());
+            }
+            for member in members {
+                self.group_members.remove(&member);
+                self.bindings.insert(member, None);
+                self.halted.remove(&member);
+                self.canceled_group_members.insert(member);
+                let saved = self
+                    .producers
+                    .live(member)
+                    .ok_or(ComplexActorError::Invariant)?;
+                // Invalid devices are discarded by the normal device-input control below.
+                // Only surviving members with a real original Up may retire here.
+                if !invalidated(saved.down().device) {
+                    self.finish(member, step)?;
+                }
+            }
+        }
+        Ok(())
+    }
     pub(super) fn release_group_holds_for_reset(&mut self) -> Result<(), ComplexActorError> {
         self.pending_group_initial.clear();
         for (_, owner) in std::mem::take(&mut self.groups) {
@@ -554,7 +631,11 @@ mod tests {
     ) -> (ChordMatch, rule_selection::RuleSelection, MonoTime) {
         let mut arbiter = ChordArbiter::new(down(&plans[0])).unwrap();
         arbiter.observe(down(&plans[1])).unwrap();
-        let at = MonoTime(if initial_up { 120 } else { 110 });
+        let at = if initial_up {
+            MonoTime(120)
+        } else {
+            plans[1].origin.start
+        };
         if initial_up {
             arbiter.observe(up(&plans[0], 120)).unwrap();
         }
@@ -1046,5 +1127,403 @@ mod tests {
             .unwrap();
         assert_eq!(last.released_producers, [slot(1), slot(2)]);
         assert_eq!(actor.pending_inputs(), 0);
+    }
+    #[test]
+    fn any_member_removal_cancels_whole_group_and_survivor_up_never_fires_branches() {
+        for when in [KeyUpWhen::Any, KeyUpWhen::All] {
+            for removed_id in [1, 2] {
+                let cfg = snapshot(when, false, false, |extras| {
+                    extras.if_alone = vec![key("e").into()];
+                    extras.after_key_up = vec![key("f").into()];
+                    extras.if_held_down = vec![key("h").into()];
+                    extras.held_threshold_ns = 20;
+                    extras.delayed = Some(DelayedAction {
+                        delay_ns: 30,
+                        if_invoked: vec![key("v").into()],
+                        if_canceled: vec![key("w").into()],
+                    });
+                    extras.simultaneous.as_mut().unwrap().after_key_up = vec![key("z").into()];
+                });
+                let (mut actor, plans) = setup(&cfg);
+                admit(&mut actor, &plans, false);
+                drain(&mut actor, 110);
+                let control = actor
+                    .observe_device(
+                        DeviceInstanceId {
+                            id: removed_id,
+                            generation: 1,
+                        },
+                        true,
+                        MonoTime(115),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    control
+                        .outputs
+                        .iter()
+                        .map(|out| (out.key, out.edge))
+                        .collect::<Vec<_>>(),
+                    [(key("c"), KeyEdge::Up)]
+                );
+                assert_eq!(control.discarded_input_batches, [BatchId(removed_id)]);
+                assert!(control.released_producers.is_empty());
+                assert!(actor.groups.is_empty() && actor.group_members.is_empty());
+                assert!(
+                    actor.held.is_none()
+                        && actor.delayed.is_none()
+                        && actor.alone_candidate.is_none()
+                );
+                let survivor = if removed_id == 1 { 2 } else { 1 };
+                assert!(actor.canceled_group_members.contains(&slot(survivor)));
+                assert!(
+                    actor
+                        .producer(slot(survivor))
+                        .unwrap()
+                        .up_delivered_at()
+                        .is_none()
+                );
+                assert_eq!(actor.pending_inputs(), 1);
+                assert_eq!(actor.next_deadline(), None);
+                let release = actor
+                    .admit(
+                        &up(&plans[(survivor - 1) as usize], 150),
+                        &ContextSnapshot::default(),
+                    )
+                    .unwrap();
+                assert_eq!(release.released_producers, [slot(survivor)]);
+                assert!(drain(&mut actor, 150).0.is_empty());
+                assert!(actor.canceled_group_members.is_empty());
+                assert_eq!(actor.pending_inputs(), 0);
+                assert_eq!(actor.reserved_sources(), 0);
+            }
+        }
+    }
+    #[test]
+    fn queued_group_control_precedes_down_and_never_manufactures_up_or_after_branch() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras.after_key_up = vec![key("z").into()];
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        let control = actor
+            .observe_device(plans[1].origin.device, true, MonoTime(110))
+            .unwrap();
+        assert!(control.outputs.is_empty());
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        assert!(drain(&mut actor, 200).0.is_empty());
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn removal_cancels_timed_main_and_queued_after_child_and_reports_seen_up_survivor() {
+        let cfg = snapshot(KeyUpWhen::Any, true, false, |extras| {
+            extras.after_key_up = vec![key("f").into()];
+        });
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        let control = actor
+            .observe_device(plans[1].origin.device, true, MonoTime(125))
+            .unwrap();
+        assert_eq!(
+            control
+                .outputs
+                .iter()
+                .map(|out| (out.key, out.edge))
+                .collect::<Vec<_>>(),
+            [(key("c"), KeyEdge::Up)]
+        );
+        assert_eq!(control.released_producers, [slot(1)]);
+        assert_eq!(control.discarded_input_batches, [BatchId(2)]);
+        assert!(drain(&mut actor, 200).0.is_empty());
+        assert_eq!(actor.next_deadline(), None);
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn stale_generation_control_is_cold_for_group_and_reset_still_owns_all_holds() {
+        let cfg = snapshot(KeyUpWhen::All, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        assert!(
+            actor
+                .observe_device(
+                    DeviceInstanceId {
+                        id: 2,
+                        generation: 0
+                    },
+                    true,
+                    MonoTime(115)
+                )
+                .is_err()
+        );
+        assert!(actor.is_failed());
+        assert_eq!(actor.groups.len(), 1);
+        assert_eq!(actor.producers.shared_retention_references(), 2);
+        assert_eq!(actor.pending_inputs(), 2);
+        assert!(actor.output.pressed_outputs().contains(&key("c")));
+        let reset = actor.reset(MonoTime(115)).unwrap();
+        assert_eq!(
+            reset
+                .outputs
+                .iter()
+                .map(|out| (out.key, out.edge))
+                .collect::<Vec<_>>(),
+            [(key("c"), KeyEdge::Up)]
+        );
+        assert_eq!(actor.producers.shared_retention_references(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+    }
+    #[test]
+    fn replacement_generation_cancels_group_but_stale_removal_cannot_release_new_owner() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        let new_device = DeviceInstanceId {
+            id: 2,
+            generation: 2,
+        };
+        let changed = actor
+            .observe_device(new_device, false, MonoTime(115))
+            .unwrap();
+        assert_eq!(changed.discarded_input_batches, [BatchId(2)]);
+        assert_eq!(
+            changed
+                .outputs
+                .iter()
+                .map(|out| (out.key, out.edge))
+                .collect::<Vec<_>>(),
+            [(key("c"), KeyEdge::Up)]
+        );
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        let fresh = plan_actions(
+            &[key("b").into()],
+            PlanOrigin {
+                batch: BatchId(4),
+                stage: Stage::Complex,
+                start: MonoTime(130),
+                device: new_device,
+                source: SourceToken(4),
+                config: cfg.clone(),
+            },
+            false,
+        )
+        .unwrap();
+        actor.register_input(fresh.clone()).unwrap();
+        actor
+            .admit(&down(&fresh), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 130).0, [(key("b"), KeyEdge::Down)]);
+        assert!(
+            actor
+                .observe_device(plans[1].origin.device, true, MonoTime(135))
+                .is_err()
+        );
+        assert!(actor.output.pressed_outputs().contains(&key("b")));
+        let reset = actor.reset(MonoTime(135)).unwrap();
+        assert_eq!(
+            reset
+                .outputs
+                .iter()
+                .map(|out| (out.key, out.edge))
+                .collect::<Vec<_>>(),
+            [(key("b"), KeyEdge::Up)]
+        );
+    }
+    #[test]
+    fn unrelated_device_removal_preserves_group_binding_and_output() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, plans) = setup(&cfg);
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        let unrelated = DeviceInstanceId {
+            id: 3,
+            generation: 1,
+        };
+        actor
+            .observe_device(unrelated, false, MonoTime(111))
+            .unwrap();
+        let removed = actor
+            .observe_device(unrelated, true, MonoTime(115))
+            .unwrap();
+        assert!(removed.outputs.is_empty() && removed.discarded_input_batches.is_empty());
+        assert_eq!(actor.groups.len(), 1);
+        assert_eq!(actor.producers.shared_retention_references(), 2);
+        actor
+            .admit(&up(&plans[0], 120), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 120).0, [(key("c"), KeyEdge::Up)]);
+        actor
+            .admit(&up(&plans[1], 130), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.pending_inputs(), 0);
+    }
+    #[test]
+    fn group_cancellation_preserves_surviving_batch_future_slot_until_its_actual_down_up() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |extras| {
+            extras.after_key_up = vec![key("z").into()];
+        });
+        let mut actor = ComplexStageActor::from_output(OutputStageActor::new(cfg.clone()).unwrap());
+        let first = plan_actions(
+            &[
+                Action {
+                    hold_down_ns: 50,
+                    ..key("a").into()
+                },
+                key("x").into(),
+            ],
+            PlanOrigin {
+                batch: BatchId(1),
+                stage: Stage::Complex,
+                start: MonoTime(100),
+                device: DeviceInstanceId {
+                    id: 1,
+                    generation: 1,
+                },
+                source: SourceToken(1),
+                config: cfg.clone(),
+            },
+            false,
+        )
+        .unwrap();
+        let second = plan_actions(
+            &[key("b").into()],
+            PlanOrigin {
+                batch: BatchId(2),
+                stage: Stage::Complex,
+                start: MonoTime(110),
+                device: DeviceInstanceId {
+                    id: 2,
+                    generation: 1,
+                },
+                source: SourceToken(2),
+                config: cfg.clone(),
+            },
+            false,
+        )
+        .unwrap();
+        let plans = vec![first, second];
+        for plan in &plans {
+            actor
+                .observe_device(plan.origin.device, false, MonoTime(0))
+                .unwrap();
+            actor.register_input(plan.clone()).unwrap();
+        }
+        admit(&mut actor, &plans, false);
+        drain(&mut actor, 110);
+        actor
+            .observe_device(plans[1].origin.device, true, MonoTime(115))
+            .unwrap();
+        let a_up = plans[0]
+            .events()
+            .iter()
+            .find(|event| event.payload.slot == slot(1) && event.payload.edge == KeyEdge::Up)
+            .unwrap()
+            .clone();
+        actor
+            .admit(
+                &DueEvent {
+                    event: a_up,
+                    delivered_at: MonoTime(150),
+                },
+                &ContextSnapshot::default(),
+            )
+            .unwrap();
+        assert_eq!(actor.pending_inputs(), 1);
+        assert_eq!(actor.inputs[&BatchId(1)].remaining, 1);
+        let x_down = plans[0]
+            .events()
+            .iter()
+            .find(|event| {
+                event.payload.target == ActionTarget::Key(key("x"))
+                    && event.payload.edge == KeyEdge::Down
+            })
+            .unwrap()
+            .clone();
+        actor
+            .admit(
+                &DueEvent {
+                    event: x_down,
+                    delivered_at: MonoTime(150),
+                },
+                &ContextSnapshot::default(),
+            )
+            .unwrap();
+        assert_eq!(drain(&mut actor, 150).0, [(key("x"), KeyEdge::Down)]);
+        actor
+            .admit(&up(&plans[0], 160), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 160).0, [(key("x"), KeyEdge::Up)]);
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
+        assert!(actor.canceled_group_members.is_empty());
+    }
+    #[test]
+    fn canceling_one_group_never_releases_another_groups_same_key_owner() {
+        let cfg = snapshot(KeyUpWhen::Any, false, false, |_| {});
+        let (mut actor, first) = setup(&cfg);
+        admit(&mut actor, &first, false);
+        drain(&mut actor, 110);
+        let mut second = vec![];
+        for (id, dev, name, at) in [(4, 3, "a", 120), (5, 4, "b", 130)] {
+            actor
+                .observe_device(
+                    DeviceInstanceId {
+                        id: dev,
+                        generation: 1,
+                    },
+                    false,
+                    MonoTime(110),
+                )
+                .unwrap();
+            let plan = plan_actions(
+                &[key(name).into()],
+                PlanOrigin {
+                    batch: BatchId(id),
+                    stage: Stage::Complex,
+                    start: MonoTime(at),
+                    device: DeviceInstanceId {
+                        id: dev,
+                        generation: 1,
+                    },
+                    source: SourceToken(id),
+                    config: cfg.clone(),
+                },
+                false,
+            )
+            .unwrap();
+            actor.register_input(plan.clone()).unwrap();
+            second.push(plan);
+        }
+        admit(&mut actor, &second, false);
+        assert!(drain(&mut actor, 130).0.is_empty());
+        let control = actor
+            .observe_device(first[1].origin.device, true, MonoTime(140))
+            .unwrap();
+        assert!(control.outputs.is_empty());
+        assert_eq!(actor.groups.len(), 1);
+        assert_eq!(actor.physical_repeat_target(slot(4)), Some(key("c")));
+        actor
+            .admit(&up(&first[0], 145), &ContextSnapshot::default())
+            .unwrap();
+        assert!(drain(&mut actor, 145).0.is_empty());
+        actor
+            .admit(&up(&second[0], 150), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(drain(&mut actor, 150).0, [(key("c"), KeyEdge::Up)]);
+        actor
+            .admit(&up(&second[1], 160), &ContextSnapshot::default())
+            .unwrap();
+        assert_eq!(actor.pending_inputs(), 0);
+        assert_eq!(actor.reserved_sources(), 0);
     }
 }

@@ -72,6 +72,7 @@ pub struct ComplexStageActor {
     group_members: BTreeMap<ActionSlot, ActionSlot>,
     quarantined_group_holds: Vec<stage_bindings::SharedRetention>,
     pending_group_initial: BTreeSet<ActionSlot>,
+    canceled_group_members: BTreeSet<ActionSlot>,
     next_projection: u64,
     alone_candidate: Option<ActionSlot>,
     held: Option<(MonoTime, ActionSlot)>,
@@ -166,6 +167,7 @@ impl ComplexStageActor {
             group_members: BTreeMap::new(),
             quarantined_group_holds: Vec::new(),
             pending_group_initial: BTreeSet::new(),
+            canceled_group_members: BTreeSet::new(),
             next_projection: 0,
             alone_candidate: None,
             held: None,
@@ -612,7 +614,8 @@ impl ComplexStageActor {
                 if self.held.is_some_and(|(_, candidate)| candidate == slot) {
                     self.held = None;
                 }
-                let alone = self.alone_candidate == Some(slot);
+                let canceled_group = self.canceled_group_members.contains(&slot);
+                let alone = !canceled_group && self.alone_candidate == Some(slot);
                 if alone {
                     self.alone_candidate = None;
                 }
@@ -634,12 +637,14 @@ impl ComplexStageActor {
                         )?;
                     }
                 }
-                let _ = self.branch(
-                    slot,
-                    rule_selection::RuleBranch::AfterKeyUp,
-                    context,
-                    due.delivered_at,
-                )?;
+                if !canceled_group {
+                    let _ = self.branch(
+                        slot,
+                        rule_selection::RuleBranch::AfterKeyUp,
+                        context,
+                        due.delivered_at,
+                    )?;
+                }
                 self.finish(slot, &mut step)?;
                 if allow_sync(due.event.device)
                     && !self.inputs.values().any(|input| {
@@ -792,6 +797,7 @@ impl ComplexStageActor {
         step: &mut ComplexStep,
     ) -> Result<(), ComplexActorError> {
         self.bindings.remove(&slot);
+        self.canceled_group_members.remove(&slot);
         self.halted.remove(&slot);
         step.released_producers.push(slot);
         let input = self
@@ -1000,7 +1006,11 @@ impl ComplexStageActor {
         removed: bool,
         at: MonoTime,
     ) -> Result<ComplexStep, ComplexActorError> {
-        let outputs = self.output.observe_device(device, removed, at)?;
+        self.output.check_device_control(device, removed, at)?;
+        let mut step = ComplexStep::default();
+        self.cancel_groups_for_device(device, removed, at, &mut step)?;
+        step.outputs
+            .extend(self.output.observe_device(device, removed, at)?);
         let ids: Vec<_> = self
             .inputs
             .iter()
@@ -1027,11 +1037,8 @@ impl ComplexStageActor {
         self.projection_handles
             .retain(|_, slot| !removed_slots.contains(slot));
         self.now = at;
-        Ok(ComplexStep {
-            outputs,
-            discarded_input_batches: ids,
-            ..Default::default()
-        })
+        step.discarded_input_batches = ids;
+        Ok(step)
     }
     fn discard_inputs(&mut self, ids: &[BatchId]) -> Result<(), ComplexActorError> {
         for &id in ids {
@@ -1050,6 +1057,7 @@ impl ComplexStageActor {
             }
             self.bindings.retain(|slot, _| slot.batch != id);
             self.halted.retain(|slot| slot.batch != id);
+            self.canceled_group_members.retain(|slot| slot.batch != id);
             self.inputs.remove(&id);
         }
         Ok(())

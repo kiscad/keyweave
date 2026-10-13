@@ -558,15 +558,24 @@ impl OutputStageActor {
         Ok(())
     }
     /// Both device histories preflight before controls; cleanup uses actual saved bindings.
+    pub(crate) fn check_device_control(
+        &self,
+        device: DeviceInstanceId,
+        removed: bool,
+        at: MonoTime,
+    ) -> Result<(), OutputStageError> {
+        self.check_time(at)?;
+        self.generated.check_device(device, removed)?;
+        self.terminal.check_device(device, removed, at)?;
+        Ok(())
+    }
     pub fn observe_device(
         &mut self,
         device: DeviceInstanceId,
         removed: bool,
         at: MonoTime,
     ) -> Result<Vec<OutputIntent>, OutputStageError> {
-        self.check_time(at)?;
-        self.generated.check_device(device, removed)?;
-        self.terminal.check_device(device, removed, at)?;
+        self.check_device_control(device, removed, at)?;
         let outputs = match self.terminal.observe_device(device, removed, at) {
             Ok(outputs) => outputs,
             Err(error) => {

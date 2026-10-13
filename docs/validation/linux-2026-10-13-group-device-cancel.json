@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0167 cross-member device cancellation of actual Complex shared groups",
+  "source_base_commit": "07394161460b974cb9b5b46d4f2dee5c5860fc70",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "fde70a9ce1bff18951f9f81fe3a16eb900947d60f4ea730e118eed0fc71ba342",
+    "crates/keyweave-engine/src/complex_actor/groups.rs": "88b82ec829b9c787e03bc362c067d2e30e035961d744a0c7a1ebc3194170deeb",
+    "crates/keyweave-engine/src/output_stage.rs": "6673d833d853c25bffdaa9c8f04b2398f63afb172c0c1b02b2cc313b7261bf74",
+    "crates/keyweave-engine/src/simple_actor.rs": "a77c1e21ea6b8c535383668a042d7df04402dff18ad540ce97136b2fa828646a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1545,
+    "new_tests": 8,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-group-device-cancel/tests.log",
+        "sha256": "917c11eaa5e4c77786ace42c8ca2f1731af8cb337563b689866d936b735ad37f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-group-device-cancel/clippy.log",
+        "sha256": "3220a36f5fcce68ba0798bdfea2408053b1b441faf66657ecf6bc8897fb91a4d"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-group-device-cancel/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-group-device-cancel/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      }
+    }
+  },
+  "initial_failures": [
+    "Multi-group fixture helper used fixed time 110 for a second group whose actual Down receipts occurred at 120/130. Changed helper to the actual second plan start, then focused and full workspace checks passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection. No native retry/bypass or real capture/session."
+  },
+  "limitations": [
+    "New shared group control tests use the actual Complex actor with internal Output-based construction. Public default constructors and compiler KW-SIM/runtime simultaneous gates remain strict.",
+    "Simple device-control forwarding of real surviving completions is implemented; full Simple/Physical group-path integration remains pending automatic arbitration and gate admission.",
+    "Automatic waiting/frontier/replay, projection inheritance, complete global source lease and native repeat integration remain pending.",
+    "Device identity and lifecycle controls are caller supplied. Logical cleanup intents do not prove accepted native output recovery or hardware unplug detection.",
+    "Windows native compile/tests, native pointer, hardware acceptance, graphical Linux providers, GUI/packaging and driver remain pending."
+  ]
+}
