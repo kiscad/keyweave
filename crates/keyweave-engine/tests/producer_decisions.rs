@@ -425,7 +425,12 @@ fn future_foreign_same_generation_and_invalid_old_schema_are_not_selectable_prod
         ));
     }
     let mut invalid = rule("a", vec![key("b").into()]);
-    invalid.extras.if_held_down.push(key("c").into());
+    // Simple Held is now valid on the staged path; Delayed remains gated.
+    invalid.extras.delayed = Some(DelayedAction {
+        delay_ns: 50,
+        if_invoked: vec![key("c").into()],
+        if_canceled: vec![],
+    });
     let invalid = config(vec![invalid], vec![], 0);
     assert!(matches!(
         queue.decide_producer_down(
@@ -434,6 +439,25 @@ fn future_foreign_same_generation_and_invalid_old_schema_are_not_selectable_prod
         ),
         Err(GeneratedError::Engine(EngineError::InvalidMapping))
     ));
+}
+
+#[test]
+fn old_simple_held_schema_retains_original_rule_on_staged_producer_selection() {
+    let mut mapping = rule("a", vec![key("b").into()]);
+    mapping.extras.if_held_down = vec![key("c").into()];
+    mapping.extras.held_threshold_ns = 50;
+    let old = config(vec![mapping], vec![], 1);
+    let queue = queue(Stage::Complex, config(vec![], vec![], 2));
+    let decision = queue
+        .decide_producer_down(
+            &down(old.clone(), Stage::Simple, key("a").into(), 125),
+            &ContextSnapshot::default(),
+        )
+        .unwrap();
+    assert_eq!(targets(&decision), [ActionTarget::Key(key("b"))]);
+    assert!(Arc::ptr_eq(decision.selection().unwrap().snapshot(), &old));
+    assert_eq!(queue.queued_events(), 0);
+    assert_eq!(queue.pending_batches(), 0);
 }
 #[test]
 fn saved_decision_is_the_nonclone_actual_producer_payload_of_joint_output_admission_and_original_up()

@@ -593,3 +593,48 @@ fn after_up_scope_hides_saved_modifier_descendant_for_entire_timed_branch() {
     assert_eq!(actor.pending_inputs(), 0);
     assert_eq!(actor.reserved_sources(), 0);
 }
+
+#[test]
+fn held_modifier_replacement_keeps_consumed_descendant_hidden_until_original_up() {
+    let mut trigger = mapping("a", vec![key("b").into()]);
+    trigger
+        .extras
+        .from_modifiers
+        .mandatory
+        .insert(Modifier::LeftShift);
+    trigger.extras.if_held_down = vec![key("right_control").into()];
+    trigger.extras.held_threshold_ns = 50;
+    let mut actor = actor(config(
+        vec![trigger],
+        vec![mapping("left_shift", vec![key("x").into()])],
+    ));
+    let (shift, outputs) = press(&mut actor, "left_shift", 1, 100);
+    assert_eq!(outputs, [(key("x"), KeyEdge::Down)]);
+    let (trigger, outputs) = press(&mut actor, "a", 2, 110);
+    assert_eq!(
+        outputs,
+        [
+            (key("x"), KeyEdge::Up),
+            (key("b"), KeyEdge::Down),
+            (key("x"), KeyEdge::Down)
+        ]
+    );
+    let outputs = drain(&mut actor, 160).0;
+    assert_eq!(
+        outputs,
+        [
+            (key("b"), KeyEdge::Up),
+            (key("x"), KeyEdge::Up),
+            (key("right_control"), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(
+        release(&mut actor, &trigger, 170),
+        [
+            (key("right_control"), KeyEdge::Up),
+            (key("x"), KeyEdge::Down)
+        ]
+    );
+    assert_eq!(release(&mut actor, &shift, 180), [(key("x"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+}

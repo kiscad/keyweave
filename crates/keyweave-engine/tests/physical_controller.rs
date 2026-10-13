@@ -1223,3 +1223,44 @@ fn staged_diagnostics_count_real_roots_owners_and_queue_work_once_without_output
         (0, 0, 0, 0)
     );
 }
+
+#[test]
+fn simple_held_physical_repeat_and_state_follow_actual_replacement_without_new_input() {
+    let mut rule = mapping("a", vec![key("b").into()]);
+    rule.extras.if_held_down = vec![key("d").into()];
+    rule.extras.held_threshold_ns = 50;
+    let cfg = config(vec![rule], vec![mapping("d", vec![key("e").into()])]);
+    assert!(matches!(
+        Engine::new(cfg.clone()),
+        Err(EngineError::InvalidMapping)
+    ));
+    let mut actor = PhysicalStageController::new(cfg).unwrap();
+    let dev = device(1, 1);
+    actor
+        .handle(keyboard(1, 100, dev, "a", KeyEdge::Down))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 100), [(key("b"), KeyEdge::Down)]);
+    assert_eq!(actor.state().pending_deadlines, 1);
+    assert_eq!(actor.reserved_sources(), 5);
+    let repeated = actor
+        .handle(keyboard(2, 149, dev, "a", KeyEdge::Repeat))
+        .unwrap();
+    assert_eq!(repeated.repeat_target, Some(key("b")));
+    assert!(repeated.outputs.is_empty());
+    assert_eq!(
+        drain(&mut actor, 150),
+        [(key("b"), KeyEdge::Up), (key("e"), KeyEdge::Down)]
+    );
+    assert_eq!(actor.state().pending_deadlines, 0);
+    let repeated = actor
+        .handle(keyboard(3, 150, dev, "a", KeyEdge::Repeat))
+        .unwrap();
+    assert_eq!(repeated.repeat_target, Some(key("e")));
+    assert!(repeated.outputs.is_empty());
+    actor
+        .handle(keyboard(4, 160, dev, "a", KeyEdge::Up))
+        .unwrap();
+    assert_eq!(drain(&mut actor, 160), [(key("e"), KeyEdge::Up)]);
+    assert_eq!(actor.reserved_sources(), 0);
+    assert_eq!(actor.pending_bindings(), 0);
+}

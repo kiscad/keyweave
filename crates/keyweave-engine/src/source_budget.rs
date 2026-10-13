@@ -2,7 +2,7 @@
 use crate::*;
 impl ConfigSnapshot {
     /// Reserve every possible descendant once, including retained snapshot scopes.
-    /// Includes Simple main/after-up; other Simple branches remain rejected.
+    /// Includes Simple main/held/after-up; other Simple branches remain rejected.
     /// The result is a conservative lease, not an actual owner count or SourceToken allocator.
     pub fn timed_stage_source_bounds(&self) -> BTreeMap<KeyId, usize> {
         let weight = |actions: &[Action]| {
@@ -45,6 +45,7 @@ impl ConfigSnapshot {
                 .to
                 .iter()
                 .chain(&mapping.extras.after_key_up)
+                .chain(&mapping.extras.if_held_down)
                 .map(|action| {
                     let main = match action.target {
                         ActionTarget::Key(key) => complex.get(&key).copied().unwrap_or(2),

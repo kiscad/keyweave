@@ -1,4 +1,4 @@
-//! Owned Simple main/after-up generation and downstream Complex/Output execution.
+//! Owned Simple main/held/after-up generation and downstream Complex/Output execution.
 //! Pure stage component; native acceptance remains separate.
 mod scopes;
 use crate::{
@@ -29,6 +29,8 @@ pub enum SimpleActorError {
     Batch,
     #[error("Simple actor clock moved backwards")]
     TimeReversed,
+    #[error("branch deadline would overflow monotonic time")]
+    TimeOverflow,
     #[error("poll due downstream work before admitting input")]
     DeadlinePending,
     #[error("Simple advanced branches are not implemented")]
@@ -69,6 +71,7 @@ pub struct SimpleStageActor {
     halted: BTreeSet<ActionSlot>,
     scope_runs: BTreeMap<BatchId, ScopeRun>,
     removed_scope_sources: BTreeSet<ActionSlot>,
+    held: Option<(MonoTime, ActionSlot)>,
     last_batch: u64,
     now: MonoTime,
     failed: bool,
@@ -77,8 +80,7 @@ impl SimpleStageActor {
     fn check_simple(config: &ConfigSnapshot) -> Result<(), SimpleActorError> {
         if config.simple.iter().any(|mapping| {
             let extras = &mapping.extras;
-            !extras.if_held_down.is_empty()
-                || !extras.if_alone.is_empty()
+            !extras.if_alone.is_empty()
                 || extras
                     .delayed
                     .as_ref()
@@ -106,6 +108,7 @@ impl SimpleStageActor {
             halted: BTreeSet::new(),
             scope_runs: BTreeMap::new(),
             removed_scope_sources: BTreeSet::new(),
+            held: None,
             last_batch: 0,
             now: MonoTime(0),
             failed: false,
@@ -139,7 +142,11 @@ impl SimpleStageActor {
     }
     pub(crate) fn output_model(&self) -> (usize, Vec<KeyId>, usize) {
         let (owners, pressed, pending) = self.complex.output_model();
-        (owners, pressed, pending + self.generated.queued_events())
+        (
+            owners,
+            pressed,
+            pending + self.generated.queued_events() + usize::from(self.held.is_some()),
+        )
     }
     /// Accounting in the external Simple tree only; not a unified allstage source budget.
     pub fn reserved_sources(&self) -> usize {
@@ -199,6 +206,7 @@ impl SimpleStageActor {
             .next_deadline()
             .into_iter()
             .chain(self.complex.next_deadline())
+            .chain(self.held.map(|(at, _)| at))
             .min()
     }
     /// Register a physical adapter's current-snapshot Simple plan before receipts arrive.
@@ -299,6 +307,17 @@ impl SimpleStageActor {
                     .decide_producer_down(due, context)?
                     .with_original_up(up)?;
                 let halt = decision.originating_halt();
+                let held = decision
+                    .selection()
+                    .filter(|rule| !rule.mapping().extras.if_held_down.is_empty())
+                    .map(|rule| {
+                        due.delivered_at
+                            .0
+                            .checked_add(rule.mapping().extras.held_threshold_ns)
+                            .map(|at| (MonoTime(at), slot))
+                            .ok_or(SimpleActorError::TimeOverflow)
+                    })
+                    .transpose()?;
                 let id = self.next_batch_id()?;
                 let plan = decision.plan_main(id)?;
                 let slots = plan
@@ -350,6 +369,7 @@ impl SimpleStageActor {
                     );
                 }
                 self.last_batch = id.0;
+                self.held = held;
                 if generated_halt {
                     self.halted.insert(slot);
                 }
@@ -400,7 +420,15 @@ impl SimpleStageActor {
                     .unreleased
                     .checked_sub(1)
                     .ok_or(SimpleActorError::Invariant)?;
-                self.after_key_up(slot, context, due.delivered_at)?;
+                if self.held.is_some_and(|(_, candidate)| candidate == slot) {
+                    self.held = None;
+                }
+                self.branch(
+                    slot,
+                    rule_selection::RuleBranch::AfterKeyUp,
+                    context,
+                    due.delivered_at,
+                )?;
                 if let Some(id) = id {
                     self.finish_child(id, &mut step)?;
                 }
@@ -421,34 +449,38 @@ impl SimpleStageActor {
             .values()
             .any(|input| input.plan.origin.device == device && input.unreleased != 0)
     }
-    fn after_key_up(
+    fn branch(
         &mut self,
         slot: ActionSlot,
+        kind: rule_selection::RuleBranch,
         context: &ContextSnapshot,
         at: MonoTime,
-    ) -> Result<(), SimpleActorError> {
+    ) -> Result<Option<BatchId>, SimpleActorError> {
         let decision = self
             .producers
             .live(slot)
             .ok_or(SimpleActorError::Invariant)?;
         let Some(selection) = decision.selection() else {
-            return Ok(());
+            return Ok(None);
         };
-        if selection.mapping().extras.after_key_up.is_empty() {
-            return Ok(());
+        let empty = match kind {
+            rule_selection::RuleBranch::Held => selection.mapping().extras.if_held_down.is_empty(),
+            rule_selection::RuleBranch::AfterKeyUp => {
+                selection.mapping().extras.after_key_up.is_empty()
+            }
+            _ => return Err(SimpleActorError::Invariant),
+        };
+        if empty {
+            return Ok(None);
         }
         let branch = selection
-            .select_branch(
-                rule_selection::RuleBranch::AfterKeyUp,
-                self.halted.contains(&slot),
-                |condition| {
-                    self.generated
-                        .condition_truth(condition, context, decision.down().device, at)
-                },
-            )
+            .select_branch(kind, self.halted.contains(&slot), |condition| {
+                self.generated
+                    .condition_truth(condition, context, decision.down().device, at)
+            })
             .ok_or(SimpleActorError::Invariant)?;
         if branch.actions().len() == 0 {
-            return Ok(());
+            return Ok(None);
         }
         let id = self.next_batch_id()?;
         let plan = modifier_scope::ScopedActionPlan::branch(
@@ -465,7 +497,7 @@ impl SimpleStageActor {
             .filter(|event| event.payload.edge == KeyEdge::Down)
             .count();
         if slots == 0 {
-            return Ok(());
+            return Ok(None);
         }
         let generated_halt = plan
             .actions()
@@ -485,15 +517,46 @@ impl SimpleStageActor {
                 saved,
                 parent: slot,
                 remaining: slots,
-                up_seen: true,
-                repeat_slot: None,
+                up_seen: kind != rule_selection::RuleBranch::Held,
+                repeat_slot: plan.actions().releases().first().map(|action| action.slot),
             },
         );
         self.last_batch = id.0;
         if generated_halt {
             self.halted.insert(slot);
         }
-        Ok(())
+        Ok(Some(id))
+    }
+    fn fire_held(
+        &mut self,
+        at: MonoTime,
+        context: &ContextSnapshot,
+    ) -> Result<SimpleStep, SimpleActorError> {
+        let (_, slot) = self.held.take().ok_or(SimpleActorError::Invariant)?;
+        let old = *self
+            .bindings
+            .get(&slot)
+            .ok_or(SimpleActorError::Invariant)?;
+        if let Some(id) = old {
+            let child = self
+                .children
+                .get_mut(&id)
+                .ok_or(SimpleActorError::Invariant)?;
+            if let Some(up) = self
+                .generated
+                .prepare_input_up_scoped(&mut child.saved, at)?
+            {
+                up.commit();
+            }
+            child.up_seen = true;
+        }
+        let new = self.branch(slot, rule_selection::RuleBranch::Held, context, at)?;
+        self.bindings.insert(slot, new);
+        let mut step = SimpleStep::default();
+        if let Some(id) = old {
+            self.finish_child(id, &mut step)?;
+        }
+        Ok(step)
     }
     fn finish(&mut self, slot: ActionSlot, step: &mut SimpleStep) -> Result<(), SimpleActorError> {
         if self
@@ -639,6 +702,9 @@ impl SimpleStageActor {
                 }
             }
         }
+        if self.held.is_some_and(|(deadline, _)| deadline <= at) {
+            return self.fire_held(at, context).map(Some);
+        }
         self.generated.advance(at)?;
         if let Some(actual) = self
             .complex
@@ -712,6 +778,9 @@ impl SimpleStageActor {
         })
     }
     fn discard_inputs(&mut self, ids: &[BatchId]) -> Result<(), SimpleActorError> {
+        if self.held.is_some_and(|(_, slot)| ids.contains(&slot.batch)) {
+            self.held = None;
+        }
         for &id in ids {
             for batch in self.producers.cancel_subtree(id)? {
                 self.children.remove(&batch.origin.batch);

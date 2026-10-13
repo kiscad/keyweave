@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-13",
+  "feature": "ADR-0155 Simple Held saved child replacement and staged admission",
+  "source_base_commit": "4214cb9188159bbb685bf38648eb2cf2f96f8f8e",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/lib.rs": "9d184bbd7b6b76ed823f70db7048461aad692fa095ba612fd10c9c055d95a52c",
+    "crates/keyweave-engine/src/simple_actor.rs": "389a88df33dc22e1e9e66a5d7d49467cbdddc97fca415523b167cb46375b3594",
+    "crates/keyweave-engine/src/source_budget.rs": "35e23da1adce17e34f1ee478225e0aa692160a3439f9e2ccc5da84f555f73b74",
+    "crates/keyweave-engine/tests/physical_controller.rs": "b1e17bbd63fefa8d4a69466595170400756133b6882a81357305a8232d91e190",
+    "crates/keyweave-engine/tests/producer_decisions.rs": "89020bd2706aeaba1e49eb31c52ee1b316b6f62a1e3832574595a556cf6cd7bb",
+    "crates/keyweave-engine/tests/simple_actor.rs": "a2596478908faf5e271411581400a1831239dfe6ced0038033523ebd993dbbb3",
+    "crates/keyweave-engine/tests/simple_consumed_scopes.rs": "573dfc71aefe650c97f07a5ff2bb81eef05731a14fc21107bdafc292a6380612",
+    "crates/keyweave-engine/tests/timed_source_budget.rs": "133565337666d8faff99c5c793488fc1f9b4cc4c6a92e5fa677c019f8f36b5e1"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1409,
+    "new_tests": 11,
+    "updated_tests": 1,
+    "workspace_tests_exit": 0,
+    "clippy_exit": 0,
+    "fmt_exit": 0,
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261013-simple-held/tests.log",
+        "sha256": "34aae07bb15df313d9d28ceb74743517d399d806c85ae3efdae081b8911a6b68"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261013-simple-held/clippy.log",
+        "sha256": "ef01a024f71b1e4992cdbce3e4e41c6cf4b37b3c549ca7968c789be18e6987bc"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261013-simple-held/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source": {
+        "path": "target/validation/linux-20261013-simple-held/source.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "initial-tests": {
+        "path": "target/validation/linux-20261013-simple-held/initial-tests.log",
+        "sha256": "d60588d315fee1100fb03c3d08c5cdf66c48e74efbf144301cd2bfc0a6f37802"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial focused tests all rejected Held at GeneratedStageQueue construction because common ConfigSnapshot validation also prohibited Simple Held. Changed staged allow_action_timing admission only, retaining Legacy rejection and Delayed gate.",
+    "Initial full workspace run failed one producer-decisions old-schema test which used newly valid Held as invalid input. Updated that fixture to still-unsupported Simple Delayed and added valid old-Held frozen-selection test; final full workspace passed."
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "Native Windows checks remain pending after prior automatic approval quota rejection; no native attempt or bypass, no valid capture/session."
+  },
+  "limitations": [
+    "One saved checked deadline/ActionSlot Held candidate is canceled/replaced on new Down and cleared on original Up/removal/reset. Poll drains due downstream/generated FIFO before firing at actual poll time. No fake input sequence or TimerToken.",
+    "Held releases saved old main then jointly registers frozen-rule Complex child and points repeat/main binding to replacement. Old children/arrays and scope close retain parent until actual completion; filtered empty branch releases old main without fake child.",
+    "Source lease now includes retained Simple main + Held + after-up descendants/modifiers and all Complex expansions; diagnostics count real Held candidate.",
+    "11 new tests cover reload/old snapshot, repeat/main replacement, early Up, candidate cancellation/replacement, condition-filtered branch, FIFO arrays/duration, device/reset, overflow, physical state/repeat/input ordering, consumed scope and source bound. Updated one obsolete old-schema fixture.",
+    "Only Simple Held gate removed on staged path. Alone/Delayed, simultaneous, native pointer, Windows platform/hardware, Linux graphical consumer/hot-add, GUI, packaging, driver and full objective remain incomplete. No JSON Simple schema expansion."
+  ],
+  "abi": "Pure shared Rust engine logic; no unsafe/FFI/dependencies/native packet layout changes."
+}

@@ -92,3 +92,12 @@ fn simple_after_up_counts_main_and_branch_descendants_with_complex_expansion() {
     let bounds = cfg(vec![simple], vec![complex]).timed_stage_source_bounds();
     assert_eq!(bounds[&key("a")], 8); // root + main(2) + d(Complex+2 Output) + shift(2)
 }
+
+#[test]
+fn simple_held_counts_retained_main_and_replacement_descendants_together() {
+    let mut simple = mapping("a", vec![key("b").into()]);
+    simple.extras.if_held_down = vec![key("d").into()];
+    let complex = mapping("d", vec![key("e").into(), key("f").into()]);
+    let bounds = cfg(vec![simple], vec![complex]).timed_stage_source_bounds();
+    assert_eq!(bounds[&key("a")], 6); // root + old main(2) + replacement(Complex+2 Output)
+}
