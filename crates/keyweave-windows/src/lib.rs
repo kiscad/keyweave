@@ -3,6 +3,7 @@ pub mod access;
 pub mod emergency;
 pub mod hook;
 pub mod keys;
+pub mod mixed;
 #[cfg(any(target_os = "windows", test))]
 mod native;
 pub mod pointer;

@@ -1,5 +1,7 @@
 # 项目状态
 
+ADR-0209：Windows独立MixedOutputPump将键盘/五按钮接同desired/submitted账本，motion/wheel以FIFO barrier保持原序；全append先验能力/容量，8192总量、单poll256/一次API。短接受StopRequired，调用者先停capture再恢复真实接受keys/buttons；未来impulse丢弃、零接受也不重放。unknown/非法receipt quarantine保最后已知账本，close不造中立。SendInputBackend显式mixed预检/打包沿用一次API，默认Runtime/caps不变。新增6真实队列/故障mock tests，Linux1831项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过；初轮constant拼写已修正，Windows-only实现未原生编译/调用。Mouse capture/Runtime接线、原生SDK/硬件、X11/Wayland、GUI和包装继续。见 [ADR-0209](ADR-0209-windows-mixed-output-pump.md)、[验证记录](validation/linux-2026-10-14-windows-mixed-output.json)。
+
 ADR-0208：Windows新增显式MouseAction/MousePacket有界编码及SendPointerBackend，支持相对motion/独立两轴wheel/五按钮Down-Up；signed delta保DWORD位模式，不换算/合并，拒绝Repeat/其他usage。既有SendInputBackend先验batch/tag后打包INPUT_MOUSE，共用一次API调用与Insertion计数诊断。默认Runtime/caps不变，capture/mixed ledger与pump待接，部分移动/滚轮不可重放。新增5编码/union/preflight tests，Linux1825项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过；Windows-only发送实现未原生编译/调用，无注入。原生SDK/Hook/硬件、X11/Wayland、GUI和包装继续。见 [ADR-0208](ADR-0208-windows-pointer-output.md)、[验证记录](validation/linux-2026-10-14-windows-pointer-output.json)。
 
 ADR-0207：check-linux 支持显式 relative axes/pointing buttons，和 run-linux 共用能力校验；缺省 Keyboard，显式轴要求 staged 并编译 StagedRelative。输出诊断带 scope/离线未验证设备说明，不需 provider/helper；Linux纯数据依赖通用化保留跨OS离线入口。新增4真实CLI/配置编译tests，Linux1820项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过；实际binary离线接受按钮映射、拒绝缺目标按钮。无设备/显示/捕获操作，Windows原生构建尚未补验。native X11/driver、Wayland、Windows pointer、硬件、GUI和包装继续。见 [ADR-0207](ADR-0207-linux-offline-mixed-check.md)、[验证记录](validation/linux-2026-10-14-offline-mixed.json)。

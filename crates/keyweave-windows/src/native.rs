@@ -258,6 +258,31 @@ impl crate::pointer::SendPointerBackend for SendInputBackend {
     }
 }
 #[cfg(target_os = "windows")]
+impl crate::mixed::SendMixedBackend for SendInputBackend {
+    fn submit_mixed(
+        &mut self,
+        packets: &[crate::mixed::NativePacket],
+    ) -> Result<Insertion, SubmitError> {
+        use crate::mixed::NativePacket;
+        if packets.is_empty()
+            || packets.len() > MAX_BATCH
+            || !packets.iter().all(|packet| match packet {
+                NativePacket::Keyboard(p) => valid(std::slice::from_ref(p), self.tag.value()),
+                NativePacket::Mouse(p) => valid_mouse(std::slice::from_ref(p), self.tag.value()),
+            })
+        {
+            return Err(SubmitError::Rejected);
+        }
+        for (input, packet) in self.buffer.iter_mut().zip(packets) {
+            match packet {
+                NativePacket::Keyboard(p) => input.set(*p),
+                NativePacket::Mouse(p) => input.set_mouse(*p),
+            }
+        }
+        Ok(self.submit_buffer(packets.len()))
+    }
+}
+#[cfg(target_os = "windows")]
 impl SendInputBackend {
     fn submit_buffer(&mut self, count: usize) -> Insertion {
         // SAFETY: both callers prevalidate 1..=MAX_BATCH and initialize the
