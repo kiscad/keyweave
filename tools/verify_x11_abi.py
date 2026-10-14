@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Actual X11/XI2 header oracle. Does not connect to any display or input node."""
+import argparse
 import os
 import subprocess
 import tempfile
@@ -25,13 +26,26 @@ _Static_assert(XISlavePointer == 3 && XISlaveKeyboard == 4 && XIKeyClass == 0 &&
 void signatures(void) {
     XIDeviceInfo *(*query)(Display *,int,int *) = XIQueryDevice;
     Status (*property)(Display *,int,Atom,long,long,Bool,Atom,Atom *,int *,unsigned long *,unsigned long *,unsigned char **) = XIGetProperty;
-    (void)query; (void)property;
+    Display *(*open_display)(const char *) = XOpenDisplay;
+    int (*close_display)(Display *) = XCloseDisplay;
+    int (*free_data)(void *) = XFree;
+    Atom (*atom)(Display *, const char *, Bool) = XInternAtom;
+    Status (*version)(Display *, int *, int *) = XIQueryVersion;
+    void (*free_devices)(XIDeviceInfo *) = XIFreeDeviceInfo;
+    (void)query; (void)property; (void)open_display; (void)close_display;
+    (void)free_data; (void)atom; (void)version; (void)free_devices;
 }
 '''
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--include", action="append", type=Path, default=[])
+args = parser.parse_args()
+include_args = []
+for directory in args.include:
+    include_args.extend(["-I", str(directory.resolve(strict=True))])
 with tempfile.TemporaryDirectory(prefix="keyweave-x11-abi-") as directory:
     root = Path(directory)
     (root / "probe.c").write_text(source)
-    result = subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(root / "probe.c"), "-o", str(root / "probe.o")], capture_output=True, text=True)
+    result = subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror", *include_args, "-c", str(root / "probe.c"), "-o", str(root / "probe.o")], capture_output=True, text=True)
     if result.returncode:
         print("X11 SDK oracle unavailable or failed; this is not an ABI pass")
         print(result.stderr.strip())

@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "87c05d59cfd3185a9d519c63ac4949712b3adfaa",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-x11-probe/src/native.rs": "83ed8b3e82e921b04e67580cf1ca55039344a080231d32d576cb5dad903f02cf",
+    "tools/prepare_x11_sdk.py": "9a1008146b2d1e8666f054df749e898124f368bd937fba61092a1c1cb667197f",
+    "tools/verify_x11_abi.py": "0be0bebad50b4e33202570769fad73811a6b77a304624310d968998d2273181a",
+    "tools/x11-sdk-sources.json": "9d6b971d4fe2ca0a465e0c91af37c3f40b78ed8db8c8ee55c1009454098d385d"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1734,
+    "new_tests": 1,
+    "sdk_preparation_negative_checks_passed": 2,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "sdk-prepare": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-sdk/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-sdk/clippy.log",
+        "sha256": "ec379c21b701dff32187b025f8b75752a20aaacd0634d508d0434f29d9ba0edc"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-sdk/tests.log",
+        "sha256": "d08a07267f5f1cf5fc6d6956677db8afc28c2031e1dcd47e626987b50005b41f"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-sdk/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-sdk/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "sdk-prepare": {
+        "path": "target/validation/linux-20261014-x11-sdk/sdk-prepare.log",
+        "sha256": "83063e580dd0ab81e1bd1dedb769c04d700c858a14187ee7d97272ae3e9b2218"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-sdk/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      },
+      "sdk-negative": {
+        "path": "target/validation/linux-20261014-x11-sdk/sdk-negative.log",
+        "sha256": "ee86af029c812bd6c69caff5fc4ddb9aec8cf41b4c3bb646cc11f729bf610b25"
+      }
+    }
+  },
+  "x11_sdk": {
+    "status": "passed compile-only against pinned official public SDK headers",
+    "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "compiler_target": "x86_64-linux-gnu",
+    "header_count": 180,
+    "manifest": {
+      "path": "target/validation/linux-20261014-x11-sdk/include/sdk-manifest.json",
+      "sha256": "7f2bcd85158a002348a167551387a17fc0025da1bd52b73d48a747a8958759b6"
+    },
+    "archives": [
+      {
+        "archive": "libX11-1.8.12.tar.xz",
+        "sha256": "fa026f9bb0124f4d6c808f9aef4057aad65e7b35d8ff43951cef0abe06bb9a9a",
+        "url": "https://www.x.org/releases/individual/lib/libX11-1.8.12.tar.xz",
+        "exclude_headers": [
+          "X11/extensions/XKBgeom.h"
+        ]
+      },
+      {
+        "archive": "libXi-1.8.2.tar.xz",
+        "sha256": "d0e0555e53d6e2114eabfa44226ba162d2708501a25e18d99cfb35c094c6c104",
+        "url": "https://www.x.org/releases/individual/lib/libXi-1.8.2.tar.xz"
+      },
+      {
+        "archive": "libXext-1.3.6.tar.xz",
+        "sha256": "edb59fa23994e405fdc5b400afdf5820ae6160b94f35e3dc3da4457a16e89753",
+        "url": "https://www.x.org/releases/individual/lib/libXext-1.3.6.tar.xz"
+      },
+      {
+        "archive": "libXfixes-6.0.1.tar.xz",
+        "sha256": "b695f93cd2499421ab02d22744458e650ccc88c1d4c8130d60200213abc02d58",
+        "url": "https://www.x.org/releases/individual/lib/libXfixes-6.0.1.tar.xz"
+      },
+      {
+        "archive": "xorgproto-2024.1.tar.xz",
+        "sha256": "372225fd40815b8423547f5d890c5debc72e88b91088fbfb13158c20495ccb59",
+        "url": "https://www.x.org/releases/individual/proto/xorgproto-2024.1.tar.xz"
+      }
+    ],
+    "authentication": "Official HTTPS release URLs; observed archive hashes pinned. Publisher signature verification was not performed."
+  },
+  "initial_failures": [
+    "Sandbox curl DNS resolution failed; approved network downloads completed. Initial large downloads terminated with actual curl timeout and were resumed after terminal status.",
+    "Initial header staging rejected different libX11/xorgproto XKBgeom.h. Manifest explicitly selects the xorgproto copy; corrected preparation and C oracle passed. Initial absent include was not counted as an ABI pass."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Only fixed SDK header layouts/constants/signatures on x86_64 Linux were verified; no display/device query or capture.",
+    "Sandbox system-library root-trust rejection remains unresolved; SDK verification does not prove dynamic load or server ABI at runtime.",
+    "Actual driver identity/settings and hardware event delivery remain unverified.",
+    "Native observer end-to-end, capture admission, mixed bootstrap/host/worker, Wayland, Windows pointer/native checks, GUI, packaging and driver acceptance remain pending."
+  ]
+}

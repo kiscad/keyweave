@@ -567,3 +567,37 @@ mod button_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod sdk_layout_tests {
+    use super::*;
+    use std::mem::{offset_of, size_of};
+    #[test]
+    fn repr_c_layouts_match_linux64_sdk_oracle() {
+        assert_eq!(size_of::<DeviceInfo>(), 40);
+        assert_eq!(offset_of!(DeviceInfo, id), 0);
+        assert_eq!(offset_of!(DeviceInfo, use_kind), 16);
+        assert_eq!(offset_of!(DeviceInfo, attachment), 20);
+        assert_eq!(offset_of!(DeviceInfo, enabled), 24);
+        assert_eq!(offset_of!(DeviceInfo, num_classes), 28);
+        assert_eq!(offset_of!(DeviceInfo, classes), 32);
+        assert_eq!(size_of::<AnyClass>(), 8);
+        assert_eq!(offset_of!(AnyClass, source), 4);
+        assert_eq!(size_of::<KeyClass>(), 24);
+        assert_eq!(offset_of!(KeyClass, count), 8);
+        assert_eq!(offset_of!(KeyClass, codes), 16);
+        assert_eq!(size_of::<ButtonClass>(), 40);
+        assert_eq!(offset_of!(ButtonClass, count), 8);
+        assert_eq!(offset_of!(ButtonClass, labels), 16);
+        assert_eq!(offset_of!(ButtonClass, state), 24);
+        assert_eq!(size_of::<ValuatorClass>(), 56);
+        assert_eq!(offset_of!(ValuatorClass, number), 8);
+        assert_eq!(offset_of!(ValuatorClass, label), 16);
+        assert_eq!(offset_of!(ValuatorClass, mode), 52);
+        assert_eq!(size_of::<ScrollClass>(), 32);
+        assert_eq!(offset_of!(ScrollClass, number), 8);
+        assert_eq!(offset_of!(ScrollClass, scroll_type), 12);
+        assert_eq!(offset_of!(ScrollClass, increment), 16);
+        assert_eq!(offset_of!(ScrollClass, flags), 24);
+    }
+}
