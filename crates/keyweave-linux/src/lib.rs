@@ -65,3 +65,7 @@ fn mock_syspath(value: &str) -> std::path::PathBuf {
         value.into()
     }
 }
+
+// Test-only serialization of helper image creation through exec. Never used in pre_exec.
+#[cfg(test)]
+static HELPER_IMAGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

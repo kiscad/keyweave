@@ -106,6 +106,7 @@ impl<O: Owner> Task<O> {
     }
 }
 /// Runtime outcome and cleanup failures are independent. This contains no pending consumer owner.
+#[derive(Debug)]
 pub struct X11CleanupReport {
     pub worker: WorkerReport,
     pub prior_cancel_error: Option<io::Error>,
@@ -114,7 +115,55 @@ pub struct X11CleanupReport {
     pub clock_error: Option<io::Error>,
     pub timing_failure: Option<CleanupTimingFailure>,
     pub confirmation: CleanupConfirmation,
-    pub consumer_owner_dropped: bool,
+    consumer_owner_dropped: bool,
+}
+impl X11CleanupReport {
+    pub fn consumer_owner_dropped(&self) -> bool {
+        self.consumer_owner_dropped
+    }
+}
+#[derive(Debug)]
+pub struct ReportedX11Cleanup {
+    pub cleanup: X11CleanupReport,
+    pub delivery: crate::termination::bounded::DeliveryReport,
+}
+/// Only a completed cleanup report can be sent. Preserve runtime, cleanup and delivery separately.
+pub fn finalize_x11_cleanup(
+    report: X11CleanupReport,
+    writer: &mut crate::termination::TerminalWriter<std::fs::File>,
+) -> ReportedX11Cleanup {
+    finalize_with(report, |worker| {
+        crate::worker::finalize_worker_report(worker, writer)
+    })
+}
+fn finalize_with(
+    report: X11CleanupReport,
+    finalize: impl FnOnce(WorkerReport) -> crate::worker::ReportedWorker,
+) -> ReportedX11Cleanup {
+    let X11CleanupReport {
+        worker,
+        prior_cancel_error,
+        cancel_error,
+        poll_error,
+        clock_error,
+        timing_failure,
+        confirmation,
+        consumer_owner_dropped,
+    } = report;
+    let crate::worker::ReportedWorker { worker, delivery } = finalize(worker);
+    ReportedX11Cleanup {
+        cleanup: X11CleanupReport {
+            worker,
+            prior_cancel_error,
+            cancel_error,
+            poll_error,
+            clock_error,
+            timing_failure,
+            confirmation,
+            consumer_owner_dropped,
+        },
+        delivery,
+    }
 }
 pub struct X11Cleanup {
     worker: WorkerReport,
@@ -287,6 +336,9 @@ mod tests {
                 self.0.poll(MonoTime(10)).map(Some)
             }
         }
+        let _image_guard = crate::HELPER_IMAGE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let root =
             std::env::temp_dir().join(format!("keyweave-x11-cleanup-{}", std::process::id()));
         std::fs::create_dir(&root)?;
@@ -307,6 +359,129 @@ mod tests {
         assert!(task.owner.0.take_report().is_none());
         drop(task);
         std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+    fn completed_fixture(termination: bool) -> X11CleanupReport {
+        use crate::runtime::{StopReason, TerminationReport};
+        let owner = mock(vec![Ok(None)]);
+        let dropped = owner.dropped.clone();
+        let mut task = Task::new(owner, MonoTime(0));
+        assert_eq!(
+            task.step(Ok(MonoTime(1))),
+            Some(CleanupConfirmation::NoPendingJob)
+        );
+        drop(task);
+        assert!(dropped.get());
+        X11CleanupReport {
+            worker: WorkerReport {
+                outcome: Err(crate::worker::WorkerError::X11Consumer(
+                    crate::x11_consumer::X11LeaseError::NotReady,
+                )),
+                termination: termination.then_some(TerminationReport {
+                    reason: StopReason::ControlFault,
+                    input_owners_released: true,
+                    engine_reset_confirmed: true,
+                    recovery_failed: false,
+                    recovery_budget_exhausted: false,
+                    submitted_remaining: false,
+                    report_pending: false,
+                    acceptance_unknown: false,
+                    output_recovery_confirmed: true,
+                    output_owner_dropped: true,
+                    backend_transition_confirmed: true,
+                }),
+            },
+            prior_cancel_error: Some(io::Error::other("prior cancel")),
+            cancel_error: Some(io::Error::other("cleanup cancel")),
+            poll_error: Some(io::Error::other("poll")),
+            clock_error: Some(io::Error::other("clock")),
+            timing_failure: Some(CleanupTimingFailure::Deadline),
+            confirmation: CleanupConfirmation::NoPendingJob,
+            consumer_owner_dropped: true,
+        }
+    }
+    #[test]
+    fn actual_owned_pipe_bridge_preserves_runtime_cleanup_and_delivery() -> io::Result<()> {
+        use crate::termination::{TerminalFrame, TerminalWriter};
+        use std::{
+            io::Read,
+            os::fd::{AsFd, OwnedFd},
+        };
+        let (mut reader, writer) = io::pipe()?;
+        let writer = std::fs::File::from(OwnedFd::from(writer));
+        crate::ioctl::nonblocking(writer.as_fd())?;
+        let mut terminal = TerminalWriter::new(writer, 7).unwrap();
+        let result = finalize_x11_cleanup(completed_fixture(true), &mut terminal);
+        assert!(result.delivery.frame_sent && result.delivery.failure.is_none());
+        assert!(result.cleanup.consumer_owner_dropped());
+        assert!(matches!(
+            result.cleanup.worker.outcome,
+            Err(crate::worker::WorkerError::X11Consumer(_))
+        ));
+        assert_eq!(
+            result.cleanup.timing_failure,
+            Some(CleanupTimingFailure::Deadline)
+        );
+        assert!(
+            result.cleanup.prior_cancel_error.is_some()
+                && result.cleanup.cancel_error.is_some()
+                && result.cleanup.poll_error.is_some()
+                && result.cleanup.clock_error.is_some()
+        );
+        let mut bytes = [0; crate::termination::FRAME_BYTES];
+        reader.read_exact(&mut bytes)?;
+        let frame = TerminalFrame::decode(&bytes, 7).unwrap();
+        assert!(frame.report.output_recovery_confirmed);
+        Ok(())
+    }
+    #[test]
+    fn ordinary_file_bridge_refuses_io_without_overwriting_cleanup_facts() -> io::Result<()> {
+        use crate::termination::{TerminalWriter, bounded::DeliveryFailure};
+        let path =
+            std::env::temp_dir().join(format!("keyweave-x11-terminal-{}", std::process::id()));
+        let file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)?;
+        let mut writer = TerminalWriter::new(file, 7).unwrap();
+        let result = finalize_x11_cleanup(completed_fixture(true), &mut writer);
+        assert!(matches!(
+            result.delivery.failure,
+            Some(DeliveryFailure::Admission(_))
+        ));
+        assert!(!result.delivery.frame_sent);
+        assert_eq!(result.delivery.attempts, 0);
+        assert!(
+            result
+                .cleanup
+                .worker
+                .termination
+                .unwrap()
+                .output_recovery_confirmed
+        );
+        assert!(result.cleanup.consumer_owner_dropped());
+        assert_eq!(std::fs::metadata(&path)?.len(), 0);
+        drop(writer);
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+    #[test]
+    fn missing_runtime_termination_is_not_fabricated_by_completed_cleanup() -> io::Result<()> {
+        use crate::termination::{TerminalWriter, bounded::DeliveryFailure};
+        use std::os::fd::{AsFd, OwnedFd};
+        let (_reader, writer) = io::pipe()?;
+        let writer = std::fs::File::from(OwnedFd::from(writer));
+        crate::ioctl::nonblocking(writer.as_fd())?;
+        let mut terminal = TerminalWriter::new(writer, 7).unwrap();
+        let result = finalize_x11_cleanup(completed_fixture(false), &mut terminal);
+        assert!(matches!(
+            result.delivery.failure,
+            Some(DeliveryFailure::MissingReport)
+        ));
+        assert!(!result.delivery.frame_sent);
+        assert_eq!(result.delivery.attempts, 0);
+        assert!(result.cleanup.worker.termination.is_none());
+        assert!(result.cleanup.consumer_owner_dropped());
         Ok(())
     }
 }

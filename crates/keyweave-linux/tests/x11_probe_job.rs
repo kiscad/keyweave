@@ -15,19 +15,27 @@ fn target() -> ProbeTarget {
 fn body() -> serde_json::Value {
     json!({"schema_version":1,"display":":0","node":"/dev/input/event42","major":13,"minor":106,"devices":[{"id":10,"attachment":2,"kind":"keyboard","keys":[38,39],"buttons":0}]})
 }
+static IMAGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 struct Fixture {
+    _image_guard: std::sync::MutexGuard<'static, ()>,
     root: PathBuf,
     image: PathBuf,
 }
 impl Fixture {
     fn new(name: &str, script: &str) -> Self {
+        // Serialize fixture image writes/forks: sibling pre_exec children can inherit writers.
+        let image_guard = IMAGE_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let root =
             std::env::temp_dir().join(format!("keyweave-x11-job-{name}-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
         let image = root.join("probe");
         fs::write(&image, format!("#!/usr/bin/python3\n{script}\n")).unwrap();
         fs::set_permissions(&image, fs::Permissions::from_mode(0o700)).unwrap();
-        Self { root, image }
+        Self {
+            root,
+            image,
+            _image_guard: image_guard,
+        }
     }
 }
 impl Drop for Fixture {

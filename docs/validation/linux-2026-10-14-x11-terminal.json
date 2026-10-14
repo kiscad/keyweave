@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "52c20ce4c2f4f85a216759129a20ff6b78a8d192",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "97c2bd4bcdb13517cf174e16d358f8e273cfab7120f8430d3a54ae41898ee599",
+    "crates/keyweave-linux/src/x11_cleanup.rs": "9b2f1e60ca89ff0cb489c22c3c10a1fe7140b8e7afa6832c485a6b5b407ce738",
+    "crates/keyweave-linux/src/x11_consumer.rs": "6bc8beee0a4e2caccce7827c8546fa3a73dd61d01a5d81f79d5a605f05abb68c",
+    "crates/keyweave-linux/tests/x11_probe_job.rs": "4b16158ec2122ebce465d7eb63841b29cda24eb08a611d31d56d9ead6f119f8c"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1766,
+    "new_tests": 3,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "fixture_stress": {
+      "run_exits": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "testcases_passed": 55
+    },
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-terminal/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-terminal/clippy.log",
+        "sha256": "8e1bc285abb8253e5b719f88b02c2c0845864739cc074e9a2fb05347f436bed9"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-terminal/tests.log",
+        "sha256": "af207b9c42acc7c77bfa92643f6447502f8056155fa93e2653d9fd4aee9e9156"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-terminal/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-terminal/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-terminal/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      },
+      "fixture-stress": {
+        "path": "target/validation/linux-20261014-x11-terminal/fixture-stress.log",
+        "sha256": "1c838014d004eee04d4e7f94f373305d7d66ce62fa8e8c7e95269ad1f8d53db9"
+      },
+      "initial-tests": {
+        "path": "target/validation/linux-20261014-x11-terminal/initial-tests.log",
+        "sha256": "e98b7db33b9508829028fad6e35071f5cc4037b00156112496f7de8bcf5a3a18"
+      },
+      "fixture-lock-clippy": {
+        "path": "target/validation/linux-20261014-x11-terminal/fixture-lock-clippy.log",
+        "sha256": "d59ccf0f03ba1498f9ebde3fd0b3ee4075409894112856e8a60253639d425df0"
+      }
+    }
+  },
+  "initial_failures": [
+    "Focused compile used Frame instead of the existing TerminalFrame type; corrected before full checks.",
+    "Initial workspace run hit ETXTBSY in an existing owned helper fixture. Parallel pre_exec inheritance of a sibling image writer is the inferred cause (not syscall-traced). Fixture-only locks now serialize image write/exec lifetime; final workspace and 5 focused reruns passed. Production spawn failure policy unchanged.",
+    "First fixture-lock patch missed formatted unit-test sites and left an unused static; corrected both lock users before final checks."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Bridge tests use actual owned terminal pipe/ordinary file and completed mock cleanup owner; no native session/display/input/uinput/capture access.",
+    "Report completion field is private; only X11Cleanup.finish produces production completion reports. Pending cleanup cannot use finalization bridge.",
+    "Terminal protocol still describes Runtime input/output facts only; cleanup errors/confirmation are independent returned fields, not new wire flags.",
+    "Graphical bootstrap/host/worker selection remains pending. SDK C ABI passed; root-trusted library/server query/driver settings and real delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

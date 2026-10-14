@@ -416,6 +416,9 @@ mod tests {
     #[test]
     fn canceled_owned_job_can_be_reaped_without_a_live_clock_or_devices() -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
+        let _image_guard = crate::HELPER_IMAGE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let directory =
             std::env::temp_dir().join(format!("keyweave-x11-consumer-reap-{}", std::process::id()));
         std::fs::create_dir(&directory)?;
