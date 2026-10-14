@@ -88,6 +88,8 @@ pub enum ArmResult {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureError {
+    #[error("capture consumer check failed: {0}")]
+    Admission(#[source] io::Error),
     #[error("output is not ready for capture")]
     OutputNotReady,
     #[error("output evdev node does not match the owned uinput device")]
@@ -228,21 +230,41 @@ impl<S: CaptureSource> CaptureDevice<S> {
     /// Runtime must also establish consumer readiness, config output coverage and
     /// progress supervision. This operation queries then grabs then queries again.
     pub fn arm(&mut self, output: &OutputNodeReady<'_>) -> Result<ArmResult, CaptureError> {
+        self.arm_checked(output, &mut || Ok(()))
+    }
+    pub(crate) fn arm_checked(
+        &mut self,
+        output: &OutputNodeReady<'_>,
+        check: &mut impl FnMut() -> io::Result<()>,
+    ) -> Result<ArmResult, CaptureError> {
         self.validate_output(output)?;
-        if !self.check_neutral()? {
+        check().map_err(CaptureError::Admission)?;
+        let neutral = self.check_neutral()?;
+        check().map_err(CaptureError::Admission)?;
+        if !neutral {
             return Ok(ArmResult::WaitingNeutral);
         }
         self.source()?.set_grab(true).map_err(CaptureError::Grab)?;
-        self.phase = CapturePhase::Captured; // Guard armed BEFORE the fallible query.
-        match self.check_neutral() {
-            Ok(true) => {
+        self.phase = CapturePhase::Captured;
+        let result = (|| {
+            check().map_err(CaptureError::Admission)?;
+            let neutral = self.check_neutral()?;
+            check().map_err(CaptureError::Admission)?;
+            Ok(if neutral {
+                ArmResult::Captured
+            } else {
+                ArmResult::WaitingNeutral
+            })
+        })();
+        match result {
+            Ok(ArmResult::Captured) => {
                 self.output_identity = Some(output.input_syspath.into());
                 Ok(ArmResult::Captured)
             }
-            Ok(false) => self.rollback(Ok(ArmResult::WaitingNeutral)),
-            Err(error) => self.rollback(Err(error)),
+            other => self.rollback(other),
         }
     }
+
     fn rollback<T>(&mut self, outcome: Result<T, CaptureError>) -> Result<T, CaptureError> {
         self.output_identity = None;
         match self.source()?.set_grab(false) {

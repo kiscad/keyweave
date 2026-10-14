@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "523d066308274b074aa9f2f0ebba065abe90aca0",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/activation.rs": "768752ecadb87786a12fbf377b69251e12c1f8250d3c3c222070f1da16209ec3",
+    "crates/keyweave-linux/src/capture.rs": "5c13c07c65a6965eadfcccfaeaa3c46d4933eace5b6a86efa236db6cf65af18e",
+    "crates/keyweave-linux/src/x11_consumer.rs": "45414b0fc0c03f9c1e576b1b7f54eee7ed5df01e760c57d48e4de4fc513a85e1"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1749,
+    "new_tests": 8,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-checked-admission/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-checked-admission/clippy.log",
+        "sha256": "dbe34a2fc3802b602598b393bc6b18df644ba0d2feff0b262274168135794a58"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-checked-admission/tests.log",
+        "sha256": "1907e7d363677468d9bc979ddd14e3e54455e38a887182d5befd2c62afe38a91"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-checked-admission/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-checked-admission/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-checked-admission/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "X11 expiry fixture originally expired during the group-wide precheck rather than the intended per-device post-query/pre-grab check. Corrected expiry time for the actual callback order; final full checks passed."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "No real capture/input/uinput/display access. Tests use shared production admission transaction with mock source and cfg(test)-only observation construction.",
+    "Initial X11 observation gate requires caller-owned independent supervision and driver policy; active Runtime consumer renewal is not yet wired.",
+    "Checks between syscalls cannot remove ABA or state changes within an ioctl. Gate callbacks must be bounded and must not grab input.",
+    "X11 SDK C ABI verified against pinned headers; root-trusted library loading/live server/driver settings and actual delivery remain unverified.",
+    "Graphical bootstrap/host/worker, Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

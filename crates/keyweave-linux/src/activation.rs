@@ -20,6 +20,8 @@ pub enum GroupPhase {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum ActivationError {
+    #[error("capture group consumer check failed: {0}")]
+    Consumer(#[source] std::io::Error),
     #[error("invalid input count, identity, path or capture phase")]
     Inputs,
     #[error("invalid capture group phase")]
@@ -148,25 +150,37 @@ impl<S: CaptureSource> CaptureGroup<S> {
     /// output proof only identifies the virtual node; neutral checks are samples,
     /// not an atomic cross-device snapshot or a lossless switching guarantee.
     pub fn try_arm(&mut self, output: &OutputNodeReady<'_>) -> Result<ArmResult, ActivationError> {
+        self.try_arm_checked(output, &mut || Ok(()))
+    }
+    /// Check caller-established consumer evidence throughout the admission transaction.
+    /// Callback must be bounded and must not grab input; supervision remains independent.
+    pub fn try_arm_checked(
+        &mut self,
+        output: &OutputNodeReady<'_>,
+        check: &mut impl FnMut() -> std::io::Result<()>,
+    ) -> Result<ArmResult, ActivationError> {
         if self.phase != GroupPhase::Standby {
             return Err(ActivationError::Phase);
         }
         let result = (|| {
             self.prepare(output)?;
+            check().map_err(ActivationError::Consumer)?;
             for (device, input) in &mut self.inputs {
-                if !input
+                check().map_err(ActivationError::Consumer)?;
+                let neutral = input
                     .check_neutral()
                     .map_err(|source| ActivationError::Capture {
                         device: *device,
                         source,
-                    })?
-                {
+                    })?;
+                check().map_err(ActivationError::Consumer)?;
+                if !neutral {
                     return Ok(ArmResult::WaitingNeutral);
                 }
             }
             for (device, input) in &mut self.inputs {
                 if input
-                    .arm(output)
+                    .arm_checked(output, check)
                     .map_err(|source| ActivationError::Capture {
                         device: *device,
                         source,
@@ -175,18 +189,22 @@ impl<S: CaptureSource> CaptureGroup<S> {
                 {
                     return Ok(ArmResult::WaitingNeutral);
                 }
+                check().map_err(ActivationError::Consumer)?;
             }
             for (device, input) in &mut self.inputs {
-                if !input
+                check().map_err(ActivationError::Consumer)?;
+                let neutral = input
                     .check_neutral()
                     .map_err(|source| ActivationError::Capture {
                         device: *device,
                         source,
-                    })?
-                {
+                    })?;
+                check().map_err(ActivationError::Consumer)?;
+                if !neutral {
                     return Ok(ArmResult::WaitingNeutral);
                 }
             }
+            check().map_err(ActivationError::Consumer)?;
             Ok(ArmResult::Captured)
         })();
         if matches!(result, Ok(ArmResult::Captured)) {
@@ -212,6 +230,29 @@ impl<S: CaptureSource> CaptureGroup<S> {
             self.close();
         }
         result
+    }
+    /// Initial native X11 observation gate. Independent supervision and driver policy
+    /// remain caller responsibilities; active Runtime needs ongoing consumer renewal.
+    #[cfg(target_os = "linux")]
+    pub fn try_arm_x11(
+        &mut self,
+        output: &OutputNodeReady<'_>,
+        observation: &crate::x11_consumer::X11Observation,
+        clock: &mut impl FnMut() -> std::io::Result<keyweave_types::MonoTime>,
+    ) -> Result<ArmResult, ActivationError> {
+        let mut last = None;
+        self.try_arm_checked(output, &mut || {
+            let now = clock()?;
+            if last.is_some_and(|previous| now < previous)
+                || !observation.fresh_for(output.input_syspath(), now)
+            {
+                return Err(std::io::Error::other(
+                    "X11 observation expired, changed output or clock regressed",
+                ));
+            }
+            last = Some(now);
+            Ok(())
+        })
     }
     /// Initial text-console gate, checked before any neutral query or grab.
     /// The caller supplies current monotonic time and independent supervision.
@@ -1121,5 +1162,215 @@ mod tests {
                 .iter()
                 .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
         );
+    }
+    #[test]
+    fn initial_consumer_failure_closes_group_before_queries_or_grabs() {
+        let trace = Trace::default();
+        let spec = spec();
+        let node = probe(OUTPUT);
+        let mut group = CaptureGroup::new(inputs(vec![source(1, &trace)]), config()).unwrap();
+        let result = group.try_arm_checked(&proof(&spec, &node), &mut || {
+            Err(io::Error::other("consumer lost"))
+        });
+        assert!(matches!(result, Err(ActivationError::Consumer(_))));
+        assert_eq!(group.phase(), GroupPhase::Closed);
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Query(_) | Call::Grab(_, _)))
+        );
+    }
+    #[test]
+    fn consumer_loss_after_keyboard_grab_rolls_back_before_mouse_grab() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut group = CaptureGroup::new_staged_relative(mixed_inputs(&trace), config()).unwrap();
+        let result = group.try_arm_checked(&proof(&spec, &node), &mut || {
+            if trace.borrow().contains(&Call::Grab(1, true)) {
+                Err(io::Error::other("expired"))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(ActivationError::Capture {
+                device: DeviceInstanceId { id: 1, .. },
+                source: CaptureError::Admission(_)
+            })
+        ));
+        assert_eq!(group.phase(), GroupPhase::Closed);
+        let grabs: Vec<_> = trace
+            .borrow()
+            .iter()
+            .filter(|call| matches!(call, Call::Grab(_, _)))
+            .cloned()
+            .collect();
+        assert_eq!(grabs, vec![Call::Grab(1, true), Call::Grab(1, false)]);
+    }
+    #[test]
+    fn consumer_expiration_at_final_confirmation_releases_every_input() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut group = CaptureGroup::new_staged_relative(mixed_inputs(&trace), config()).unwrap();
+        let result = group.try_arm_checked(&proof(&spec, &node), &mut || {
+            if trace
+                .borrow()
+                .iter()
+                .filter(|call| **call == Call::Query(2))
+                .count()
+                >= 4
+            {
+                Err(io::Error::other("expired at end"))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(result, Err(ActivationError::Consumer(_))));
+        assert_eq!(group.phase(), GroupPhase::Closed);
+        for id in [1, 2] {
+            assert!(trace.borrow().contains(&Call::Grab(id, false)));
+            assert!(trace.borrow().contains(&Call::Close(id)));
+        }
+    }
+    #[test]
+    fn gate_and_release_failure_both_survive_and_no_later_device_is_grabbed() {
+        let trace = Trace::default();
+        let spec = spec();
+        let node = probe(OUTPUT);
+        let mut first = source(1, &trace);
+        first.release_fault = true;
+        let mut group =
+            CaptureGroup::new(inputs(vec![first, source(2, &trace)]), config()).unwrap();
+        let result = group.try_arm_checked(&proof(&spec, &node), &mut || {
+            if trace.borrow().contains(&Call::Grab(1, true)) {
+                Err(io::Error::other("expired"))
+            } else {
+                Ok(())
+            }
+        });
+        match result {
+            Err(ActivationError::Capture {
+                source:
+                    CaptureError::Rollback {
+                        primary: Some(primary),
+                        ..
+                    },
+                ..
+            }) => assert!(matches!(*primary, CaptureError::Admission(_))),
+            other => panic!("unexpected rollback {other:?}"),
+        }
+        assert_eq!(group.phase(), GroupPhase::Closed);
+        assert!(trace.borrow().contains(&Call::Close(1)));
+        assert!(trace.borrow().contains(&Call::Close(2)));
+        assert!(!trace.borrow().contains(&Call::Grab(2, true)));
+    }
+    #[test]
+    fn held_query_does_not_hide_consumer_expiration_as_neutral_wait() {
+        let trace = Trace::default();
+        let spec = spec();
+        let node = probe(OUTPUT);
+        let mut first = source(1, &trace);
+        first.queries.push_back(held());
+        let mut group = CaptureGroup::new(inputs(vec![first]), config()).unwrap();
+        let result = group.try_arm_checked(&proof(&spec, &node), &mut || {
+            if trace.borrow().contains(&Call::Query(1)) {
+                Err(io::Error::other("expired during query"))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(result, Err(ActivationError::Consumer(_))));
+        assert_eq!(group.phase(), GroupPhase::Closed);
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _)))
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_expiration_after_neutral_query_prevents_first_grab() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut group = CaptureGroup::new_staged_relative(mixed_inputs(&trace), config()).unwrap();
+        let observation = crate::x11_consumer::X11Observation::for_test(
+            crate::mock_syspath(OUTPUT),
+            MonoTime(0),
+            MonoTime(6),
+        );
+        let mut time = 0;
+        let result = group.try_arm_x11(&proof(&spec, &node), &observation, &mut || {
+            let now = MonoTime(time);
+            time += 1;
+            Ok(now)
+        });
+        assert!(matches!(
+            result,
+            Err(ActivationError::Capture {
+                source: CaptureError::Admission(_),
+                ..
+            })
+        ));
+        assert_eq!(group.phase(), GroupPhase::Closed);
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _)))
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fresh_x11_observation_enters_mixed_transaction() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut group = CaptureGroup::new_staged_relative(mixed_inputs(&trace), config()).unwrap();
+        let observation = crate::x11_consumer::X11Observation::for_test(
+            crate::mock_syspath(OUTPUT),
+            MonoTime(0),
+            MonoTime(100),
+        );
+        assert_eq!(
+            group
+                .try_arm_x11(&proof(&spec, &node), &observation, &mut || Ok(MonoTime(1)))
+                .unwrap(),
+            ArmResult::Captured
+        );
+        assert_eq!(group.phase(), GroupPhase::Armed);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_wrong_output_or_regressed_clock_rejects_without_grab() {
+        for wrong in [true, false] {
+            let trace = Trace::default();
+            let spec = spec();
+            let node = probe(OUTPUT);
+            let mut group = CaptureGroup::new(inputs(vec![source(1, &trace)]), config()).unwrap();
+            let observation = crate::x11_consumer::X11Observation::for_test(
+                crate::mock_syspath(if wrong { "/sys/other" } else { OUTPUT }),
+                MonoTime(0),
+                MonoTime(100),
+            );
+            let mut time = 10;
+            let result = group.try_arm_x11(&proof(&spec, &node), &observation, &mut || {
+                let now = MonoTime(time);
+                time -= 1;
+                Ok(now)
+            });
+            assert!(matches!(result, Err(ActivationError::Consumer(_))));
+            assert!(
+                !trace
+                    .borrow()
+                    .iter()
+                    .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
+            );
+        }
     }
 }

@@ -23,6 +23,18 @@ pub struct X11Observation {
     coverage: MetadataCoverage,
 }
 impl X11Observation {
+    #[cfg(test)]
+    pub(crate) fn for_test(output: PathBuf, observed: MonoTime, until: MonoTime) -> Self {
+        Self {
+            output,
+            observed,
+            until,
+            coverage: MetadataCoverage {
+                keyboard: None,
+                pointer: None,
+            },
+        }
+    }
     pub fn fresh_for(&self, output: &Path, now: MonoTime) -> bool {
         self.output == output && self.observed <= now && now < self.until
     }
