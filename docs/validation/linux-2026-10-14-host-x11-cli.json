@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "97dd14705cbbbe17592cfcf59313cb7f3e4b46c3",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/main.rs": "1ce2bd7c87ea5eb4b737f49d09996dfb957916ead2a270b024215b5416ce595e"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1816,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-host-x11-cli/passed-0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-host-x11-cli/passed-1.log",
+        "sha256": "4618e819a470133a38a00b51165e72a549a8100dd7ff2063766057c40f80d60b"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-host-x11-cli/passed-2.log",
+        "sha256": "aa8ba25db0ce3e0a5f8077c892f27e6bd2e24e6a1a1f06e19a0542caa60a2eec"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-host-x11-cli/passed-3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-host-x11-cli/passed-4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-host-x11-cli/passed-5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "reason": "Clippy unwrap_used/expect_used in test module; resolved with existing test-only unwrap allowance. Production lint unchanged.",
+      "logs": [
+        {
+          "path": "target/validation/linux-20261014-host-x11-cli/1.log",
+          "sha256": "af4549f907142253d96950ae1b2d0f89de73a3e7d39ab41a36ef9a12c284c362"
+        },
+        {
+          "path": "target/validation/linux-20261014-host-x11-cli/final-1.log",
+          "sha256": "c58cbdaffe38c93638b9ef212945830dd0680147066d0439da8a9d347e1944fd"
+        }
+      ]
+    }
+  ],
+  "windows": {
+    "status": "Native checks pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Tests parse the actual CLI and convert/roundtrip private worker arguments; no process, session/display, input/uinput, capture or injection was started.",
+    "Paired helper trust follows ADR-0205; no signature/content authentication or full ancestor/TOCTOU proof.",
+    "Native X11 server/driver policy/delivery, Wayland, Windows pointer/native verification, hardware, GUI and packaging remain pending."
+  ]
+}

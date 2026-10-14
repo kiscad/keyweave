@@ -28,6 +28,8 @@ enum Command {
         #[arg(long)]
         vt: Option<PathBuf>,
         #[command(flatten)]
+        x11: X11Args,
+        #[command(flatten)]
         watch: WatchArgs,
     },
     /// Check Linux configuration against the full supported output table; no input access.
@@ -62,12 +64,72 @@ enum Command {
 }
 #[derive(clap::Args)]
 struct WatchArgs {
-    /// Reload changed configuration contents while the console session is active.
+    /// Reload changed configuration contents while a console or X11 session is active.
     #[arg(long)]
     watch_config: bool,
     /// File check interval (100..60000 milliseconds); default 1000 when enabled.
     #[arg(long, requires = "watch_config", value_parser = clap::value_parser!(u64).range(100..=60000))]
     watch_interval_ms: Option<u64>,
+}
+#[derive(clap::Args, Default)]
+struct X11Args {
+    /// Absolute path to the paired keyweave-x11-probe executable (X11 only).
+    #[arg(long)]
+    x11_probe: Option<PathBuf>,
+    /// Explicit evdev relative axes: 0,1,6,8,11,12; comma separated (X11 only).
+    #[arg(long, value_delimiter = ',')]
+    relative_axes: Vec<u16>,
+    /// Explicit evdev buttons: 272..279; comma separated, omitted for none.
+    #[arg(long, value_delimiter = ',')]
+    pointing_buttons: Vec<u16>,
+}
+#[cfg(target_os = "linux")]
+fn linux_provider(
+    provider: LinuxProvider,
+    vt: Option<PathBuf>,
+    mode: LinuxExecution,
+    x11: X11Args,
+) -> Result<keyweave_worker::linux_arguments::SessionProvider, String> {
+    use keyweave_worker::linux_arguments::SessionProvider;
+    if !matches!(provider, LinuxProvider::X11)
+        && (x11.x11_probe.is_some()
+            || !x11.relative_axes.is_empty()
+            || !x11.pointing_buttons.is_empty())
+    {
+        return Err("X11 options require --session-provider x11".into());
+    }
+    match (provider, vt) {
+        (LinuxProvider::None, None) => Ok(SessionProvider::None),
+        (LinuxProvider::Console, Some(vt)) => Ok(SessionProvider::Console { vt }),
+        (LinuxProvider::X11, None) => {
+            if !matches!(mode, LinuxExecution::StagedKeyboard) {
+                return Err("x11 requires --execution-mode staged-keyboard".into());
+            }
+            let helper = x11
+                .x11_probe
+                .filter(|path| path.is_absolute())
+                .ok_or("x11 requires an absolute --x11-probe path")?;
+            let axes = keyweave_linux::relative::RelativeAxes::new(&x11.relative_axes)
+                .map_err(|e| e.to_string())?;
+            let buttons = if x11.pointing_buttons.is_empty() {
+                None
+            } else {
+                if !axes.contains(0) || !axes.contains(1) {
+                    return Err("pointing buttons require relative axes 0 and 1".into());
+                }
+                Some(
+                    keyweave_linux::keys::PointingButtons::new(&x11.pointing_buttons)
+                        .map_err(|e| e.to_string())?,
+                )
+            };
+            Ok(SessionProvider::X11 {
+                helper,
+                axes,
+                buttons,
+            })
+        }
+        _ => Err("console requires --vt; none and x11 require --vt to be omitted".into()),
+    }
 }
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum WindowsExecution {
@@ -101,6 +163,7 @@ impl LinuxExecution {
 enum LinuxProvider {
     None,
     Console,
+    X11,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum Identity {
@@ -125,6 +188,7 @@ fn main() -> ExitCode {
             input,
             session_provider,
             vt,
+            x11,
             watch,
         } => run_linux(
             config,
@@ -133,7 +197,7 @@ fn main() -> ExitCode {
             input,
             session_provider,
             vt,
-            (watch, execution_mode),
+            (watch, execution_mode, x11),
         ),
         Command::CheckLinux {
             config,
@@ -326,7 +390,7 @@ fn run_linux(
     _: Vec<PathBuf>,
     _: LinuxProvider,
     _: Option<PathBuf>,
-    _: (WatchArgs, LinuxExecution),
+    _: (WatchArgs, LinuxExecution, X11Args),
 ) -> ExitCode {
     eprintln!("run-linux requires Linux");
     ExitCode::from(78)
@@ -339,15 +403,13 @@ fn run_linux(
     input: Vec<PathBuf>,
     provider: LinuxProvider,
     vt: Option<PathBuf>,
-    (watch, execution_mode): (WatchArgs, LinuxExecution),
+    (watch, execution_mode, x11): (WatchArgs, LinuxExecution, X11Args),
 ) -> ExitCode {
     use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};
-    use keyweave_worker::linux_arguments::SessionProvider;
-    let provider = match (provider, vt) {
-        (LinuxProvider::None, None) => SessionProvider::None,
-        (LinuxProvider::Console, Some(vt)) => SessionProvider::Console { vt },
-        _ => {
-            eprintln!("console requires --vt; none requires --vt to be omitted");
+    let provider = match linux_provider(provider, vt, execution_mode, x11) {
+        Ok(provider) => provider,
+        Err(error) => {
+            eprintln!("{error}");
             return ExitCode::from(1);
         }
     };
@@ -530,5 +592,144 @@ fn reap_linux_source(watcher: &mut keyweave_host::linux::watcher::ConfigWatcher)
             return false;
         }
         std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[allow(clippy::unwrap_used)]
+mod x11_cli_tests {
+    use super::*;
+    use keyweave_worker::linux_arguments::{LinuxArguments, SessionProvider};
+
+    fn parse(extra: &[&str]) -> Result<SessionProvider, String> {
+        let mut argv = vec![
+            "keyweave-host",
+            "run-linux",
+            "--config",
+            "/cfg",
+            "--input",
+            "/dev/input/event1",
+        ];
+        argv.extend_from_slice(extra);
+        let cli = Cli::try_parse_from(argv).map_err(|e| e.to_string())?;
+        let Command::RunLinux {
+            session_provider,
+            vt,
+            execution_mode,
+            x11,
+            ..
+        } = cli.command
+        else {
+            unreachable!()
+        };
+        linux_provider(session_provider, vt, execution_mode, x11)
+    }
+    const X11: &[&str] = &[
+        "--session-provider",
+        "x11",
+        "--execution-mode",
+        "staged-keyboard",
+        "--x11-probe",
+        "/package/keyweave-x11-probe",
+        "--relative-axes",
+        "12,0,1,8,11,6",
+    ];
+
+    #[test]
+    fn public_x11_parameters_roundtrip_to_canonical_worker_arguments() {
+        let mut args = X11.to_vec();
+        args.extend(["--pointing-buttons", "279,272"]);
+        let provider = parse(&args).unwrap();
+        let argv = LinuxArguments {
+            parent: 42,
+            run_id: 7,
+            uinput: "/dev/uinput".into(),
+            inputs: vec!["/dev/input/event1".into()],
+            session_provider: provider.clone(),
+            execution_mode: LinuxExecution::StagedKeyboard.runtime(),
+        }
+        .into_argv()
+        .unwrap();
+        let parsed = LinuxArguments::parse(argv).unwrap();
+        assert_eq!(parsed.session_provider, provider);
+        let SessionProvider::X11 { axes, buttons, .. } = parsed.session_provider else {
+            panic!()
+        };
+        assert_eq!(axes.codes().collect::<Vec<_>>(), [0, 1, 6, 8, 11, 12]);
+        assert_eq!(buttons.unwrap().codes().collect::<Vec<_>>(), [272, 279]);
+    }
+    #[test]
+    fn x11_requires_explicit_scope_and_absolute_helper() {
+        for extra in [
+            vec!["--session-provider", "x11"],
+            vec![
+                "--session-provider",
+                "x11",
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "0,1",
+            ],
+            vec![
+                "--session-provider",
+                "x11",
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "0,1",
+                "--x11-probe",
+                "relative",
+            ],
+        ] {
+            assert!(parse(&extra).is_err());
+        }
+        let mut args = X11.to_vec();
+        args.extend(["--vt", "/dev/tty1"]);
+        assert!(parse(&args).is_err());
+        let mut args = X11.to_vec();
+        args[3] = "legacy";
+        assert!(parse(&args).is_err());
+    }
+    #[test]
+    fn invalid_axes_buttons_and_other_provider_options_are_rejected() {
+        for axes in ["0,0", "2", "65536", "bad", "0,,1"] {
+            let mut args = X11.to_vec();
+            *args.last_mut().unwrap() = axes;
+            assert!(parse(&args).is_err(), "{axes}");
+        }
+        for buttons in ["272,272", "271", "280", "bad"] {
+            let mut args = X11.to_vec();
+            args.extend(["--pointing-buttons", buttons]);
+            assert!(parse(&args).is_err(), "{buttons}");
+        }
+        let mut args = X11.to_vec();
+        *args.last_mut().unwrap() = "8";
+        args.extend(["--pointing-buttons", "272"]);
+        assert!(parse(&args).is_err());
+        for extra in [
+            vec!["--relative-axes", "0,1"],
+            vec!["--pointing-buttons", "272"],
+            vec!["--x11-probe", "/helper"],
+        ] {
+            let mut args = vec!["--session-provider", "none"];
+            args.extend(extra);
+            assert!(parse(&args).is_err());
+        }
+    }
+    #[test]
+    fn existing_providers_and_no_button_x11_remain_explicit() {
+        assert_eq!(
+            parse(&["--session-provider", "none"]).unwrap(),
+            SessionProvider::None
+        );
+        assert!(matches!(
+            parse(&["--session-provider", "console", "--vt", "/dev/tty1"]).unwrap(),
+            SessionProvider::Console { .. }
+        ));
+        assert!(parse(&["--session-provider", "console"]).is_err());
+        assert!(matches!(
+            parse(X11).unwrap(),
+            SessionProvider::X11 { buttons: None, .. }
+        ));
     }
 }
