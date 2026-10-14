@@ -46,6 +46,8 @@ pub mod termination;
 pub mod uinput;
 #[cfg(target_os = "linux")]
 pub mod worker;
+#[cfg(target_os = "linux")]
+pub mod x11_probe;
 
 #[cfg(test)]
 fn mock_syspath(value: &str) -> std::path::PathBuf {

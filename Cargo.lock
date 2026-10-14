@@ -159,6 +159,8 @@ dependencies = [
  "keyweave-progress",
  "keyweave-types",
  "libc",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

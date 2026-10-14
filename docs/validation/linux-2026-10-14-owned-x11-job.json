@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0183 owned X11 probe process, bounded pipe reads and target-bound metadata protocol",
+  "source_base_commit": "81902e11377386ec7e5b622afb951dd32acd4145",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "Cargo.lock": "38fe0ce88723e95c17a07052b9b7699803927dd97dd2395ed65d40eb6bc166b8",
+    "crates/keyweave-linux/Cargo.toml": "20f6c9a41e21680ff7c8bd62a78cb7aeec2982b369cf24336ceaf7af0af4a582",
+    "crates/keyweave-linux/src/lib.rs": "080531380523033cee70bea5f1e5cfa820b628b8990f91f22f9b93799a134b82",
+    "crates/keyweave-linux/src/x11_probe.rs": "4acdf35925ee49adc4238d4c03f56136bc0785485ec9ab9ecc31f1f42c6efe3d",
+    "crates/keyweave-linux/tests/x11_probe_job.rs": "808a6c47b25fa1cefb6836497691db7f3effada623123972a10b7170749d1e88"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1702,
+    "new_tests": 8,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "real_process_fixtures": "Owned temporary Python helpers only; no X11/device access",
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-owned-x11-job/tests.log",
+        "sha256": "fbf6b3747256a5257b55c7ee19b6652b05294c3a5420747705965c9280157634"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-owned-x11-job/clippy.log",
+        "sha256": "cc113feaac12920a0aae10e41840f65e1f34422bb5a3728217bcd7d077e32763"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-owned-x11-job/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-owned-x11-job/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-owned-x11-job/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial compact Drop implementation had a match-arm semicolon; corrected before checks. Real fixture, focused and full checks passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Linux-only job/pipe/process ownership changes. Portable shared tests ran on Linux; Windows native checks remain pending after prior approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "Report is XI metadata only. Actual session/consumer capability binding, active lease, mixed bootstrap/host/worker and capture admission remain pending.",
+    "X11 SDK headers and trusted library/live-server query remain unverified as recorded in ADR-0182/0181. Successful owned fixtures do not prove them.",
+    "Kill request is not exit; callers retain same job until actual observed status/EOF. Drop is bounded best effort and not complete cleanup proof.",
+    "Trusted explicit helper must not fork or inherit non-CLOEXEC input descriptors; this API is not arbitrary PID/group control or executable authentication.",
+    "Wayland consumer, hardware, Windows pointer, GUI/packaging and Rust driver acceptance remain pending."
+  ]
+}
