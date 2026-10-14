@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "740ba644dca38ab80a35a8d0070badac4e32106b",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/x11_probe.rs": "749c6b713d6b0c36d7c8781b5b0d8c18711bb27f17fdb3d7bd4b2aaf5479ffa6",
+    "crates/keyweave-linux/tests/x11_probe_job.rs": "3130c340f8ac3cb9e7fb4dcf6159f9d9d07ad7df2f96961021a75bd062597515",
+    "crates/keyweave-x11-probe/src/main.rs": "681c4578b3167c3fca9531beecee9403723f97af3a39e5a998d997679c1f574e",
+    "crates/keyweave-x11-probe/src/native.rs": "9d07da511126d1e9e4c4db9942a5ce361d7a933741e59dd13b2b158d439cec4a",
+    "tools/verify_x11_abi.py": "e6aadd6f99cf8e6f36dbed39e051928fb48089b3293f53e892966529506eccfc"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1723,
+    "new_tests": 7,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 1
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-scroll/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-scroll/clippy.log",
+        "sha256": "0b177307ab70414fdf0b0cb493b80edd94a32c234a11ff57844f3c1046e71a04"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-scroll/tests.log",
+        "sha256": "26da0f528b3a9e1e572a26474b8e4779f09020607002e9faad73fac6f9c41263"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-scroll/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-scroll/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-scroll/x11-sdk.log",
+        "sha256": "c2d0eee02d003d8520cbd6350a6ea9202c24aae0d685e1ca96a3aa1ee4e268b6"
+      }
+    }
+  },
+  "initial_failures": [
+    "Clippy required the three schema alternatives to use a range pattern; corrected, full checks then passed."
+  ],
+  "x11_sdk": {
+    "status": "failed",
+    "reason": "Missing X11/Xlib.h; actual SDK layout verification not passed."
+  },
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Owned schema3 fixture uses a temporary Python helper; no native X11 query or hardware/device access.",
+    "Scroll metadata does not establish high-resolution scaling or actual event delivery.",
+    "Session/owned output/TTL consumer provider and mixed bootstrap/host/worker integration remain pending.",
+    "Actual X11 SDK and root-trusted library/server checks remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

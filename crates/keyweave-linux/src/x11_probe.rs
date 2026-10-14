@@ -75,6 +75,8 @@ pub struct DeviceMetadata {
     pub buttons: u32,
     #[serde(default)]
     pub relative_motion_axes: Option<Vec<u8>>,
+    #[serde(default)]
+    pub relative_scroll_axes: Option<Vec<u8>>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -96,7 +98,7 @@ pub fn decode_report(bytes: &[u8], target: &ProbeTarget) -> io::Result<ProbeRepo
     Ok(report)
 }
 fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()> {
-    if !matches!(report.schema_version, 1 | 2)
+    if !matches!(report.schema_version, 1..=3)
         || report.display != target.display
         || report.node != target.node
         || report.major != target.major
@@ -115,13 +117,21 @@ fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()>
             || device.buttons > 256
             || device.keys.iter().any(|key| !(0..=65535).contains(key))
             || device.keys.windows(2).any(|keys| keys[0] >= keys[1])
-            || (report.schema_version == 2 && device.relative_motion_axes.is_none())
+            || (report.schema_version >= 2 && device.relative_motion_axes.is_none())
+            || (report.schema_version == 3 && device.relative_scroll_axes.is_none())
+            || device.relative_scroll_axes.as_ref().is_some_and(|axes| {
+                axes.len() > 2
+                    || axes.iter().any(|axis| *axis > 1)
+                    || axes.windows(2).any(|pair| pair[0] >= pair[1])
+                    || (!axes.is_empty()
+                        && (report.schema_version != 3 || device.kind != DeviceKind::Pointer))
+            })
             || device.relative_motion_axes.as_ref().is_some_and(|axes| {
                 axes.len() > 2
                     || axes.iter().any(|axis| *axis > 1)
                     || axes.windows(2).any(|pair| pair[0] >= pair[1])
                     || (!axes.is_empty()
-                        && (report.schema_version != 2 || device.kind != DeviceKind::Pointer))
+                        && (report.schema_version < 2 || device.kind != DeviceKind::Pointer))
             })
         {
             return Err(io::ErrorKind::InvalidData.into());
@@ -135,17 +145,35 @@ pub struct CoverageRequirements {
     keys: Vec<i32>,
     buttons: Vec<u32>,
     relative_motion: bool,
+    relative_scroll: Vec<u8>,
 }
 impl CoverageRequirements {
     pub fn new(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
-        Self::build(keys, buttons, false)
+        Self::build(keys, buttons, false, &[])
     }
     /// Requires relative X and Y on the same pointer; no scroll claim.
     pub fn with_relative_motion(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
-        Self::build(keys, buttons, true)
+        Self::build(keys, buttons, true, &[])
     }
-    fn build(keys: &[i32], buttons: &[u32], relative_motion: bool) -> io::Result<Self> {
-        if (keys.is_empty() && buttons.is_empty() && !relative_motion)
+    /// Scroll directions: 0 horizontal, 1 vertical. All pointer needs share a slave.
+    pub fn with_relative_scroll(
+        keys: &[i32],
+        buttons: &[u32],
+        motion: bool,
+        scroll: &[u8],
+    ) -> io::Result<Self> {
+        Self::build(keys, buttons, motion, scroll)
+    }
+    fn build(
+        keys: &[i32],
+        buttons: &[u32],
+        relative_motion: bool,
+        relative_scroll: &[u8],
+    ) -> io::Result<Self> {
+        if (keys.is_empty() && buttons.is_empty() && !relative_motion && relative_scroll.is_empty())
+            || relative_scroll.len() > 2
+            || relative_scroll.iter().any(|axis| *axis > 1)
+            || relative_scroll.windows(2).any(|pair| pair[0] >= pair[1])
             || keys.len() > 248
             || buttons.len() > 256
             || keys.iter().any(|key| !(8..=255).contains(key))
@@ -159,6 +187,7 @@ impl CoverageRequirements {
             keys: keys.into(),
             buttons: buttons.into(),
             relative_motion,
+            relative_scroll: relative_scroll.into(),
         })
     }
 }
@@ -199,6 +228,12 @@ impl ProbeReport {
                                 .all(|button| *button <= device.buttons)
                                 && (!required.relative_motion
                                     || device.relative_motion_axes.as_deref() == Some(&[0, 1]))
+                                && required.relative_scroll.iter().all(|axis| {
+                                    device
+                                        .relative_scroll_axes
+                                        .as_ref()
+                                        .is_some_and(|axes| axes.contains(axis))
+                                })
                         }
                     }
             });
@@ -215,7 +250,9 @@ impl ProbeReport {
             keyboard: select(DeviceKind::Keyboard, !required.keys.is_empty())?,
             pointer: select(
                 DeviceKind::Pointer,
-                !required.buttons.is_empty() || required.relative_motion,
+                !required.buttons.is_empty()
+                    || required.relative_motion
+                    || !required.relative_scroll.is_empty(),
             )?,
         })
     }
@@ -458,6 +495,7 @@ mod coverage_tests {
             keys: keys.into(),
             buttons: 0,
             relative_motion_axes: None,
+            relative_scroll_axes: None,
         }
     }
     fn pointer(id: i32, buttons: u32) -> DeviceMetadata {
@@ -468,6 +506,7 @@ mod coverage_tests {
             keys: vec![],
             buttons,
             relative_motion_axes: None,
+            relative_scroll_axes: None,
         }
     }
     #[test]
@@ -642,5 +681,51 @@ mod coverage_tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn scroll_needs_schema3_and_single_pointer_joint_coverage() {
+        let need = CoverageRequirements::with_relative_scroll(&[], &[1], true, &[0, 1]).unwrap();
+        let mut r = report(vec![pointer(8, 3)]);
+        r.schema_version = 3;
+        r.devices[0].relative_motion_axes = Some(vec![0, 1]);
+        r.devices[0].relative_scroll_axes = Some(vec![0, 1]);
+        assert!(r.check_coverage(&target(), &need).is_ok());
+        r.schema_version = 2;
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.schema_version = 3;
+        r.devices[0].relative_scroll_axes = Some(vec![0]);
+        let mut other = pointer(9, 3);
+        other.relative_motion_axes = Some(vec![0, 1]);
+        other.relative_scroll_axes = Some(vec![1]);
+        r.devices.push(other);
+        assert!(r.check_coverage(&target(), &need).is_err());
+    }
+    #[test]
+    fn scroll_schema_rejects_missing_invalid_and_keyboard_axes() {
+        let need = CoverageRequirements::with_relative_scroll(&[], &[], false, &[1]).unwrap();
+        let mut r = report(vec![pointer(8, 3)]);
+        r.schema_version = 3;
+        r.devices[0].relative_motion_axes = Some(vec![]);
+        for axes in [None, Some(vec![1, 1]), Some(vec![1, 0]), Some(vec![2])] {
+            r.devices[0].relative_scroll_axes = axes;
+            assert!(r.check_coverage(&target(), &need).is_err());
+        }
+        r.devices[0].relative_scroll_axes = Some(vec![1]);
+        r.devices[0].kind = DeviceKind::Keyboard;
+        assert!(r.check_coverage(&target(), &need).is_err());
+        for axes in [vec![2], vec![1, 1], vec![1, 0]] {
+            assert!(CoverageRequirements::with_relative_scroll(&[], &[], false, &axes).is_err());
+        }
+    }
+    #[test]
+    fn buttons_alone_never_prove_scroll_but_scroll_only_is_valid() {
+        let need = CoverageRequirements::with_relative_scroll(&[], &[], false, &[1]).unwrap();
+        let mut r = report(vec![pointer(8, 7)]);
+        r.schema_version = 3;
+        r.devices[0].relative_motion_axes = Some(vec![]);
+        r.devices[0].relative_scroll_axes = Some(vec![]);
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.devices[0].relative_scroll_axes = Some(vec![1]);
+        assert!(r.check_coverage(&target(), &need).is_ok());
     }
 }

@@ -18,6 +18,8 @@ _Static_assert(sizeof(XIKeyClassInfo) == 24 && offsetof(XIKeyClassInfo, num_keyc
 _Static_assert(sizeof(XIButtonClassInfo) == 40 && offsetof(XIButtonClassInfo, num_buttons) == 8 && offsetof(XIButtonClassInfo, labels) == 16 && offsetof(XIButtonClassInfo, state) == 24, "XI button class");
 _Static_assert(sizeof(XIValuatorClassInfo) == 56 && offsetof(XIValuatorClassInfo, number) == 8 && offsetof(XIValuatorClassInfo, label) == 16 && offsetof(XIValuatorClassInfo, min) == 24 && offsetof(XIValuatorClassInfo, max) == 32 && offsetof(XIValuatorClassInfo, value) == 40 && offsetof(XIValuatorClassInfo, resolution) == 48 && offsetof(XIValuatorClassInfo, mode) == 52, "XI valuator class");
 _Static_assert(XIValuatorClass == 2 && XIModeRelative == 0 && XIModeAbsolute == 1, "XI valuator constants");
+_Static_assert(sizeof(XIScrollClassInfo) == 32 && offsetof(XIScrollClassInfo, number) == 8 && offsetof(XIScrollClassInfo, scroll_type) == 12 && offsetof(XIScrollClassInfo, increment) == 16 && offsetof(XIScrollClassInfo, flags) == 24, "XI scroll layout");
+_Static_assert(XIScrollClass == 3 && XIScrollTypeVertical == 1 && XIScrollTypeHorizontal == 2 && XIScrollFlagNoEmulation == 1 && XIScrollFlagPreferred == 2, "XI scroll constants");
 _Static_assert(XA_STRING == 31, "node string type");
 _Static_assert(XISlavePointer == 3 && XISlaveKeyboard == 4 && XIKeyClass == 0 && XIButtonClass == 1 && XIAllDevices == 0, "XI constants");
 void signatures(void) {

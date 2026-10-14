@@ -66,6 +66,42 @@ fn motion_axis(class: &ValuatorClass, labels: [c_ulong; 2]) -> io::Result<Option
         .position(|label| *label != 0 && *label == class.label)
         .map(|axis| axis as u8))
 }
+#[repr(C)]
+struct ScrollClass {
+    kind: c_int,
+    source: c_int,
+    number: c_int,
+    scroll_type: c_int,
+    increment: f64,
+    flags: c_int,
+}
+fn scroll_axis(class: &ScrollClass) -> io::Result<u8> {
+    if !(0..=255).contains(&class.number)
+        || !class.increment.is_finite()
+        || class.increment == 0.0
+        || class.flags & !3 != 0
+    {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    match class.scroll_type {
+        1 => Ok(1), // XIScrollTypeVertical
+        2 => Ok(0), // XIScrollTypeHorizontal
+        _ => Err(io::ErrorKind::InvalidData.into()),
+    }
+}
+fn joined_scroll_axes(relative: &[i32], scroll: &[(i32, u8)]) -> io::Result<Vec<u8>> {
+    let mut axes = Vec::new();
+    let mut numbers = Vec::new();
+    for &(number, axis) in scroll {
+        if !relative.contains(&number) || numbers.contains(&number) || axes.contains(&axis) {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        numbers.push(number);
+        axes.push(axis);
+    }
+    axes.sort_unstable();
+    Ok(axes)
+}
 type Open = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type Close = unsafe extern "C" fn(*mut c_void) -> c_int;
 type Free = unsafe extern "C" fn(*mut c_void) -> c_int;
@@ -215,7 +251,7 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
         close,
     };
     let mut major = 2;
-    let mut minor = 0;
+    let mut minor = 1;
     // SAFETY: live connection, exclusive aligned integer outputs; read-only XI negotiation.
     if unsafe { version(display.value, &mut major, &mut minor) } != 0 || major < 2 {
         return Err(unavailable());
@@ -312,6 +348,8 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
         let mut keys = vec![];
         let mut buttons = 0;
         let mut relative_motion_axes = vec![];
+        let mut relative_numbers = vec![];
+        let mut scroll = vec![];
         for pointer in classes {
             if pointer.is_null() {
                 return Err(io::ErrorKind::InvalidData.into());
@@ -343,14 +381,29 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
             } else if header.kind == 2 {
                 // SAFETY: XIValuatorClass tag chooses the SDK layout; current value is never read.
                 let class = unsafe { &*pointer.cast::<ValuatorClass>() };
-                if let Some(axis) = motion_axis(class, motion_labels)? {
+                let axis = motion_axis(class, motion_labels)?;
+                if class.mode == 0 {
+                    if class.source != row.id || relative_numbers.contains(&class.number) {
+                        return Err(io::ErrorKind::InvalidData.into());
+                    }
+                    relative_numbers.push(class.number);
+                }
+                if let Some(axis) = axis {
                     if row.use_kind != 3 || relative_motion_axes.contains(&axis) {
                         return Err(io::ErrorKind::InvalidData.into());
                     }
                     relative_motion_axes.push(axis);
                 }
+            } else if header.kind == 3 {
+                // SAFETY: XIScrollClass tag chooses the public SDK layout, metadata only.
+                let class = unsafe { &*pointer.cast::<ScrollClass>() };
+                if row.use_kind != 3 || class.source != row.id || scroll.len() >= 2 {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                scroll.push((class.number, scroll_axis(class)?));
             }
         }
+        let relative_scroll_axes = joined_scroll_axes(&relative_numbers, &scroll)?;
         relative_motion_axes.sort_unstable();
         keys.sort_unstable();
         keys.dedup();
@@ -371,6 +424,7 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
             keys,
             buttons,
             relative_motion_axes,
+            relative_scroll_axes,
         });
     }
     Ok(result)
@@ -408,5 +462,48 @@ mod motion_tests {
         assert!(motion_axis(&c, [10, 11]).is_err());
         c.number = -1;
         assert!(motion_axis(&c, [10, 11]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+    fn class(direction: i32, increment: f64) -> ScrollClass {
+        ScrollClass {
+            kind: 3,
+            source: 8,
+            number: 2,
+            scroll_type: direction,
+            increment,
+            flags: 0,
+        }
+    }
+    #[test]
+    fn scroll_directions_accept_signed_finite_nonzero_increments() {
+        assert_eq!(scroll_axis(&class(1, 15.0)).ok(), Some(1));
+        assert_eq!(scroll_axis(&class(2, -15.0)).ok(), Some(0));
+    }
+    #[test]
+    fn scroll_rejects_invalid_scalar_metadata() {
+        for value in [0.0, -0.0, f64::NAN, f64::INFINITY] {
+            assert!(scroll_axis(&class(1, value)).is_err());
+        }
+        assert!(scroll_axis(&class(3, 1.0)).is_err());
+        let mut c = class(1, 1.0);
+        c.flags = 4;
+        assert!(scroll_axis(&c).is_err());
+        c.flags = 0;
+        c.number = -1;
+        assert!(scroll_axis(&c).is_err());
+    }
+    #[test]
+    fn scroll_requires_unique_relative_axis_join() {
+        assert_eq!(
+            joined_scroll_axes(&[2, 3], &[(2, 1), (3, 0)]).ok(),
+            Some(vec![0, 1])
+        );
+        for scroll in [vec![(4, 1)], vec![(2, 1), (2, 0)], vec![(2, 1), (3, 1)]] {
+            assert!(joined_scroll_axes(&[2, 3], &scroll).is_err());
+        }
     }
 }

@@ -225,3 +225,21 @@ fn actual_owned_schema2_fixture_reaches_motion_coverage_after_exit() {
     );
     assert!(job.take_report().is_none());
 }
+
+#[test]
+fn actual_owned_schema3_fixture_reaches_joint_pointer_coverage() {
+    let mut body = body();
+    body["schema_version"] = json!(3);
+    body["devices"] = json!([{"id":10,"attachment":2,"kind":"pointer","keys":[],"buttons":3,"relative_motion_axes":[0,1],"relative_scroll_axes":[0,1]}]);
+    let json = body.to_string();
+    let fixture = Fixture::new(
+        "scroll-v3",
+        &format!("import sys\nsys.stdout.write({json:?})\nsys.stdout.flush()"),
+    );
+    let mut job = ProbeJob::spawn(&fixture.image, target(), MonoTime(0), MAX_PROBE_NS).unwrap();
+    finish(&mut job, 1);
+    assert!(job.exit_status().unwrap().success());
+    let report = job.take_report().unwrap();
+    let need = CoverageRequirements::with_relative_scroll(&[], &[1, 3], true, &[0, 1]).unwrap();
+    assert!(report.check_coverage(&target(), &need).is_ok());
+}

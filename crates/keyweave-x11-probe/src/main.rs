@@ -28,6 +28,7 @@ struct Device {
     keys: Vec<i32>,
     buttons: u32,
     relative_motion_axes: Vec<u8>,
+    relative_scroll_axes: Vec<u8>,
 }
 #[derive(Serialize)]
 struct Report {
@@ -73,7 +74,7 @@ fn run(args: Arguments) -> io::Result<Report> {
     {
         let devices = native::query(&args)?;
         Ok(Report {
-            schema_version: 2,
+            schema_version: 3,
             display: args.display,
             node: args.node,
             major: args.major,
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     fn report_is_metadata_only_and_does_not_claim_consumer_readiness() {
         let report = Report {
-            schema_version: 2,
+            schema_version: 3,
             display: ":0".into(),
             node: "/dev/input/event42".into(),
             major: 13,
@@ -167,10 +168,11 @@ mod tests {
                 keys: vec![38],
                 buttons: 0,
                 relative_motion_axes: vec![],
+                relative_scroll_axes: vec![],
             }],
         };
         let value = serde_json::to_value(report).unwrap_or_else(|error| panic!("{error}"));
-        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["schema_version"], 3);
         assert_eq!(
             value["devices"][0]["relative_motion_axes"],
             serde_json::json!([])
