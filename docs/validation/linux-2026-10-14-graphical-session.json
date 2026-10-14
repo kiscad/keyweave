@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0181 read-only sd-login graphical session metadata with anchored TTL",
+  "source_base_commit": "b40c3160eca31c995b9ea5ef4bb52561137bfcc7",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "ae445c7f03393d9652deaca946e831af166f13eab3178f1719a7b718108f7b62",
+    "crates/keyweave-linux/src/graphical_session.rs": "63662320f78742b36fa6fdc60c0e4fb5025a7c9387b30a9c3d304279ceccc326",
+    "crates/keyweave-linux/src/graphical_session/native.rs": "482aefac490687413f163255cd2b395b775c22f861b8e0177026f255994373d7",
+    "crates/keyweave-linux/tests/graphical_session.rs": "d9c8c1ff38b693e26892ed61fbf806538112ba6b70478dc2be327bef21661e61",
+    "tools/verify_linux_abi.py": "f3ebb33ab878df23d3c7cd94b4e8cadfb1c190fe875f3c4faee0eaf01c77c4fd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1689,
+    "new_tests": 9,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "sd_login_scalar_abi_verified": true,
+    "native_exports_status": "not verified: root-trust rejection exercised",
+    "sdk_headers_status": "not installed in current environment",
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-graphical-session/tests.log",
+        "sha256": "d76d68947079877139ad818a4ab33310faa7130f9e433b626d56208cf65cc6fd"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-graphical-session/clippy.log",
+        "sha256": "eb7255fcac1b1a6a0ed5a15235a0ebba2fcd84d733eaaacd8739f237008daca4"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-graphical-session/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-graphical-session/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-graphical-session/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "initial-clippy": {
+        "path": "target/validation/linux-20261014-graphical-session/initial-clippy.log",
+        "sha256": "4eb6c7e403416f93b963cbfed8ca6f3e8848a15742060f39996889693605aeb1"
+      }
+    }
+  },
+  "initial_failures": [
+    "Fixture helper observer was shadowed by a local observer binding; renamed constructor helper make_observer.",
+    "Actual native export check rejected library and ancestor UID 65534 in this sandbox. Retained strict root trust and changed test to prove fail-closed behavior; no ownership relaxation or bypass.",
+    "Clippy flagged an unnecessary owned copy of fixture clock values; used borrowed copied iterator. Final checks passed."
+  ],
+  "primary_references": [
+    "https://raw.githubusercontent.com/systemd/systemd/v257/src/systemd/sd-login.h",
+    "https://raw.githubusercontent.com/systemd/systemd/v257/man/sd_session_is_active.xml"
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Linux-only private sd-login FFI. Portable shared workspace tests ran on Linux; Windows native checks remain pending after prior approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "SessionReady is metadata only, not an output consumer, capture, focus, unlocked-state or device-access grant.",
+    "SDK headers are unavailable and system paths report UID 65534 in the sandbox; trusted native symbol loading and actual sd-login queries remain unverified. Scalar C ABI and documented opaque API signatures do not substitute for that validation.",
+    "Two metadata snapshots and TTL do not eliminate races/ABA. Anchor never automatically changes session/UID/seat/kind/display.",
+    "Graphical X11/compositor output consumer, mixed bootstrap/host/worker, hardware, Windows pointer, GUI/packaging and Rust driver acceptance remain pending."
+  ]
+}

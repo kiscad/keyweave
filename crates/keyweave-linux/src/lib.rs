@@ -19,6 +19,7 @@ pub mod device;
 pub mod discovery;
 pub mod emergency;
 pub mod events;
+pub mod graphical_session;
 #[cfg(target_os = "linux")]
 pub mod host_signals;
 #[cfg(target_os = "linux")]

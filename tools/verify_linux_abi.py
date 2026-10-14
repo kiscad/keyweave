@@ -43,6 +43,7 @@ _Static_assert(VT_GETSTATE == 0x5603 && KDGETMODE == 0x4b3b && KDGKBMODE == 0x4b
 _Static_assert(KD_TEXT == 0 && K_XLATE == 1 && K_UNICODE == 3, "VT modes");
 _Static_assert(sizeof(struct vt_stat) == 6 && _Alignof(struct vt_stat) == 2, "VT struct");
 _Static_assert(offsetof(struct vt_stat, v_active) == 0 && offsetof(struct vt_stat, v_signal) == 2 && offsetof(struct vt_stat, v_state) == 4, "VT offsets");
+_Static_assert(sizeof(uid_t) == 4 && sizeof(char) == 1, "sd-login scalar types");
 _Static_assert(sizeof(pid_t) == 4 && sizeof(int) == 4 && O_NOCTTY == 0x100, "VT scalar types");
 _Static_assert(MFD_CLOEXEC == 1 && MFD_ALLOW_SEALING == 2, "memfd flags");
 _Static_assert(F_ADD_SEALS == 1033 && F_GET_SEALS == 1034, "sealing commands");
@@ -111,4 +112,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput and relative-event codes, memfd/seals, VT/job-control getrandom, signalfd, inotify and paired-clock ABI; no device access')
+print('Verified local C UAPI, evdev/uinput and relative-event codes, memfd/seals, VT/job-control getrandom, signalfd, inotify, paired-clock and sd-login scalar ABI; no device access')
