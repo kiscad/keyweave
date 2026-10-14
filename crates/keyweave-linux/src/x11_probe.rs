@@ -77,6 +77,8 @@ pub struct DeviceMetadata {
     pub relative_motion_axes: Option<Vec<u8>>,
     #[serde(default)]
     pub relative_scroll_axes: Option<Vec<u8>>,
+    #[serde(default)]
+    pub button_labels: Option<Vec<u16>>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,7 +100,7 @@ pub fn decode_report(bytes: &[u8], target: &ProbeTarget) -> io::Result<ProbeRepo
     Ok(report)
 }
 fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()> {
-    if !matches!(report.schema_version, 1..=3)
+    if !matches!(report.schema_version, 1..=4)
         || report.display != target.display
         || report.node != target.node
         || report.major != target.major
@@ -118,13 +120,28 @@ fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()>
             || device.keys.iter().any(|key| !(0..=65535).contains(key))
             || device.keys.windows(2).any(|keys| keys[0] >= keys[1])
             || (report.schema_version >= 2 && device.relative_motion_axes.is_none())
-            || (report.schema_version == 3 && device.relative_scroll_axes.is_none())
+            || (report.schema_version == 4 && device.button_labels.is_none())
+            || device.button_labels.as_ref().is_some_and(|labels| {
+                labels.len() != device.buttons as usize
+                    || labels
+                        .iter()
+                        .any(|code| *code != 0 && !crate::keys::BUTTON_CODES.contains(code))
+                    || labels
+                        .iter()
+                        .filter(|code| **code != 0)
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        != labels.iter().filter(|code| **code != 0).count()
+                    || (!labels.is_empty()
+                        && (report.schema_version != 4 || device.kind != DeviceKind::Pointer))
+            })
+            || (report.schema_version >= 3 && device.relative_scroll_axes.is_none())
             || device.relative_scroll_axes.as_ref().is_some_and(|axes| {
                 axes.len() > 2
                     || axes.iter().any(|axis| *axis > 1)
                     || axes.windows(2).any(|pair| pair[0] >= pair[1])
                     || (!axes.is_empty()
-                        && (report.schema_version != 3 || device.kind != DeviceKind::Pointer))
+                        && (report.schema_version < 3 || device.kind != DeviceKind::Pointer))
             })
             || device.relative_motion_axes.as_ref().is_some_and(|axes| {
                 axes.len() > 2
@@ -146,6 +163,7 @@ pub struct CoverageRequirements {
     buttons: Vec<u32>,
     relative_motion: bool,
     relative_scroll: Vec<u8>,
+    native_buttons: Vec<u16>,
 }
 impl CoverageRequirements {
     pub fn new(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
@@ -154,6 +172,38 @@ impl CoverageRequirements {
     /// Requires relative X and Y on the same pointer; no scroll claim.
     pub fn with_relative_motion(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
         Self::build(keys, buttons, true, &[])
+    }
+    /// Explicit Xorg evdev/libinput model. Covers every advertised output code.
+    pub fn for_output(spec: &crate::output::DeviceSpec) -> io::Result<Self> {
+        use crate::relative::*;
+        spec.validate_shape()?;
+        let mut keys = Vec::new();
+        let mut native_buttons = Vec::new();
+        for code in spec.codes() {
+            if crate::keys::BUTTON_CODES.contains(&code) {
+                native_buttons.push(code);
+            } else if code <= 247 {
+                keys.push(i32::from(code) + 8);
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "output key exceeds Xorg core keycode range",
+                ));
+            }
+        }
+        let has_axis = |code| spec.relative_axes().is_some_and(|axes| axes.contains(code));
+        let motion = has_axis(REL_X) || has_axis(REL_Y);
+        let mut scroll = Vec::new();
+        if has_axis(REL_HWHEEL) || has_axis(REL_HWHEEL_HI_RES) {
+            scroll.push(0);
+        }
+        if has_axis(REL_WHEEL) || has_axis(REL_WHEEL_HI_RES) {
+            scroll.push(1);
+        }
+        // Spec requires at least a keyboard code, so this cannot be an empty request.
+        let mut result = Self::build(&keys, &[], motion, &scroll)?;
+        result.native_buttons = native_buttons;
+        Ok(result)
     }
     /// Scroll directions: 0 horizontal, 1 vertical. All pointer needs share a slave.
     pub fn with_relative_scroll(
@@ -188,6 +238,7 @@ impl CoverageRequirements {
             buttons: buttons.into(),
             relative_motion,
             relative_scroll: relative_scroll.into(),
+            native_buttons: Vec::new(),
         })
     }
 }
@@ -228,6 +279,12 @@ impl ProbeReport {
                                 .all(|button| *button <= device.buttons)
                                 && (!required.relative_motion
                                     || device.relative_motion_axes.as_deref() == Some(&[0, 1]))
+                                && required.native_buttons.iter().all(|code| {
+                                    device
+                                        .button_labels
+                                        .as_ref()
+                                        .is_some_and(|labels| labels.contains(code))
+                                })
                                 && required.relative_scroll.iter().all(|axis| {
                                     device
                                         .relative_scroll_axes
@@ -252,7 +309,8 @@ impl ProbeReport {
                 DeviceKind::Pointer,
                 !required.buttons.is_empty()
                     || required.relative_motion
-                    || !required.relative_scroll.is_empty(),
+                    || !required.relative_scroll.is_empty()
+                    || !required.native_buttons.is_empty(),
             )?,
         })
     }
@@ -496,6 +554,7 @@ mod coverage_tests {
             buttons: 0,
             relative_motion_axes: None,
             relative_scroll_axes: None,
+            button_labels: None,
         }
     }
     fn pointer(id: i32, buttons: u32) -> DeviceMetadata {
@@ -507,6 +566,7 @@ mod coverage_tests {
             buttons,
             relative_motion_axes: None,
             relative_scroll_axes: None,
+            button_labels: None,
         }
     }
     #[test]
@@ -727,5 +787,76 @@ mod coverage_tests {
         assert!(r.check_coverage(&target(), &need).is_err());
         r.devices[0].relative_scroll_axes = Some(vec![1]);
         assert!(r.check_coverage(&target(), &need).is_ok());
+    }
+    #[test]
+    fn output_spec_covers_all_native_keyboard_codes() {
+        let codes: Vec<_> = crate::keys::native_codes().collect();
+        let spec = crate::output::DeviceSpec::new(
+            "test",
+            &codes,
+            crate::output::RepeatPolicy::External,
+            false,
+        )
+        .unwrap();
+        let required = CoverageRequirements::for_output(&spec).unwrap();
+        assert_eq!(
+            required.keys,
+            spec.codes()
+                .map(|code| i32::from(code) + 8)
+                .collect::<Vec<_>>()
+        );
+        assert!(required.native_buttons.is_empty());
+    }
+    #[test]
+    fn output_spec_jointly_requires_semantic_buttons_motion_and_scroll() {
+        use crate::{
+            keys::PointingButtons,
+            output::{DeviceSpec, RepeatPolicy},
+            relative::*,
+        };
+        let spec = DeviceSpec::new("test", &[30], RepeatPolicy::External, false)
+            .unwrap()
+            .with_relative_axes(
+                RelativeAxes::new(&[REL_X, REL_Y, REL_WHEEL_HI_RES, REL_HWHEEL]).unwrap(),
+            )
+            .with_pointing_buttons(PointingButtons::new(&[0x111, 0x112]).unwrap())
+            .unwrap();
+        let required = CoverageRequirements::for_output(&spec).unwrap();
+        assert_eq!(required.keys, vec![38]);
+        assert_eq!(required.native_buttons, vec![0x111, 0x112]);
+        assert!(required.relative_motion);
+        assert_eq!(required.relative_scroll, vec![0, 1]);
+        let mut r = report(vec![keyboard(8, &[38]), pointer(9, 3)]);
+        r.schema_version = 4;
+        for device in &mut r.devices {
+            device.relative_motion_axes = Some(vec![]);
+            device.relative_scroll_axes = Some(vec![]);
+            device.button_labels = Some(vec![]);
+        }
+        r.devices[1].relative_motion_axes = Some(vec![0, 1]);
+        r.devices[1].relative_scroll_axes = Some(vec![0, 1]);
+        r.devices[1].button_labels = Some(vec![0x110, 0x112, 0x111]);
+        assert!(r.check_coverage(&target(), &required).is_ok());
+        r.devices[1].button_labels = Some(vec![0x110, 0, 0x111]);
+        assert!(r.check_coverage(&target(), &required).is_err());
+    }
+    #[test]
+    fn schema4_labels_are_required_bounded_and_unambiguous() {
+        let required = CoverageRequirements::new(&[], &[1]).unwrap();
+        let mut r = report(vec![pointer(8, 3)]);
+        r.schema_version = 4;
+        r.devices[0].relative_motion_axes = Some(vec![]);
+        r.devices[0].relative_scroll_axes = Some(vec![]);
+        for labels in [
+            None,
+            Some(vec![]),
+            Some(vec![0x110, 0x110, 0]),
+            Some(vec![0x118, 0, 0]),
+        ] {
+            r.devices[0].button_labels = labels;
+            assert!(r.check_coverage(&target(), &required).is_err());
+        }
+        r.devices[0].button_labels = Some(vec![0x110, 0x112, 0x111]);
+        assert!(r.check_coverage(&target(), &required).is_ok());
     }
 }

@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "24636765858fafb9cd423e52f9a91cf0bda5c4f3",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/x11_consumer.rs": "6cb22f34f49cb8c4d42f315fed776b122e7eb1560fcc65f77308ddb3668e6e02",
+    "crates/keyweave-linux/src/x11_probe.rs": "2ae194cb079e35433efb5606675f1463d9dbfe3d64d38bf860bb804cd9c85ae5",
+    "crates/keyweave-linux/tests/x11_probe_job.rs": "4bdf2d714fedc6713546d62306fe125cc1bdcd4d8ee8702f44f28349d0548df1",
+    "crates/keyweave-x11-probe/src/main.rs": "7cd7d0b22862d1f86a1ee80fcb8c71637734e79625066064f04ab18dabfaae5f",
+    "crates/keyweave-x11-probe/src/native.rs": "bba1d7d8e7b96ea2fdb477afdafca2dc5bd5ae3cda77454be5f653fb8f463e5a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1733,
+    "new_tests": 6,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-output-spec/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-output-spec/clippy.log",
+        "sha256": "841cc84b7c85d5305c1c90bb58cc9f705fdb79ee5d9e5fd3badf82fb3616285a"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-output-spec/tests.log",
+        "sha256": "374cb6d827b3479e132f5c04d679c33ab4079f62dd61515db4158e1aa7745377"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-output-spec/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-output-spec/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "No display/device query or capture. Owned schema4 fixture uses a temporary Python helper.",
+    "Explicit Xorg evdev/libinput keycode model is selected; actual driver identity/settings/mapping and delivery are not verified.",
+    "Button semantic labels establish metadata only, not current button remapping behavior or driver options.",
+    "Actual X11 SDK/library/server and native provider end-to-end remain unverified as previously recorded.",
+    "Observation remains separate from capture admission; high-resolution scaling and active versus unlocked state remain unresolved.",
+    "Mixed bootstrap/host/worker, Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

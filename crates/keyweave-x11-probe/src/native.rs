@@ -102,6 +102,20 @@ fn joined_scroll_axes(relative: &[i32], scroll: &[(i32, u8)]) -> io::Result<Vec<
     axes.sort_unstable();
     Ok(axes)
 }
+fn semantic_button_labels(labels: &[c_ulong], atoms: [c_ulong; 8]) -> io::Result<Vec<u16>> {
+    let mut result = Vec::new();
+    for label in labels {
+        let code = atoms
+            .iter()
+            .position(|atom| *atom != 0 && atom == label)
+            .map_or(0, |index| 0x110 + index as u16);
+        if code != 0 && result.contains(&code) {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        result.push(code);
+    }
+    Ok(result)
+}
 type Open = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type Close = unsafe extern "C" fn(*mut c_void) -> c_int;
 type Free = unsafe extern "C" fn(*mut c_void) -> c_int;
@@ -268,6 +282,19 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
             atom(display.value, c"Rel Y".as_ptr(), 1),
         ]
     };
+    // SAFETY: fixed literals, only-if-exists lookup on the live connection.
+    let button_atoms = unsafe {
+        [
+            atom(display.value, c"Button Left".as_ptr(), 1),
+            atom(display.value, c"Button Right".as_ptr(), 1),
+            atom(display.value, c"Button Middle".as_ptr(), 1),
+            atom(display.value, c"Button Side".as_ptr(), 1),
+            atom(display.value, c"Button Extra".as_ptr(), 1),
+            atom(display.value, c"Button Forward".as_ptr(), 1),
+            atom(display.value, c"Button Back".as_ptr(), 1),
+            atom(display.value, c"Button Task".as_ptr(), 1),
+        ]
+    };
     let mut count = 0;
     // SAFETY: live display and aligned count output; XIAllDevices=0, returned owner managed below.
     let pointer = unsafe { devices(display.value, 0, &mut count) };
@@ -347,6 +374,7 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
         };
         let mut keys = vec![];
         let mut buttons = 0;
+        let mut button_labels = None;
         let mut relative_motion_axes = vec![];
         let mut relative_numbers = vec![];
         let mut scroll = vec![];
@@ -374,10 +402,21 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
             } else if header.kind == 1 {
                 // SAFETY: XIButtonClass tag chooses this public class layout; pressed mask unused.
                 let class = unsafe { &*pointer.cast::<ButtonClass>() };
-                if !(0..=256).contains(&class.count) {
+                if !(0..=256).contains(&class.count)
+                    || class.source != row.id
+                    || button_labels.is_some()
+                    || (class.count > 0 && class.labels.is_null())
+                {
                     return Err(io::ErrorKind::InvalidData.into());
                 }
-                buttons = buttons.max(class.count as u32);
+                let labels = if class.count == 0 {
+                    &[][..]
+                } else {
+                    // SAFETY: XIButtonClass owns exactly count Atom labels; pressed state unused.
+                    unsafe { slice::from_raw_parts(class.labels, class.count as usize) }
+                };
+                button_labels = Some(semantic_button_labels(labels, button_atoms)?);
+                buttons = class.count as u32;
             } else if header.kind == 2 {
                 // SAFETY: XIValuatorClass tag chooses the SDK layout; current value is never read.
                 let class = unsafe { &*pointer.cast::<ValuatorClass>() };
@@ -425,6 +464,7 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
             buttons,
             relative_motion_axes,
             relative_scroll_axes,
+            button_labels: button_labels.unwrap_or_default(),
         });
     }
     Ok(result)
@@ -505,5 +545,25 @@ mod scroll_tests {
         for scroll in [vec![(4, 1)], vec![(2, 1), (2, 0)], vec![(2, 1), (3, 1)]] {
             assert!(joined_scroll_axes(&[2, 3], &scroll).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod button_tests {
+    use super::*;
+    #[test]
+    fn button_semantics_do_not_assume_hid_ordinal() {
+        assert_eq!(
+            semantic_button_labels(&[10, 12, 11, 0, 13], [10, 11, 12, 13, 14, 15, 16, 17]).ok(),
+            Some(vec![0x110, 0x112, 0x111, 0, 0x113])
+        );
+    }
+    #[test]
+    fn button_labels_reject_duplicate_known_semantics() {
+        assert!(semantic_button_labels(&[10, 10], [10, 11, 12, 13, 14, 15, 16, 17]).is_err());
+        assert_eq!(
+            semantic_button_labels(&[0, 0, 20], [0; 8]).ok(),
+            Some(vec![0, 0, 0])
+        );
     }
 }

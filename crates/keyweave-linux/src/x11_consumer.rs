@@ -158,7 +158,6 @@ impl NativeX11Observer {
         &mut self,
         output: &UinputDevice,
         node: &EvdevDevice,
-        required: CoverageRequirements,
         clock: &mut impl FnMut() -> io::Result<MonoTime>,
     ) -> io::Result<bool> {
         self.observation = None;
@@ -166,6 +165,7 @@ impl NativeX11Observer {
             return Err(io::ErrorKind::WouldBlock.into());
         }
         WorkerParentGuard::verify(self.parent)?.verify_isolated_group()?;
+        let required = CoverageRequirements::for_output(output.spec())?;
         let observed = self.now(clock)?;
         let until = observed
             .checked_add(SESSION_LIFETIME_NS)

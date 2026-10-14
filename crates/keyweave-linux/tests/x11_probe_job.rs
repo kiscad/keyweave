@@ -243,3 +243,37 @@ fn actual_owned_schema3_fixture_reaches_joint_pointer_coverage() {
     let need = CoverageRequirements::with_relative_scroll(&[], &[1, 3], true, &[0, 1]).unwrap();
     assert!(report.check_coverage(&target(), &need).is_ok());
 }
+
+#[test]
+fn actual_owned_schema4_fixture_covers_generated_output_spec() {
+    use keyweave_linux::{
+        keys::PointingButtons,
+        output::{DeviceSpec, RepeatPolicy},
+        relative::*,
+    };
+    let spec = DeviceSpec::new("test", &[30], RepeatPolicy::External, false)
+        .unwrap()
+        .with_relative_axes(RelativeAxes::new(&[REL_X, REL_Y]).unwrap())
+        .with_pointing_buttons(PointingButtons::new(&[0x111]).unwrap())
+        .unwrap();
+    let mut body = body();
+    body["schema_version"] = json!(4);
+    body["devices"] = json!([
+        {"id":10,"attachment":3,"kind":"keyboard","keys":[38],"buttons":0,"relative_motion_axes":[],"relative_scroll_axes":[],"button_labels":[]},
+        {"id":11,"attachment":2,"kind":"pointer","keys":[],"buttons":3,"relative_motion_axes":[0,1],"relative_scroll_axes":[],"button_labels":[272,274,273]}
+    ]);
+    let json = body.to_string();
+    let fixture = Fixture::new(
+        "buttons-v4",
+        &format!("import sys\nsys.stdout.write({json:?})\nsys.stdout.flush()"),
+    );
+    let mut job = ProbeJob::spawn(&fixture.image, target(), MonoTime(0), MAX_PROBE_NS).unwrap();
+    finish(&mut job, 1);
+    assert!(job.exit_status().unwrap().success());
+    let report = job.take_report().unwrap();
+    assert!(
+        report
+            .check_coverage(&target(), &CoverageRequirements::for_output(&spec).unwrap())
+            .is_ok()
+    );
+}
