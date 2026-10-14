@@ -12,6 +12,8 @@ source = r'''
 #include <stddef.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
+_Static_assert(EV_REL == 2 && REL_X == 0 && REL_Y == 1, "relative motion codes");
+_Static_assert(REL_HWHEEL == 6 && REL_WHEEL == 8 && REL_WHEEL_HI_RES == 11 && REL_HWHEEL_HI_RES == 12, "relative wheel codes");
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -106,4 +108,4 @@ with tempfile.TemporaryDirectory(prefix='keyweave-abi-') as directory:
     actual = json.loads(result.stdout)
     if actual != expected:
         raise SystemExit(f'Unaudited native ABI: {actual}')
-print('Verified local C UAPI, evdev/uinput, memfd/seals, VT/job-control getrandom, signalfd, inotify and paired-clock ABI; no device access')
+print('Verified local C UAPI, evdev/uinput and relative-event codes, memfd/seals, VT/job-control getrandom, signalfd, inotify and paired-clock ABI; no device access')

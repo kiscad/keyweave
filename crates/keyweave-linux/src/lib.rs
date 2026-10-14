@@ -31,6 +31,7 @@ pub mod pump;
 #[cfg(target_os = "linux")]
 pub mod reactor;
 pub mod read;
+pub mod relative;
 #[cfg(target_os = "linux")]
 pub mod reload_channel;
 #[cfg(target_os = "linux")]

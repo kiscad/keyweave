@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0175 bounded exact Linux relative event frames and acceptance receipts",
+  "source_base_commit": "f41e77852be90fd83b2b3125efaec56090aab2bf",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "8c85cf0f97a1cc217175de8aa4e6066117714dad3fc6a2b9bc283926bdf189bb",
+    "crates/keyweave-linux/src/relative.rs": "2e6034a8815a7921604402b26b2625274363a51b7240c1d26f9775bfccc1fe3d",
+    "crates/keyweave-linux/tests/relative_frames.rs": "62523f576e9380ed1789b3e59cd1c3dee65f3b5e07a15e1f702df0ed17d8aaa5",
+    "tools/verify_linux_abi.py": "e0651d707e04a069ccc0c6c2b2fb29db8ded67085474185c08816ed7b19d1a2c"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1628,
+    "new_tests": 8,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "relative_codes_verified_against_c_headers": true,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-relative-frames/tests.log",
+        "sha256": "3bbdefb15895e4b90cbdbfb28a0f5c574c7ad9241bac974d64565b718399dda1"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-relative-frames/clippy.log",
+        "sha256": "91eb1ab0fd4755891f04e49b43c8a57c619ea08aa301100ef75d01abbe58b62a"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-relative-frames/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-relative-frames/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-relative-frames/abi.log",
+        "sha256": "60d475e06b59a15d2397eb7f0ffb5842be71d92d18f053a000a49a2657cf4c46"
+      }
+    }
+  },
+  "initial_failures": [],
+  "primary_references": [
+    "https://docs.kernel.org/input/event-codes.html",
+    "https://docs.kernel.org/input/uinput.html"
+  ],
+  "windows": {
+    "status": "not executed",
+    "scope": "No Windows source or FFI change. Native checks of earlier changes remain pending after prior automatic approval quota rejection; no retry/bypass."
+  },
+  "limitations": [
+    "RelativeFrames are pure codecs and cold capabilities. Current keyboard Runtime and capture admission still reject pointer devices.",
+    "Output pump ordering, actual relative uinput capabilities/probe/consumer readiness and mixed native integration remain pending.",
+    "No real evdev/uinput, global capture/session or hardware test. Relative output has no Up rollback, and unknown write acceptance cannot become zero.",
+    "Windows native pointer, graphical Linux providers, GUI/packaging and driver acceptance remain pending."
+  ]
+}
