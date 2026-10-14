@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0179 explicit Linux relative capture scope and complete staged Runtime packet handoff",
+  "source_base_commit": "a405be5c40beeec46356b84d71e61bd7a917c31c",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/activation.rs": "6659055aa5c4258f43493aa6e11d71fb03f9a89827aebd1a4c6658867c62c2db",
+    "crates/keyweave-linux/src/capture.rs": "9c95d66b37d85a9f0656fab390e68cd2190b452180952d23d014e775efc0757b",
+    "crates/keyweave-linux/src/probe.rs": "e1b0fe7a0c75f9cda8879bbc4a096df2113c2785617496668f7a18615d80bdf7",
+    "crates/keyweave-linux/src/runtime.rs": "ad9a9f27ed062eb87c7a07b34bb763707f60e24d7a7db7c1b740b9f2501d5e5f",
+    "crates/keyweave-linux/src/runtime/machine.rs": "316aa0e88f4cef262e2a505ade6cb872c5749752de6e09c282b9b43734378528"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1670,
+    "new_tests": 12,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-relative-runtime/tests.log",
+        "sha256": "1f4c43c7db8ab5ee74769b63b6a6f67debcdaaff8fc59fe1876d4d07473cc9ba"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-relative-runtime/clippy.log",
+        "sha256": "1e88629b8c78a0265b4cd9ecfc7bbbb8865d5d58b4dc28f08e3b16f246f259c2"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-relative-runtime/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-relative-runtime/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-relative-runtime/abi.log",
+        "sha256": "60d475e06b59a15d2397eb7f0ffb5842be71d92d18f053a000a49a2657cf4c46"
+      }
+    }
+  },
+  "initial_failures": [
+    "First all-target check found the poll-stage pattern no longer bound the relative flag and one old raw-queue fixture still inserted Event directly. Corrected both for the new mixed work representation.",
+    "The relative resource fixture initially moved DeviceSpec out of a Drop backend; cloned the cold spec before extending axes. Final focused/full checks passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Linux-only Runtime/capture changes. Shared portable Windows tests ran on Linux; native checks of prior changes remain pending after approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "CaptureDevice::new_with_relative and Runtime::new_staged_relative are explicit library entries; caller owns pointer consumer readiness and supervision. Existing console group and host/worker do not select relative scope.",
+    "Current admitted key codes are keyboard/consumer; ordinary mouse buttons and full pointing-device/property admission remain pending. This is not a substitute for the full pointing-device target.",
+    "Metadata is ignored as in the existing keyboard path, relative runs retain values/order, and output REPORT boundaries follow stage steps.",
+    "No real device grab/uinput/session/hardware operation. Graphical consumer authorization, host/worker scope transport, Windows pointer/native validation, GUI/packaging and driver acceptance remain pending."
+  ]
+}

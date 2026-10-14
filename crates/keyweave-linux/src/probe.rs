@@ -101,8 +101,24 @@ pub enum AdmissionIssue {
     Misc(u16),
     #[error("unsupported LED code {0}")]
     Led(u16),
+    #[error("unsupported relative axis {0}")]
+    Relative(u16),
 }
 impl Capabilities {
+    /// Explicit relative scope; existing key/property checks remain in force.
+    pub fn relative_issues(&self) -> Vec<AdmissionIssue> {
+        let mut issues = self.keyboard_issues();
+        if self.events.contains(crate::relative::EV_REL) && !self.relative.is_empty() {
+            issues.retain(|issue| !matches!(issue, AdmissionIssue::EventClass(2)));
+        }
+        issues.extend(
+            self.relative
+                .codes()
+                .filter(|axis| !crate::relative::SUPPORTED_AXES.contains(axis))
+                .map(AdmissionIssue::Relative),
+        );
+        issues
+    }
     /// Conservative keyboard/consumer contract. This does not establish own
     /// device exclusion, output readiness, config compatibility or neutral state.
     pub fn keyboard_issues(&self) -> Vec<AdmissionIssue> {

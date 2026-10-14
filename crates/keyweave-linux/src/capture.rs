@@ -108,6 +108,8 @@ pub enum CaptureError {
         #[source]
         error: io::Error,
     },
+    #[error("relative axis {0} is not covered by output")]
+    MissingOutputAxis(u16),
     #[error("capture source is closed")]
     Closed,
     #[error("capture state does not permit this operation")]
@@ -128,6 +130,7 @@ pub struct CaptureDevice<S: CaptureSource> {
     source: Option<S>,
     phase: CapturePhase,
     output_identity: Option<std::path::PathBuf>,
+    relative_allowed: bool,
 }
 impl<S: CaptureSource> CaptureDevice<S> {
     pub fn new(source: S) -> Self {
@@ -135,7 +138,17 @@ impl<S: CaptureSource> CaptureDevice<S> {
             source: Some(source),
             phase: CapturePhase::Standby,
             output_identity: None,
+            relative_allowed: false,
         }
+    }
+    /// Explicit relative scope; caller still proves consumer readiness before arm.
+    pub fn new_with_relative(source: S) -> Self {
+        let mut capture = Self::new(source);
+        capture.relative_allowed = true;
+        capture
+    }
+    pub fn relative_allowed(&self) -> bool {
+        self.relative_allowed
     }
     /// Identity of the output against which this active capture was admitted.
     pub fn output_syspath(&self) -> Option<&Path> {
@@ -178,8 +191,22 @@ impl<S: CaptureSource> CaptureDevice<S> {
         if !node.input_syspath.is_absolute() || !complete_capabilities(node) {
             return Err(CaptureError::InvalidCapabilities);
         }
-        if let Some(issue) = node.capabilities.keyboard_issues().into_iter().next() {
+        let issues = if self.relative_allowed {
+            node.capabilities.relative_issues()
+        } else {
+            node.capabilities.keyboard_issues()
+        };
+        if let Some(issue) = issues.into_iter().next() {
             return Err(CaptureError::Capability(issue));
+        }
+        for axis in node.capabilities.relative.codes() {
+            if !output
+                .spec
+                .relative_axes()
+                .is_some_and(|axes| axes.contains(axis))
+            {
+                return Err(CaptureError::MissingOutputAxis(axis));
+            }
         }
         let codes: std::collections::BTreeSet<_> = output.spec.codes().collect();
         if let Some(code) = node
@@ -737,5 +764,65 @@ mod tests {
         output.capabilities.relative.set(0).unwrap();
         assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_err());
         assert!(!output.capabilities.keyboard_issues().is_empty());
+    }
+
+    #[test]
+    fn relative_capture_requires_explicit_scope_and_real_output_axes_before_queries() {
+        let spec =
+            spec(&[30]).with_relative_axes(crate::relative::RelativeAxes::new(&[0]).unwrap());
+        let mut output = node(OUT, &[30]);
+        output.capabilities.events.set(2).unwrap();
+        output.capabilities.relative.set(0).unwrap();
+        let proof = ready(&spec, &output);
+        let mut physical = node(PHYSICAL, &[30]);
+        physical.capabilities.events.set(2).unwrap();
+        physical.capabilities.relative.set(0).unwrap();
+        let (mut default, default_calls) = source(physical.clone(), vec![], vec![], vec![]);
+        assert!(matches!(
+            default.arm(&proof),
+            Err(CaptureError::Capability(_))
+        ));
+        assert!(default_calls.borrow().is_empty());
+        let calls = Rc::new(RefCell::new(vec![]));
+        let native = Source {
+            probe: physical,
+            queries: vec![Ok(bits(768, &[])), Ok(bits(768, &[]))].into(),
+            grabs: vec![Ok(())].into(),
+            reads: VecDeque::new(),
+            calls: calls.clone(),
+        };
+        let mut explicit = CaptureDevice::new_with_relative(native);
+        assert_eq!(explicit.arm(&proof).unwrap(), ArmResult::Captured);
+        assert!(explicit.relative_allowed());
+        assert_eq!(
+            calls.borrow().as_slice(),
+            [Call::Query, Call::Grab(true), Call::Query]
+        );
+    }
+    #[test]
+    fn relative_capture_uncovered_axis_is_a_cold_failure_without_grab() {
+        let spec =
+            spec(&[30]).with_relative_axes(crate::relative::RelativeAxes::new(&[0]).unwrap());
+        let mut output = node(OUT, &[30]);
+        output.capabilities.events.set(2).unwrap();
+        output.capabilities.relative.set(0).unwrap();
+        let proof = ready(&spec, &output);
+        let mut physical = node(PHYSICAL, &[30]);
+        physical.capabilities.events.set(2).unwrap();
+        physical.capabilities.relative.set(1).unwrap();
+        let calls = Rc::new(RefCell::new(vec![]));
+        let native = Source {
+            probe: physical,
+            queries: VecDeque::new(),
+            grabs: VecDeque::new(),
+            reads: VecDeque::new(),
+            calls: calls.clone(),
+        };
+        let mut input = CaptureDevice::new_with_relative(native);
+        assert!(matches!(
+            input.arm(&proof),
+            Err(CaptureError::MissingOutputAxis(1))
+        ));
+        assert!(calls.borrow().is_empty());
     }
 }

@@ -9,9 +9,26 @@ use crate::{
     pump::{FrameBackend, OutputPump, Phase, PumpError},
     read::ReadBatch,
 };
+use crate::{
+    relative::{EV_REL, RelativeAxes, RelativeError, RelativeFrame},
+    relative_pending::{PendingError, PendingRelativeFrames},
+};
 use keyweave_engine::{ConfigSnapshot, Engine, EngineError, EngineState};
 use keyweave_types::*;
-use machine::Machine;
+use machine::{Machine, NativeStep};
+#[derive(Clone)]
+enum RawPacket {
+    Key(Event),
+    Relative(RelativeFrame),
+}
+impl RawPacket {
+    fn cost(&self) -> usize {
+        match self {
+            Self::Key(_) => 1,
+            Self::Relative(frame) => frame.records().len(),
+        }
+    }
+}
 use std::{
     collections::{BTreeSet, VecDeque},
     sync::Arc,
@@ -72,6 +89,10 @@ pub enum RuntimeError {
     Staged(#[from] keyweave_engine::physical_controller::PhysicalControllerError),
     #[error("keyboard runtime does not support staged pointer input or delivery")]
     StagedPointer,
+    #[error(transparent)]
+    Relative(#[from] RelativeError),
+    #[error(transparent)]
+    RelativePending(#[from] PendingError),
     #[error(transparent)]
     Output(#[from] PumpError),
     #[error("invalid startup resources or duplicate device identity")]
@@ -142,8 +163,10 @@ pub struct Runtime<S: CaptureSource, B: FrameBackend> {
     inputs: Vec<Input<S>>,
     output: OutputPump<B>,
     engine: Machine,
-    raw: VecDeque<(usize, Event)>,
+    raw: VecDeque<(usize, RawPacket)>,
     logical: Option<(usize, InputEvent)>,
+    logical_relative: Option<RelativeFrame>,
+    relative_pending: PendingRelativeFrames,
     cursor: usize,
     seq: u64,
     now: MonoTime,
@@ -208,15 +231,41 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
     ) -> Result<Self, RuntimeError> {
         Self::new_with_mode(inputs, backend, config, ExecutionMode::StagedKeyboard)
     }
+    /// Explicit mixed input. Caller owns independent pointer consumer readiness
+    /// and already armed input admission; host/console do not select this scope.
+    pub fn new_staged_relative(
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        backend: B,
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, RuntimeError> {
+        Self::new_inner(inputs, backend, config, ExecutionMode::StagedKeyboard, true)
+    }
     pub fn new_with_mode(
-        mut inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
         backend: B,
         config: Arc<ConfigSnapshot>,
         mode: ExecutionMode,
     ) -> Result<Self, RuntimeError> {
+        Self::new_inner(inputs, backend, config, mode, false)
+    }
+    fn new_inner(
+        mut inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        backend: B,
+        config: Arc<ConfigSnapshot>,
+        mode: ExecutionMode,
+        relative: bool,
+    ) -> Result<Self, RuntimeError> {
         let prepared = (|| {
             if inputs.is_empty() || inputs.len() > MAX_DEVICES {
                 return Err(RuntimeError::InvalidStartup);
+            }
+            if relative
+                && (!backend
+                    .spec()
+                    .relative_axes()
+                    .is_some_and(|axes| backend.relative_axes() == Some(axes)))
+            {
+                return Err(RuntimeError::StagedPointer);
             }
             let output_path = backend
                 .input_syspath()
@@ -224,7 +273,8 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             let mut ids = BTreeSet::new();
             let mut paths = BTreeSet::new();
             for (id, input) in &inputs {
-                if input.phase() != CapturePhase::Captured
+                if (!relative && input.relative_allowed())
+                    || input.phase() != CapturePhase::Captured
                     || input.output_syspath() != Some(output_path)
                     || input
                         .probe()
@@ -235,6 +285,18 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                         .is_some_and(|probe| paths.insert(probe.input_syspath.clone()))
                 {
                     return Err(RuntimeError::InvalidStartup);
+                }
+                if input.probe().is_some_and(|probe| {
+                    !probe.capabilities.relative.is_empty()
+                        && (!relative
+                            || !input.relative_allowed()
+                            || probe.capabilities.relative.codes().any(|axis| {
+                                !backend
+                                    .relative_axes()
+                                    .is_some_and(|axes| axes.contains(axis))
+                            }))
+                }) {
+                    return Err(RuntimeError::StagedPointer);
                 }
                 let codes: BTreeSet<_> = backend.spec().codes().collect();
                 if input.probe().is_none_or(|probe| {
@@ -260,7 +322,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             validate_config(&config, backend.spec())?;
             let engine = if mode == ExecutionMode::StagedKeyboard {
                 let devices: Vec<_> = inputs.iter().map(|(id, _)| *id).collect();
-                Machine::staged(config, &devices)?
+                Machine::staged_with_relative(config, &devices, relative)?
             } else {
                 Machine::Legacy(Box::new(Engine::new(config)?))
             };
@@ -314,6 +376,8 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             engine,
             raw: VecDeque::new(),
             logical: None,
+            logical_relative: None,
+            relative_pending: PendingRelativeFrames::new(),
             cursor: 0,
             seq: 0,
             now: MonoTime(0),
@@ -348,6 +412,12 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         self.progress_epoch
     }
     /// Metadata only; does not constitute a completed poll or readiness grant.
+    pub fn relative_enabled(&self) -> bool {
+        self.engine.relative_enabled()
+    }
+    pub fn pending_relative_records(&self) -> usize {
+        self.relative_pending.pending_records()
+    }
     pub fn execution_mode(&self) -> ExecutionMode {
         self.engine.execution_mode()
     }
@@ -363,6 +433,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
     pub fn submitted(&self) -> &BTreeSet<KeyId> {
         self.output.ledger().submitted()
     }
+    /// Buffered input work count, including relative runs in explicit mixed scope.
     pub fn pending_keys(&self) -> usize {
         self.raw.len() + usize::from(self.logical.is_some())
     }
@@ -391,6 +462,16 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             .checked_add(1)
             .ok_or(RuntimeError::IdentityExhausted)?;
         let key_event = matches!(event, InputEvent::Key { .. });
+        let packet = if matches!(event, InputEvent::PointerActivity { .. }) {
+            let frame = self
+                .logical_relative
+                .as_ref()
+                .ok_or(RuntimeError::InvalidRecord)?;
+            self.relative_pending.can_accept(frame)?;
+            Some((frame.clone(), self.engine.relative_config()?))
+        } else {
+            None
+        };
         let step = self.engine.handle(InputEnvelope {
             seq,
             at_ns: self.now,
@@ -402,7 +483,28 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         if key_event && step.capture != CaptureDecision::Capture {
             return Err(RuntimeError::UnexpectedPass);
         }
-        self.output.enqueue(&step.outputs)?;
+        if let Some((frame, config)) = packet {
+            let source = step
+                .registered_pointer
+                .ok_or(RuntimeError::UnexpectedPass)?;
+            self.relative_pending.register(
+                source,
+                self.inputs[index].id,
+                self.now,
+                config,
+                frame,
+            )?;
+        }
+        self.deliver_step(step)?;
+        Ok(())
+    }
+    fn deliver_step(&mut self, step: NativeStep) -> Result<(), RuntimeError> {
+        let mut frames = Vec::with_capacity(step.pointers.len());
+        for receipt in step.pointers {
+            let frame = self.relative_pending.take(&receipt)?;
+            frames.push((receipt.delivered_at, frame));
+        }
+        self.output.enqueue_mixed(&step.outputs, &frames)?;
         Ok(())
     }
     fn refresh_device_context(&mut self) -> Result<bool, RuntimeError> {
@@ -448,6 +550,11 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             }
             let valid = match event.kind {
                 events::EV_KEY => caps.keys.contains(event.code) && (0..=2).contains(&event.value),
+                EV_REL => {
+                    self.engine.relative_enabled()
+                        && caps.relative.contains(event.code)
+                        && crate::relative::SUPPORTED_AXES.contains(&event.code)
+                }
                 4 => caps.misc.contains(event.code) && matches!(event.code, 4 | 5), // no HID inference from MSC
                 17 => caps.leds.contains(event.code) && (0..=1).contains(&event.value),
                 20 => event.code <= 1 && event.value >= 0, // physical repeat parameters are metadata
@@ -488,12 +595,13 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                     .map(|notice| match notice {
                         Notice::Frame(frame) => frame
                             .iter()
-                            .filter(|event| event.kind == events::EV_KEY)
+                            .filter(|event| matches!(event.kind, events::EV_KEY | EV_REL))
                             .count(),
                         _ => 0,
                     })
                     .sum::<usize>();
-                if self.raw.len() + count > events::MAX_NATIVE_BATCH {
+                let queued: usize = self.raw.iter().map(|(_, packet)| packet.cost()).sum();
+                if queued + count > events::MAX_NATIVE_BATCH {
                     return Err(ProtocolError::Capacity.into());
                 }
                 for notice in &notices {
@@ -509,12 +617,44 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 }
                 for notice in notices {
                     if let Notice::Frame(frame) = notice {
-                        self.raw.extend(
-                            frame
-                                .into_iter()
-                                .filter(|event| event.kind == events::EV_KEY)
-                                .map(|event| (index, event)),
-                        );
+                        let axes = RelativeAxes::new(
+                            &self.inputs[index]
+                                .capture
+                                .probe()
+                                .ok_or(RuntimeError::InputClosed)?
+                                .capabilities
+                                .relative
+                                .codes()
+                                .collect::<Vec<_>>(),
+                        )
+                        .ok();
+                        let mut run = Vec::new();
+                        for event in frame {
+                            if event.kind == EV_REL {
+                                run.push(event);
+                                continue;
+                            }
+                            if event.kind == events::EV_KEY {
+                                if !run.is_empty() {
+                                    let relative = RelativeFrame::prepare(
+                                        axes.as_ref().ok_or(RuntimeError::InvalidRecord)?,
+                                        &run,
+                                    )?;
+                                    self.raw.push_back((index, RawPacket::Relative(relative)));
+                                    run.clear();
+                                }
+                                self.raw.push_back((index, RawPacket::Key(event)));
+                            }
+                        }
+                        if !run.is_empty() {
+                            self.raw.push_back((
+                                index,
+                                RawPacket::Relative(RelativeFrame::prepare(
+                                    axes.as_ref().ok_or(RuntimeError::InvalidRecord)?,
+                                    &run,
+                                )?),
+                            ));
+                        }
                     }
                 }
                 Ok(())
@@ -545,12 +685,15 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                     .engine
                     .poll_stage(self.now)?
                     .ok_or(RuntimeError::UnexpectedPass)?;
-                self.output.enqueue(&step.outputs)?;
+                self.deliver_step(step)?;
             } else if let Some(token) = self.engine.legacy_timer_due(self.now) {
                 self.dispatch(0, InputEvent::TimerFired { token })?;
             } else if let Some((index, event)) = self.logical.clone() {
                 match self.dispatch(index, event) {
-                    Ok(()) => self.logical = None,
+                    Ok(()) => {
+                        self.logical = None;
+                        self.logical_relative = None;
+                    }
                     Err(RuntimeError::Engine(EngineError::CancellationPending)) => {
                         let token = self
                             .engine
@@ -561,16 +704,25 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                     Err(error) => return Err(error),
                 }
             } else if let Some((index, event)) = self.raw.pop_front() {
-                if let NormalizedKey::Event { identity, edge } =
-                    self.inputs[index].normalizer.process(event, None)?
-                {
-                    self.logical = Some((
-                        index,
-                        InputEvent::Key {
-                            key: identity.key,
-                            edge,
-                        },
-                    ));
+                match event {
+                    RawPacket::Key(event) => {
+                        if let NormalizedKey::Event { identity, edge } =
+                            self.inputs[index].normalizer.process(event, None)?
+                        {
+                            self.logical = Some((
+                                index,
+                                InputEvent::Key {
+                                    key: identity.key,
+                                    edge,
+                                },
+                            ));
+                            self.logical_relative = None;
+                        }
+                    }
+                    RawPacket::Relative(frame) => {
+                        self.logical = Some((index, PendingRelativeFrames::input_event(&frame)));
+                        self.logical_relative = Some(frame);
+                    }
                 }
             } else {
                 break;
@@ -592,6 +744,8 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         }
         self.raw.clear();
         self.logical = None;
+        self.logical_relative = None;
+        self.relative_pending.discard_all();
         self.shutdown_engine_reset_ok = self.engine.reset(self.now).is_ok(); // not an acceptance ledger
         self.reason = Some(reason);
         self.phase = RuntimePhase::Recovering;
@@ -728,6 +882,10 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             .is_some_and(|(slot, _)| *slot == index)
         {
             self.logical = None;
+        }
+        self.relative_pending.discard_device(device);
+        if self.logical.is_none() {
+            self.logical_relative = None;
         }
         self.captured_devices.retain(|entry| entry.device != device);
         self.context_refresh_at = now;
@@ -918,6 +1076,7 @@ mod tests {
         #[cfg(target_os = "linux")]
         TerminalWrite,
         Submit(Vec<NativeKey>, bool),
+        Relative(Vec<Event>),
         Flush,
         OutputClose,
     }
@@ -1014,6 +1173,23 @@ mod tests {
                     accepted: edges.len(),
                 })))
         }
+        fn relative_axes(&self) -> Option<&RelativeAxes> {
+            self.spec.relative_axes()
+        }
+        fn submit_relative(
+            &mut self,
+            frame: &RelativeFrame,
+        ) -> io::Result<Result<FrameWrite, WriteError>> {
+            self.trace
+                .borrow_mut()
+                .push(Call::Relative(frame.records().to_vec()));
+            Ok(self
+                .receipts
+                .pop_front()
+                .unwrap_or(Ok(FrameWrite::Complete {
+                    accepted: frame.records().len(),
+                })))
+        }
         fn flush_report(&mut self) -> io::Result<Result<bool, WriteError>> {
             self.trace.borrow_mut().push(Call::Flush);
             Ok(Ok(self.flush))
@@ -1059,8 +1235,18 @@ mod tests {
         Backend,
         Trace,
     ) {
+        resources_with_relative(reads, false)
+    }
+    fn resources_with_relative(
+        reads: Vec<Vec<io::Result<ReadBatch>>>,
+        relative: bool,
+    ) -> (
+        Vec<(DeviceInstanceId, CaptureDevice<Source>)>,
+        Backend,
+        Trace,
+    ) {
         let trace = Rc::new(RefCell::new(Vec::new()));
-        let backend = Backend {
+        let mut backend = Backend {
             spec: DeviceSpec::new(
                 "mock",
                 &keys::native_codes().collect::<Vec<_>>(),
@@ -1073,7 +1259,15 @@ mod tests {
             flush: true,
             path: crate::mock_syspath("/sys/devices/virtual/input/input999"),
         };
-        let output_node = probe(backend.path.to_str().unwrap());
+        let mut output_node = probe(backend.path.to_str().unwrap());
+        if relative {
+            backend.spec = backend
+                .spec
+                .clone()
+                .with_relative_axes(RelativeAxes::new(&crate::relative::SUPPORTED_AXES).unwrap());
+            output_node.capabilities.events.set(EV_REL).unwrap();
+            output_node.capabilities.relative = bits(16, &crate::relative::SUPPORTED_AXES);
+        }
         let proof = OutputNodeReady::verify(&backend.spec, &backend.path, &output_node).unwrap();
         let inputs = reads
             .into_iter()
@@ -1085,12 +1279,21 @@ mod tests {
                 physical.id.product = u16::try_from(index + 100).unwrap();
                 physical.capabilities.events.set(4).unwrap();
                 physical.capabilities.misc = bits(8, &[4, 5]);
-                let mut capture = CaptureDevice::new(Source {
+                if relative {
+                    physical.capabilities.events.set(EV_REL).unwrap();
+                    physical.capabilities.relative = bits(16, &crate::relative::SUPPORTED_AXES);
+                }
+                let source = Source {
                     id,
                     probe: physical,
                     reads: reads.into(),
                     trace: trace.clone(),
-                });
+                };
+                let mut capture = if relative {
+                    CaptureDevice::new_with_relative(source)
+                } else {
+                    CaptureDevice::new(source)
+                };
                 assert_eq!(capture.arm(&proof).unwrap(), ArmResult::Captured);
                 (DeviceInstanceId { id, generation: 1 }, capture)
             })
@@ -3455,9 +3658,10 @@ mod tests {
             false,
         );
         let (mut runtime, trace) = make_runtime(vec![vec![], vec![]], cfg);
-        runtime
-            .raw
-            .extend([(0, Event::output(1, 30, 1)), (1, Event::output(1, 30, 1))]);
+        runtime.raw.extend([
+            (0, RawPacket::Key(Event::output(1, 30, 1))),
+            (1, RawPacket::Key(Event::output(1, 30, 1))),
+        ]);
         runtime.logical = Some((
             0,
             InputEvent::Key {
@@ -3862,5 +4066,280 @@ mod tests {
         assert!(native_edges(&trace).is_empty());
         assert!(runtime.submitted().is_empty());
         assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+    }
+
+    fn rel_frame(records: Vec<Event>) -> io::Result<ReadBatch> {
+        let mut records = records;
+        records.push(Event::output(0, 0, 0));
+        Ok(ReadBatch::Events(records))
+    }
+    fn make_relative(
+        reads: Vec<Vec<io::Result<ReadBatch>>>,
+        config: Arc<ConfigSnapshot>,
+    ) -> (Runtime<Source, Backend>, Trace) {
+        let (inputs, backend, trace) = resources_with_relative(reads, true);
+        (
+            Runtime::new_staged_relative(inputs, backend, config).unwrap(),
+            trace,
+        )
+    }
+    fn relative_calls(trace: &Trace) -> Vec<Vec<Event>> {
+        trace
+            .borrow()
+            .iter()
+            .filter_map(|call| {
+                if let Call::Relative(events) = call {
+                    Some(events.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    #[test]
+    fn relative_runtime_keeps_contiguous_packet_between_actual_key_outputs() {
+        let relative = vec![
+            Event::output(EV_REL, 0, 1),
+            Event::output(EV_REL, 1, -2),
+            Event::output(EV_REL, 8, 1),
+            Event::output(EV_REL, 11, 13),
+        ];
+        let mut records = vec![Event::output(1, 30, 1)];
+        records.extend(relative.clone());
+        records.push(Event::output(1, 30, 0));
+        let (mut runtime, trace) = make_relative(vec![vec![rel_frame(records)]], config(1, "b"));
+        runtime.poll(MonoTime(100)).unwrap();
+        assert!(runtime.relative_enabled());
+        assert_eq!(relative_calls(&trace), [relative]);
+        let actual: Vec<_> = trace
+            .borrow()
+            .iter()
+            .filter(|call| matches!(call, Call::Submit(..) | Call::Relative(_)))
+            .cloned()
+            .collect();
+        assert!(matches!(actual[0], Call::Submit(_, false)));
+        assert!(matches!(actual[1], Call::Relative(_)));
+        assert!(matches!(actual[2], Call::Submit(_, false)));
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0)]);
+        assert_eq!(runtime.seq, 4);
+        assert_eq!(runtime.pending_relative_records(), 0);
+    }
+    #[test]
+    fn relative_runtime_move_zero_and_hires_scroll_have_actual_alone_semantics() {
+        for (axis, value, canceled) in [(0, 1, false), (11, 0, false), (11, 1, true)] {
+            let mut cfg = (*config(1, "c")).clone();
+            cfg.complex.push(cfg.simple.remove(0));
+            cfg.complex[0].to.clear();
+            cfg.complex[0].extras.if_alone = vec!["c".parse::<KeyId>().unwrap().into()];
+            let record = Event::output(EV_REL, axis, value);
+            let (mut runtime, trace) = make_relative(
+                vec![vec![frame(30, 1), rel_frame(vec![record]), frame(30, 0)]],
+                Arc::new(cfg),
+            );
+            runtime.poll(MonoTime(100)).unwrap();
+            runtime.poll(MonoTime(110)).unwrap();
+            runtime.poll(MonoTime(120)).unwrap();
+            assert_eq!(relative_calls(&trace), [vec![record]]);
+            assert_eq!(
+                native_edges(&trace),
+                if canceled {
+                    vec![]
+                } else {
+                    vec![(46, 1), (46, 0)]
+                }
+            );
+        }
+    }
+    #[test]
+    fn relative_runtime_delayed_receipt_retains_raw_values_and_old_config_after_reload() {
+        let relative = vec![Event::output(EV_REL, 11, 13), Event::output(EV_REL, 8, 1)];
+        let (mut runtime, trace) = make_relative(
+            vec![vec![
+                frame(30, 1),
+                rel_frame(relative.clone()),
+                frame(30, 0),
+            ]],
+            staged_config(),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(120)).unwrap();
+        assert!(relative_calls(&trace).is_empty());
+        assert_eq!(runtime.pending_relative_records(), 2);
+        runtime.activate(config(2, "e")).unwrap();
+        runtime.poll(MonoTime(150)).unwrap();
+        assert_eq!(relative_calls(&trace), [relative]);
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0), (46, 1), (46, 0)]);
+        assert_eq!(runtime.pending_relative_records(), 0);
+        assert!(runtime.submitted().is_empty());
+    }
+    #[test]
+    fn relative_runtime_device_removal_cancels_saved_packet_before_future_delivery() {
+        let (mut runtime, trace) = make_relative(
+            vec![
+                vec![frame(30, 1), rel_frame(vec![Event::output(EV_REL, 0, 1)])],
+                vec![],
+            ],
+            staged_config(),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(112)).unwrap();
+        assert_eq!(runtime.pending_relative_records(), 1);
+        let before = trace.borrow().len();
+        runtime.remove_device(instance(1), MonoTime(120)).unwrap();
+        assert_eq!(trace.borrow()[before], Call::InputClose(1));
+        runtime.poll(MonoTime(150)).unwrap();
+        assert!(relative_calls(&trace).is_empty());
+        assert_eq!(runtime.pending_relative_records(), 0);
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0)]);
+    }
+    #[test]
+    fn relative_runtime_short_write_closes_inputs_before_report_and_key_recovery() {
+        let records = vec![
+            Event::output(1, 30, 1),
+            Event::output(EV_REL, 0, 1),
+            Event::output(EV_REL, 1, 1),
+        ];
+        let (inputs, mut backend, trace) =
+            resources_with_relative(vec![vec![rel_frame(records)]], true);
+        backend.receipts = vec![
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Ok(FrameWrite::Incomplete {
+                accepted: 1,
+                report_pending: true,
+            }),
+        ]
+        .into();
+        let mut runtime = Runtime::new_staged_relative(inputs, backend, config(1, "b")).unwrap();
+        assert!(matches!(
+            runtime.poll(MonoTime(100)),
+            Err(RuntimeError::IncompleteOutput)
+        ));
+        assert_eq!(runtime.phase(), RuntimePhase::Recovering);
+        let closed = trace
+            .borrow()
+            .iter()
+            .position(|call| *call == Call::InputClose(1))
+            .unwrap();
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(100)).unwrap();
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        let flushed = trace
+            .borrow()
+            .iter()
+            .position(|call| *call == Call::Flush)
+            .unwrap();
+        assert!(closed < flushed);
+        assert_eq!(relative_calls(&trace).len(), 1);
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0)]);
+        assert!(
+            runtime
+                .termination_report()
+                .unwrap()
+                .output_recovery_confirmed
+        );
+    }
+    #[test]
+    fn relative_runtime_unknown_write_keeps_unknown_fact_until_backend_destroyed() {
+        let records = vec![Event::output(1, 30, 1), Event::output(EV_REL, 0, 1)];
+        let (inputs, mut backend, trace) =
+            resources_with_relative(vec![vec![rel_frame(records)]], true);
+        backend.receipts = vec![
+            Ok(FrameWrite::Complete { accepted: 1 }),
+            Err(WriteError::UnknownAcceptance(
+                io::ErrorKind::WouldBlock.into(),
+            )),
+        ]
+        .into();
+        let mut runtime = Runtime::new_staged_relative(inputs, backend, config(1, "b")).unwrap();
+        assert!(runtime.poll(MonoTime(100)).is_err());
+        assert_eq!(runtime.phase(), RuntimePhase::Stopped);
+        let report = runtime.termination_report().unwrap();
+        assert!(report.acceptance_unknown);
+        assert!(!report.output_recovery_confirmed);
+        assert_eq!(native_edges(&trace), [(48, 1)]);
+        let trace = trace.borrow();
+        assert!(
+            trace
+                .iter()
+                .position(|call| *call == Call::InputClose(1))
+                .unwrap()
+                < trace
+                    .iter()
+                    .position(|call| *call == Call::OutputClose)
+                    .unwrap()
+        );
+    }
+    #[test]
+    fn relative_runtime_validates_entire_native_packet_before_earlier_key_mutation() {
+        let (mut runtime, trace) = make_relative(
+            vec![vec![rel_frame(vec![
+                Event::output(1, 30, 1),
+                Event::output(EV_REL, 2, 1),
+            ])]],
+            config(1, "b"),
+        );
+        assert!(matches!(
+            runtime.poll(MonoTime(100)),
+            Err(RuntimeError::InvalidRecord)
+        ));
+        assert!(native_edges(&trace).is_empty());
+        assert!(relative_calls(&trace).is_empty());
+        assert_eq!(runtime.pending_relative_records(), 0);
+    }
+    #[test]
+    fn relative_runtime_budget_continuation_never_reregisters_raw_runs() {
+        let mut records = vec![];
+        for _ in 0..17 {
+            records.extend([
+                Event::output(1, 30, 1),
+                Event::output(EV_REL, 0, 1),
+                Event::output(1, 30, 0),
+            ]);
+        }
+        let (mut runtime, trace) = make_relative(vec![vec![rel_frame(records)]], config(1, "b"));
+        let first = runtime.poll(MonoTime(100)).unwrap();
+        assert_eq!(first.work, MAX_WORK_PER_POLL);
+        for _ in 0..20 {
+            if !runtime.next_wakeup().is_some_and(|at| at <= MonoTime(100)) {
+                break;
+            }
+            assert!(runtime.poll(MonoTime(100)).unwrap().work <= MAX_WORK_PER_POLL);
+        }
+        assert_eq!(relative_calls(&trace).len(), 17);
+        assert_eq!(native_edges(&trace).len(), 34);
+        assert_eq!(runtime.seq, 52);
+        assert_eq!(runtime.pending_relative_records(), 0);
+        assert!(runtime.submitted().is_empty());
+    }
+    #[test]
+    fn relative_runtime_scope_must_be_explicit_and_default_factory_closes_on_rejection() {
+        let (inputs, backend, trace) = resources_with_relative(vec![vec![]], true);
+        assert!(Runtime::new_staged(inputs, backend, config(1, "b")).is_err());
+        assert_eq!(
+            trace.borrow().as_slice(),
+            [Call::InputClose(1), Call::OutputClose]
+        );
+        let (inputs, backend, trace) = resources(vec![vec![]]);
+        assert!(Runtime::new_staged_relative(inputs, backend, config(1, "b")).is_err());
+        assert_eq!(
+            trace.borrow().as_slice(),
+            [Call::InputClose(1), Call::OutputClose]
+        );
+    }
+
+    #[test]
+    fn relative_scope_cannot_use_existing_keyboard_console_capture_group() {
+        let (mut inputs, _backend, _trace) = resources_with_relative(vec![vec![]], true);
+        inputs[0].1.release().unwrap();
+        assert!(matches!(
+            crate::activation::CaptureGroup::new_with_mode(
+                inputs,
+                config(1, "b"),
+                ExecutionMode::StagedKeyboard
+            ),
+            Err(crate::activation::ActivationError::Inputs)
+        ));
     }
 }

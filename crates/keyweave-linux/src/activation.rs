@@ -84,7 +84,8 @@ impl<S: CaptureSource> CaptureGroup<S> {
         let mut ids = BTreeSet::new();
         let mut paths = BTreeSet::new();
         for (id, input) in &self.inputs {
-            if input.phase() != CapturePhase::Standby
+            if input.relative_allowed()
+                || input.phase() != CapturePhase::Standby
                 || !ids.insert(id.id)
                 || input.probe().is_none_or(|probe| {
                     !probe.input_syspath.is_absolute() || !paths.insert(probe.input_syspath.clone())
