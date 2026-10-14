@@ -2,7 +2,8 @@
 //! active consumer renewal is required after the final Runtime handoff.
 mod x11;
 pub use x11::{
-    X11Bootstrap, X11BootstrapFailure, X11Prepared, X11StartupCleanup, X11StartupCleanupReport,
+    ScheduledX11StartupCleanup, ScheduledX11StartupCleanupReport, X11Bootstrap,
+    X11BootstrapFailure, X11Prepared, X11StartupCleanup, X11StartupCleanupReport,
     X11StartupOutcome,
 };
 

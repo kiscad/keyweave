@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "6f8e71aa372574bc017a2439230c997c1ed913dd",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "bf7dd6cf2bee8ebfc6c06fec440ff02441b9ca978862b95e4fe417278a071046",
+    "crates/keyweave-linux/src/bootstrap/x11.rs": "f642b60f7b93854f5c621da7ad31ac6f0cbc07da3646a9a985e2b45bad35e379",
+    "crates/keyweave-linux/src/x11_cleanup.rs": "68aa0988147404c7a76ad968b1640bcd85773630c2f57317570de87b4be57b43"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1784,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-cleanup-schedule/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-cleanup-schedule/clippy.log",
+        "sha256": "eb7255fcac1b1a6a0ed5a15235a0ebba2fcd84d733eaaacd8739f237008daca4"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-cleanup-schedule/tests.log",
+        "sha256": "5774dae4e3903ce8b4680456ac177c7b03b2fd4090a652fe07107c9e146be591"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-cleanup-schedule/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-cleanup-schedule/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-cleanup-schedule/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Native cleanup scheduling compiled only; private Task/Schedule tests and existing actual owned helper/terminal fixtures ran. No native session/display/device/capture access.",
+    "Both startup scheduled cleanup and active cleanup return original boxed owner on any unconfirmed outcome; caller must retain and continue observing it, not restart.",
+    "Startup cleanup completion remains distinct from Runtime termination. Wait/clock/cancel/poll/timing failures do not overwrite original runtime or startup errors.",
+    "NativeSchedule waits with empty FD requests and independent clock; it does not query display or physical input.",
+    "Host/session provider selection and actual session lifecycle integration still pending. Pinned SDK C ABI passed; runtime libraries/server/driver policy/delivery unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

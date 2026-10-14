@@ -14,13 +14,14 @@ pub enum CleanupTimingFailure {
     Clock,
     Backwards,
     Deadline,
+    AttemptBudget,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupConfirmation {
     NoPendingJob,
     ObservedExit,
 }
-trait Owner {
+pub(crate) trait Owner {
     fn cancel(&mut self) -> io::Result<()>;
     fn poll(&mut self) -> io::Result<Option<ProbePhase>>;
 }
@@ -32,32 +33,48 @@ impl Owner for NativeX11Lease {
         self.poll_canceled()
     }
 }
-struct Task<O> {
-    owner: O,
-    last: MonoTime,
-    deadline: Option<MonoTime>,
-    confirmation: Option<CleanupConfirmation>,
-    timing: Option<CleanupTimingFailure>,
-    cancel_error: Option<io::Error>,
-    poll_error: Option<io::Error>,
-    clock_error: Option<io::Error>,
+pub(crate) struct Task<O> {
+    pub(crate) owner: O,
+    pub(crate) last: Option<MonoTime>,
+    pub(crate) deadline: Option<MonoTime>,
+    pub(crate) confirmation: Option<CleanupConfirmation>,
+    pub(crate) timing: Option<CleanupTimingFailure>,
+    pub(crate) cancel_error: Option<io::Error>,
+    pub(crate) poll_error: Option<io::Error>,
+    pub(crate) clock_error: Option<io::Error>,
+    pub(crate) wait_error: Option<io::Error>,
 }
 impl<O: Owner> Task<O> {
-    fn new(mut owner: O, now: MonoTime) -> Self {
-        let deadline = now.checked_add(BUDGET_NS);
+    fn new(owner: O, now: MonoTime) -> Self {
+        Self::new_at(owner, Ok(now))
+    }
+    pub(crate) fn new_at(mut owner: O, now: io::Result<MonoTime>) -> Self {
+        let (last, deadline, timing, clock_error) = match now {
+            Ok(now) => {
+                let deadline = now.checked_add(BUDGET_NS);
+                (
+                    Some(now),
+                    deadline,
+                    deadline.is_none().then_some(CleanupTimingFailure::Overflow),
+                    None,
+                )
+            }
+            Err(error) => (None, None, Some(CleanupTimingFailure::Clock), Some(error)),
+        };
         let cancel_error = owner.cancel().err();
         Self {
             owner,
-            last: now,
+            last,
             deadline,
             confirmation: None,
-            timing: deadline.is_none().then_some(CleanupTimingFailure::Overflow),
+            timing,
             cancel_error,
             poll_error: None,
-            clock_error: None,
+            clock_error,
+            wait_error: None,
         }
     }
-    fn step(&mut self, now: io::Result<MonoTime>) -> Option<CleanupConfirmation> {
+    pub(crate) fn step(&mut self, now: io::Result<MonoTime>) -> Option<CleanupConfirmation> {
         if self.confirmation.is_some() {
             return self.confirmation;
         }
@@ -68,9 +85,11 @@ impl<O: Owner> Task<O> {
                 }
                 Some(CleanupTimingFailure::Clock)
             }
-            Ok(now) if now < self.last => Some(CleanupTimingFailure::Backwards),
+            Ok(now) if self.last.is_some_and(|last| now < last) => {
+                Some(CleanupTimingFailure::Backwards)
+            }
             Ok(now) => {
-                self.last = now;
+                self.last = Some(now);
                 self.deadline
                     .filter(|deadline| now >= *deadline)
                     .map(|_| CleanupTimingFailure::Deadline)
@@ -94,15 +113,55 @@ impl<O: Owner> Task<O> {
         }
         self.confirmation
     }
-    fn next_wakeup(&self) -> Option<MonoTime> {
+    pub(crate) fn next_wakeup(&self) -> Option<MonoTime> {
         if self.confirmation.is_some()
             || self.timing.is_some()
             || self.poll_error.is_some()
             || self.cancel_error.is_some()
+            || self.wait_error.is_some()
         {
             return None;
         }
-        Some(self.last.checked_add(POLL_NS)?.min(self.deadline?))
+        Some(self.last?.checked_add(POLL_NS)?.min(self.deadline?))
+    }
+}
+pub(crate) trait Schedule {
+    fn now(&mut self) -> io::Result<MonoTime>;
+    fn wait(&mut self, deadline: MonoTime) -> io::Result<()>;
+}
+pub(crate) struct NativeSchedule<'a>(pub(crate) &'a mut crate::reactor::MonotonicClock);
+impl Schedule for NativeSchedule<'_> {
+    fn now(&mut self) -> io::Result<MonoTime> {
+        self.0.now()
+    }
+    fn wait(&mut self, deadline: MonoTime) -> io::Result<()> {
+        let wake = crate::reactor::wait(self.0, &[], Some(deadline), POLL_NS)?;
+        if wake.any_fault() {
+            return Err(io::Error::other("cleanup wait fault"));
+        }
+        Ok(())
+    }
+}
+impl<O: Owner> Task<O> {
+    pub(crate) fn run(&mut self, schedule: &mut impl Schedule) -> bool {
+        for _ in 0..512 {
+            if self.step(schedule.now()).is_some() {
+                return true;
+            }
+            let Some(deadline) = self.next_wakeup() else {
+                return false;
+            };
+            if let Err(error) = schedule.wait(deadline) {
+                if self.wait_error.is_none() {
+                    self.wait_error = Some(error);
+                }
+                return self.step(schedule.now()).is_some();
+            }
+        }
+        if self.timing.is_none() {
+            self.timing = Some(CleanupTimingFailure::AttemptBudget);
+        }
+        false
     }
 }
 /// Runtime outcome and cleanup failures are independent. This contains no pending consumer owner.
@@ -113,6 +172,7 @@ pub struct X11CleanupReport {
     pub cancel_error: Option<io::Error>,
     pub poll_error: Option<io::Error>,
     pub clock_error: Option<io::Error>,
+    pub wait_error: Option<io::Error>,
     pub timing_failure: Option<CleanupTimingFailure>,
     pub confirmation: CleanupConfirmation,
     consumer_owner_dropped: bool,
@@ -146,6 +206,7 @@ fn finalize_with(
         cancel_error,
         poll_error,
         clock_error,
+        wait_error,
         timing_failure,
         confirmation,
         consumer_owner_dropped,
@@ -158,6 +219,7 @@ fn finalize_with(
             cancel_error,
             poll_error,
             clock_error,
+            wait_error,
             timing_failure,
             confirmation,
             consumer_owner_dropped,
@@ -176,6 +238,26 @@ impl X11Cleanup {
             worker: report.worker,
             prior_cancel_error: report.cancel_error,
             task: Task::new(report.consumer, now),
+        }
+    }
+    pub fn new_at(report: X11WorkerReport, now: io::Result<MonoTime>) -> Self {
+        match now {
+            Ok(now) => Self::new(report, now),
+            Err(error) => Self {
+                worker: report.worker,
+                prior_cancel_error: report.cancel_error,
+                task: Task::new_at(report.consumer, Err(error)),
+            },
+        }
+    }
+    pub fn run(
+        mut self,
+        clock: &mut crate::reactor::MonotonicClock,
+    ) -> Result<X11CleanupReport, Box<Self>> {
+        if self.task.run(&mut NativeSchedule(clock)) {
+            self.finish()
+        } else {
+            Err(Box::new(self))
         }
     }
     /// At most one child observation. Clock errors do not prevent reaping a canceled child.
@@ -204,6 +286,7 @@ impl X11Cleanup {
             cancel_error,
             poll_error,
             clock_error,
+            wait_error,
             ..
         } = task;
         drop(owner);
@@ -213,6 +296,7 @@ impl X11Cleanup {
             cancel_error,
             poll_error,
             clock_error,
+            wait_error,
             timing_failure: timing,
             confirmation,
             consumer_owner_dropped: true,
@@ -288,7 +372,7 @@ mod tests {
             let mut task = Task::new(owner, MonoTime(10));
             assert_eq!(task.step(fault), Some(CleanupConfirmation::ObservedExit));
             assert!(task.timing.is_some());
-            assert_eq!(task.last, MonoTime(10));
+            assert_eq!(task.last, Some(MonoTime(10)));
         }
         let task = Task::new(mock(vec![]), MonoTime(u64::MAX));
         assert_eq!(task.timing, Some(CleanupTimingFailure::Overflow));
@@ -395,6 +479,7 @@ mod tests {
             cancel_error: Some(io::Error::other("cleanup cancel")),
             poll_error: Some(io::Error::other("poll")),
             clock_error: Some(io::Error::other("clock")),
+            wait_error: None,
             timing_failure: Some(CleanupTimingFailure::Deadline),
             confirmation: CleanupConfirmation::NoPendingJob,
             consumer_owner_dropped: true,
@@ -483,5 +568,102 @@ mod tests {
         assert!(result.cleanup.worker.termination.is_none());
         assert!(result.cleanup.consumer_owner_dropped());
         Ok(())
+    }
+    struct FakeSchedule {
+        now: u64,
+        advance: u64,
+        wait_fault: bool,
+        waits: usize,
+    }
+    impl Schedule for FakeSchedule {
+        fn now(&mut self) -> io::Result<MonoTime> {
+            Ok(MonoTime(self.now))
+        }
+        fn wait(&mut self, _: MonoTime) -> io::Result<()> {
+            self.waits += 1;
+            self.now += self.advance;
+            if self.wait_fault {
+                Err(io::Error::other("wait"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    #[test]
+    fn bounded_schedule_confirms_without_replacing_owner() {
+        let owner = mock(vec![
+            Ok(Some(ProbePhase::Running)),
+            Ok(Some(ProbePhase::Exited)),
+        ]);
+        let dropped = owner.dropped.clone();
+        let mut task = Task::new_at(owner, Ok(MonoTime(0)));
+        let mut schedule = FakeSchedule {
+            now: 0,
+            advance: POLL_NS,
+            wait_fault: false,
+            waits: 0,
+        };
+        assert!(task.run(&mut schedule));
+        assert_eq!(schedule.waits, 1);
+        assert!(!dropped.get());
+        assert_eq!(task.confirmation, Some(CleanupConfirmation::ObservedExit));
+        drop(task);
+        assert!(dropped.get());
+    }
+    #[test]
+    fn stationary_clock_hits_attempt_budget_and_keeps_same_owner() {
+        let owner = mock(vec![]);
+        let dropped = owner.dropped.clone();
+        let mut task = Task::new_at(owner, Ok(MonoTime(0)));
+        let mut schedule = FakeSchedule {
+            now: 0,
+            advance: 0,
+            wait_fault: false,
+            waits: 0,
+        };
+        assert!(!task.run(&mut schedule));
+        assert_eq!(schedule.waits, 512);
+        assert_eq!(task.timing, Some(CleanupTimingFailure::AttemptBudget));
+        assert!(!dropped.get());
+        assert_eq!(task.next_wakeup(), None);
+    }
+    #[test]
+    fn wait_failure_can_observe_exit_and_retains_independent_error() {
+        let owner = mock(vec![
+            Ok(Some(ProbePhase::Running)),
+            Ok(Some(ProbePhase::Exited)),
+        ]);
+        let mut task = Task::new_at(owner, Ok(MonoTime(0)));
+        let mut schedule = FakeSchedule {
+            now: 0,
+            advance: 1,
+            wait_fault: true,
+            waits: 0,
+        };
+        assert!(task.run(&mut schedule));
+        assert_eq!(
+            task.wait_error.as_ref().map(|error| error.to_string()),
+            Some("wait".into())
+        );
+        assert_eq!(task.confirmation, Some(CleanupConfirmation::ObservedExit));
+    }
+    #[test]
+    fn initial_clock_failure_has_no_fabricated_deadline_but_can_reap() {
+        let mut task = Task::new_at(
+            mock(vec![Ok(Some(ProbePhase::Exited))]),
+            Err(io::Error::other("clock")),
+        );
+        assert_eq!(task.last, None);
+        assert_eq!(task.deadline, None);
+        assert!(task.clock_error.is_some());
+        let mut schedule = FakeSchedule {
+            now: 1,
+            advance: 1,
+            wait_fault: false,
+            waits: 0,
+        };
+        assert!(task.run(&mut schedule));
+        assert_eq!(schedule.waits, 0);
+        assert_eq!(task.timing, Some(CleanupTimingFailure::Clock));
     }
 }

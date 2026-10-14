@@ -144,6 +144,98 @@ impl X11StartupCleanup {
         })
     }
 }
+impl crate::x11_cleanup::Owner for X11StartupCleanup {
+    fn cancel(&mut self) -> io::Result<()> {
+        self.observer.cancel()
+    }
+    fn poll(&mut self) -> io::Result<Option<ProbePhase>> {
+        self.step()
+    }
+}
+pub struct ScheduledX11StartupCleanup {
+    task: crate::x11_cleanup::Task<X11StartupCleanup>,
+}
+pub struct ScheduledX11StartupCleanupReport {
+    pub startup: X11StartupCleanupReport,
+    pub confirmation: crate::x11_cleanup::CleanupConfirmation,
+    pub cancel_error: Option<io::Error>,
+    pub poll_error: Option<io::Error>,
+    pub clock_error: Option<io::Error>,
+    pub wait_error: Option<io::Error>,
+    pub timing_failure: Option<crate::x11_cleanup::CleanupTimingFailure>,
+}
+impl X11StartupCleanup {
+    pub fn schedule(self, now: io::Result<MonoTime>) -> ScheduledX11StartupCleanup {
+        ScheduledX11StartupCleanup {
+            task: crate::x11_cleanup::Task::new_at(self, now),
+        }
+    }
+}
+impl ScheduledX11StartupCleanup {
+    pub fn step(
+        &mut self,
+        now: io::Result<MonoTime>,
+    ) -> Option<crate::x11_cleanup::CleanupConfirmation> {
+        self.task.step(now)
+    }
+    pub fn next_wakeup(&self) -> Option<MonoTime> {
+        self.task.next_wakeup()
+    }
+    pub fn run(
+        mut self,
+        clock: &mut MonotonicClock,
+    ) -> Result<ScheduledX11StartupCleanupReport, Box<Self>> {
+        if self
+            .task
+            .run(&mut crate::x11_cleanup::NativeSchedule(clock))
+        {
+            self.finish()
+        } else {
+            Err(Box::new(self))
+        }
+    }
+    pub fn finish(self) -> Result<ScheduledX11StartupCleanupReport, Box<Self>> {
+        let Some(confirmation) = self.task.confirmation else {
+            return Err(Box::new(self));
+        };
+        let crate::x11_cleanup::Task {
+            owner,
+            last,
+            deadline,
+            timing,
+            cancel_error,
+            poll_error,
+            clock_error,
+            wait_error,
+            ..
+        } = self.task;
+        match owner.finish() {
+            Ok(startup) => Ok(ScheduledX11StartupCleanupReport {
+                startup,
+                confirmation,
+                cancel_error,
+                poll_error,
+                clock_error,
+                wait_error,
+                timing_failure: timing,
+            }),
+            Err(owner) => Err(Box::new(Self {
+                task: crate::x11_cleanup::Task {
+                    owner: *owner,
+                    last,
+                    deadline,
+                    timing,
+                    cancel_error,
+                    poll_error,
+                    clock_error,
+                    wait_error,
+                    confirmation: None,
+                },
+            })),
+        }
+    }
+}
+
 impl<'a> X11Bootstrap<'a> {
     /// Caller authenticates helper and owns independent progress supervision before stepping.
     pub fn new(
