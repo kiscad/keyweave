@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "76391219908ad5a5a9ea85a9fc057ff3b5f463ba",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/lib.rs": "ea2688f563674ab542f1d29276619b94bb9f0cc7b1b4bfb7096fe8d361579f01",
+    "crates/keyweave-host/src/linux/startup.rs": "5c81d21901ce1984a841a407d8130b46e766bdf34405ddc63d8f9889d4ade935"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1812,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-host-x11-cold/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-host-x11-cold/clippy.log",
+        "sha256": "2aa5a0e8841d1f312484cbf0b9b55e20346aa8c4bc953347b4a1a2713d83f4d9"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-host-x11-cold/tests.log",
+        "sha256": "e044c53d53bba44a55c4330c44c6400133253e04773724003f406316c0d3415f"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-host-x11-cold/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-host-x11-cold/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-host-x11-cold/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Host cold prepare tests use nonexecuted fixture worker/helper files, actual config files and sealed artifacts. No worker spawn/session/display/input/uinput/capture.",
+    "Paired sidecar validation checks canonical sibling, ordinary executable, matching file owners and direct-directory/write permissions. It is not signature/content authentication and does not prove all ancestors or eliminate check-to-exec races.",
+    "System-library root trust unchanged. Deployment still requires trusted account/directories and eventual native execution checks.",
+    "X11 cold spec/scope and watcher/reload lane now wired in PreparedLaunch; public host CLI selection remains pending.",
+    "Pinned SDK C ABI passed; runtime library/server/driver policy/delivery unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

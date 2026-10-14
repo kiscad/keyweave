@@ -23,6 +23,39 @@ pub fn locate_worker(host: &Path, explicit: Option<&Path>) -> std::io::Result<Pa
 pub mod linux;
 #[cfg(windows)]
 pub mod windows;
+/// Paired application sidecar provenance only, not cryptographic image authentication.
+#[cfg(target_os = "linux")]
+pub fn locate_linux_x11_probe(worker: &Path, requested: &Path) -> std::io::Result<PathBuf> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let worker = worker.canonicalize()?;
+    let worker_meta = worker.metadata()?;
+    let parent = worker.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
+    if !requested.is_absolute()
+        || std::fs::symlink_metadata(requested)?
+            .file_type()
+            .is_symlink()
+    {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    let expected = parent.join("keyweave-x11-probe");
+    let helper = requested.canonicalize()?;
+    let metadata = helper.metadata()?;
+    let directory = parent.metadata()?;
+    if !worker_meta.is_file()
+        || worker_meta.permissions().mode() & 0o111 == 0
+        || worker_meta.permissions().mode() & 0o022 != 0
+        || helper != expected
+        || !metadata.is_file()
+        || metadata.permissions().mode() & 0o111 == 0
+        || metadata.permissions().mode() & 0o022 != 0
+        || metadata.uid() != worker_meta.uid()
+        || directory.permissions().mode() & 0o022 != 0
+        || ![0, worker_meta.uid()].contains(&directory.uid())
+    {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(helper)
+}
 /// Linux sibling/explicit locator only, not image authentication or execution.
 /// At least one execute bit is required; effective access/ACL/mount policy and
 /// check-to-exec races are still checked by the eventual native spawn.

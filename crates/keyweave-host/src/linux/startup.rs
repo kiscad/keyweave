@@ -11,7 +11,7 @@ use keyweave_linux::{
 };
 use keyweave_worker::{
     linux_arguments::{LinuxArguments, SessionProvider},
-    linux_preparation::{PreparedConfig, default_output_spec},
+    linux_preparation::PreparedConfig,
 };
 use std::{
     ffi::OsString,
@@ -23,6 +23,7 @@ use std::{
 pub enum StartupStage {
     Arguments,
     WorkerLocation,
+    ProbeLocation,
     Configuration,
     Watcher,
     RunIdentity,
@@ -100,7 +101,7 @@ impl PreparedLaunch {
     }
     /// Cold paired preparation. Keep watcher with the session created by this
     /// launch, and start polling it only after start has returned Running.
-    /// Console is required; None remains permanently without reload/devices.
+    /// A consumer provider is required; None remains without reload/devices.
     pub fn prepare_watched(
         host: &Path,
         options: LaunchOptions,
@@ -113,16 +114,14 @@ impl PreparedLaunch {
     }
     fn prepare_inner(
         host: &Path,
-        options: LaunchOptions,
+        mut options: LaunchOptions,
         watch_interval: Option<u64>,
     ) -> Result<(Self, Option<ConfigWatcher>), StartupError> {
-        // X11 host cold spec/helper authentication will be wired separately.
-        if matches!(options.session_provider, SessionProvider::X11 { .. }) {
-            return Err(StartupError::plain(StartupStage::Arguments));
-        }
         if let Some(interval) = watch_interval
-            && (!matches!(options.session_provider, SessionProvider::Console { .. })
-                || !(100_000_000..=60_000_000_000).contains(&interval))
+            && (!matches!(
+                options.session_provider,
+                SessionProvider::Console { .. } | SessionProvider::X11 { .. }
+            ) || !(100_000_000..=60_000_000_000).contains(&interval))
         {
             return Err(StartupError::plain(StartupStage::Arguments));
         }
@@ -132,18 +131,25 @@ impl PreparedLaunch {
         {
             return Err(StartupError::plain(StartupStage::Arguments));
         }
-        LinuxArguments {
+        let lexical = LinuxArguments {
             parent: std::process::id(),
             run_id: 1,
             execution_mode: options.execution_mode,
             uinput: options.uinput.clone(),
             inputs: options.inputs.clone(),
             session_provider: options.session_provider.clone(),
-        }
-        .into_argv()
-        .map_err(|_| StartupError::plain(StartupStage::Arguments))?;
+        };
+        let lexical_argv = lexical
+            .into_argv()
+            .map_err(|_| StartupError::plain(StartupStage::Arguments))?;
+        let lexical = LinuxArguments::parse(lexical_argv)
+            .map_err(|_| StartupError::plain(StartupStage::Arguments))?;
         let executable = crate::locate_linux_worker(host, options.worker.as_deref())
             .map_err(|e| StartupError::system(StartupStage::WorkerLocation, e))?;
+        if let SessionProvider::X11 { helper, .. } = &mut options.session_provider {
+            *helper = crate::locate_linux_x11_probe(&executable, helper)
+                .map_err(|error| StartupError::system(StartupStage::ProbeLocation, error))?;
+        }
         let source_path = if watch_interval.is_some() {
             Some(
                 std::path::absolute(&options.config)
@@ -161,10 +167,17 @@ impl PreparedLaunch {
         {
             return Err(StartupError::plain(StartupStage::Configuration));
         }
-        let output = default_output_spec()
+        let output = lexical
+            .output_spec()
             .map_err(|e| StartupError::system(StartupStage::Configuration, e))?;
-        let prepared = PreparedConfig::read_with_mode(file, output, options.execution_mode)
-            .map_err(|_| StartupError::plain(StartupStage::Configuration))?;
+        let prepared = PreparedConfig::read_for_generation_with_scope(
+            file,
+            output,
+            keyweave_types::ConfigGeneration(1),
+            options.execution_mode,
+            lexical.capture_scope(),
+        )
+        .map_err(|_| StartupError::plain(StartupStage::Configuration))?;
         // Absolute lexical source path preserves symlink identity for later
         // replacements. No canonical target cache and no second config read.
         let watcher = if let Some(interval) = watch_interval {
@@ -178,7 +191,10 @@ impl PreparedLaunch {
         };
         let identity = RunIdentity::generate()
             .map_err(|e| StartupError::system(StartupStage::RunIdentity, e))?;
-        let reload = matches!(options.session_provider, SessionProvider::Console { .. });
+        let reload = matches!(
+            options.session_provider,
+            SessionProvider::Console { .. } | SessionProvider::X11 { .. }
+        );
         let argv = LinuxArguments {
             parent: std::process::id(),
             run_id: identity.run_id(),
@@ -440,5 +456,109 @@ mod tests {
                 vt: "/dev/tty2".into()
             }
         );
+    }
+    impl Fixture {
+        fn x11_options(&self) -> LaunchOptions {
+            let helper = self.root.join("keyweave-x11-probe");
+            fs::write(&helper, b"nonexecuted paired fixture").unwrap();
+            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+            let mut options = self.options();
+            options.execution_mode = keyweave_linux::runtime::ExecutionMode::StagedKeyboard;
+            options.session_provider = SessionProvider::X11 {
+                helper,
+                axes: keyweave_linux::relative::RelativeAxes::new(&[0, 1, 8]).unwrap(),
+                buttons: Some(keyweave_linux::keys::PointingButtons::new(&[0x110, 0x111]).unwrap()),
+            };
+            options
+        }
+    }
+    #[test]
+    fn x11_cold_launch_binds_paired_helper_scope_spec_bytes_and_reload_lane() {
+        let fixture = Fixture::new();
+        let options = fixture.x11_options();
+        let launch = PreparedLaunch::prepare(&fixture.host, options).unwrap();
+        let args = LinuxArguments::parse(launch.argv.clone()).unwrap();
+        assert_eq!(
+            args.capture_scope(),
+            keyweave_worker::linux_preparation::CaptureScope::StagedRelative
+        );
+        assert!(
+            matches!(args.session_provider,SessionProvider::X11{ref helper,..} if *helper==fixture.root.join("keyweave-x11-probe").canonicalize().unwrap())
+        );
+        assert_eq!(
+            args.output_spec()
+                .unwrap()
+                .pointing_buttons()
+                .unwrap()
+                .codes()
+                .collect::<Vec<_>>(),
+            vec![0x110, 0x111]
+        );
+        assert_eq!(launch.artifact.read_bytes().unwrap(), CONFIG);
+        assert!(launch.reload);
+    }
+    #[test]
+    fn x11_rejects_other_image_symlink_execute_or_write_permission_changes() {
+        use std::os::unix::fs::symlink;
+        for failure in 0..6 {
+            let fixture = Fixture::new();
+            let mut options = fixture.x11_options();
+            let helper = fixture.root.join("keyweave-x11-probe");
+            match failure {
+                0 => {
+                    let other = fixture.root.join("other-probe");
+                    fs::write(&other, b"other").unwrap();
+                    fs::set_permissions(&other, fs::Permissions::from_mode(0o700)).unwrap();
+                    if let SessionProvider::X11 { helper, .. } = &mut options.session_provider {
+                        *helper = other;
+                    }
+                }
+                1 => {
+                    let alias = fixture.root.join("probe-alias");
+                    symlink(&helper, &alias).unwrap();
+                    if let SessionProvider::X11 { helper, .. } = &mut options.session_provider {
+                        *helper = alias;
+                    }
+                }
+                2 => fs::set_permissions(&helper, fs::Permissions::from_mode(0o600)).unwrap(),
+                3 => fs::set_permissions(&helper, fs::Permissions::from_mode(0o720)).unwrap(),
+                4 => fs::set_permissions(
+                    fixture.root.join("keyweave-worker"),
+                    fs::Permissions::from_mode(0o720),
+                )
+                .unwrap(),
+                _ => fs::set_permissions(&fixture.root, fs::Permissions::from_mode(0o777)).unwrap(),
+            }
+            let error = PreparedLaunch::prepare(&fixture.host, options)
+                .err()
+                .unwrap();
+            assert_eq!(error.stage, StartupStage::ProbeLocation);
+        }
+    }
+    #[test]
+    fn x11_actual_output_button_coverage_rejects_config_before_spawn() {
+        let fixture = Fixture::new();
+        let mut options = fixture.x11_options();
+        fs::write(&fixture.config,br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"pointing_button":"button1"},"to":[{"pointing_button":"button2"}]}]}]}}]}"#).unwrap();
+        if let SessionProvider::X11 { buttons, .. } = &mut options.session_provider {
+            *buttons = Some(keyweave_linux::keys::PointingButtons::new(&[0x110]).unwrap());
+        }
+        assert_eq!(
+            PreparedLaunch::prepare(&fixture.host, options)
+                .err()
+                .unwrap()
+                .stage,
+            StartupStage::Configuration
+        );
+    }
+    #[test]
+    fn watched_x11_launch_keeps_exact_sealed_initial_config() {
+        let fixture = Fixture::new();
+        let options = fixture.x11_options();
+        let (launch, _watcher) =
+            PreparedLaunch::prepare_watched(&fixture.host, options, 100_000_000).unwrap();
+        fs::write(&fixture.config, b"replacement config").unwrap();
+        assert_eq!(launch.artifact.read_bytes().unwrap(), CONFIG);
+        assert!(launch.reload);
     }
 }
