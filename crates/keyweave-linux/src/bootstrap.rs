@@ -59,7 +59,7 @@ pub enum BootstrapStep {
     Pending,
     Ready,
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Output,
     Discovery,
@@ -122,8 +122,50 @@ impl Plan {
         })
     }
 }
+trait ReadyEvidence {
+    fn fresh_for(&self, path: &Path, now: MonoTime) -> bool;
+    fn arm<S: CaptureSource>(
+        &self,
+        group: &mut CaptureGroup<S>,
+        output: &OutputNodeReady<'_>,
+        now: MonoTime,
+        clock: &mut impl FnMut() -> io::Result<MonoTime>,
+    ) -> Result<ArmResult, ActivationError>;
+}
+impl ReadyEvidence for ConsoleReady {
+    fn fresh_for(&self, path: &Path, now: MonoTime) -> bool {
+        self.fresh_for(path, now)
+    }
+    fn arm<S: CaptureSource>(
+        &self,
+        group: &mut CaptureGroup<S>,
+        output: &OutputNodeReady<'_>,
+        now: MonoTime,
+        _: &mut impl FnMut() -> io::Result<MonoTime>,
+    ) -> Result<ArmResult, ActivationError> {
+        group.try_arm_console(output, self, now)
+    }
+}
+impl ReadyEvidence for crate::x11_consumer::X11Observation {
+    fn fresh_for(&self, path: &Path, now: MonoTime) -> bool {
+        self.fresh_for(path, now)
+    }
+    fn arm<S: CaptureSource>(
+        &self,
+        group: &mut CaptureGroup<S>,
+        output: &OutputNodeReady<'_>,
+        _: MonoTime,
+        clock: &mut impl FnMut() -> io::Result<MonoTime>,
+    ) -> Result<ArmResult, ActivationError> {
+        group.try_arm_x11(output, self, clock)
+    }
+}
 // Private injection boundary; no public factory can replace real guard/IO checks.
 trait Platform {
+    type Ready: ReadyEvidence;
+    fn query_pending(&self) -> bool {
+        false
+    }
     type Source: CaptureSource;
     type Output: FrameBackend;
     fn verify(&mut self) -> io::Result<()>;
@@ -131,7 +173,7 @@ trait Platform {
     fn create(&mut self, spec: DeviceSpec) -> io::Result<Self::Output>;
     fn discover(&mut self, output: &Self::Output) -> io::Result<Option<Probe>>;
     fn open(&mut self, path: &Path) -> io::Result<CaptureDevice<Self::Source>>;
-    fn observe(&mut self, output: &Self::Output) -> io::Result<Option<ConsoleReady>>;
+    fn observe(&mut self, output: &Self::Output) -> io::Result<Option<Self::Ready>>;
 }
 struct Bootstrap<P: Platform> {
     platform: Option<P>,
@@ -140,7 +182,7 @@ struct Bootstrap<P: Platform> {
     group: Option<CaptureGroup<P::Source>>,
     output: Option<P::Output>,
     node: Option<Probe>,
-    ready: Option<ConsoleReady>,
+    ready: Option<P::Ready>,
     phase: Phase,
     deadline: Option<MonoTime>,
     last: Option<MonoTime>,
@@ -149,7 +191,7 @@ struct Bootstrap<P: Platform> {
 struct Handoff<P: Platform> {
     runtime: Runtime<P::Source, P::Output>,
     platform: P,
-    ready: ConsoleReady,
+    ready: P::Ready,
 }
 impl<P: Platform> Bootstrap<P> {
     fn new(plan: Plan, platform: P) -> Self {
@@ -285,6 +327,12 @@ impl<P: Platform> Bootstrap<P> {
             })
     }
     fn admit(&mut self) -> Result<(), BootstrapError> {
+        if self.phase == Phase::Verify {
+            let now = self.time()?;
+            if !self.ready_fresh(now) {
+                return Err(BootstrapError::ConsumerLost);
+            }
+        }
         let output = self.output.as_ref().ok_or(BootstrapError::Phase)?;
         let ready = self
             .platform
@@ -292,10 +340,15 @@ impl<P: Platform> Bootstrap<P> {
             .ok_or(BootstrapError::Phase)?
             .observe(output)?;
         let now = self.time()?;
+        if self.phase == Phase::Verify && !self.ready_fresh(now) {
+            return Err(BootstrapError::ConsumerLost);
+        }
         let output = self.output.as_ref().ok_or(BootstrapError::Phase)?;
         let path = output.input_syspath().ok_or(BootstrapError::Inputs)?;
         let Some(ready) = ready.filter(|ready| ready.fresh_for(path, now)) else {
-            if self.phase == Phase::Verify {
+            if self.phase == Phase::Verify
+                && !self.platform.as_ref().is_some_and(Platform::query_pending)
+            {
                 return Err(BootstrapError::ConsumerLost);
             }
             return Ok(());
@@ -307,7 +360,9 @@ impl<P: Platform> Bootstrap<P> {
             let node = self.node.as_ref().ok_or(BootstrapError::Phase)?;
             let proof = OutputNodeReady::verify(output.spec(), path, node)?;
             let group = self.group.as_mut().ok_or(BootstrapError::Phase)?;
-            if group.try_arm_console(&proof, &ready, now)? == ArmResult::Captured {
+            let platform = self.platform.as_mut().ok_or(BootstrapError::Phase)?;
+            if ready.arm(group, &proof, now, &mut || platform.now())? == ArmResult::Captured {
+                self.ready = Some(ready);
                 self.phase = Phase::Verify;
             }
         }
@@ -372,6 +427,7 @@ struct Native<'a> {
     clock: MonotonicClock,
 }
 impl Platform for Native<'_> {
+    type Ready = ConsoleReady;
     type Source = EvdevSource;
     type Output = UinputDevice;
     fn verify(&mut self) -> io::Result<()> {

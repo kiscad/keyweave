@@ -143,6 +143,7 @@ impl Drop for Mock {
     }
 }
 impl Platform for Mock {
+    type Ready = ConsoleReady;
     type Source = Source;
     type Output = Output;
     fn verify(&mut self) -> io::Result<()> {
@@ -688,4 +689,142 @@ fn staged_plan_propagates_mode_through_bootstrap_group_and_handoff_without_dispa
     drop(runtime);
     drop(platform);
     inputs_closed_before_output(&trace);
+}
+
+struct GraphMock {
+    mock: Mock,
+    pending: bool,
+    latency: u64,
+}
+impl Platform for GraphMock {
+    type Ready = crate::x11_consumer::X11Observation;
+    type Source = Source;
+    type Output = Output;
+    fn query_pending(&self) -> bool {
+        self.pending
+    }
+    fn verify(&mut self) -> io::Result<()> {
+        self.mock.verify()
+    }
+    fn now(&mut self) -> io::Result<MonoTime> {
+        self.mock.now()
+    }
+    fn create(&mut self, spec: DeviceSpec) -> io::Result<Output> {
+        self.mock.create(spec)
+    }
+    fn discover(&mut self, output: &Output) -> io::Result<Option<Probe>> {
+        self.mock.discover(output)
+    }
+    fn open(&mut self, path: &Path) -> io::Result<CaptureDevice<Source>> {
+        self.mock.open(path)
+    }
+    fn observe(&mut self, _: &Output) -> io::Result<Option<Self::Ready>> {
+        record(&self.mock.trace, "observe");
+        let now = self.mock.clock.get();
+        self.mock.clock.set(now + self.latency);
+        match self
+            .mock
+            .observations
+            .pop_front()
+            .unwrap_or(Observation::Ready)
+        {
+            Observation::Ready => Ok(Some(crate::x11_consumer::X11Observation::for_test(
+                OUTPUT.into(),
+                MonoTime(now),
+                MonoTime(now + 250_000_000),
+            ))),
+            _ => Ok(None),
+        }
+    }
+}
+fn graphical(mock: Mock) -> Bootstrap<GraphMock> {
+    let plan = Plan::new_with_mode(
+        inputs(),
+        config(),
+        spec(),
+        crate::runtime::ExecutionMode::StagedKeyboard,
+    )
+    .unwrap();
+    Bootstrap::new(
+        plan,
+        GraphMock {
+            mock,
+            pending: true,
+            latency: 0,
+        },
+    )
+}
+#[test]
+fn graphical_pending_verify_keeps_old_window_then_hands_off_x11_type() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut boot = graphical(mock);
+    while boot.phase != Phase::Verify {
+        assert_eq!(boot.step().unwrap(), BootstrapStep::Pending);
+    }
+    boot.platform
+        .as_mut()
+        .unwrap()
+        .mock
+        .observations
+        .push_back(Observation::Missing);
+    assert_eq!(boot.step().unwrap(), BootstrapStep::Pending);
+    assert_eq!(boot.phase, Phase::Verify);
+    assert_eq!(boot.step().unwrap(), BootstrapStep::Ready);
+    let handoff = boot.finish().unwrap();
+    assert!(handoff.ready.fresh_for(Path::new(OUTPUT), MonoTime(1)));
+    assert!(!trace.borrow().contains(&"read".into()));
+    drop(handoff);
+}
+#[test]
+fn graphical_pending_expiry_closes_capture_before_output_and_provider() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut boot = graphical(mock);
+    while boot.phase != Phase::Verify {
+        boot.step().unwrap();
+    }
+    let platform = boot.platform.as_mut().unwrap();
+    platform.mock.observations.push_back(Observation::Missing);
+    platform.mock.clock.set(250_000_001);
+    assert!(matches!(boot.step(), Err(BootstrapError::ConsumerLost)));
+    assert_eq!(boot.phase, Phase::Closed);
+    let events = trace.borrow();
+    let output = events
+        .iter()
+        .position(|event| event == "output-close")
+        .unwrap();
+    assert!(
+        events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| event.starts_with("close"))
+            .all(|(index, _)| index < output)
+    );
+    assert_eq!(events.last(), Some(&"provider-close".into()));
+}
+#[test]
+fn late_fresh_query_cannot_bridge_previous_bootstrap_expiry() {
+    let mock = Mock::new();
+    let mut boot = graphical(mock);
+    while boot.phase != Phase::Verify {
+        boot.step().unwrap();
+    }
+    let platform = boot.platform.as_mut().unwrap();
+    platform.mock.clock.set(200_000_000);
+    platform.latency = 60_000_000;
+    assert!(matches!(boot.step(), Err(BootstrapError::ConsumerLost)));
+    assert_eq!(boot.phase, Phase::Closed);
+}
+#[test]
+fn graphical_unknown_is_distinct_from_pending_after_grab() {
+    let mock = Mock::new();
+    let mut boot = graphical(mock);
+    while boot.phase != Phase::Verify {
+        boot.step().unwrap();
+    }
+    let platform = boot.platform.as_mut().unwrap();
+    platform.pending = false;
+    platform.mock.observations.push_back(Observation::Missing);
+    assert!(matches!(boot.step(), Err(BootstrapError::ConsumerLost)));
 }

@@ -1,0 +1,7 @@
+# ADR-0196：bootstrap 的异步消费者证据
+
+将私有 Platform 关联到 ReadyEvidence，而不是硬编码 ConsoleReady。Console实现保原同步准入，X11Observation实现复用事务内时钟检查。观察接口仍以Option返回ready，但平台显式 query_pending 区分真正unknown和正在处理的owned查询，默认false保Console语义。
+
+初始ready用于arm后保存在bootstrap；Verify每次查询前后都核验旧窗口，异步pending只在旧窗口内可等待。unknown或过期立即关闭输入，再丢输出/provider；即使新报告仍fresh，也不能跨旧expiry恢复。新ready到达后才替换证据，finish再次按原时钟核验。Pending接口不授予新许可，预算/Stop-before-step等仍共用现有控制循环。
+
+本次为原生X11平台接入提供实际共用状态机，未新增默认图形provider选择。测试使用私有X11类型平台模拟ready/pending及query耗时；Native X11 bootstrap、mixed factory及startup取消后的probe owner handoff将后续接入。没有打开设备或连接显示。

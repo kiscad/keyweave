@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "97562c774472a14531841bda9d60fd8fa13ae077",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "81cb97c9a06920b77a03ed0409616a29c013fb4ee792c186666ea95a14cb5f88",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "dd0905de8e91134da5ff82e38da1a3f048f25d3f71b6bbcdda3e6f8fc70c7de3"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1770,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-bootstrap-evidence/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-bootstrap-evidence/clippy.log",
+        "sha256": "87bc04b118cc33e1d9d9cfbd51e43aa9111dcce8a281b495a78c99f98d427d75"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-bootstrap-evidence/tests.log",
+        "sha256": "699dc91381438eb5afa33eb169452f4df91b1d21a11de242f145fba3e21f69f0"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-bootstrap-evidence/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-bootstrap-evidence/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-bootstrap-evidence/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "Focused compile used the wrong fixture helper name paths instead of inputs and Phase lacked Debug for assertions; corrected before full checks."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Shared bootstrap state machine tested with private X11Observation mock platform; no native session/display/input/uinput/capture access.",
+    "This commit supplies associated evidence and asynchronous pending verification, not a selectable Native X11 bootstrap. Native platform/mixed factory and startup pending-owner cleanup handoff remain pending.",
+    "Console remains the existing synchronous platform. Post-arm query now cannot bridge previous evidence expiry even with a newly fresh result.",
+    "Active X11 worker/lease/cleanup/terminal components already exist but graphical startup/host/session selection not connected yet.",
+    "Pinned SDK C ABI passed; root-trusted runtime libraries/server/driver settings and real output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}
