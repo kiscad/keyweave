@@ -90,6 +90,10 @@ pub fn decode_report(bytes: &[u8], target: &ProbeTarget) -> io::Result<ProbeRepo
     }
     let report: ProbeReport =
         serde_json::from_slice(bytes).map_err(|_| io::ErrorKind::InvalidData)?;
+    validate_report(&report, target)?;
+    Ok(report)
+}
+fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()> {
     if report.schema_version != 1
         || report.display != target.display
         || report.node != target.node
@@ -113,7 +117,82 @@ pub fn decode_report(bytes: &[u8], target: &ProbeTarget) -> io::Result<ProbeRepo
             return Err(io::ErrorKind::InvalidData.into());
         }
     }
-    Ok(report)
+    Ok(())
+}
+/// Explicit X11 numbering, not evdev/HID numbering or a native mapping proof.
+#[derive(Debug)]
+pub struct CoverageRequirements {
+    keys: Vec<i32>,
+    buttons: Vec<u32>,
+}
+impl CoverageRequirements {
+    pub fn new(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
+        if (keys.is_empty() && buttons.is_empty())
+            || keys.len() > 248
+            || buttons.len() > 256
+            || keys.iter().any(|key| !(8..=255).contains(key))
+            || buttons.iter().any(|button| !(1..=256).contains(button))
+            || keys.windows(2).any(|pair| pair[0] >= pair[1])
+            || buttons.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        Ok(Self {
+            keys: keys.into(),
+            buttons: buttons.into(),
+        })
+    }
+}
+/// A selected slave and its reported master; metadata only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoveredDevice {
+    pub slave: i32,
+    pub master: i32,
+}
+/// No lifetime, session, owned-node, relative-axis or capture authorization.
+#[derive(Debug, PartialEq, Eq)]
+pub struct MetadataCoverage {
+    pub keyboard: Option<CoveredDevice>,
+    pub pointer: Option<CoveredDevice>,
+}
+impl ProbeReport {
+    pub fn check_coverage(
+        &self,
+        target: &ProbeTarget,
+        required: &CoverageRequirements,
+    ) -> io::Result<MetadataCoverage> {
+        validate_report(self, target)?;
+        let select = |kind, needed: bool| -> io::Result<Option<CoveredDevice>> {
+            if !needed {
+                return Ok(None);
+            }
+            let mut matches = self.devices.iter().filter(|device| {
+                device.kind == kind
+                    && match kind {
+                        DeviceKind::Keyboard => required
+                            .keys
+                            .iter()
+                            .all(|key| device.keys.binary_search(key).is_ok()),
+                        DeviceKind::Pointer => required
+                            .buttons
+                            .iter()
+                            .all(|button| *button <= device.buttons),
+                    }
+            });
+            let device = matches.next().ok_or(io::ErrorKind::NotFound)?;
+            if matches.next().is_some() {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            Ok(Some(CoveredDevice {
+                slave: device.id,
+                master: device.attachment,
+            }))
+        };
+        Ok(MetadataCoverage {
+            keyboard: select(DeviceKind::Keyboard, !required.keys.is_empty())?,
+            pointer: select(DeviceKind::Pointer, !required.buttons.is_empty())?,
+        })
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeFailure {
@@ -325,5 +404,138 @@ impl Drop for ProbeJob {
                 Err(_) => break,
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod coverage_tests {
+    use super::*;
+    fn target() -> ProbeTarget {
+        ProbeTarget::new(":0", Path::new("/dev/input/event5"), 13, 69).unwrap()
+    }
+    fn report(devices: Vec<DeviceMetadata>) -> ProbeReport {
+        ProbeReport {
+            schema_version: 1,
+            display: ":0".into(),
+            node: "/dev/input/event5".into(),
+            major: 13,
+            minor: 69,
+            devices,
+        }
+    }
+    fn keyboard(id: i32, keys: &[i32]) -> DeviceMetadata {
+        DeviceMetadata {
+            id,
+            attachment: 3,
+            kind: DeviceKind::Keyboard,
+            keys: keys.into(),
+            buttons: 0,
+        }
+    }
+    fn pointer(id: i32, buttons: u32) -> DeviceMetadata {
+        DeviceMetadata {
+            id,
+            attachment: 2,
+            kind: DeviceKind::Pointer,
+            keys: vec![],
+            buttons,
+        }
+    }
+    #[test]
+    fn combined_coverage_retains_each_attachment() {
+        let r = report(vec![keyboard(8, &[8, 38, 255]), pointer(9, 12)]);
+        let c = r
+            .check_coverage(
+                &target(),
+                &CoverageRequirements::new(&[38, 255], &[1, 12]).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            c.keyboard,
+            Some(CoveredDevice {
+                slave: 8,
+                master: 3
+            })
+        );
+        assert_eq!(
+            c.pointer,
+            Some(CoveredDevice {
+                slave: 9,
+                master: 2
+            })
+        );
+    }
+    #[test]
+    fn requirements_are_bounded_sorted_unique_and_nonempty() {
+        for keys in [vec![], vec![7], vec![256], vec![38, 38], vec![39, 38]] {
+            assert!(CoverageRequirements::new(&keys, &[]).is_err());
+        }
+        for buttons in [vec![0], vec![257], vec![1, 1], vec![2, 1]] {
+            assert!(CoverageRequirements::new(&[], &buttons).is_err());
+        }
+        assert!(
+            CoverageRequirements::new(
+                &(8..=255).collect::<Vec<_>>(),
+                &(1..=256).collect::<Vec<_>>()
+            )
+            .is_ok()
+        );
+    }
+    #[test]
+    fn cannot_union_partial_slaves() {
+        let r = report(vec![keyboard(8, &[38]), keyboard(9, &[39])]);
+        assert!(
+            r.check_coverage(
+                &target(),
+                &CoverageRequirements::new(&[38, 39], &[]).unwrap()
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn ambiguous_complete_slaves_are_rejected() {
+        let r = report(vec![keyboard(8, &[38]), keyboard(9, &[38])]);
+        assert!(
+            r.check_coverage(&target(), &CoverageRequirements::new(&[38], &[]).unwrap())
+                .is_err()
+        );
+        let r = report(vec![pointer(8, 12), pointer(9, 12)]);
+        assert!(
+            r.check_coverage(&target(), &CoverageRequirements::new(&[], &[1]).unwrap())
+                .is_err()
+        );
+    }
+    #[test]
+    fn missing_kind_or_button_never_passes() {
+        let need = CoverageRequirements::new(&[], &[12]).unwrap();
+        for r in [
+            report(vec![]),
+            report(vec![keyboard(8, &[38])]),
+            report(vec![pointer(8, 11)]),
+        ] {
+            assert!(r.check_coverage(&target(), &need).is_err());
+        }
+    }
+    #[test]
+    fn target_and_mutated_structure_are_revalidated() {
+        let need = CoverageRequirements::new(&[38], &[]).unwrap();
+        let mut r = report(vec![keyboard(8, &[38])]);
+        let wrong = ProbeTarget::new(":1", Path::new("/dev/input/event5"), 13, 69).unwrap();
+        assert!(r.check_coverage(&wrong, &need).is_err());
+        r.devices[0].keys = vec![38, 38];
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.devices[0].keys = vec![38];
+        r.devices[0].attachment = 8;
+        assert!(r.check_coverage(&target(), &need).is_err());
+    }
+    #[test]
+    fn single_kind_does_not_require_unrequested_kind() {
+        let r = report(vec![pointer(8, 3)]);
+        let c = r
+            .check_coverage(&target(), &CoverageRequirements::new(&[], &[1, 3]).unwrap())
+            .unwrap();
+        assert!(c.keyboard.is_none());
+        assert_eq!(c.pointer.unwrap().slave, 8);
     }
 }

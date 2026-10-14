@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "52483db06860dd26db652c0fa100007ef42d7d53",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/x11_probe.rs": "587905b64d7aed79d56bc66600fc08b1c04c8472f3715fae07846215c9a9957b"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1709,
+    "new_tests": 7,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-coverage/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-coverage/clippy.log",
+        "sha256": "c30bcc5a761d1e289cae987022727dd80291feb13334235576be61266231da90"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-coverage/tests.log",
+        "sha256": "fa64a183c9ce2ad1767f38f634d9885ad9a627b6360464e3df2ee86e196a06c8"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-coverage/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-coverage/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      }
+    }
+  },
+  "initial_failures": [
+    "Clippy rejected unwrap in unit fixtures; fixture-only allow added, production checks unchanged. Subsequent full checks passed."
+  ],
+  "windows": {
+    "status": "native checks pending after prior automatic approval quota rejection; no retry or bypass"
+  },
+  "limitations": [
+    "Coverage is metadata only; no session, owned-node, freshness or capture grant.",
+    "X11 requirements use explicit X11 numbers, with no implicit evdev/HID conversion. Native mapping compilation remains pending.",
+    "Protocol lacks valuator metadata; coverage does not prove relative motion or scroll consumption.",
+    "Actual X11 SDK/library/server checks remain unverified (previous missing headers and root-trust rejection). No input/device/server access performed.",
+    "Native provider integration, mixed host/worker, Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}
