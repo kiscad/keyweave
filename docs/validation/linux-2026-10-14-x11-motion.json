@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "9a2fdadcb96d178e9a866a54e700df390b1a9650",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/x11_probe.rs": "f2a9688d32671882ffdf951b85cd4abc0b7757f6411f947cc3ae001a00c878ba",
+    "crates/keyweave-linux/tests/x11_probe_job.rs": "c4511b0ef14be68b0e82ad89c53a7598ba77b10b292571a3e69c1a8b95450183",
+    "crates/keyweave-x11-probe/src/main.rs": "d74f9337f82345a2b0cce9c46879bcf80a39c1556d669312f0e74318b45e92a6",
+    "crates/keyweave-x11-probe/src/native.rs": "47106a15ca06572a038c4139434180ee0ea7246bb890d05e0e4f4bc3e0fef1a4",
+    "tools/verify_x11_abi.py": "a126a2da46fb4fe29ba339ff7df2db935bc1aa814b30c5acaa021d57425bbda9"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1716,
+    "new_tests": 7,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 1
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-motion/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-motion/clippy.log",
+        "sha256": "b252f94b916e8943549978c899996ea97b434cec02a3b35d2c457a2a43c6cefc"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-motion/tests.log",
+        "sha256": "318b76788651cb9a40896d3e892474e6653af295ddf5d5adcf100ee635392c20"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-motion/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-motion/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-motion/x11-sdk.log",
+        "sha256": "57d1b11a089d1f91e0da57e05f3a2277e15a6fc719872027e9b55157f79c6ea0"
+      }
+    }
+  },
+  "initial_failures": [
+    "Focused no-run initially found an existing Device fixture missing new field; updated fixture and schema assertion. Full checks passed afterwards."
+  ],
+  "x11_sdk": {
+    "status": "failed",
+    "reason": "Missing X11/Xlib.h; actual SDK layout verification not passed."
+  },
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "No display or device access. Owned schema2 fixture uses temporary Python helper, not native X11.",
+    "No scroll classes or wheel mapping proof; motion labels only.",
+    "Coverage is metadata, not session/output ownership/freshness/capture authorization.",
+    "SDK/library/server validation and session consumer integration remain pending.",
+    "Mixed host/worker, Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

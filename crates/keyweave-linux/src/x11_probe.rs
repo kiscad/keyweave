@@ -73,6 +73,8 @@ pub struct DeviceMetadata {
     pub kind: DeviceKind,
     pub keys: Vec<i32>,
     pub buttons: u32,
+    #[serde(default)]
+    pub relative_motion_axes: Option<Vec<u8>>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,7 +96,7 @@ pub fn decode_report(bytes: &[u8], target: &ProbeTarget) -> io::Result<ProbeRepo
     Ok(report)
 }
 fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()> {
-    if report.schema_version != 1
+    if !matches!(report.schema_version, 1 | 2)
         || report.display != target.display
         || report.node != target.node
         || report.major != target.major
@@ -113,6 +115,14 @@ fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()>
             || device.buttons > 256
             || device.keys.iter().any(|key| !(0..=65535).contains(key))
             || device.keys.windows(2).any(|keys| keys[0] >= keys[1])
+            || (report.schema_version == 2 && device.relative_motion_axes.is_none())
+            || device.relative_motion_axes.as_ref().is_some_and(|axes| {
+                axes.len() > 2
+                    || axes.iter().any(|axis| *axis > 1)
+                    || axes.windows(2).any(|pair| pair[0] >= pair[1])
+                    || (!axes.is_empty()
+                        && (report.schema_version != 2 || device.kind != DeviceKind::Pointer))
+            })
         {
             return Err(io::ErrorKind::InvalidData.into());
         }
@@ -124,10 +134,18 @@ fn validate_report(report: &ProbeReport, target: &ProbeTarget) -> io::Result<()>
 pub struct CoverageRequirements {
     keys: Vec<i32>,
     buttons: Vec<u32>,
+    relative_motion: bool,
 }
 impl CoverageRequirements {
     pub fn new(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
-        if (keys.is_empty() && buttons.is_empty())
+        Self::build(keys, buttons, false)
+    }
+    /// Requires relative X and Y on the same pointer; no scroll claim.
+    pub fn with_relative_motion(keys: &[i32], buttons: &[u32]) -> io::Result<Self> {
+        Self::build(keys, buttons, true)
+    }
+    fn build(keys: &[i32], buttons: &[u32], relative_motion: bool) -> io::Result<Self> {
+        if (keys.is_empty() && buttons.is_empty() && !relative_motion)
             || keys.len() > 248
             || buttons.len() > 256
             || keys.iter().any(|key| !(8..=255).contains(key))
@@ -140,6 +158,7 @@ impl CoverageRequirements {
         Ok(Self {
             keys: keys.into(),
             buttons: buttons.into(),
+            relative_motion,
         })
     }
 }
@@ -149,7 +168,7 @@ pub struct CoveredDevice {
     pub slave: i32,
     pub master: i32,
 }
-/// No lifetime, session, owned-node, relative-axis or capture authorization.
+/// No lifetime, session, owned-node or capture authorization.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MetadataCoverage {
     pub keyboard: Option<CoveredDevice>,
@@ -173,10 +192,14 @@ impl ProbeReport {
                             .keys
                             .iter()
                             .all(|key| device.keys.binary_search(key).is_ok()),
-                        DeviceKind::Pointer => required
-                            .buttons
-                            .iter()
-                            .all(|button| *button <= device.buttons),
+                        DeviceKind::Pointer => {
+                            required
+                                .buttons
+                                .iter()
+                                .all(|button| *button <= device.buttons)
+                                && (!required.relative_motion
+                                    || device.relative_motion_axes.as_deref() == Some(&[0, 1]))
+                        }
                     }
             });
             let device = matches.next().ok_or(io::ErrorKind::NotFound)?;
@@ -190,7 +213,10 @@ impl ProbeReport {
         };
         Ok(MetadataCoverage {
             keyboard: select(DeviceKind::Keyboard, !required.keys.is_empty())?,
-            pointer: select(DeviceKind::Pointer, !required.buttons.is_empty())?,
+            pointer: select(
+                DeviceKind::Pointer,
+                !required.buttons.is_empty() || required.relative_motion,
+            )?,
         })
     }
 }
@@ -431,6 +457,7 @@ mod coverage_tests {
             kind: DeviceKind::Keyboard,
             keys: keys.into(),
             buttons: 0,
+            relative_motion_axes: None,
         }
     }
     fn pointer(id: i32, buttons: u32) -> DeviceMetadata {
@@ -440,6 +467,7 @@ mod coverage_tests {
             kind: DeviceKind::Pointer,
             keys: vec![],
             buttons,
+            relative_motion_axes: None,
         }
     }
     #[test]
@@ -537,5 +565,82 @@ mod coverage_tests {
             .unwrap();
         assert!(c.keyboard.is_none());
         assert_eq!(c.pointer.unwrap().slave, 8);
+    }
+    #[test]
+    fn motion_requires_v2_both_axes_on_one_pointer() {
+        let need = CoverageRequirements::with_relative_motion(&[], &[]).unwrap();
+        let mut r = report(vec![pointer(8, 3)]);
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.schema_version = 2;
+        r.devices[0].relative_motion_axes = Some(vec![0]);
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.devices[0].relative_motion_axes = Some(vec![0, 1]);
+        assert_eq!(
+            r.check_coverage(&target(), &need)
+                .unwrap()
+                .pointer
+                .unwrap()
+                .slave,
+            8
+        );
+    }
+    #[test]
+    fn motion_cannot_be_split_between_devices_or_button_coverage() {
+        let need = CoverageRequirements::with_relative_motion(&[], &[12]).unwrap();
+        let mut r = report(vec![pointer(8, 12), pointer(9, 11)]);
+        r.schema_version = 2;
+        r.devices[0].relative_motion_axes = Some(vec![0]);
+        r.devices[1].relative_motion_axes = Some(vec![1]);
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.devices[0].relative_motion_axes = Some(vec![]);
+        r.devices[1].relative_motion_axes = Some(vec![0, 1]);
+        assert!(r.check_coverage(&target(), &need).is_err());
+    }
+    #[test]
+    fn axis_protocol_rejects_invalid_or_missing_metadata() {
+        let need = CoverageRequirements::with_relative_motion(&[], &[]).unwrap();
+        let mut r = report(vec![pointer(8, 3)]);
+        r.schema_version = 2;
+        for axes in [
+            None,
+            Some(vec![1, 0]),
+            Some(vec![0, 0]),
+            Some(vec![2]),
+            Some(vec![0, 1, 2]),
+        ] {
+            r.devices[0].relative_motion_axes = axes;
+            assert!(r.check_coverage(&target(), &need).is_err());
+        }
+        r.devices[0].relative_motion_axes = Some(vec![0, 1]);
+        r.devices[0].kind = DeviceKind::Keyboard;
+        assert!(r.check_coverage(&target(), &need).is_err());
+        r.devices[0].kind = DeviceKind::Pointer;
+        r.schema_version = 1;
+        assert!(r.check_coverage(&target(), &need).is_err());
+    }
+    #[test]
+    fn schema2_roundtrip_and_schema1_decode_compatibility() {
+        let raw = br#"{"schema_version":2,"display":":0","node":"/dev/input/event5","major":13,"minor":69,"devices":[{"id":8,"attachment":2,"kind":"pointer","keys":[],"buttons":3,"relative_motion_axes":[0,1]}]}"#;
+        let r = decode_report(raw, &target()).unwrap();
+        assert!(
+            r.check_coverage(
+                &target(),
+                &CoverageRequirements::with_relative_motion(&[], &[1]).unwrap()
+            )
+            .is_ok()
+        );
+        let old = br#"{"schema_version":1,"display":":0","node":"/dev/input/event5","major":13,"minor":69,"devices":[{"id":8,"attachment":2,"kind":"pointer","keys":[],"buttons":3}]}"#;
+        let r = decode_report(old, &target()).unwrap();
+        assert!(
+            r.check_coverage(&target(), &CoverageRequirements::new(&[], &[1]).unwrap())
+                .is_ok()
+        );
+        assert!(
+            r.check_coverage(
+                &target(),
+                &CoverageRequirements::with_relative_motion(&[], &[]).unwrap()
+            )
+            .is_err()
+        );
     }
 }

@@ -27,6 +27,7 @@ struct Device {
     kind: &'static str,
     keys: Vec<i32>,
     buttons: u32,
+    relative_motion_axes: Vec<u8>,
 }
 #[derive(Serialize)]
 struct Report {
@@ -72,7 +73,7 @@ fn run(args: Arguments) -> io::Result<Report> {
     {
         let devices = native::query(&args)?;
         Ok(Report {
-            schema_version: 1,
+            schema_version: 2,
             display: args.display,
             node: args.node,
             major: args.major,
@@ -154,7 +155,7 @@ mod tests {
     #[test]
     fn report_is_metadata_only_and_does_not_claim_consumer_readiness() {
         let report = Report {
-            schema_version: 1,
+            schema_version: 2,
             display: ":0".into(),
             node: "/dev/input/event42".into(),
             major: 13,
@@ -165,10 +166,15 @@ mod tests {
                 kind: "keyboard",
                 keys: vec![38],
                 buttons: 0,
+                relative_motion_axes: vec![],
             }],
         };
         let value = serde_json::to_value(report).unwrap_or_else(|error| panic!("{error}"));
-        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(
+            value["devices"][0]["relative_motion_axes"],
+            serde_json::json!([])
+        );
         assert!(value.get("ready").is_none());
         assert!(value.get("pressed").is_none());
         assert!(value.get("window_title").is_none());

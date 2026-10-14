@@ -198,3 +198,30 @@ fn empty_device_metadata_is_completed_probe_but_not_ready() {
     let report = decode_report(&serde_json::to_vec(&body).unwrap(), &target()).unwrap();
     assert!(report.devices.is_empty());
 }
+
+#[test]
+fn actual_owned_schema2_fixture_reaches_motion_coverage_after_exit() {
+    let mut body = body();
+    body["schema_version"] = json!(2);
+    body["devices"] = json!([{"id":10,"attachment":2,"kind":"pointer","keys":[],"buttons":3,"relative_motion_axes":[0,1]}]);
+    let json = body.to_string();
+    let fixture = Fixture::new(
+        "motion-v2",
+        &format!("import sys\nsys.stdout.write({json:?})\nsys.stdout.flush()"),
+    );
+    let mut job = ProbeJob::spawn(&fixture.image, target(), MonoTime(0), MAX_PROBE_NS).unwrap();
+    finish(&mut job, 1);
+    assert!(job.exit_status().unwrap().success());
+    let report = job.take_report().unwrap();
+    let requirements = CoverageRequirements::with_relative_motion(&[], &[1, 3]).unwrap();
+    assert_eq!(
+        report
+            .check_coverage(&target(), &requirements)
+            .unwrap()
+            .pointer
+            .unwrap()
+            .slave,
+        10
+    );
+    assert!(job.take_report().is_none());
+}

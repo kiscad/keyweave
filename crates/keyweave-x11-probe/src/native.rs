@@ -42,6 +42,30 @@ struct ButtonClass {
     labels: *mut c_ulong,
     state: ButtonState,
 }
+#[repr(C)]
+struct ValuatorClass {
+    kind: c_int,
+    source: c_int,
+    number: c_int,
+    label: c_ulong,
+    min: f64,
+    max: f64,
+    value: f64,
+    resolution: c_int,
+    mode: c_int,
+}
+fn motion_axis(class: &ValuatorClass, labels: [c_ulong; 2]) -> io::Result<Option<u8>> {
+    if !(0..=255).contains(&class.number) || !(0..=1).contains(&class.mode) {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    if class.mode != 0 || class.label == 0 {
+        return Ok(None);
+    }
+    Ok(labels
+        .iter()
+        .position(|label| *label != 0 && *label == class.label)
+        .map(|axis| axis as u8))
+}
 type Open = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type Close = unsafe extern "C" fn(*mut c_void) -> c_int;
 type Free = unsafe extern "C" fn(*mut c_void) -> c_int;
@@ -201,6 +225,13 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
     if node_atom == 0 {
         return Err(unavailable());
     }
+    // SAFETY: fixed label names, only-if-exists; never creates an atom.
+    let motion_labels = unsafe {
+        [
+            atom(display.value, c"Rel X".as_ptr(), 1),
+            atom(display.value, c"Rel Y".as_ptr(), 1),
+        ]
+    };
     let mut count = 0;
     // SAFETY: live display and aligned count output; XIAllDevices=0, returned owner managed below.
     let pointer = unsafe { devices(display.value, 0, &mut count) };
@@ -280,6 +311,7 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
         };
         let mut keys = vec![];
         let mut buttons = 0;
+        let mut relative_motion_axes = vec![];
         for pointer in classes {
             if pointer.is_null() {
                 return Err(io::ErrorKind::InvalidData.into());
@@ -308,8 +340,18 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
                     return Err(io::ErrorKind::InvalidData.into());
                 }
                 buttons = buttons.max(class.count as u32);
+            } else if header.kind == 2 {
+                // SAFETY: XIValuatorClass tag chooses the SDK layout; current value is never read.
+                let class = unsafe { &*pointer.cast::<ValuatorClass>() };
+                if let Some(axis) = motion_axis(class, motion_labels)? {
+                    if row.use_kind != 3 || relative_motion_axes.contains(&axis) {
+                        return Err(io::ErrorKind::InvalidData.into());
+                    }
+                    relative_motion_axes.push(axis);
+                }
             }
         }
+        relative_motion_axes.sort_unstable();
         keys.sort_unstable();
         keys.dedup();
         if keys.len() > 768 || keys.iter().any(|code| *code < 0) {
@@ -328,7 +370,43 @@ pub(super) fn query(args: &Arguments) -> io::Result<Vec<Device>> {
             },
             keys,
             buttons,
+            relative_motion_axes,
         });
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+    fn class(label: c_ulong, mode: i32) -> ValuatorClass {
+        ValuatorClass {
+            kind: 2,
+            source: 8,
+            number: 0,
+            label,
+            min: f64::NAN,
+            max: f64::NAN,
+            value: f64::NAN,
+            resolution: 0,
+            mode,
+        }
+    }
+    #[test]
+    fn labels_and_relative_mode_required() {
+        assert_eq!(motion_axis(&class(10, 0), [10, 11]).ok(), Some(Some(0)));
+        assert_eq!(motion_axis(&class(11, 0), [10, 11]).ok(), Some(Some(1)));
+        for c in [class(10, 1), class(0, 0), class(12, 0)] {
+            assert_eq!(motion_axis(&c, [10, 11]).ok(), Some(None));
+        }
+    }
+    #[test]
+    fn invalid_mode_and_axis_number_rejected() {
+        assert!(motion_axis(&class(10, 2), [10, 11]).is_err());
+        let mut c = class(10, 0);
+        c.number = 256;
+        assert!(motion_axis(&c, [10, 11]).is_err());
+        c.number = -1;
+        assert!(motion_axis(&c, [10, 11]).is_err());
+    }
 }
