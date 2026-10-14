@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "35bea2e365c847eb138472f9bd1c38a33e673cf2",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/worker.rs": "8e9730082213f870219cf5a994a9bc96f70e1dab43286e9755e0b62d6ccb4b10",
+    "crates/keyweave-linux/src/worker/x11_session.rs": "34fa7adcdbf9e945880f66b18556e4a99e4a5e6b09efe18429f79a36e8de8a35"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1786,
+    "new_tests": 2,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-session/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-session/clippy.log",
+        "sha256": "5c44c850ed123b3b0151526c9760938346d02672f3c92515418ba037012b24d5"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-session/tests.log",
+        "sha256": "7870d4d0a0bd90a3742a356ac746f21977e180e8936a827213849552ff3400a2"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-session/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-session/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-session/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Complete native X11 session transaction compiled only; two actual terminal-pipe startup boundary tests and existing component suites ran. No native session/display/device/capture access.",
+    "Startup Stopped/Failed closes unused terminal endpoint without fabricating Runtime report. Deferred startup/worker retains original cleanup owner and terminal writer, and resume continues same task.",
+    "Default CLI/host provider selection unchanged; cold mixed config and helper authentication integration still pending.",
+    "Pinned SDK C ABI passed; root-trusted dynamic libraries/server query/driver policy/actual delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

@@ -10,6 +10,12 @@ use keyweave_types::MonoTime;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, marker::PhantomData, rc::Rc};
 
+mod x11_session;
+pub use x11_session::{
+    DeferredX11Startup, DeferredX11Worker, X11SessionConfig, X11SessionError, X11SessionResult,
+    X11StartupCause, run_reporting_x11_session,
+};
+
 mod extension;
 pub use extension::{ControlObservation, WorkerExtension, run_console_worker_with_extension};
 
