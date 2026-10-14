@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "b3524746cbbb3897dcf5dc04f4099b4fe60050eb",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "034e60d55a4f94bc655fb4785f569d95058d50bba2f71cb79931dc34f9932895",
+    "crates/keyweave-linux/src/x11_consumer.rs": "f27d23a135db7e6e4499aa45f2d079acaafd55195462564b33c6c263b25f67e2"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1727,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-observer/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-observer/clippy.log",
+        "sha256": "5c44c850ed123b3b0151526c9760938346d02672f3c92515418ba037012b24d5"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-observer/tests.log",
+        "sha256": "0da2fab3ca665a0a6435bd637a510bc58240f30683bc13b8f8cfa75b92d61d7e"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-observer/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-observer/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Observer native flow compiled on Linux but actual sd-login/output-node/X11 query did not run; previous SDK headers missing and loader root-trust rejection remain unresolved.",
+    "Tests cover pure completion/freshness predicates and actual canceled owned Python helper, not native provider end-to-end.",
+    "Caller supplies explicit X11 requirements; full output spec/native-code mapping is not yet verified. Observation is not a capture grant.",
+    "Active session is not unlocked state; paired snapshots do not remove ABA races.",
+    "Host must authenticate helper; no fork contract remains. Same job retained until observed exit, including cancel cleanup without live clock.",
+    "Capture/bootstrap/host/worker integration, Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}
