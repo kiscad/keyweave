@@ -4,7 +4,7 @@ mod relative;
 use crate::relative::{RelativeAxes, RelativeFrame};
 use crate::{
     events::{FrameWrite, NativeKey},
-    keys::{self, KeyError},
+    keys::KeyError,
     output::{DeviceSpec, WriteError},
 };
 use keyweave_output::{OutputError, OutputQueue};
@@ -127,12 +127,15 @@ impl<B: FrameBackend> OutputPump<B> {
         self.queue.resume()?;
         Ok(())
     }
-    fn native(edges: &[OutputIntent]) -> Result<Vec<NativeKey>, PumpError> {
+    fn native(&self, edges: &[OutputIntent]) -> Result<Vec<NativeKey>, PumpError> {
         edges
             .iter()
             .map(|edge| {
                 Ok(NativeKey {
-                    code: keys::output_code(edge.key)?,
+                    code: self
+                        .spec()
+                        .ok_or(PumpError::NotReady)?
+                        .output_code(edge.key)?,
                     value: match edge.edge {
                         KeyEdge::Up => 0,
                         KeyEdge::Down => 1,
@@ -213,7 +216,7 @@ impl<B: FrameBackend> OutputPump<B> {
         let Some(batch) = self.queue.begin_due_limited(now, limit)? else {
             return Ok(PumpStep::Idle);
         };
-        let native = match Self::native(&batch.edges) {
+        let native = match self.native(&batch.edges) {
             Ok(native) => native,
             Err(error) => {
                 self.queue.acknowledge_incomplete(batch.id, 0)?;

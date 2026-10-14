@@ -220,3 +220,86 @@ fn all_native_codes_can_be_pressed_without_unbounded_identity_growth() {
     }
     assert_eq!(normalizer.pressed_count(), 0);
 }
+
+#[test]
+fn pointing_canonical_and_verified_scan_are_explicit_and_round_trip_all_eight_buttons() {
+    for (index, code) in BUTTON_CODES.iter().copied().enumerate() {
+        let button = KeyId::new(BUTTON_PAGE, (index + 1) as u16);
+        assert!(resolve_input(code, None, IdentityPolicy::CanonicalEvdev).is_err());
+        assert!(output_code(button).is_err());
+        let canonical = resolve_pointing_input(code, None, IdentityPolicy::CanonicalEvdev).unwrap();
+        assert_eq!(canonical.key, button);
+        assert_eq!(canonical.evidence, IdentityEvidence::EvdevCanonical);
+        assert_eq!(pointing_output_code(button), Ok(code));
+        assert_eq!(
+            resolve_pointing_input(code, None, IdentityPolicy::RequireHidScan),
+            Err(KeyError::ScanRequired)
+        );
+        assert_eq!(
+            resolve_pointing_input(code, Some(button), IdentityPolicy::RequireHidScan)
+                .unwrap()
+                .evidence,
+            IdentityEvidence::VerifiedHidScan
+        );
+        assert_eq!(
+            resolve_pointing_input(code, Some(key("a")), IdentityPolicy::CanonicalEvdev),
+            Err(KeyError::ScanMismatch)
+        );
+    }
+}
+#[test]
+fn pointing_normalizer_retains_saved_down_for_repeat_up_and_orphans() {
+    let mut normalizer = KeyNormalizer::new_with_pointing(IdentityPolicy::CanonicalEvdev);
+    assert!(matches!(
+        normalizer.process(event(BTN_LEFT, 0), None).unwrap(),
+        NormalizedKey::Ignored { .. }
+    ));
+    let down = normalizer.process(event(BTN_LEFT, 1), None).unwrap();
+    let NormalizedKey::Event { identity, .. } = down else {
+        panic!("missing button down")
+    };
+    assert_eq!(
+        normalizer
+            .process(event(BTN_LEFT, 2), Some(key("a")))
+            .unwrap(),
+        NormalizedKey::Event {
+            identity,
+            edge: KeyEdge::Repeat
+        }
+    );
+    assert_eq!(normalizer.pressed_count(), 1);
+    assert_eq!(
+        normalizer
+            .process(event(BTN_LEFT, 0), Some(key("a")))
+            .unwrap(),
+        NormalizedKey::Event {
+            identity,
+            edge: KeyEdge::Up
+        }
+    );
+    assert_eq!(normalizer.pressed_count(), 0);
+}
+#[test]
+fn pointing_descriptor_and_extreme_hid_values_reject_without_panics() {
+    for codes in [
+        vec![],
+        vec![BTN_LEFT, BTN_LEFT],
+        vec![0x118],
+        vec![BTN_LEFT; 9],
+    ] {
+        assert!(PointingButtons::new(&codes).is_err());
+    }
+    for usage in [0, 9, 32, u16::MAX] {
+        assert_eq!(
+            pointing_output_code(KeyId::new(BUTTON_PAGE, usage)),
+            Err(KeyError::UnsupportedHid)
+        );
+    }
+    assert_eq!(
+        PointingButtons::new(&BUTTON_CODES)
+            .unwrap()
+            .codes()
+            .collect::<Vec<_>>(),
+        BUTTON_CODES
+    );
+}

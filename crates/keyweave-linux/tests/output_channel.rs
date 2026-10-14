@@ -261,3 +261,46 @@ fn actual_pump_and_production_channel_recover_after_relative_short_in_same_order
         [Event::output(1, 30, 0), Event::output(0, 0, 0)]
     );
 }
+#[test]
+fn pointing_spec_checks_shape_replacement_and_unadvertised_buttons_before_write() {
+    use keyweave_linux::keys::{BTN_LEFT, PointingButtons};
+    let base = spec().with_relative_axes(axes());
+    let both = base
+        .with_pointing_buttons(PointingButtons::new(&[BTN_LEFT, BTN_LEFT + 1]).unwrap())
+        .unwrap();
+    let narrowed = both
+        .with_pointing_buttons(PointingButtons::new(&[BTN_LEFT]).unwrap())
+        .unwrap();
+    assert!(!narrowed.codes().any(|code| code == BTN_LEFT + 1));
+    let (mut wire, calls) = channel(narrowed.clone(), vec![]);
+    assert!(
+        wire.emit(&[NativeKey {
+            code: BTN_LEFT + 1,
+            value: 1
+        }])
+        .is_err()
+    );
+    assert!(calls.borrow().is_empty());
+    wire.emit(&[NativeKey {
+        code: BTN_LEFT,
+        value: 1,
+    }])
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        events::decode_batch(Layout::Time64, &calls.borrow()[0]).unwrap()[0],
+        Event::output(1, BTN_LEFT, 1)
+    );
+    let bad = narrowed.with_relative_axes(RelativeAxes::new(&[REL_WHEEL]).unwrap());
+    assert!(bad.validate_shape().is_err());
+    let (mut bad_channel, calls) = channel(bad, vec![]);
+    assert!(
+        bad_channel
+            .emit(&[NativeKey {
+                code: BTN_LEFT,
+                value: 1
+            }])
+            .is_err()
+    );
+    assert!(calls.borrow().is_empty());
+}

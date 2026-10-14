@@ -1,7 +1,11 @@
 //! Physical evdev key identities and explicit HID-loss boundaries.
+mod pointing;
 mod table;
 use crate::events::{EV_KEY, Event};
 use keyweave_types::{KeyEdge, KeyId};
+pub use pointing::{
+    BTN_LEFT, BUTTON_CODES, PointingButtons, pointing_output_code, resolve_pointing_input,
+};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -114,13 +118,20 @@ pub enum NormalizedKey {
 pub struct KeyNormalizer {
     policy: IdentityPolicy,
     pressed: BTreeMap<u16, ResolvedKey>,
+    pointing: bool,
 }
 impl KeyNormalizer {
     pub fn new(policy: IdentityPolicy) -> Self {
         Self {
             policy,
             pressed: BTreeMap::new(),
+            pointing: false,
         }
+    }
+    pub fn new_with_pointing(policy: IdentityPolicy) -> Self {
+        let mut normalizer = Self::new(policy);
+        normalizer.pointing = true;
+        normalizer
     }
     pub fn pressed_count(&self) -> usize {
         self.pressed.len()
@@ -144,7 +155,11 @@ impl KeyNormalizer {
                 let identity = if let Some(saved) = self.pressed.get(&event.code) {
                     *saved
                 } else {
-                    let identity = resolve_input(event.code, hid_scan, self.policy)?;
+                    let identity = if self.pointing {
+                        resolve_pointing_input(event.code, hid_scan, self.policy)?
+                    } else {
+                        resolve_input(event.code, hid_scan, self.policy)?
+                    };
                     self.pressed.insert(event.code, identity);
                     identity
                 };

@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0180 explicit Linux mouse button identity, capability and staged runtime output",
+  "source_base_commit": "64faf04cf0caa27f38f0dd02c1b3d63b1d2e909b",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/activation.rs": "9b00310c05ed89beb1032b5d8e7ae59af9af7d77017e7a104c18d6e2b2416453",
+    "crates/keyweave-linux/src/capture.rs": "10a3efee53149f024db78e25c9a14105ece123592c262e850e2aa4c53cbe3ea4",
+    "crates/keyweave-linux/src/ioctl.rs": "e5da38dcfd35706a79cab5d43c5a20dad9c58350ef8799c033be1779b33ed87d",
+    "crates/keyweave-linux/src/keys/mod.rs": "6762367a59ca4f7649afd5a0be3921127d75c2fbc57b4fc823a7b49417ec0bb9",
+    "crates/keyweave-linux/src/output.rs": "1c5b43dc42c8c582f711874bb151f6fdcd05aff09356216fb2b47f1a5653cb88",
+    "crates/keyweave-linux/src/probe.rs": "00e5c9ce082aea38d0112776bc881af641f0c784df9bd5e02058fcc275012f1e",
+    "crates/keyweave-linux/src/pump.rs": "c6deb7381fca2483b97c60c86d7c65eeedaf7147dfbc3643e7c3f9f716808e29",
+    "crates/keyweave-linux/src/pump/relative.rs": "9a4acb1dbf52b4f61820d25c77348940b43eaf842ac58bfd84c50d791a14e0c2",
+    "crates/keyweave-linux/src/runtime.rs": "8283a3f8d9bc11931c4a2b662c077c3bcd213b11345afd58219f1425149a1c5b",
+    "crates/keyweave-linux/src/uinput.rs": "50e6b0f2ad8d62c438b512b24c332cb4fe5670cfa5243adfbe3fc627c4f10b25",
+    "crates/keyweave-linux/tests/keys.rs": "b2ce9c4e2674723372a77a358494dd31f37a7859bcc16248a70d34b2f01a2fc2",
+    "crates/keyweave-linux/tests/output_channel.rs": "6368d08172ed2a845ba30feffd826f9a2449ae15ba7ee275bf31ee55ebd1816c",
+    "tools/verify_linux_abi.py": "86e07b5d97160f748873f28dab5675c296ac30f8a460a8302f359a113d10d0b0",
+    "crates/keyweave-linux/src/keys/pointing.rs": "d06e299a9348c9a3b215e0fa8fec98832f9ffa5e7fec681951612f578c88ca81"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1680,
+    "new_tests": 10,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "uapi_verified": [
+      "BTN_LEFT..BTN_TASK = 0x110..0x117",
+      "INPUT_PROP_POINTER=0",
+      "UI_SET_PROPBIT=0x4004556e"
+    ],
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-pointing-buttons/tests.log",
+        "sha256": "c2b68d7b7c8a5fbd569e8732737fea4603443a7f77dc70d5c680f17cfca14468"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-pointing-buttons/clippy.log",
+        "sha256": "bd519b46a642a0faa39d60cc63671d526973ffb35971ddf660d024f3f2a5fddd"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-pointing-buttons/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-pointing-buttons/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-pointing-buttons/abi.log",
+        "sha256": "60d475e06b59a15d2397eb7f0ffb5842be71d92d18f053a000a49a2657cf4c46"
+      }
+    }
+  },
+  "initial_failures": [
+    "New pointing-channel fixture used a local channel binding that shadowed the fixture constructor; renamed the local writer channel. Final focused/full checks passed."
+  ],
+  "primary_references": [
+    "https://github.com/torvalds/linux/blob/v6.12/drivers/hid/hid-input.c",
+    "https://docs.kernel.org/input/event-codes.html"
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Linux-only mapper/property/capability changes. Portable Windows tests ran on Linux; native checks remain pending after prior automatic approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "Canonical BTN_MOUSE numbering is not verified HID descriptor evidence; custom driver mappings and hardware validation remain separate.",
+    "Pointing output requires explicit buttons and X/Y axes; replacing axes with an invalid shape cold-rejects before native IO. Touch/absolute/unknown buttons remain unsupported.",
+    "Default keyboard factories and CaptureGroup/console do not admit pointing output; host/worker pointing scope and graphical consumer authorization remain pending.",
+    "No real evdev/uinput/capture/session operation. Windows native pointer, hardware, GUI/packaging and Rust driver acceptance remain pending."
+  ]
+}

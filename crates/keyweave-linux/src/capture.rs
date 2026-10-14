@@ -35,7 +35,8 @@ impl<'a> OutputNodeReady<'a> {
             .chain((spec.repeat() == crate::output::RepeatPolicy::Kernel).then_some(20))
             .collect();
         let leds: Vec<_> = if spec.leds() { vec![0, 1, 2] } else { vec![] };
-        if node.input_syspath != input_syspath
+        if spec.validate_shape().is_err()
+            || node.input_syspath != input_syspath
             || !input_syspath.is_absolute()
             || !complete_capabilities(node)
             || node.id.bus != 6
@@ -50,7 +51,12 @@ impl<'a> OutputNodeReady<'a> {
                     .relative_axes()
                     .map_or_else(Vec::new, |axes| axes.codes().collect())
             || !node.capabilities.misc.is_empty()
-            || !node.capabilities.properties.is_empty()
+            || node.capabilities.properties.codes().collect::<Vec<_>>()
+                != if spec.pointing_buttons().is_some() {
+                    vec![0]
+                } else {
+                    vec![]
+                }
         {
             return Err(CaptureError::OutputNodeMismatch);
         }
@@ -824,5 +830,30 @@ mod tests {
             Err(CaptureError::MissingOutputAxis(1))
         ));
         assert!(calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn pointing_output_proof_and_capture_reject_unknown_buttons_or_touch_properties() {
+        let spec = spec(&[30])
+            .with_relative_axes(crate::relative::RelativeAxes::new(&[0, 1]).unwrap())
+            .with_pointing_buttons(crate::keys::PointingButtons::new(&[0x110, 0x111]).unwrap())
+            .unwrap();
+        let mut output = node(OUT, &[30, 0x110, 0x111]);
+        output.capabilities.events.set(2).unwrap();
+        output.capabilities.relative = bits(16, &[0, 1]);
+        assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_err());
+        output.capabilities.properties.set(0).unwrap();
+        assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_ok());
+        let mut physical = node(PHYSICAL, &[0x110, 0x111]);
+        physical.capabilities.events.set(2).unwrap();
+        physical.capabilities.relative = bits(16, &[0, 1]);
+        physical.capabilities.properties.set(0).unwrap();
+        assert!(physical.capabilities.relative_issues().is_empty());
+        assert!(!physical.capabilities.keyboard_issues().is_empty());
+        physical.capabilities.keys.set(0x118).unwrap();
+        assert!(!physical.capabilities.relative_issues().is_empty());
+        physical.capabilities.keys = bits(768, &[0x110]);
+        physical.capabilities.properties.set(1).unwrap();
+        assert!(!physical.capabilities.relative_issues().is_empty());
     }
 }

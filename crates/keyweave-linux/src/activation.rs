@@ -101,6 +101,9 @@ impl<S: CaptureSource> CaptureGroup<S> {
     }
     fn prepare(&self, output: &OutputNodeReady<'_>) -> Result<(), ActivationError> {
         self.inventory()?;
+        if output.spec().pointing_buttons().is_some() {
+            return Err(RuntimeError::StagedPointer.into());
+        }
         validate_config(&self.config, output.spec())?;
         if output.spec().repeat() != RepeatPolicy::Kernel {
             return Err(RuntimeError::RepeatPolicy.into());

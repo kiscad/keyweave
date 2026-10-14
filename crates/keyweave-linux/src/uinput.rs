@@ -24,6 +24,7 @@ impl UinputDevice {
     /// Opens only an explicit uinput node. Does not install, grab, wait for desktop
     /// readiness or change system permissions. Failed construction closes the FD.
     pub fn create(path: &Path, spec: DeviceSpec) -> io::Result<Self> {
+        spec.validate_shape()?;
         let layout = native_layout().ok_or_else(|| {
             io::Error::new(io::ErrorKind::Unsupported, "unaudited native uinput ABI")
         })?;
@@ -60,6 +61,9 @@ impl UinputDevice {
             for code in axes.codes() {
                 ioctl::uinput_bit(file.as_fd(), 102, code)?;
             }
+        }
+        if spec.pointing_buttons().is_some() {
+            ioctl::uinput_bit(file.as_fd(), 110, 0)?;
         }
         if spec.repeat() == RepeatPolicy::Kernel {
             ioctl::uinput_bit(file.as_fd(), 100, 20)?;

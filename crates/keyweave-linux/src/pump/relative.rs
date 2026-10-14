@@ -41,7 +41,7 @@ impl<B: FrameBackend> OutputPump<B> {
             return Err(OutputError::Capacity.into());
         }
         let backend = self.backend.as_ref().ok_or(PumpError::NotReady)?;
-        let native = Self::native(edges)?;
+        let native = self.native(edges)?;
         for chunk in native.chunks(crate::events::MAX_FRAME_EVENTS) {
             backend
                 .spec()

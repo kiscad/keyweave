@@ -400,6 +400,7 @@ pub(crate) fn uinput_bit(fd: BorrowedFd<'_>, number: u8, bit: u16) -> io::Result
         101 => (1..=0x2ff).contains(&bit),
         102 => crate::relative::SUPPORTED_AXES.contains(&bit),
         105 => bit <= 2,
+        110 => bit == 0,
         _ => false,
     };
     if !valid {

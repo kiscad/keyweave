@@ -111,6 +111,10 @@ impl Capabilities {
         if self.events.contains(crate::relative::EV_REL) && !self.relative.is_empty() {
             issues.retain(|issue| !matches!(issue, AdmissionIssue::EventClass(2)));
         }
+        issues.retain(|issue| {
+            !matches!(issue,AdmissionIssue::Key(code) if crate::keys::BUTTON_CODES.contains(code))
+                && !matches!(issue, AdmissionIssue::Property(0))
+        });
         issues.extend(
             self.relative
                 .codes()

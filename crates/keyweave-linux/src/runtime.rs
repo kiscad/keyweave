@@ -4,7 +4,7 @@ use crate::{
     capture::{CaptureDevice, CaptureError, CapturePhase, CaptureSource},
     emergency::{EmergencyChord, EmergencyError},
     events::{self, Event, FrameDecoder, Notice, ProtocolError},
-    keys::{self, IdentityPolicy, KeyError, KeyNormalizer, NormalizedKey},
+    keys::{IdentityPolicy, KeyError, KeyNormalizer, NormalizedKey},
     output::{DeviceSpec, RepeatPolicy},
     pump::{FrameBackend, OutputPump, Phase, PumpError},
     read::ReadBatch,
@@ -183,6 +183,8 @@ pub struct Runtime<S: CaptureSource, B: FrameBackend> {
 }
 /// Check all output branches before bootstrap grabs input and before hot activation.
 pub fn validate_config(config: &ConfigSnapshot, spec: &DeviceSpec) -> Result<(), RuntimeError> {
+    spec.validate_shape()
+        .map_err(|_| RuntimeError::InvalidStartup)?;
     let codes: BTreeSet<_> = spec.codes().collect();
     for key in config
         .simple
@@ -196,7 +198,10 @@ pub fn validate_config(config: &ConfigSnapshot, spec: &DeviceSpec) -> Result<(),
                 .chain(action.modifiers.iter().copied())
         })
     {
-        if !keys::output_code(key).is_ok_and(|code| codes.contains(&code)) {
+        if !spec
+            .output_code(key)
+            .is_ok_and(|code| codes.contains(&code))
+        {
             return Err(RuntimeError::ConfigurationKey(key));
         }
     }
@@ -258,6 +263,9 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
         let prepared = (|| {
             if inputs.is_empty() || inputs.len() > MAX_DEVICES {
                 return Err(RuntimeError::InvalidStartup);
+            }
+            if !relative && backend.spec().pointing_buttons().is_some() {
+                return Err(RuntimeError::StagedPointer);
             }
             if relative
                 && (!backend
@@ -368,7 +376,11 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                     id,
                     capture,
                     decoder: FrameDecoder::new(),
-                    normalizer: KeyNormalizer::new(IdentityPolicy::CanonicalEvdev),
+                    normalizer: if relative {
+                        KeyNormalizer::new_with_pointing(IdentityPolicy::CanonicalEvdev)
+                    } else {
+                        KeyNormalizer::new(IdentityPolicy::CanonicalEvdev)
+                    },
                     emergency: EmergencyChord::new(),
                 })
                 .collect(),
@@ -1052,6 +1064,7 @@ mod tests {
     use crate::{
         capture::{ArmResult, OutputNodeReady},
         events::{FrameWrite, NativeKey},
+        keys,
         output::WriteError,
         probe::{Bits, Capabilities, DeviceId, Probe},
     };
@@ -1245,6 +1258,17 @@ mod tests {
         Backend,
         Trace,
     ) {
+        resources_with_pointing(reads, relative, false)
+    }
+    fn resources_with_pointing(
+        reads: Vec<Vec<io::Result<ReadBatch>>>,
+        relative: bool,
+        pointing: bool,
+    ) -> (
+        Vec<(DeviceInstanceId, CaptureDevice<Source>)>,
+        Backend,
+        Trace,
+    ) {
         let trace = Rc::new(RefCell::new(Vec::new()));
         let mut backend = Backend {
             spec: DeviceSpec::new(
@@ -1268,6 +1292,17 @@ mod tests {
             output_node.capabilities.events.set(EV_REL).unwrap();
             output_node.capabilities.relative = bits(16, &crate::relative::SUPPORTED_AXES);
         }
+        if pointing {
+            backend.spec = backend
+                .spec
+                .clone()
+                .with_pointing_buttons(keys::PointingButtons::new(&keys::BUTTON_CODES).unwrap())
+                .unwrap();
+            for button in keys::BUTTON_CODES {
+                output_node.capabilities.keys.set(button).unwrap();
+            }
+            output_node.capabilities.properties.set(0).unwrap();
+        }
         let proof = OutputNodeReady::verify(&backend.spec, &backend.path, &output_node).unwrap();
         let inputs = reads
             .into_iter()
@@ -1282,6 +1317,15 @@ mod tests {
                 if relative {
                     physical.capabilities.events.set(EV_REL).unwrap();
                     physical.capabilities.relative = bits(16, &crate::relative::SUPPORTED_AXES);
+                }
+                if pointing && index > 0 {
+                    physical.capabilities.keys = bits(768, &keys::BUTTON_CODES);
+                }
+                if pointing {
+                    for button in keys::BUTTON_CODES {
+                        physical.capabilities.keys.set(button).unwrap();
+                    }
+                    physical.capabilities.properties.set(0).unwrap();
                 }
                 let source = Source {
                     id,
@@ -4341,5 +4385,105 @@ mod tests {
             ),
             Err(crate::activation::ActivationError::Inputs)
         ));
+    }
+
+    fn make_pointing(
+        reads: Vec<Vec<io::Result<ReadBatch>>>,
+        config: Arc<ConfigSnapshot>,
+    ) -> (Runtime<Source, Backend>, Trace) {
+        let (inputs, backend, trace) = resources_with_pointing(reads, true, true);
+        (
+            Runtime::new_staged_relative(inputs, backend, config).unwrap(),
+            trace,
+        )
+    }
+    #[test]
+    fn pointing_runtime_passes_button_drag_then_saved_up_in_native_order() {
+        let (mut runtime, trace) = make_pointing(
+            vec![vec![rel_frame(vec![
+                Event::output(1, 0x110, 1),
+                Event::output(EV_REL, 0, 5),
+                Event::output(1, 0x110, 0),
+            ])]],
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        assert_eq!(native_edges(&trace), [(0x110, 1), (0x110, 0)]);
+        assert_eq!(relative_calls(&trace), [vec![Event::output(EV_REL, 0, 5)]]);
+        assert!(runtime.submitted().is_empty());
+        assert_eq!(runtime.engine_state().bindings, 0);
+    }
+    #[test]
+    fn pointing_runtime_remap_and_reload_keep_original_button_binding_until_up() {
+        let mut cfg = (*config(1, "b")).clone();
+        cfg.simple[0].from = "button1".parse().unwrap();
+        let (mut runtime, trace) = make_pointing(
+            vec![vec![frame(0x110, 1), frame(0x110, 2), frame(0x110, 0)]],
+            Arc::new(cfg),
+        );
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.activate(config(2, "c")).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(120)).unwrap();
+        assert_eq!(native_edges(&trace), [(48, 1), (48, 0)]);
+        assert!(runtime.submitted().is_empty());
+    }
+    #[test]
+    fn pointing_runtime_can_map_keyboard_to_button_and_stop_recovers_actual_accepted_button() {
+        let mut cfg = (*config(1, "b")).clone();
+        cfg.simple[0].to = vec!["button2".parse::<KeyId>().unwrap().into()];
+        let (mut runtime, trace) = make_pointing(vec![vec![frame(30, 1)]], Arc::new(cfg));
+        runtime.poll(MonoTime(100)).unwrap();
+        assert_eq!(native_edges(&trace), [(0x111, 1)]);
+        let before = trace.borrow().len();
+        runtime.pause(MonoTime(110)).unwrap();
+        assert_eq!(trace.borrow()[before], Call::InputClose(1));
+        runtime.poll(MonoTime(110)).unwrap();
+        assert_eq!(native_edges(&trace), [(0x111, 1), (0x111, 0)]);
+        assert!(
+            runtime
+                .termination_report()
+                .unwrap()
+                .output_recovery_confirmed
+        );
+    }
+    #[test]
+    fn pointing_runtime_mouse_only_peer_works_with_separate_emergency_keyboard() {
+        let (inputs, backend, trace) = resources_with_pointing(
+            vec![vec![], vec![frame(0x110, 1), frame(0x110, 0)]],
+            true,
+            true,
+        );
+        let mut runtime = Runtime::new_staged_relative(
+            inputs,
+            backend,
+            Arc::new(ConfigSnapshot::empty(ConfigGeneration(1))),
+        )
+        .unwrap();
+        runtime.poll(MonoTime(100)).unwrap();
+        runtime.poll(MonoTime(110)).unwrap();
+        runtime.poll(MonoTime(120)).unwrap();
+        runtime.poll(MonoTime(130)).unwrap();
+        assert_eq!(native_edges(&trace), [(0x110, 1), (0x110, 0)]);
+        assert!(runtime.submitted().is_empty());
+    }
+
+    #[test]
+    fn pointing_output_cannot_use_default_keyboard_runtime_scope() {
+        let (inputs, mut backend, trace) = resources(vec![vec![]]);
+        backend.spec = backend
+            .spec
+            .clone()
+            .with_relative_axes(RelativeAxes::new(&[0, 1]).unwrap())
+            .with_pointing_buttons(keys::PointingButtons::new(&[keys::BTN_LEFT]).unwrap())
+            .unwrap();
+        assert!(matches!(
+            Runtime::new_staged(inputs, backend, config(1, "b")),
+            Err(RuntimeError::StagedPointer)
+        ));
+        assert_eq!(
+            trace.borrow().as_slice(),
+            [Call::InputClose(1), Call::OutputClose]
+        );
     }
 }
