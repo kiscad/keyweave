@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0182 disposable read-only X11/XI2 node metadata executable",
+  "source_base_commit": "6da0be57250c66b8f0127437de07a4a4f1915b47",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "Cargo.toml": "5fee2a167752e5465a959fa956bd210017f6c51a6d9bfc44b9a856a319eae333",
+    "Cargo.lock": "187e38939433a51870fba263c30cd3bf9d1bd91b9bed5651b3cdc4f224d139ac",
+    "crates/keyweave-x11-probe/Cargo.toml": "a8053fbdf1d70f6c17e391d9fa29f2a93b8073a75367b9d1b26e47d788675973",
+    "crates/keyweave-x11-probe/src/main.rs": "7478c339280a66ebd30ab380e17b39e3ebf932a266b2d58b7060e396fb09387d",
+    "crates/keyweave-x11-probe/src/native.rs": "5ef3ca5d8a34a1b2c9df0d162d376b545c0961cd34cc51d9dba5f002c26e0e6f",
+    "crates/keyweave-x11-probe/tests/cli.rs": "95c93243d81957352d0c56e3e7d4f338cc5f9d3e6755de6e5ffa4d865532bdd7",
+    "tools/verify_x11_abi.py": "1be7436cf633ea2d521198341b3ab085db4f1b7debc3046a1f301af23f2d706c"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1694,
+    "new_tests": 5,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 1
+    },
+    "source_hashes_verified": 60,
+    "x11_sdk_oracle": "failed: X11/Xlib.h missing; not an ABI pass",
+    "native_display_query": "not executed",
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-probe/tests.log",
+        "sha256": "ad302f955b387ec18d4cb973cf26403fe4ddd007c978ab35c0d06e748dcc8b6e"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-probe/clippy.log",
+        "sha256": "ca68eaca5b48ec694f302bf6bccd8e316eb33121a87e1f038f316f184c4a80cd"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-probe/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-probe/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-probe/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-probe/x11-sdk.log",
+        "sha256": "6240e68690b6ef8a532069c4417b8b5ae9f505364ecc37799d842375dda8108a"
+      }
+    }
+  },
+  "initial_failures": [
+    "First manifest selected libc 0.2.177 conflicting with the existing pinned 0.2.176; reused the existing pinned dependency, without downloads.",
+    "Argument fixture helper args was shadowed by a local binding; renamed sample_args. Focused/full checks passed."
+  ],
+  "primary_references": [
+    "https://raw.githubusercontent.com/mirror/libXi/master/include/X11/extensions/XInput2.h",
+    "https://github.com/mirror/libX11"
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "New helper returns unsupported off Linux; portable workspace checks ran on Linux. Windows native validation remains pending after prior approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "Probe executable is independent of capturer to isolate Xlib/XIO process failure, but owned child deadline/kill-reap, response validation and consumer gate integration remain pending.",
+    "X11 SDK headers missing and root library ownership cannot be proved in the sandbox. Rust declarations and scalar Linux ABI checks do not substitute for real X11 SDK ABI or actual server queries.",
+    "Only device metadata is requested, no input state/events/focus/title; success is not readiness, unlock or application-delivery proof.",
+    "Wayland consumer, mixed host/worker, hardware, Windows pointer, GUI/packaging and Rust driver acceptance remain pending."
+  ]
+}

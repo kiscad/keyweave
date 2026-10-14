@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/keyweave-types", "crates/keyweave-engine", "crates/keyweave-config", "crates/keyweavectl", "crates/keyweave-output", "crates/keyweave-linux", "crates/keyweave-windows", "crates/keyweave-progress", "crates/keyweave-worker", "crates/keyweave-host"]
+members = ["crates/keyweave-types", "crates/keyweave-engine", "crates/keyweave-config", "crates/keyweavectl", "crates/keyweave-output", "crates/keyweave-linux", "crates/keyweave-windows", "crates/keyweave-progress", "crates/keyweave-worker", "crates/keyweave-host", "crates/keyweave-x11-probe"]
 
 [workspace.package]
 version = "0.1.0"
