@@ -1,5 +1,10 @@
-//! Finite console capture preparation. Caller owns independent supervision;
+//! Finite consumer capture preparation. Caller owns independent supervision;
 //! active consumer renewal is required after the final Runtime handoff.
+mod x11;
+pub use x11::{
+    X11Bootstrap, X11BootstrapFailure, X11Prepared, X11StartupCleanup, X11StartupCleanupReport,
+};
+
 use crate::{
     activation::{ActivationError, CaptureGroup},
     capture::{
@@ -41,7 +46,7 @@ pub enum BootstrapError {
     Attempts,
     #[error("invalid bootstrap phase")]
     Phase,
-    #[error("console readiness lost after capture admission")]
+    #[error("consumer readiness lost after capture admission")]
     ConsumerLost,
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -76,6 +81,7 @@ struct Plan {
     config: Arc<ConfigSnapshot>,
     spec: DeviceSpec,
     mode: crate::runtime::ExecutionMode,
+    relative: bool,
 }
 impl Plan {
     fn new(
@@ -91,6 +97,21 @@ impl Plan {
         spec: DeviceSpec,
         mode: crate::runtime::ExecutionMode,
     ) -> Result<Self, BootstrapError> {
+        Self::new_inner(inputs, config, spec, mode, false)
+    }
+    fn new_inner(
+        inputs: Vec<(DeviceInstanceId, PathBuf)>,
+        config: Arc<ConfigSnapshot>,
+        spec: DeviceSpec,
+        mode: crate::runtime::ExecutionMode,
+        relative: bool,
+    ) -> Result<Self, BootstrapError> {
+        if relative
+            && (mode != crate::runtime::ExecutionMode::StagedKeyboard
+                || spec.relative_axes().is_none())
+        {
+            return Err(RuntimeError::StagedPointer.into());
+        }
         let mut ids = BTreeSet::new();
         let mut paths = BTreeSet::new();
         if inputs.is_empty()
@@ -119,6 +140,7 @@ impl Plan {
             config,
             spec,
             mode,
+            relative,
         })
     }
 }
@@ -163,6 +185,10 @@ impl ReadyEvidence for crate::x11_consumer::X11Observation {
 // Private injection boundary; no public factory can replace real guard/IO checks.
 trait Platform {
     type Ready: ReadyEvidence;
+    fn retain_on_close(&self) -> bool {
+        false
+    }
+    fn abort(&mut self) {}
     fn query_pending(&self) -> bool {
         false
     }
@@ -231,6 +257,9 @@ impl<P: Platform> Bootstrap<P> {
         Ok(now)
     }
     fn close(&mut self) {
+        if self.phase == Phase::Closed {
+            return;
+        }
         // This explicit order applies to partially opened and already grabbed
         // resources, including Drop and post-arm provider failure.
         self.group.take();
@@ -238,7 +267,17 @@ impl<P: Platform> Bootstrap<P> {
         self.node.take();
         self.ready.take();
         self.output.take();
-        self.platform.take(); // read-only console owner closes last
+        if self
+            .platform
+            .as_ref()
+            .is_some_and(Platform::retain_on_close)
+        {
+            if let Some(platform) = &mut self.platform {
+                platform.abort();
+            }
+        } else {
+            self.platform.take();
+        } // synchronous provider closes last
         self.phase = Phase::Closed;
     }
     fn step(&mut self) -> Result<BootstrapStep, BootstrapError> {
@@ -303,11 +342,12 @@ impl<P: Platform> Bootstrap<P> {
                 }
             }
             Phase::Group => {
-                self.group = Some(CaptureGroup::new_with_mode(
-                    std::mem::take(&mut self.inputs),
-                    self.plan.config.clone(),
-                    self.plan.mode,
-                )?);
+                let inputs = std::mem::take(&mut self.inputs);
+                self.group = Some(if self.plan.relative {
+                    CaptureGroup::new_staged_relative(inputs, self.plan.config.clone())?
+                } else {
+                    CaptureGroup::new_with_mode(inputs, self.plan.config.clone(), self.plan.mode)?
+                });
                 self.phase = Phase::Arm;
             }
             Phase::Arm | Phase::Verify | Phase::Ready | Phase::Closed => {
@@ -368,26 +408,44 @@ impl<P: Platform> Bootstrap<P> {
         }
         Ok(())
     }
-    fn finish(mut self) -> Result<Handoff<P>, BootstrapError> {
-        if self.phase != Phase::Ready {
-            return Err(BootstrapError::Phase);
+    fn finish(self) -> Result<Handoff<P>, BootstrapError> {
+        match self.finish_preserving() {
+            Ok(handoff) => Ok(handoff),
+            Err((error, held)) => {
+                drop(held);
+                Err(error)
+            }
         }
-        self.platform
-            .as_mut()
-            .ok_or(BootstrapError::Phase)?
-            .verify()?;
-        let now = self.time()?;
-        if !self.ready_fresh(now) {
-            return Err(BootstrapError::ConsumerLost);
+    }
+    fn finish_preserving(mut self) -> Result<Handoff<P>, (BootstrapError, Box<Self>)> {
+        let result = (|| {
+            if self.phase != Phase::Ready {
+                return Err(BootstrapError::Phase);
+            }
+            self.platform
+                .as_mut()
+                .ok_or(BootstrapError::Phase)?
+                .verify()?;
+            let now = self.time()?;
+            if !self.ready_fresh(now) {
+                return Err(BootstrapError::ConsumerLost);
+            }
+            let group = self.group.take().ok_or(BootstrapError::Phase)?;
+            let output = self.output.take().ok_or(BootstrapError::Phase)?;
+            let runtime = group.into_runtime(output)?;
+            Ok(Handoff {
+                runtime,
+                platform: self.platform.take().ok_or(BootstrapError::Phase)?,
+                ready: self.ready.take().ok_or(BootstrapError::Phase)?,
+            })
+        })();
+        match result {
+            Ok(handoff) => Ok(handoff),
+            Err(error) => {
+                self.close();
+                Err((error, Box::new(self)))
+            }
         }
-        let group = self.group.take().ok_or(BootstrapError::Phase)?;
-        let output = self.output.take().ok_or(BootstrapError::Phase)?;
-        let runtime = group.into_runtime(output)?;
-        Ok(Handoff {
-            runtime,
-            platform: self.platform.take().ok_or(BootstrapError::Phase)?,
-            ready: self.ready.take().ok_or(BootstrapError::Phase)?,
-        })
     }
 }
 impl<P: Platform> Drop for Bootstrap<P> {

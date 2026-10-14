@@ -137,6 +137,14 @@ impl NativeX11Observer {
             .as_ref()
             .filter(|value| value.fresh_for(output, now))
     }
+    /// Bootstrap returns the exact evidence extracted from this same observer.
+    pub(crate) fn restore_completed(&mut self, observation: X11Observation) -> io::Result<()> {
+        if self.pending.is_some() {
+            return Err(invalid("cannot restore evidence while probe is pending"));
+        }
+        self.observation = Some(observation);
+        Ok(())
+    }
     pub fn take_observation(&mut self) -> Option<X11Observation> {
         self.observation.take()
     }

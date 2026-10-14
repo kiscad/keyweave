@@ -326,6 +326,12 @@ pub struct EvdevSource {
 }
 #[cfg(target_os = "linux")]
 impl CaptureDevice<EvdevSource> {
+    /// Explicit native relative scope; opens exactly one owned source, no grab.
+    pub fn open_with_relative(path: &Path) -> io::Result<Self> {
+        let mut device = Self::open(path)?;
+        device.relative_allowed = true;
+        Ok(device)
+    }
     pub(crate) fn wait_fd(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
         self.source.as_ref().map(|source| source.device.wait_fd())
     }

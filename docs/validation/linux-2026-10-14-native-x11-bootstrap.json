@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "14d007b74ad9b8b3237d04547bdfa9e3dfea48ba",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "44f52159ce3b5e9545c5e9854452e0dfc709b9641f89a637cd55575c7c57cab7",
+    "crates/keyweave-linux/src/bootstrap/x11.rs": "bb11b03a91cde4b14bc7c3987786b1dcd95ed3a660e5a633009c32b9adffab28",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "c6f65679ef022cc942cf420658fb02bb8354718e7b746a9b0b6eec1eb0f8ec32",
+    "crates/keyweave-linux/src/capture.rs": "6ad64840266ed0ee28c80b6be096c6f8d376b52cd384c7e004ef36e9d18f29f5",
+    "crates/keyweave-linux/src/x11_consumer.rs": "df927feed00c56b0b378960c8286d305b16df3a96ded75d7d141382453fd6cdd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1775,
+    "new_tests": 5,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/clippy.log",
+        "sha256": "3f6787563ce696de0e40520f8faa642b3c45111fceb650647faf167e9f364756"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/tests.log",
+        "sha256": "5c53bd8412db6bf8b7bba95cf79ddf0f2d8478d4bab80b985a9aca5ef9047e44"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      },
+      "initial-clippy": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/initial-clippy.log",
+        "sha256": "3e50f880dc7ac6059a7bc4010cb908ffeb937dfc519a7b9701e3130a82c7e296"
+      },
+      "initial-tests": {
+        "path": "target/validation/linux-20261014-native-x11-bootstrap/initial-tests.log",
+        "sha256": "066cd4881de6731e30df467a10c7a6b64282517079f28e4b3ecaf4cb77271958"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial Clippy required collapsing two native platform conditionals; corrected.",
+    "Two retained-provider tests reused a synchronous helper that assumed provider already dropped. Split input/output ordering from final provider drop checks; tests now explicitly verify retained ownership. Final checks passed."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Native X11Bootstrap and startup cleanup APIs compiled only; tests use shared mixed state machine with keyboard/mouse mock sources and retained mock platform. No real session/display/input/uinput/capture access.",
+    "Caller must authenticate helper, establish independent supervision and check Stop before every step. Host/session provider selection not connected yet.",
+    "Startup failure/cancellation must consume into_cleanup and poll same pending child; ignored owner Drop remains best effort, not confirmed cleanup.",
+    "Successful handoff restores the exact extracted observation only into the same private platform observer, then creates lease and transfers the same monotonic clock.",
+    "Pinned SDK C ABI passed; root-trusted library/server/driver settings and real output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

@@ -78,6 +78,9 @@ struct Output {
     trace: Trace,
 }
 impl FrameBackend for Output {
+    fn relative_axes(&self) -> Option<&crate::relative::RelativeAxes> {
+        self.spec.relative_axes()
+    }
     fn spec(&self) -> &DeviceSpec {
         &self.spec
     }
@@ -254,18 +257,39 @@ fn drive(boot: &mut Bootstrap<Mock>) -> Result<(), BootstrapError> {
     }
     panic!("fixture failed to converge")
 }
-fn inputs_closed_before_output(trace: &Trace) {
+fn input_owners_closed_before_output(trace: &Trace) {
     let trace = trace.borrow();
-    let output = trace.iter().position(|v| v == "output-close").unwrap();
-    for (index, event) in trace.iter().enumerate() {
-        if event.starts_with("close") {
-            assert!(index < output);
-        }
-    }
-    let provider = trace.iter().position(|v| v == "provider-close").unwrap();
-    assert!(output < provider);
-    assert!(!trace.iter().any(|v| v == "read" || v == "write"));
+    let output = trace
+        .iter()
+        .position(|event| event == "output-close")
+        .unwrap();
+    assert!(
+        trace
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| event.starts_with("close"))
+            .all(|(index, _)| index < output)
+    );
+    assert!(
+        !trace
+            .iter()
+            .any(|event| event == "read" || event == "write")
+    );
 }
+fn inputs_closed_before_output(trace: &Trace) {
+    input_owners_closed_before_output(trace);
+    let trace = trace.borrow();
+    let output = trace
+        .iter()
+        .position(|event| event == "output-close")
+        .unwrap();
+    let provider = trace
+        .iter()
+        .position(|event| event == "provider-close")
+        .unwrap();
+    assert!(output < provider);
+}
+
 #[test]
 fn admission_observes_before_and_after_grab_and_hands_off_without_dispatch() {
     let mock = Mock::new();
@@ -692,11 +716,19 @@ fn staged_plan_propagates_mode_through_bootstrap_group_and_handoff_without_dispa
 }
 
 struct GraphMock {
+    relative: bool,
+    retain: bool,
     mock: Mock,
     pending: bool,
     latency: u64,
 }
 impl Platform for GraphMock {
+    fn retain_on_close(&self) -> bool {
+        self.retain
+    }
+    fn abort(&mut self) {
+        record(&self.mock.trace, "abort");
+    }
     type Ready = crate::x11_consumer::X11Observation;
     type Source = Source;
     type Output = Output;
@@ -713,10 +745,37 @@ impl Platform for GraphMock {
         self.mock.create(spec)
     }
     fn discover(&mut self, output: &Output) -> io::Result<Option<Probe>> {
-        self.mock.discover(output)
+        let mut node = self.mock.discover(output)?;
+        if self.relative
+            && let Some(node) = &mut node
+        {
+            node.capabilities.keys = bits(&output.spec.codes().collect::<Vec<_>>(), 768);
+            node.capabilities.events = bits(&[0, 1, 2, 20], 32);
+            node.capabilities.relative = bits(&[0, 1], 16);
+            node.capabilities.properties = bits(&[0], 32);
+        }
+        Ok(node)
     }
     fn open(&mut self, path: &Path) -> io::Result<CaptureDevice<Source>> {
-        self.mock.open(path)
+        if !self.relative {
+            return self.mock.open(path);
+        }
+        self.mock.opened += 1;
+        let number = self.mock.opened;
+        record(&self.mock.trace, format!("open{number}"));
+        let mut probe = probe(&format!("/sys/devices/mock/input/input{number}"));
+        if number == 2 {
+            probe.capabilities.keys = bits(&[0x110], 768);
+            probe.capabilities.events = bits(&[0, 1, 2], 32);
+            probe.capabilities.relative = bits(&[0, 1], 16);
+            probe.capabilities.properties = bits(&[0], 32);
+        }
+        Ok(CaptureDevice::new_with_relative(Source {
+            probe,
+            trace: self.mock.trace.clone(),
+            held: self.mock.held.clone(),
+            number,
+        }))
     }
     fn observe(&mut self, _: &Output) -> io::Result<Option<Self::Ready>> {
         record(&self.mock.trace, "observe");
@@ -748,6 +807,8 @@ fn graphical(mock: Mock) -> Bootstrap<GraphMock> {
     Bootstrap::new(
         plan,
         GraphMock {
+            relative: false,
+            retain: false,
             mock,
             pending: true,
             latency: 0,
@@ -827,4 +888,126 @@ fn graphical_unknown_is_distinct_from_pending_after_grab() {
     platform.pending = false;
     platform.mock.observations.push_back(Observation::Missing);
     assert!(matches!(boot.step(), Err(BootstrapError::ConsumerLost)));
+}
+
+fn mixed_graphical(mock: Mock) -> Bootstrap<GraphMock> {
+    let spec = spec()
+        .with_relative_axes(crate::relative::RelativeAxes::new(&[0, 1]).unwrap())
+        .with_pointing_buttons(crate::keys::PointingButtons::new(&[0x110]).unwrap())
+        .unwrap();
+    let plan = Plan::new_inner(
+        inputs(),
+        config(),
+        spec,
+        crate::runtime::ExecutionMode::StagedKeyboard,
+        true,
+    )
+    .unwrap();
+    Bootstrap::new(
+        plan,
+        GraphMock {
+            mock,
+            pending: true,
+            latency: 0,
+            relative: true,
+            retain: true,
+        },
+    )
+}
+#[test]
+fn mixed_bootstrap_uses_mouse_factory_and_relative_runtime_handoff() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut boot = mixed_graphical(mock);
+    for _ in 0..32 {
+        if boot.step().unwrap() == BootstrapStep::Ready {
+            break;
+        }
+    }
+    assert_eq!(boot.phase, Phase::Ready);
+    let handoff = boot
+        .finish_preserving()
+        .unwrap_or_else(|_| panic!("handoff failed"));
+    assert!(handoff.runtime.relative_enabled());
+    assert!(handoff.ready.fresh_for(Path::new(OUTPUT), MonoTime(1)));
+    assert!(
+        trace.borrow().contains(&"grab1:true".into())
+            && trace.borrow().contains(&"grab2:true".into())
+    );
+    drop(handoff);
+}
+#[test]
+fn mixed_plan_rejects_missing_axes_or_legacy_mode_before_creation() {
+    for relative_spec in [false, true] {
+        let spec = if relative_spec {
+            spec().with_relative_axes(crate::relative::RelativeAxes::new(&[0, 1]).unwrap())
+        } else {
+            spec()
+        };
+        let mode = if relative_spec {
+            crate::runtime::ExecutionMode::Legacy
+        } else {
+            crate::runtime::ExecutionMode::StagedKeyboard
+        };
+        assert!(matches!(
+            Plan::new_inner(inputs(), config(), spec, mode, true),
+            Err(BootstrapError::Runtime(RuntimeError::StagedPointer))
+        ));
+    }
+}
+#[test]
+fn post_arm_failure_retains_provider_after_input_and_output_close() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut boot = mixed_graphical(mock);
+    while boot.phase != Phase::Verify {
+        boot.step().unwrap();
+    }
+    let platform = boot.platform.as_mut().unwrap();
+    platform.pending = false;
+    platform.mock.observations.push_back(Observation::Missing);
+    assert!(matches!(boot.step(), Err(BootstrapError::ConsumerLost)));
+    assert!(boot.platform.is_some());
+    assert_eq!(boot.phase, Phase::Closed);
+    input_owners_closed_before_output(&trace);
+    assert!(!trace.borrow().contains(&"provider-close".into()));
+    let platform = boot.platform.take().unwrap();
+    drop(boot);
+    assert!(!trace.borrow().contains(&"provider-close".into()));
+    drop(platform);
+    assert_eq!(trace.borrow().last(), Some(&"provider-close".into()));
+}
+#[test]
+fn finish_preserving_keeps_failed_handoff_provider_owner() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut boot = mixed_graphical(mock);
+    while boot.step().unwrap() != BootstrapStep::Ready {}
+    boot.platform.as_mut().unwrap().mock.clock.set(250_000_001);
+    let (error, held) = boot.finish_preserving().err().unwrap();
+    assert!(matches!(error, BootstrapError::ConsumerLost));
+    assert!(held.platform.is_some());
+    input_owners_closed_before_output(&trace);
+    assert!(!trace.borrow().contains(&"provider-close".into()));
+    drop(held);
+    assert_eq!(trace.borrow().last(), Some(&"provider-close".into()));
+}
+#[test]
+fn repeated_close_does_not_reopen_or_recancel_startup_transaction() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    let mut boot = mixed_graphical(mock);
+    boot.step().unwrap();
+    boot.close();
+    boot.close();
+    assert_eq!(
+        trace
+            .borrow()
+            .iter()
+            .filter(|event| *event == "abort")
+            .count(),
+        1
+    );
+    assert!(boot.platform.is_some());
+    drop(boot);
 }
