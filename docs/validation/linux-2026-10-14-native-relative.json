@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0177 native uinput relative axes, exact output probe and shared writer state machine",
+  "source_base_commit": "c61a9d68aa9318e40697d06ea09467eb54d2b1d3",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/activation.rs": "bcb13d978ad61d2339c3fd4e24b340cfe1f7310c1e395591a21cebc3bbe81e16",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "39aaf1690aa26b24b02ecf72c2df6c9ecbac1622eb62b49669cf960d8b324687",
+    "crates/keyweave-linux/src/capture.rs": "00ba132486cc1d509e0592f09c79b26b2dbd7ac1b755807f8e688defe05c8a9e",
+    "crates/keyweave-linux/src/device.rs": "93e2a41259b546c873f92f68d184c65ad0b047a8459b1b072d8fba5e6a6c5c76",
+    "crates/keyweave-linux/src/ioctl.rs": "88bc13602c6825f00117387c10acdac915599e0c6b630690da6ea5c5a152bb63",
+    "crates/keyweave-linux/src/output.rs": "935f9da92c93be776c7747a00b1cae6354fa29d481bcf54acc6699464086e999",
+    "crates/keyweave-linux/src/probe.rs": "097cea6e33a3bbe9ef35aa70ea9da3fa416dd4d398107e6cf9e19a9861a7cdea",
+    "crates/keyweave-linux/src/pump.rs": "cba12a8352fcc9dc781ffdc34fc7321806b54e3cd4f1e0fbbb75108ed5c77f51",
+    "crates/keyweave-linux/src/runtime.rs": "495be413091d1ac22c8387e04e32ece34271f2e025a4949c47c531e5323d5efb",
+    "crates/keyweave-linux/src/uinput.rs": "a2a74281a6f2ab4d33420cd289d66991f348986debad7e27acc9b2d501c8c5cd",
+    "crates/keyweave-linux/tests/probe.rs": "ad1aec3a1e6f857315e2b11e8fdcc0f8f462964c2785081c29b46b5a8eab9c3f",
+    "tools/verify_linux_abi.py": "d9dc8b01dc823adbacea8ed00cd2d6ebf5b1d0cf1e7cfd3f9ae0247d95f22799",
+    "crates/keyweave-linux/src/output/channel.rs": "769f669a072ada7837e81f7b7edf96fc189fb6194791895816cefcfcdf2cdb56",
+    "crates/keyweave-linux/tests/output_channel.rs": "80ff51e71f825f0bce384b08a4d6433a0f41b08f2be20bbf50393be409ddd2b9"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1649,
+    "new_tests": 10,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "relative_uapi_verified": [
+      "REL_MAX=15",
+      "UI_SET_RELBIT=0x40045566",
+      "EVIOCGBIT(EV_REL,8)=0x80084522"
+    ],
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-native-relative/tests.log",
+        "sha256": "62583d6aabe9fca181e1a9a8ed9646d493817885651f5b39e6fbc9be713a6a2f"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-native-relative/clippy.log",
+        "sha256": "5539d5e40e9da3763b03f7dc0d41481ae25d42378940d7c36a11517b9239d657"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-native-relative/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-native-relative/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-native-relative/abi.log",
+        "sha256": "60d475e06b59a15d2397eb7f0ffb5842be71d92d18f053a000a49a2657cf4c46"
+      },
+      "initial-clippy": {
+        "path": "target/validation/linux-20261014-native-relative/initial-clippy.log",
+        "sha256": "078c8d612d8b7b1cf26fe219b812abbaca3349817d5acfc965ababb41839039c"
+      },
+      "initial-check": {
+        "path": "target/validation/linux-20261014-native-relative/initial-check.log",
+        "sha256": "3b756d0f5ac3a1b1cefbee2d87b71983379b8456a1606ffdec53f0f8c79ac251"
+      },
+      "initial-proof": {
+        "path": "target/validation/linux-20261014-native-relative/initial-proof.log",
+        "sha256": "5ccdae347116194139306cfb2e48745b212e227c88fb7518743b46b2119a99f5"
+      }
+    }
+  },
+  "initial_failures": [
+    "First all-target check found one existing shorthand Capabilities fixture without the new relative mask; added its explicit empty 16-bit mask.",
+    "New output proof fixture initially called a guessed admit_keyboard method; corrected to the actual keyboard_issues API.",
+    "Clippy requested a type alias for the new writer-call fixture tuple; added Calls alias. Final checks passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "No Windows FFI changes; portable shared workspace checks ran on Linux. Native MSVC/SDK checks of prior changes remain pending after automatic approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "Native uinput creation and emit_relative code paths now exist, but no real uinput/evdev/capture/session operation was executed.",
+    "Relative capabilities are explicit and actual output-node masks must match; OutputChannel construction itself is not identity or consumer-readiness proof.",
+    "Physical keyboard admission remains strict; pointer capture, packet-to-stage receipt correlation, consumer authorization and mixed Runtime integration remain pending.",
+    "Windows pointer/native validation, hardware, graphical Linux providers, GUI/packaging and Rust driver acceptance remain pending."
+  ]
+}

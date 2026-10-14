@@ -80,6 +80,11 @@ impl EvdevDevice {
         };
         let events = query_bits(&file, 0x20, 32)?;
         let keys = query_bits(&file, 0x21, usize::from(KEY_MAX) + 1)?;
+        let relative = if events.contains(crate::relative::EV_REL) {
+            query_bits(&file, 0x22, 16)?
+        } else {
+            Bits::empty(16).map_err(|issue| error(&issue.to_string()))?
+        };
         let misc = if events.contains(4) {
             query_bits(&file, 0x24, 8)?
         } else {
@@ -110,6 +115,7 @@ impl EvdevDevice {
                 capabilities: Capabilities {
                     events,
                     keys,
+                    relative,
                     misc,
                     leds,
                     properties,

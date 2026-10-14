@@ -396,8 +396,9 @@ pub(crate) fn evdev_grab(fd: BorrowedFd<'_>, grabbed: bool) -> io::Result<()> {
 }
 pub(crate) fn uinput_bit(fd: BorrowedFd<'_>, number: u8, bit: u16) -> io::Result<()> {
     let valid = match number {
-        100 => matches!(bit, 1 | 17 | 20),
+        100 => matches!(bit, 1 | 2 | 17 | 20),
         101 => (1..=0x2ff).contains(&bit),
+        102 => crate::relative::SUPPORTED_AXES.contains(&bit),
         105 => bit <= 2,
         _ => false,
     };

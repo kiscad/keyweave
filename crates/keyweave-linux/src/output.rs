@@ -1,8 +1,10 @@
 //! Bounded uinput configuration and one-shot writes. No retry hides acceptance.
+mod channel;
 use crate::{
     events::{self, FrameWrite, Layout, NativeKey, ProtocolError},
     keys,
 };
+pub use channel::{OutputChannel, OutputState};
 use std::{
     collections::BTreeSet,
     io::{self, Write},
@@ -19,6 +21,7 @@ pub struct DeviceSpec {
     codes: BTreeSet<u16>,
     repeat: RepeatPolicy,
     leds: bool,
+    relative_axes: Option<crate::relative::RelativeAxes>,
 }
 impl DeviceSpec {
     pub fn new(name: &str, codes: &[u16], repeat: RepeatPolicy, leds: bool) -> io::Result<Self> {
@@ -41,7 +44,35 @@ impl DeviceSpec {
             codes: codes.iter().copied().collect(),
             repeat,
             leds,
+            relative_axes: None,
         })
+    }
+    /// Explicit extra relative axes; this metadata does not create a device.
+    pub fn with_relative_axes(mut self, axes: crate::relative::RelativeAxes) -> Self {
+        self.relative_axes = Some(axes);
+        self
+    }
+    pub fn relative_axes(&self) -> Option<&crate::relative::RelativeAxes> {
+        self.relative_axes.as_ref()
+    }
+    pub fn validate_relative(&self, frame: &crate::relative::RelativeFrame) -> io::Result<()> {
+        if frame.records().is_empty() {
+            return Ok(());
+        }
+        let axes = self.relative_axes().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Unsupported, "relative output not advertised")
+        })?;
+        if frame
+            .records()
+            .iter()
+            .any(|record| !axes.contains(record.code))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unadvertised relative axis",
+            ));
+        }
+        Ok(())
     }
     pub fn codes(&self) -> impl Iterator<Item = u16> + '_ {
         self.codes.iter().copied()

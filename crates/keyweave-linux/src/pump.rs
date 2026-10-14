@@ -296,6 +296,15 @@ impl FrameBackend for crate::uinput::UinputDevice {
             self.emit(edges)
         }
     }
+    fn relative_axes(&self) -> Option<&RelativeAxes> {
+        self.spec().relative_axes()
+    }
+    fn submit_relative(
+        &mut self,
+        frame: &RelativeFrame,
+    ) -> io::Result<Result<FrameWrite, WriteError>> {
+        self.emit_relative(frame)
+    }
     fn flush_report(&mut self) -> io::Result<Result<bool, WriteError>> {
         self.flush_report()
     }

@@ -17,6 +17,7 @@ fn keyboard() -> Capabilities {
     Capabilities {
         events,
         keys,
+        relative: Bits::empty(16).unwrap(),
         misc,
         leds,
         properties: Bits::empty(32).unwrap(),

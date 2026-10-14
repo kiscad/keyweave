@@ -82,6 +82,7 @@ pub struct Probe {
 pub struct Capabilities {
     pub events: Bits,
     pub keys: Bits,
+    pub relative: Bits,
     pub misc: Bits,
     pub leds: Bits,
     pub properties: Bits,
@@ -113,6 +114,9 @@ impl Capabilities {
             if ![0, 1, 4, 17, 20].contains(&code) {
                 issues.push(AdmissionIssue::EventClass(code));
             }
+        }
+        if !self.relative.is_empty() && !self.events.contains(crate::relative::EV_REL) {
+            issues.push(AdmissionIssue::EventClass(crate::relative::EV_REL));
         }
         let supported: std::collections::BTreeSet<_> = native_codes().collect();
         for code in self.keys.codes() {

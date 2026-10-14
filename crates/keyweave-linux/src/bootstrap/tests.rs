@@ -35,6 +35,8 @@ fn probe(path: &str) -> Probe {
         name: None,
         input_syspath: path.into(),
         capabilities: Capabilities {
+            relative: crate::probe::Bits::empty(16).unwrap_or_else(|error| panic!("{error}")),
+
             events: bits(&[0, 1, 20], 32),
             keys: bits(&keys::native_codes().collect::<Vec<_>>(), 768),
             misc: bits(&[], 8),

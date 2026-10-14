@@ -1042,6 +1042,8 @@ mod tests {
             name: None,
             input_syspath: crate::mock_syspath(path),
             capabilities: Capabilities {
+                relative: crate::probe::Bits::empty(16).unwrap_or_else(|error| panic!("{error}")),
+
                 events: bits(32, &[0, 1, 20]),
                 keys: bits(768, &keys::native_codes().collect::<Vec<_>>()),
                 misc: bits(8, &[]),

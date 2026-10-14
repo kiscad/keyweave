@@ -12,7 +12,8 @@ source = r'''
 #include <stddef.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
-_Static_assert(EV_REL == 2 && REL_X == 0 && REL_Y == 1, "relative motion codes");
+_Static_assert(EV_REL == 2 && REL_X == 0 && REL_Y == 1 && REL_MAX == 15, "relative motion codes");
+_Static_assert(UI_SET_RELBIT == 0x40045566 && EVIOCGBIT(EV_REL, 8) == 0x80084522, "relative capability ioctls");
 _Static_assert(REL_HWHEEL == 6 && REL_WHEEL == 8 && REL_WHEEL_HI_RES == 11 && REL_HWHEEL_HI_RES == 12, "relative wheel codes");
 #include <sys/mman.h>
 #include <fcntl.h>

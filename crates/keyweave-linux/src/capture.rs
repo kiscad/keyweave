@@ -30,6 +30,7 @@ impl<'a> OutputNodeReady<'a> {
         let expected: Vec<_> = spec.codes().collect();
         let events: Vec<_> = [0, 1]
             .into_iter()
+            .chain(spec.relative_axes().map(|_| crate::relative::EV_REL))
             .chain(spec.leds().then_some(17))
             .chain((spec.repeat() == crate::output::RepeatPolicy::Kernel).then_some(20))
             .collect();
@@ -44,6 +45,10 @@ impl<'a> OutputNodeReady<'a> {
             || node.capabilities.keys.codes().collect::<Vec<_>>() != expected
             || node.capabilities.events.codes().collect::<Vec<_>>() != events
             || node.capabilities.leds.codes().collect::<Vec<_>>() != leds
+            || node.capabilities.relative.codes().collect::<Vec<_>>()
+                != spec
+                    .relative_axes()
+                    .map_or_else(Vec::new, |axes| axes.codes().collect())
             || !node.capabilities.misc.is_empty()
             || !node.capabilities.properties.is_empty()
         {
@@ -113,10 +118,11 @@ fn complete_capabilities(node: &Probe) -> bool {
     [
         caps.events.count(),
         caps.keys.count(),
+        caps.relative.count(),
         caps.misc.count(),
         caps.leds.count(),
         caps.properties.count(),
-    ] == [32, usize::from(KEY_MAX) + 1, 8, 16, 32]
+    ] == [32, usize::from(KEY_MAX) + 1, 16, 8, 16, 32]
 }
 pub struct CaptureDevice<S: CaptureSource> {
     source: Option<S>,
@@ -373,6 +379,8 @@ mod tests {
             name: Some(b"KeyWeave".to_vec()),
             input_syspath: crate::mock_syspath(path),
             capabilities: Capabilities {
+                relative: crate::probe::Bits::empty(16).unwrap_or_else(|error| panic!("{error}")),
+
                 events: bits(32, &[0, 1, 20]),
                 keys: bits(768, codes),
                 misc: bits(8, &[]),
@@ -705,5 +713,29 @@ mod tests {
         input.arm(&ready(&spec, &output)).unwrap();
         drop(input);
         assert_eq!(calls.borrow().last(), Some(&Call::Close));
+    }
+
+    #[test]
+    fn relative_output_node_requires_exact_axes_and_physical_keyboard_stays_strict() {
+        let spec = spec(&[30])
+            .with_relative_axes(crate::relative::RelativeAxes::new(&[0, 1, 11]).unwrap());
+        let mut output = node(OUT, &[30]);
+        assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_err());
+        output.capabilities.events.set(2).unwrap();
+        for axis in [0, 1, 11] {
+            output.capabilities.relative.set(axis).unwrap();
+        }
+        assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_ok());
+        assert!(!output.capabilities.keyboard_issues().is_empty());
+        output.capabilities.relative.set(8).unwrap();
+        assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_err());
+    }
+    #[test]
+    fn undeclared_relative_mask_cannot_be_hidden_from_output_or_keyboard_admission() {
+        let spec = spec(&[30]);
+        let mut output = node(OUT, &[30]);
+        output.capabilities.relative.set(0).unwrap();
+        assert!(OutputNodeReady::verify(&spec, &output.input_syspath, &output).is_err());
+        assert!(!output.capabilities.keyboard_issues().is_empty());
     }
 }
