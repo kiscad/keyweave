@@ -178,6 +178,9 @@ impl NativeX11Lease {
         self.window.verify(path, after)?;
         Ok(after)
     }
+    pub fn valid_until(&self) -> Option<MonoTime> {
+        self.window.ready.as_ref().map(X11Observation::valid_until)
+    }
     pub fn next_wakeup(&self) -> Option<MonoTime> {
         let window = self.window.wakeup(self.observer.job_phase().is_some())?;
         Some(

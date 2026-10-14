@@ -110,18 +110,7 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
                     args.run_id,
                     prepared.snapshot().generation,
                     5_000_000_000,
-                    match prepared.execution_mode() {
-                        keyweave_worker::linux_preparation::ExecutionMode::Legacy => {
-                            keyweave_worker::reload_preparation::Target::Linux(
-                                prepared.output_spec().clone(),
-                            )
-                        }
-                        keyweave_worker::linux_preparation::ExecutionMode::StagedKeyboard => {
-                            keyweave_worker::reload_preparation::Target::LinuxStaged(
-                                prepared.output_spec().clone(),
-                            )
-                        }
-                    },
+                    keyweave_worker::reload_preparation::Target::linux_prepared(&prepared),
                 ) {
                     Ok(controller) => controller,
                     Err(_) => return WorkerExit::Admission.into(),

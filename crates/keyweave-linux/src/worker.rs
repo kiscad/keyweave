@@ -13,11 +13,14 @@ use std::{io, marker::PhantomData, rc::Rc};
 mod x11_session;
 pub use x11_session::{
     DeferredX11Startup, DeferredX11Worker, X11SessionConfig, X11SessionError, X11SessionResult,
-    X11StartupCause, run_reporting_x11_session,
+    X11StartupCause, run_reporting_x11_session, run_reporting_x11_session_with_extension,
 };
 
 mod extension;
-pub use extension::{ControlObservation, WorkerExtension, run_console_worker_with_extension};
+pub use extension::{
+    ControlObservation, WorkerExtension, run_console_worker_with_extension,
+    run_x11_worker_with_extension,
+};
 
 pub(crate) const PARENT_ENV: &str = "KEYWEAVE_SUPERVISOR_PID";
 pub(crate) const REPORT_ENV: &str = "KEYWEAVE_TERMINAL_REPORT";

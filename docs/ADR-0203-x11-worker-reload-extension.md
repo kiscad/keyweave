@@ -1,0 +1,7 @@
+# ADR-0203：X11 worker/session reload 扩展接线
+
+ExtendedControl 改关联 ConsumerControl，Console与NativeX11Lease均提供实际valid_until；扩展after Runtime.poll执行，observe callback核guard、parent activity、Stop、clock及不可延长session期限。before_poll仍先消费者检查，最早wake取consumer/extension/parent，close在Runtime owners释放后关闭extension并cancel consumer。
+
+新增 run_x11_worker_with_extension 与完整session_with_extension，复用原borrowed loop/事务。X11报告仍归还consumer owner和独立cancel_error；原extension始终借用，early return也close，其cold job由调用者继续reap，不隐式detach替代完成。Target选择改由冻结PreparedConfig helper供现有Console lane使用，默认行为不变。
+
+观察callback提取为共用函数，测试用实际progress控制协议与clock注入验证Stop优先/expiry和guard/parent失效，无input/uinput/display操作。原生X11扩展仅编译；host provider/relative argv与真实reload硬件验收仍待。

@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "3286b1717a99ffb04913fc4c78e8065902725d8f",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/worker.rs": "a0a7eca8fa0f8696b1c32e96d0e16bc7591541cb69e1bddb226f0f466bfdd3e9",
+    "crates/keyweave-linux/src/worker/extension.rs": "c7a69aa9fcceb2d0e2d64270e327807fb4cad4f774de644a12d8888476b156d0",
+    "crates/keyweave-linux/src/worker/x11_session.rs": "dec5879df5a83cd88cf603083e2d2cc2bde353877d910d702c70b79352ef3c88",
+    "crates/keyweave-linux/src/x11_consumer/lease.rs": "91dcd704516f7f9a13e2730f29b5522ee18a59ac5ceab7105afd7a03b6f6b1ab",
+    "crates/keyweave-worker/src/main.rs": "63b318397b156e234eed6535d3e1ffde1b4c5e93d295ff80a4e145a27b4a6a75"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1802,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-extension/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-extension/clippy.log",
+        "sha256": "3a952fc9e4f4c823e1102ebbbc6d1162c0c48c4308fe0d793692159b174c0dc2"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-extension/tests.log",
+        "sha256": "3067d2de527a1bd1fbc9ce7befe2121e6f81e39b43f67923be1999fb9597ffdd"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-extension/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-extension/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-extension/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Native X11 worker/session extension entry compiled only. Shared observation callback tested with actual progress protocol and injected clock/guard; no native session/display/input/uinput/capture access.",
+    "Extension observes immutable consumer expiry and independent parent activity; control IO cannot renew session lease. Stop remains before additional activation/ack work.",
+    "Original extension owner stays borrowed; caller must reap its cold job after shutdown. X11 report separately retains consumer owner/cancel error for probe cleanup.",
+    "Existing Console reload target now derives from PreparedConfig. X11 host/provider/relative argv selection and actual reload integration acceptance remain pending.",
+    "Pinned SDK C ABI passed; runtime libraries/server/driver policy/output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

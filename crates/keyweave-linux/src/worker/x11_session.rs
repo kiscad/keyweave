@@ -124,6 +124,56 @@ pub fn run_reporting_x11_session(
     inputs: Vec<(keyweave_types::DeviceInstanceId, PathBuf)>,
     config: X11SessionConfig,
 ) -> Result<X11SessionResult, X11SessionError> {
+    run_session_using(
+        startup,
+        uinput,
+        helper,
+        inputs,
+        config,
+        run_x11_worker_controlled_report,
+    )
+}
+pub fn run_reporting_x11_session_with_extension<E>(
+    startup: ReportingStartup,
+    uinput: &Path,
+    helper: &Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, PathBuf)>,
+    config: X11SessionConfig,
+    extension: &mut E,
+) -> Result<X11SessionResult, X11SessionError>
+where
+    E: WorkerExtension<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+{
+    let result = run_session_using(
+        startup,
+        uinput,
+        helper,
+        inputs,
+        config,
+        |runtime, client, guard, lease, clock| {
+            run_x11_worker_with_extension(runtime, client, guard, lease, clock, extension)
+        },
+    );
+    extension.close();
+    result
+}
+fn run_session_using<F>(
+    startup: ReportingStartup,
+    uinput: &Path,
+    helper: &Path,
+    inputs: Vec<(keyweave_types::DeviceInstanceId, PathBuf)>,
+    config: X11SessionConfig,
+    run: F,
+) -> Result<X11SessionResult, X11SessionError>
+where
+    F: FnOnce(
+        Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+        ProgressClient<File, File>,
+        &WorkerParentGuard,
+        crate::x11_consumer::NativeX11Lease,
+        MonotonicClock,
+    ) -> X11WorkerReport,
+{
     let (guard, mut client, terminal) = startup.into_parts();
     guard.verify_isolated_group().map_err(WorkerError::from)?;
     for request in client.wait_requests_with_control(true) {
@@ -166,7 +216,7 @@ pub fn run_reporting_x11_session(
         consumer,
         clock,
     } = prepared;
-    let worker = run_x11_worker_controlled_report(runtime, client, &guard, consumer, clock);
+    let worker = run(runtime, client, &guard, consumer, clock);
     let mut clock = MonotonicClock::new();
     let cleanup = X11Cleanup::new_at(worker, clock.now());
     let mut terminal = terminal;
