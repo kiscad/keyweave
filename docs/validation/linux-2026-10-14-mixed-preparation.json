@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "d6b27ccaf630cab269c38726cd000be24a8ead45",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-worker/src/linux_preparation.rs": "924399c1310164878a9117af62fb499c30b18e0d9221d89e4c9a2e1df1356b7a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1792,
+    "new_tests": 6,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-mixed-preparation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-mixed-preparation/clippy.log",
+        "sha256": "38540b2c0abd310524091455a59ec581d4685d4ac2cceb24c18293baaaef27eb"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-mixed-preparation/tests.log",
+        "sha256": "11553bc827e5c5ddeb5c9818cb01c29d0066b31fcd92bf0ab5ee7ea3c06cd59d"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-mixed-preparation/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-mixed-preparation/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-mixed-preparation/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Cold compilation and actual sealed-byte tests only; no session/display/input/uinput/capture access.",
+    "CaptureScope.StagedRelative requires explicit staged mode, relative axes and validated spec; compiler pointing capability is enabled only with explicitly configured output buttons. Default BackendCapabilities.linux remains unchanged.",
+    "Prepared bytes/snapshot/spec/mode/scope remain bound. Session config export carries cold data, not consumer readiness or successful runtime activation.",
+    "Relative reload target/scope matching and host/worker argv/provider selection remain pending.",
+    "Pinned SDK C ABI passed; native library/server query/driver policy/output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

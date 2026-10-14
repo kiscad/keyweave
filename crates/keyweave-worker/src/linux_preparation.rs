@@ -31,11 +31,18 @@ pub fn default_output_spec() -> std::io::Result<DeviceSpec> {
         false,
     )
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CaptureScope {
+    #[default]
+    Keyboard,
+    StagedRelative,
+}
 pub struct PreparedConfig {
     bytes: Box<[u8]>,
     snapshot: Arc<ConfigSnapshot>,
     output: DeviceSpec,
     mode: ExecutionMode,
+    scope: CaptureScope,
 }
 impl std::fmt::Debug for PreparedConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,6 +50,7 @@ impl std::fmt::Debug for PreparedConfig {
             .field("byte_length", &self.bytes.len())
             .field("generation", &self.snapshot.generation)
             .field("execution_mode", &self.mode)
+            .field("capture_scope", &self.scope)
             .finish_non_exhaustive()
     }
 }
@@ -97,9 +105,59 @@ impl PreparedConfig {
         generation: ConfigGeneration,
         mode: ExecutionMode,
     ) -> Result<Self, PreparationError> {
+        Self::from_bytes_for_generation_with_scope(
+            bytes,
+            output,
+            generation,
+            mode,
+            CaptureScope::Keyboard,
+        )
+    }
+    pub fn read_for_generation_with_scope(
+        reader: impl Read,
+        output: DeviceSpec,
+        generation: ConfigGeneration,
+        mode: ExecutionMode,
+        scope: CaptureScope,
+    ) -> Result<Self, PreparationError> {
+        if generation.0 == 0 {
+            return Err(LoadError::Generation.into());
+        }
+        Self::from_bytes_for_generation_with_scope(
+            read_config_bytes(reader)?,
+            output,
+            generation,
+            mode,
+            scope,
+        )
+    }
+    pub fn from_bytes_for_generation_with_scope(
+        bytes: Vec<u8>,
+        output: DeviceSpec,
+        generation: ConfigGeneration,
+        mode: ExecutionMode,
+        scope: CaptureScope,
+    ) -> Result<Self, PreparationError> {
+        if generation.0 == 0 {
+            return Err(LoadError::Generation.into());
+        }
+        if (scope == CaptureScope::StagedRelative
+            && (mode != ExecutionMode::StagedKeyboard || output.relative_axes().is_none()))
+            || (scope == CaptureScope::Keyboard && output.pointing_buttons().is_some())
+        {
+            return Err(RuntimeError::StagedPointer.into());
+        }
+        output
+            .validate_shape()
+            .map_err(|_| RuntimeError::InvalidStartup)?;
+        let mut capabilities = BackendCapabilities::linux();
+        if scope == CaptureScope::StagedRelative {
+            capabilities.name = "linux-evdev-relative".into();
+            capabilities.pointing_buttons = output.pointing_buttons().is_some();
+        }
         let snapshot = compile_config_bytes_for_generation_with_mode(
             &bytes,
-            &BackendCapabilities::linux(),
+            &capabilities,
             generation,
             match mode {
                 ExecutionMode::Legacy => keyweave_config::CompileMode::Legacy,
@@ -120,6 +178,23 @@ impl PreparedConfig {
             snapshot,
             output,
             mode,
+            scope,
+        })
+    }
+    pub fn capture_scope(&self) -> CaptureScope {
+        self.scope
+    }
+    #[cfg(target_os = "linux")]
+    pub fn x11_session_config(
+        &self,
+    ) -> Result<keyweave_linux::worker::X11SessionConfig, PreparationError> {
+        if self.scope != CaptureScope::StagedRelative || self.mode != ExecutionMode::StagedKeyboard
+        {
+            return Err(RuntimeError::StagedPointer.into());
+        }
+        Ok(keyweave_linux::worker::X11SessionConfig {
+            snapshot: self.snapshot.clone(),
+            output: self.output.clone(),
         })
     }
     pub fn execution_mode(&self) -> ExecutionMode {
@@ -323,5 +398,131 @@ mod tests {
         assert!(
             matches!(PreparedConfig::read_with_mode(CHORD, narrow, ExecutionMode::StagedKeyboard), Err(PreparationError::Runtime(RuntimeError::ConfigurationKey(key))) if key == "d".parse().unwrap())
         );
+    }
+    const POINTER: &[u8]=br#"// exact mixed bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"description":"mouse","manipulators":[{"type":"basic","from":{"pointing_button":"button1"},"to":[{"pointing_button":"button2"}]}]}]}}]}"#;
+    fn mixed_spec(buttons: &[u16]) -> DeviceSpec {
+        default_output_spec()
+            .unwrap()
+            .with_relative_axes(keyweave_linux::relative::RelativeAxes::new(&[0, 1]).unwrap())
+            .with_pointing_buttons(keys::PointingButtons::new(buttons).unwrap())
+            .unwrap()
+    }
+    fn mixed(bytes: &[u8], output: DeviceSpec) -> Result<PreparedConfig, PreparationError> {
+        PreparedConfig::from_bytes_for_generation_with_scope(
+            bytes.to_vec(),
+            output,
+            ConfigGeneration(7),
+            ExecutionMode::StagedKeyboard,
+            CaptureScope::StagedRelative,
+        )
+    }
+    #[test]
+    fn explicit_relative_scope_compiles_pointing_and_binds_exact_cold_data() {
+        let prepared = mixed(POINTER, mixed_spec(&[0x110, 0x111])).unwrap();
+        assert_eq!(prepared.bytes(), POINTER);
+        assert_eq!(prepared.capture_scope(), CaptureScope::StagedRelative);
+        assert_eq!(prepared.execution_mode(), ExecutionMode::StagedKeyboard);
+        assert_eq!(prepared.snapshot().generation, ConfigGeneration(7));
+        assert_eq!(
+            prepared.snapshot().complex[0].to[0].key().unwrap(),
+            keyweave_types::KeyId::new(keyweave_types::BUTTON_PAGE, 2)
+        );
+    }
+    #[test]
+    fn default_keyboard_scope_does_not_infer_pointer_from_output_spec() {
+        assert!(matches!(
+            PreparedConfig::from_bytes_for_generation_with_mode(
+                POINTER.to_vec(),
+                mixed_spec(&[0x110, 0x111]),
+                ConfigGeneration(1),
+                ExecutionMode::StagedKeyboard
+            ),
+            Err(PreparationError::Runtime(RuntimeError::StagedPointer))
+        ));
+        assert!(!BackendCapabilities::linux().pointing_buttons);
+        assert!(
+            PreparedConfig::read_with_mode(
+                POINTER,
+                default_output_spec().unwrap(),
+                ExecutionMode::StagedKeyboard
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn mixed_requires_staged_mode_axes_and_kernel_repeat() {
+        assert!(matches!(
+            PreparedConfig::from_bytes_for_generation_with_scope(
+                JSONC.to_vec(),
+                mixed_spec(&[0x110]),
+                ConfigGeneration(1),
+                ExecutionMode::Legacy,
+                CaptureScope::StagedRelative
+            ),
+            Err(PreparationError::Runtime(RuntimeError::StagedPointer))
+        ));
+        assert!(matches!(
+            mixed(JSONC, default_output_spec().unwrap()),
+            Err(PreparationError::Runtime(RuntimeError::StagedPointer))
+        ));
+        let output = DeviceSpec::new(
+            "mixed",
+            &keys::native_codes().collect::<Vec<_>>(),
+            RepeatPolicy::External,
+            false,
+        )
+        .unwrap()
+        .with_relative_axes(keyweave_linux::relative::RelativeAxes::new(&[0, 1]).unwrap());
+        assert!(matches!(
+            mixed(JSONC, output),
+            Err(PreparationError::Runtime(RuntimeError::RepeatPolicy))
+        ));
+    }
+    #[test]
+    fn pointer_output_must_be_advertised_in_actual_spec() {
+        assert!(matches!(
+            mixed(POINTER, mixed_spec(&[0x110])),
+            Err(PreparationError::Runtime(RuntimeError::ConfigurationKey(_)))
+        ));
+        let output = default_output_spec()
+            .unwrap()
+            .with_relative_axes(keyweave_linux::relative::RelativeAxes::new(&[0, 1]).unwrap());
+        assert!(matches!(
+            mixed(POINTER, output),
+            Err(PreparationError::Load(_))
+        ));
+    }
+    #[test]
+    fn scope_reader_rejects_zero_generation_before_reading() {
+        struct Unreadable;
+        impl Read for Unreadable {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("must not read");
+            }
+        }
+        assert!(matches!(
+            PreparedConfig::read_for_generation_with_scope(
+                Unreadable,
+                mixed_spec(&[0x110]),
+                ConfigGeneration(0),
+                ExecutionMode::StagedKeyboard,
+                CaptureScope::StagedRelative
+            ),
+            Err(PreparationError::Load(LoadError::Generation))
+        ));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sealed_mixed_bytes_and_x11_data_keep_same_generation_and_spec() {
+        let prepared = mixed(POINTER, mixed_spec(&[0x110, 0x111])).unwrap();
+        assert_eq!(prepared.seal().unwrap().read_bytes().unwrap(), POINTER);
+        let config = prepared.x11_session_config().unwrap();
+        assert!(Arc::ptr_eq(&config.snapshot, prepared.snapshot()));
+        assert_eq!(
+            config.output.codes().collect::<Vec<_>>(),
+            prepared.output_spec().codes().collect::<Vec<_>>()
+        );
+        assert!(prepare(JSONC).unwrap().x11_session_config().is_err());
     }
 }

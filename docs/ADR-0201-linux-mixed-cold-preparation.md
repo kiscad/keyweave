@@ -1,0 +1,7 @@
+# ADR-0201：显式 Linux mixed 冷准备 scope
+
+Linux PreparedConfig 增加不可变 CaptureScope.Keyboard/StagedRelative；现有入口固定Keyboard，新 with_scope 入口显式选择，relative必须StagedKeyboard、非空relative axes及合法shape。Kernel repeat、generation、输入bytes预算、无损编译和实际DeviceSpec输出覆盖仍保留，未打开设备或查询消费者。
+
+仅StagedRelative且spec显式pointing_buttons时启用compiler按钮能力；默认Linux backend和Keyboard准备仍拒绝按钮scope。编译使用原staged模式，输出按钮/修饰键全分支按实际spec验证，不隐式拓宽buttons。bytes/snapshot/spec/mode/scope一起固定，seal保原字节；x11_session_config仅从该scope导出冷数据，不生成readiness。
+
+新增read/from_bytes generation-aware scope接口，generation0在read前拒绝。reload target/mode-scope比对及host argv还需后续接线。原生X11仍需helper认证、consumer proof和真实SDK/server/hardware验收。此阶段只验证冷编译与封存，不执行捕获。
