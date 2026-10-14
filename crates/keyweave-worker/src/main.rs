@@ -29,7 +29,7 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "linux")]
 fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> NativeWorkerExit {
-    use keyweave_worker::linux_preparation::{PreparedConfig, default_output_spec};
+    use keyweave_worker::linux_preparation::PreparedConfig;
     // Real main, before path lookup/device opening/threads. No fallback to a
     // config pathname or weaker two-channel startup if this claim fails.
     let mut startup = match keyweave_linux::worker::ReportingStartup::from_supervisor_environment()
@@ -43,6 +43,7 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
     if matches!(
         args.session_provider,
         keyweave_worker::linux_arguments::SessionProvider::Console { .. }
+            | keyweave_worker::linux_arguments::SessionProvider::X11 { .. }
     ) && startup.guard().verify_isolated_group().is_err()
     {
         return WorkerExit::Admission.into();
@@ -69,15 +70,16 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
         Err(_) => return WorkerExit::Config.into(),
     };
     drop(config); // Original inherited FD remains reserved until true exit.
-    let spec = match default_output_spec() {
+    let spec = match args.output_spec() {
         Ok(spec) => spec,
         Err(_) => return WorkerExit::Config.into(),
     };
-    let prepared = match PreparedConfig::from_bytes_for_generation_with_mode(
+    let prepared = match PreparedConfig::from_bytes_for_generation_with_scope(
         bytes,
         spec,
         keyweave_types::ConfigGeneration(1),
         args.execution_mode,
+        args.capture_scope(),
     ) {
         Ok(prepared) => prepared,
         Err(_) => return WorkerExit::Config.into(),
@@ -166,6 +168,107 @@ fn execute_linux(args: keyweave_worker::linux_arguments::LinuxArguments) -> Nati
                 }
             }
         }
+        keyweave_worker::linux_arguments::SessionProvider::X11 { helper, .. } => {
+            let inputs = args
+                .inputs
+                .into_iter()
+                .enumerate()
+                .map(|(index, path)| {
+                    (
+                        keyweave_types::DeviceInstanceId {
+                            id: index as u64 + 1,
+                            generation: 1,
+                        },
+                        path,
+                    )
+                })
+                .collect();
+            let config = match prepared.x11_session_config() {
+                Ok(config) => config,
+                Err(_) => return WorkerExit::Config.into(),
+            };
+            let result = if let Some(endpoints) = reload {
+                let (reader, writer) = endpoints.into_parts();
+                let mut controller = match keyweave_worker::reload_control::Controller::new(
+                    reader,
+                    writer,
+                    args.run_id,
+                    prepared.snapshot().generation,
+                    5_000_000_000,
+                    keyweave_worker::reload_preparation::Target::linux_prepared(&prepared),
+                ) {
+                    Ok(controller) => controller,
+                    Err(_) => return WorkerExit::Admission.into(),
+                };
+                let result = keyweave_linux::worker::run_reporting_x11_session_with_extension(
+                    startup,
+                    &args.uinput,
+                    &helper,
+                    inputs,
+                    config,
+                    &mut controller,
+                );
+                if keyweave_worker::reload_control::reap_after_shutdown(&mut controller).is_err() {
+                    return WorkerExit::Cleanup.into();
+                }
+                result
+            } else {
+                keyweave_linux::worker::run_reporting_x11_session(
+                    startup,
+                    &args.uinput,
+                    &helper,
+                    inputs,
+                    config,
+                )
+            };
+            x11_session_exit(result).into()
+        }
+    }
+}
+#[cfg(target_os = "linux")]
+fn x11_session_exit(
+    result: Result<
+        keyweave_linux::worker::X11SessionResult,
+        keyweave_linux::worker::X11SessionError,
+    >,
+) -> WorkerExit {
+    use keyweave_linux::worker::X11SessionResult as R;
+    match result {
+        Ok(R::StartupStopped(None)) => WorkerExit::Clean,
+        Ok(R::StartupStopped(Some(report))) => {
+            if !report.startup.owner_dropped
+                || report.startup.cancel_error.is_some()
+                || report.cancel_error.is_some()
+                || report.poll_error.is_some()
+                || report.clock_error.is_some()
+                || report.wait_error.is_some()
+                || report.timing_failure.is_some()
+            {
+                WorkerExit::Cleanup
+            } else {
+                WorkerExit::Clean
+            }
+        }
+        Ok(R::StartupFailed { .. }) => WorkerExit::Install,
+        Ok(R::StartupDeferred(_) | R::WorkerDeferred(_)) => WorkerExit::Cleanup,
+        Ok(R::Worker(report)) => {
+            let keyweave_linux::x11_cleanup::ReportedX11Cleanup { cleanup, delivery } = *report;
+            if !cleanup.consumer_owner_dropped()
+                || cleanup.prior_cancel_error.is_some()
+                || cleanup.cancel_error.is_some()
+                || cleanup.poll_error.is_some()
+                || cleanup.clock_error.is_some()
+                || cleanup.wait_error.is_some()
+                || cleanup.timing_failure.is_some()
+            {
+                return WorkerExit::Cleanup;
+            }
+            linux_report_exit(keyweave_linux::worker::ReportedWorker {
+                worker: cleanup.worker,
+                delivery,
+            })
+        }
+        Err(_) => WorkerExit::Install,
     }
 }
 #[cfg(target_os = "linux")]
@@ -371,4 +474,73 @@ fn finish(outcome: NativeWorkerExit) -> ExitCode {
 fn finish(outcome: NativeWorkerExit) -> ExitCode {
     // Preserve small scalar failures; never truncate the Windows terminal mask.
     ExitCode::from(u8::try_from(outcome.raw()).unwrap_or(WorkerExit::UnsupportedPlatform as u8))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod x11_exit_tests {
+    use super::*;
+    use keyweave_linux::{
+        bootstrap::{ScheduledX11StartupCleanupReport, X11StartupCleanupReport},
+        worker::X11SessionResult,
+        x11_cleanup::{CleanupConfirmation, CleanupTimingFailure},
+    };
+    fn stopped() -> ScheduledX11StartupCleanupReport {
+        ScheduledX11StartupCleanupReport {
+            startup: X11StartupCleanupReport {
+                cancel_error: None,
+                observed_exit: false,
+                owner_dropped: true,
+            },
+            confirmation: CleanupConfirmation::NoPendingJob,
+            cancel_error: None,
+            poll_error: None,
+            clock_error: None,
+            wait_error: None,
+            timing_failure: None,
+        }
+    }
+    #[test]
+    fn x11_startup_clean_requires_confirmed_cleanup_without_hidden_errors() {
+        assert_eq!(
+            x11_session_exit(Ok(X11SessionResult::StartupStopped(None))),
+            WorkerExit::Clean
+        );
+        assert_eq!(
+            x11_session_exit(Ok(X11SessionResult::StartupStopped(Some(Box::new(
+                stopped()
+            ))))),
+            WorkerExit::Clean
+        );
+        for failure in 0..6 {
+            let mut report = stopped();
+            match failure {
+                0 => report.startup.owner_dropped = false,
+                1 => report.startup.cancel_error = Some(std::io::Error::other("cancel")),
+                2 => report.poll_error = Some(std::io::Error::other("poll")),
+                3 => report.clock_error = Some(std::io::Error::other("clock")),
+                4 => report.wait_error = Some(std::io::Error::other("wait")),
+                _ => report.timing_failure = Some(CleanupTimingFailure::Deadline),
+            };
+            assert_eq!(
+                x11_session_exit(Ok(X11SessionResult::StartupStopped(Some(Box::new(report))))),
+                WorkerExit::Cleanup
+            );
+        }
+    }
+    #[test]
+    fn x11_startup_failure_never_becomes_clean() {
+        assert_eq!(
+            x11_session_exit(Ok(X11SessionResult::StartupFailed {
+                error: keyweave_linux::bootstrap::BootstrapError::Inputs,
+                cleanup: None
+            })),
+            WorkerExit::Install
+        );
+        assert_eq!(
+            x11_session_exit(Err(keyweave_linux::worker::X11SessionError::Bootstrap(
+                keyweave_linux::bootstrap::BootstrapError::Inputs
+            ))),
+            WorkerExit::Install
+        );
+    }
 }

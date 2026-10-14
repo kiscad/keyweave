@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "8a46fbb573ddd9c7b37883195c64bc18c449295a",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-worker/src/linux_arguments.rs": "1be0cde9eb1b74cc808cb05fb80513d04b2ffcb4beaa8fba655e0466877d1ebe",
+    "crates/keyweave-worker/src/main.rs": "475604bb818d6682090b133601e86b7ea39459af07b6906f9774105f4f843181",
+    "crates/keyweave-host/src/linux/startup.rs": "bfb86badb3eb046f603071d857eac3a4a52b5da633a3861a0a4dbf6263e6c3ed"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1808,
+    "new_tests": 6,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-worker-argv/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-worker-argv/clippy.log",
+        "sha256": "9d18ce74516afa2c44058c5d984be4018cfa775212ab684451ae204244d97af2"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-worker-argv/tests.log",
+        "sha256": "17850e44a34fc084a7d5e6580deaf60d6d5aaec92b833c93a44dc45f7e86406d"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-worker-argv/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-worker-argv/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-worker-argv/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "New argv fixture was inserted into execution_mode_tests and referenced an inaccessible args helper; switched to that module argv helper. Its absolute-path fixtures now use host temp directory for portable path semantics. Final full checks passed."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "X11 worker main branch compiled; tests exercise lexical argv/spec/scope and exit classification, not native session/display/device/capture.",
+    "X11 helper path authentication is a trusted-host responsibility. Lexical private argv checks do not authenticate the image.",
+    "Host prepare currently rejects X11 until its cold spec/helper authentication integration is implemented; default provider selection unchanged.",
+    "Unconfirmed deferred cleanup exits Cleanup with no fabricated terminal completion. Owner Drop on failure exit is best effort, not proof of child reaping; parent-death protection remains required.",
+    "Pinned SDK C ABI passed; root-trusted library/server/driver policy/output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

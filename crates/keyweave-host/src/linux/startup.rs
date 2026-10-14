@@ -116,6 +116,10 @@ impl PreparedLaunch {
         options: LaunchOptions,
         watch_interval: Option<u64>,
     ) -> Result<(Self, Option<ConfigWatcher>), StartupError> {
+        // X11 host cold spec/helper authentication will be wired separately.
+        if matches!(options.session_provider, SessionProvider::X11 { .. }) {
+            return Err(StartupError::plain(StartupStage::Arguments));
+        }
         if let Some(interval) = watch_interval
             && (!matches!(options.session_provider, SessionProvider::Console { .. })
                 || !(100_000_000..=60_000_000_000).contains(&interval))

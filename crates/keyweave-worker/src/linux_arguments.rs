@@ -4,19 +4,27 @@ use keyweave_linux::runtime::ExecutionMode;
 use std::{collections::BTreeSet, ffi::OsString, path::PathBuf};
 pub const LINUX_WORKER_ARGUMENT: &str = "--keyweave-linux-worker";
 const MAX_INPUTS: usize = keyweave_linux::runtime::MAX_DEVICES;
-const MAX_ARGUMENTS: usize = 11 + 2 * MAX_INPUTS;
+const MAX_ARGUMENTS: usize = 15 + 2 * MAX_INPUTS;
 /// None permanently prevents device opening; Console selects only explicit
 /// text VT scope, not graphical desktop readiness.
 #[derive(Clone, PartialEq, Eq)]
 pub enum SessionProvider {
     None,
-    Console { vt: PathBuf },
+    Console {
+        vt: PathBuf,
+    },
+    X11 {
+        helper: PathBuf,
+        axes: keyweave_linux::relative::RelativeAxes,
+        buttons: Option<keyweave_linux::keys::PointingButtons>,
+    },
 }
 impl std::fmt::Debug for SessionProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::None => "None",
             Self::Console { .. } => "Console",
+            Self::X11 { .. } => "X11",
         })
     }
 }
@@ -37,7 +45,51 @@ impl std::fmt::Debug for LinuxArguments {
             .finish_non_exhaustive()
     }
 }
+fn list_text(codes: impl Iterator<Item = u16>) -> String {
+    codes
+        .map(|code| code.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+fn numbers(value: &std::ffi::OsStr) -> Result<Vec<u16>, ArgumentError> {
+    let text = value.to_str().ok_or(ArgumentError)?;
+    if text.is_empty() || text.len() > 48 {
+        return Err(ArgumentError);
+    }
+    let mut codes = Vec::new();
+    for part in text.split(',') {
+        if part.is_empty()
+            || !part.bytes().all(|v| v.is_ascii_digit())
+            || (part.len() > 1 && part.starts_with('0'))
+        {
+            return Err(ArgumentError);
+        }
+        let code = part.parse::<u16>().map_err(|_| ArgumentError)?;
+        if codes.last().is_some_and(|last| *last >= code) {
+            return Err(ArgumentError);
+        }
+        codes.push(code);
+    }
+    Ok(codes)
+}
 impl LinuxArguments {
+    pub fn capture_scope(&self) -> crate::linux_preparation::CaptureScope {
+        if matches!(self.session_provider, SessionProvider::X11 { .. }) {
+            crate::linux_preparation::CaptureScope::StagedRelative
+        } else {
+            crate::linux_preparation::CaptureScope::Keyboard
+        }
+    }
+    pub fn output_spec(&self) -> std::io::Result<keyweave_linux::output::DeviceSpec> {
+        let mut spec = crate::linux_preparation::default_output_spec()?;
+        if let SessionProvider::X11 { axes, buttons, .. } = &self.session_provider {
+            spec = spec.with_relative_axes(axes.clone());
+            if let Some(buttons) = buttons {
+                spec = spec.with_pointing_buttons(buttons.clone())?;
+            }
+        }
+        Ok(spec)
+    }
     /// Cold host builder: pass the returned OsStrings to Command.args, never
     /// join into shell text. Uses the same strict validation as the real main.
     pub fn into_argv(self) -> Result<Vec<OsString>, ArgumentError> {
@@ -58,6 +110,21 @@ impl LinuxArguments {
             SessionProvider::Console { vt } => {
                 argv.extend(["console".into(), "--vt".into(), vt.into_os_string()])
             }
+            SessionProvider::X11 {
+                helper,
+                axes,
+                buttons,
+            } => argv.extend([
+                "x11".into(),
+                "--x11-probe".into(),
+                helper.into_os_string(),
+                "--relative-axes".into(),
+                list_text(axes.codes()).into(),
+                "--pointing-buttons".into(),
+                buttons
+                    .map_or_else(|| "none".into(), |buttons| list_text(buttons.codes()))
+                    .into(),
+            ]),
         }
         if self.execution_mode == ExecutionMode::StagedKeyboard {
             argv.extend(["--execution-mode".into(), "staged-keyboard".into()]);
@@ -101,6 +168,37 @@ impl LinuxArguments {
                 },
                 9,
             )
+        } else if args[6] == "x11"
+            && args.get(7).is_some_and(|v| v == "--x11-probe")
+            && args.get(9).is_some_and(|v| v == "--relative-axes")
+            && args.get(11).is_some_and(|v| v == "--pointing-buttons")
+        {
+            let helper = PathBuf::from(args.get(8).ok_or(ArgumentError)?);
+            if !helper.is_absolute() {
+                return Err(ArgumentError);
+            }
+            let axes = keyweave_linux::relative::RelativeAxes::new(&numbers(
+                args.get(10).ok_or(ArgumentError)?,
+            )?)
+            .map_err(|_| ArgumentError)?;
+            let buttons = match args.get(12).ok_or(ArgumentError)? {
+                v if v == "none" => None,
+                v => Some(
+                    keyweave_linux::keys::PointingButtons::new(&numbers(v)?)
+                        .map_err(|_| ArgumentError)?,
+                ),
+            };
+            if buttons.is_some() && (!axes.contains(0) || !axes.contains(1)) {
+                return Err(ArgumentError);
+            }
+            (
+                SessionProvider::X11 {
+                    helper,
+                    axes,
+                    buttons,
+                },
+                13,
+            )
         } else {
             return Err(ArgumentError);
         };
@@ -115,11 +213,18 @@ impl LinuxArguments {
         } else {
             ExecutionMode::Legacy
         };
+        if matches!(session_provider, SessionProvider::X11 { .. })
+            && execution_mode != ExecutionMode::StagedKeyboard
+        {
+            return Err(ArgumentError);
+        }
         if args.len() <= start {
             return Err(ArgumentError);
         }
         let uinput = PathBuf::from(&args[4]);
-        if !uinput.is_absolute() {
+        if !uinput.is_absolute()
+            || matches!(&session_provider,SessionProvider::X11{helper,..} if *helper==uinput)
+        {
             return Err(ArgumentError);
         }
         let mut unique = BTreeSet::new();
@@ -130,6 +235,7 @@ impl LinuxArguments {
                 || !input.is_absolute()
                 || !unique.insert(input.clone())
                 || input == uinput
+                || matches!(&session_provider,SessionProvider::X11{helper,..} if *helper==input)
             {
                 return Err(ArgumentError);
             }
@@ -358,9 +464,9 @@ mod execution_mode_tests {
             parent: 42,
             run_id: 57,
             execution_mode: mode,
-            uinput: "/absent-output".into(),
+            uinput: std::env::temp_dir().join("absent-output"),
             inputs: (0..count)
-                .map(|i| format!("/absent-input-{i}").into())
+                .map(|i| std::env::temp_dir().join(format!("absent-input-{i}")))
                 .collect(),
             session_provider: SessionProvider::None,
         }
@@ -400,5 +506,108 @@ mod execution_mode_tests {
             LinuxArguments::parse(argv(ExecutionMode::StagedKeyboard, 1).into_iter().take(9))
                 .is_err()
         );
+    }
+    fn x11_args() -> Vec<OsString> {
+        let mut value = argv(ExecutionMode::Legacy, 1);
+        value.truncate(7);
+        value[6] = "x11".into();
+        value.extend([
+            "--x11-probe".into(),
+            std::env::temp_dir().join("private-probe").into(),
+            "--relative-axes".into(),
+            "0,1,8".into(),
+            "--pointing-buttons".into(),
+            "272,273".into(),
+            "--execution-mode".into(),
+            "staged-keyboard".into(),
+            "--input".into(),
+            std::env::temp_dir().join("private-input").into(),
+        ]);
+        value
+    }
+    #[test]
+    fn x11_roundtrip_binds_staged_scope_axes_and_buttons_without_debug_paths() {
+        let argv = x11_args();
+        let parsed = LinuxArguments::parse(argv.clone()).unwrap();
+        assert_eq!(
+            parsed.capture_scope(),
+            crate::linux_preparation::CaptureScope::StagedRelative
+        );
+        assert_eq!(parsed.execution_mode, ExecutionMode::StagedKeyboard);
+        let spec = parsed.output_spec().unwrap();
+        assert_eq!(
+            spec.relative_axes().unwrap().codes().collect::<Vec<_>>(),
+            vec![0, 1, 8]
+        );
+        assert_eq!(
+            spec.pointing_buttons().unwrap().codes().collect::<Vec<_>>(),
+            vec![272, 273]
+        );
+        assert!(!format!("{parsed:?}").contains("private"));
+        assert_eq!(parsed.into_argv().unwrap(), argv);
+    }
+    #[test]
+    fn x11_rejects_wrong_order_unbounded_noncanonical_or_unsupported_sets() {
+        for (index, value) in [
+            (7, "--helper"),
+            (8, "relative"),
+            (9, "--axes"),
+            (10, ""),
+            (10, "1,0"),
+            (10, "0,0"),
+            (10, "00,1"),
+            (10, "0,1,2"),
+            (11, "--buttons"),
+            (12, "0"),
+            (12, "272,272"),
+            (12, "273,272"),
+            (12, "65536"),
+            (14, "legacy"),
+        ] {
+            let mut argv = x11_args();
+            argv[index] = value.into();
+            assert!(LinuxArguments::parse(argv).is_err());
+        }
+        let mut argv = x11_args();
+        argv[8] = argv[4].clone();
+        assert!(LinuxArguments::parse(argv).is_err());
+        let mut argv = x11_args();
+        argv[16] = argv[8].clone();
+        assert!(LinuxArguments::parse(argv).is_err());
+    }
+    #[test]
+    fn x11_requires_explicit_staged_mode_and_xy_for_buttons() {
+        let mut argv = x11_args();
+        argv.drain(13..15);
+        assert!(LinuxArguments::parse(argv).is_err());
+        let mut argv = x11_args();
+        argv[10] = "0,8".into();
+        assert!(LinuxArguments::parse(argv.clone()).is_err());
+        argv[12] = "none".into();
+        let parsed = LinuxArguments::parse(argv).unwrap();
+        assert!(parsed.output_spec().unwrap().pointing_buttons().is_none());
+    }
+    #[test]
+    fn x11_preserves_64_input_bound_and_os_paths_with_spaces() {
+        let mut argv = x11_args();
+        argv.truncate(15);
+        argv[8] = std::env::temp_dir()
+            .join("private probe with spaces")
+            .into();
+        for index in 0..64 {
+            argv.extend([
+                "--input".into(),
+                std::env::temp_dir().join(format!("input{index}")).into(),
+            ]);
+        }
+        assert_eq!(
+            LinuxArguments::parse(argv.clone()).unwrap().inputs.len(),
+            64
+        );
+        argv.extend([
+            "--input".into(),
+            std::env::temp_dir().join("input64").into(),
+        ]);
+        assert!(LinuxArguments::parse(argv).is_err());
     }
 }
