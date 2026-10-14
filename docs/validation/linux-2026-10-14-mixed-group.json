@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "0c1de108d65d455bc35a158c4c475c23fb5f1b6c",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/activation.rs": "7d526f4133609c37cdf8b12935d4c024c7ca8d39f9a68f36691f00d8ea4a4907"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1741,
+    "new_tests": 7,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-mixed-group/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-mixed-group/clippy.log",
+        "sha256": "dbe34a2fc3802b602598b393bc6b18df644ba0d2feff0b262274168135794a58"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-mixed-group/tests.log",
+        "sha256": "c4f10ed5ef9b4b97a06f0020b6c0ed2de0dec3c18d2d6d7513f12ae1a32ab0c4"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-mixed-group/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-mixed-group/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-mixed-group/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "Focused missing-axis fixture had an empty key mask, which correctly failed earlier NoKeys admission. Corrected fixture to retain a keyboard key, then missing-axis and full checks passed."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "All admission/runtime tests used mock sources/probes/output, not real input, uinput or hardware capture.",
+    "Generic try_arm still requires caller-established consumer readiness and independent supervision. No new consumer grant is minted.",
+    "Console gate rejects mixed scope; host/worker/bootstrap do not select new mixed group yet.",
+    "X11 observation freshness and active consumer-loss integration still pending; live server/driver settings/output delivery unverified.",
+    "Fixed x86_64 X11 SDK C oracle passed again; dynamic-library root-trust and runtime query remain separate unverified gates.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

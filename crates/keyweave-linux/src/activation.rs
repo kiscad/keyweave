@@ -49,6 +49,7 @@ pub struct CaptureGroup<S: CaptureSource> {
     config: Arc<ConfigSnapshot>,
     phase: GroupPhase,
     mode: ExecutionMode,
+    relative: bool,
 }
 impl<S: CaptureSource> CaptureGroup<S> {
     pub fn new(
@@ -62,11 +63,27 @@ impl<S: CaptureSource> CaptureGroup<S> {
         config: Arc<ConfigSnapshot>,
         mode: ExecutionMode,
     ) -> Result<Self, ActivationError> {
+        Self::new_inner(inputs, config, mode, false)
+    }
+    /// Explicit mixed admission. Consumer readiness and supervision remain caller responsibilities.
+    pub fn new_staged_relative(
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, ActivationError> {
+        Self::new_inner(inputs, config, ExecutionMode::StagedKeyboard, true)
+    }
+    fn new_inner(
+        inputs: Vec<(DeviceInstanceId, CaptureDevice<S>)>,
+        config: Arc<ConfigSnapshot>,
+        mode: ExecutionMode,
+        relative: bool,
+    ) -> Result<Self, ActivationError> {
         let group = Self {
             inputs,
             config,
             phase: GroupPhase::Standby,
             mode,
+            relative,
         };
         group.inventory()?;
         // Reject unsupported timing/expansion before any state query or grab.
@@ -84,7 +101,7 @@ impl<S: CaptureSource> CaptureGroup<S> {
         let mut ids = BTreeSet::new();
         let mut paths = BTreeSet::new();
         for (id, input) in &self.inputs {
-            if input.relative_allowed()
+            if (input.relative_allowed() && !self.relative)
                 || input.phase() != CapturePhase::Standby
                 || !ids.insert(id.id)
                 || input.probe().is_none_or(|probe| {
@@ -101,7 +118,9 @@ impl<S: CaptureSource> CaptureGroup<S> {
     }
     fn prepare(&self, output: &OutputNodeReady<'_>) -> Result<(), ActivationError> {
         self.inventory()?;
-        if output.spec().pointing_buttons().is_some() {
+        if (self.relative && output.spec().relative_axes().is_none())
+            || (!self.relative && output.spec().pointing_buttons().is_some())
+        {
             return Err(RuntimeError::StagedPointer.into());
         }
         validate_config(&self.config, output.spec())?;
@@ -208,7 +227,7 @@ impl<S: CaptureSource> CaptureGroup<S> {
         if self.phase != GroupPhase::Standby {
             return Err(ActivationError::Phase);
         }
-        if !ready.fresh_for(output.input_syspath(), now) {
+        if self.relative || !ready.fresh_for(output.input_syspath(), now) {
             return Err(ActivationError::ConsoleNotReady);
         }
         self.try_arm(output)
@@ -229,8 +248,12 @@ impl<S: CaptureSource> CaptureGroup<S> {
             return Err(ActivationError::Phase);
         }
         let inputs = std::mem::take(&mut self.inputs);
-        Runtime::new_with_mode(inputs, backend, self.config.clone(), self.mode)
-            .map_err(ActivationError::Runtime)
+        if self.relative {
+            Runtime::new_staged_relative(inputs, backend, self.config.clone())
+        } else {
+            Runtime::new_with_mode(inputs, backend, self.config.clone(), self.mode)
+        }
+        .map_err(ActivationError::Runtime)
     }
 }
 impl<S: CaptureSource> Drop for CaptureGroup<S> {
@@ -313,6 +336,9 @@ mod tests {
         trace: Trace,
     }
     impl FrameBackend for Backend {
+        fn relative_axes(&self) -> Option<&crate::relative::RelativeAxes> {
+            self.spec.relative_axes()
+        }
         fn spec(&self) -> &DeviceSpec {
             &self.spec
         }
@@ -855,5 +881,245 @@ mod tests {
             ));
             assert_eq!(*trace.borrow(), vec![Call::Close(1)]);
         }
+    }
+    fn mixed_spec() -> DeviceSpec {
+        spec()
+            .with_relative_axes(crate::relative::RelativeAxes::new(&[0, 1]).unwrap())
+            .with_pointing_buttons(keys::PointingButtons::new(&[0x110]).unwrap())
+            .unwrap()
+    }
+    fn mixed_node(spec: &DeviceSpec) -> Probe {
+        let mut node = probe(OUTPUT);
+        node.capabilities.keys = bits(768, &spec.codes().collect::<Vec<_>>());
+        node.capabilities.events = bits(32, &[0, 1, 2, 20]);
+        node.capabilities.relative = bits(16, &[0, 1]);
+        node.capabilities.properties = bits(32, &[0]);
+        node
+    }
+    fn mouse(id: u64, trace: &Trace) -> Source {
+        let mut source = source(id, trace);
+        source.probe.capabilities.keys = bits(768, &[0x110]);
+        source.probe.capabilities.events = bits(32, &[0, 1, 2]);
+        source.probe.capabilities.relative = bits(16, &[0, 1]);
+        source.probe.capabilities.properties = bits(32, &[0]);
+        source
+    }
+    fn mixed_inputs(trace: &Trace) -> Vec<(DeviceInstanceId, CaptureDevice<Source>)> {
+        vec![
+            (
+                DeviceInstanceId {
+                    id: 1,
+                    generation: 1,
+                },
+                CaptureDevice::new(source(1, trace)),
+            ),
+            (
+                DeviceInstanceId {
+                    id: 2,
+                    generation: 1,
+                },
+                CaptureDevice::new_with_relative(mouse(2, trace)),
+            ),
+        ]
+    }
+    #[test]
+    fn mixed_group_arms_keyboard_and_mouse_then_hands_to_relative_runtime() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut group = CaptureGroup::new_staged_relative(mixed_inputs(&trace), config()).unwrap();
+        assert_eq!(
+            group.try_arm(&proof(&spec, &node)).unwrap(),
+            ArmResult::Captured
+        );
+        assert_eq!(
+            trace
+                .borrow()
+                .iter()
+                .filter(|call| matches!(call, Call::Grab(_, true)))
+                .count(),
+            2
+        );
+        let backend = Backend {
+            spec,
+            path: crate::mock_syspath(OUTPUT),
+            trace: trace.clone(),
+        };
+        let runtime = group.into_runtime(backend).unwrap();
+        assert!(runtime.relative_enabled());
+        drop(runtime);
+        let calls = trace.borrow();
+        let output_close = calls
+            .iter()
+            .position(|call| *call == Call::OutputClose)
+            .unwrap();
+        assert!(
+            calls
+                .iter()
+                .enumerate()
+                .filter(|(_, call)| matches!(call, Call::Close(_)))
+                .all(|(index, _)| index < output_close)
+        );
+    }
+    #[test]
+    fn default_group_cannot_select_relative_capture() {
+        let trace = Trace::default();
+        assert!(matches!(
+            CaptureGroup::new(mixed_inputs(&trace), config()),
+            Err(ActivationError::Inputs)
+        ));
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
+        );
+    }
+    #[test]
+    fn mouse_only_group_rejects_before_state_query_or_grab() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let inputs = vec![(
+            DeviceInstanceId {
+                id: 2,
+                generation: 1,
+            },
+            CaptureDevice::new_with_relative(mouse(2, &trace)),
+        )];
+        let mut group = CaptureGroup::new_staged_relative(inputs, config()).unwrap();
+        assert!(matches!(
+            group.try_arm(&proof(&spec, &node)),
+            Err(ActivationError::Runtime(RuntimeError::EmergencyUnavailable))
+        ));
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
+        );
+    }
+    #[test]
+    fn mixed_missing_axis_is_rejected_before_grab() {
+        let trace = Trace::default();
+        let spec = spec().with_relative_axes(crate::relative::RelativeAxes::new(&[0]).unwrap());
+        let mut node = probe(OUTPUT);
+        node.capabilities.events = bits(32, &[0, 1, 2, 20]);
+        node.capabilities.relative = bits(16, &[0]);
+        let mut mouse = mouse(2, &trace);
+        mouse.probe.capabilities.keys = bits(768, &[30]);
+        mouse.probe.capabilities.properties = bits(32, &[]);
+        let inputs = vec![
+            (
+                DeviceInstanceId {
+                    id: 1,
+                    generation: 1,
+                },
+                CaptureDevice::new(source(1, &trace)),
+            ),
+            (
+                DeviceInstanceId {
+                    id: 2,
+                    generation: 1,
+                },
+                CaptureDevice::new_with_relative(mouse),
+            ),
+        ];
+        let mut group = CaptureGroup::new_staged_relative(inputs, config()).unwrap();
+        assert!(matches!(
+            group.try_arm(&proof(&spec, &node)),
+            Err(ActivationError::Capture {
+                source: CaptureError::MissingOutputAxis(1),
+                ..
+            })
+        ));
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn console_observation_cannot_admit_mixed_group() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut group = CaptureGroup::new_staged_relative(mixed_inputs(&trace), config()).unwrap();
+        let ready = crate::console::ConsoleReady::for_test(
+            crate::mock_syspath(OUTPUT),
+            MonoTime(0),
+            MonoTime(100),
+        );
+        assert!(matches!(
+            group.try_arm_console(&proof(&spec, &node), &ready, MonoTime(1)),
+            Err(ActivationError::ConsoleNotReady)
+        ));
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
+        );
+    }
+    #[test]
+    fn mouse_held_during_arm_rolls_back_keyboard_prefix_and_can_retry() {
+        let trace = Trace::default();
+        let spec = mixed_spec();
+        let node = mixed_node(&spec);
+        let mut mouse = mouse(2, &trace);
+        mouse.queries = [Ok(bits(768, &[])), Ok(bits(768, &[0x110]))].into();
+        let inputs = vec![
+            (
+                DeviceInstanceId {
+                    id: 1,
+                    generation: 1,
+                },
+                CaptureDevice::new(source(1, &trace)),
+            ),
+            (
+                DeviceInstanceId {
+                    id: 2,
+                    generation: 1,
+                },
+                CaptureDevice::new_with_relative(mouse),
+            ),
+        ];
+        let mut group = CaptureGroup::new_staged_relative(inputs, config()).unwrap();
+        assert_eq!(
+            group.try_arm(&proof(&spec, &node)).unwrap(),
+            ArmResult::WaitingNeutral
+        );
+        assert_eq!(group.phase(), GroupPhase::Standby);
+        let grabs: Vec<_> = trace
+            .borrow()
+            .iter()
+            .filter(|call| matches!(call, Call::Grab(_, _)))
+            .cloned()
+            .collect();
+        assert_eq!(grabs, vec![Call::Grab(1, true), Call::Grab(1, false)]);
+        assert_eq!(
+            group.try_arm(&proof(&spec, &node)).unwrap(),
+            ArmResult::Captured
+        );
+    }
+    #[test]
+    fn mixed_scope_requires_declared_output_axes_before_keyboard_capture() {
+        let trace = Trace::default();
+        let spec = spec();
+        let node = probe(OUTPUT);
+        let mut group =
+            CaptureGroup::new_staged_relative(inputs(vec![source(1, &trace)]), config()).unwrap();
+        assert!(matches!(
+            group.try_arm(&proof(&spec, &node)),
+            Err(ActivationError::Runtime(RuntimeError::StagedPointer))
+        ));
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|call| matches!(call, Call::Grab(_, _) | Call::Query(_)))
+        );
     }
 }
