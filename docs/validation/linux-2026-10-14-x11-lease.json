@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "4ed0725085abb6ffc0fba1101fa7b763be5af04a",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/x11_consumer.rs": "d78c8be9f8e35e12f0878a1b7b1c90d6de6cdcb606565fc3b8e3b2fea809951c",
+    "crates/keyweave-linux/src/x11_consumer/lease.rs": "1394b2f095b4f55ab154181eeb95b92f092f343266bb88cdf82d974b7357ed06"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1754,
+    "new_tests": 5,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-lease/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-lease/clippy.log",
+        "sha256": "73fce7587301e60fcf4bd19c1384435e4f0256846f2f4be8c89060fb87a1554f"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-lease/tests.log",
+        "sha256": "c08ba99b02b5f97f4286c59eef59773a15155452901b3ebee277627af7402098"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-lease/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-lease/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-lease/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial cargo check warned about an unused accessor; removed. Initial Clippy required collapsing a nested refresh condition; corrected before final full checks."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Lease adapter native flow compiled; tests directly exercise private window state, not actual native session/output/X11 renewal. No device/display/capture access.",
+    "NativeX11Lease is not yet wired into Runtime worker poll control or graphical bootstrap/host/worker selection.",
+    "Existing valid evidence may cover pending query only until its original expiry. Any failure permanently revokes this run; pending canceled child still requires explicit poll_canceled until observed exit.",
+    "Constructor retains pending observer/node ownership if completed evidence is missing; dispatch check rejects without dropping the owner.",
+    "SDK C ABI is verified against pinned headers. Root-trusted dynamic loading/live server/driver policy/output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

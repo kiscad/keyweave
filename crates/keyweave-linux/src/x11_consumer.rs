@@ -1,4 +1,7 @@
 //! Native metadata observation only; not a capture grant or native-code mapping proof.
+mod lease;
+pub use lease::{NativeX11Lease, X11LeaseError};
+
 use crate::{
     device::EvdevDevice,
     graphical_session::{
@@ -133,6 +136,14 @@ impl NativeX11Observer {
         self.observation
             .as_ref()
             .filter(|value| value.fresh_for(output, now))
+    }
+    pub fn take_observation(&mut self) -> Option<X11Observation> {
+        self.observation.take()
+    }
+    pub(crate) fn job_failed(&self) -> bool {
+        self.pending
+            .as_ref()
+            .is_some_and(|value| value.job.failure().is_some())
     }
     pub fn job_phase(&self) -> Option<ProbePhase> {
         self.pending.as_ref().map(|value| value.job.phase())
