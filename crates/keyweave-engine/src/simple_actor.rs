@@ -193,7 +193,7 @@ impl SimpleStageActor {
             return Err(SimpleActorError::Input);
         }
         let at = event.at_ns;
-        let cancels_alone = matches!(event.payload, crate::pointer_work::PointerMotion::Wheel {horizontal, vertical} if horizontal != 0 || vertical != 0);
+        let cancels_alone = event.payload.cancels_alone();
         self.generated.prepare_pointer(event)?.commit();
         if cancels_alone {
             self.alone_candidate = None;

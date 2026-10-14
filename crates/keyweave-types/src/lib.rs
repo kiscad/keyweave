@@ -167,12 +167,32 @@ pub struct DeadlineToken(pub u64);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputEvent {
-    CancelDelayed { token: DeadlineToken },
-    TimerFired { token: DeadlineToken },
-    Key { key: KeyId, edge: KeyEdge },
-    Wheel { horizontal: i32, vertical: i32 },
-    PointerMove { x: i32, y: i32 },
-    ContextChanged { context: ContextSnapshot },
+    CancelDelayed {
+        token: DeadlineToken,
+    },
+    TimerFired {
+        token: DeadlineToken,
+    },
+    Key {
+        key: KeyId,
+        edge: KeyEdge,
+    },
+    Wheel {
+        horizontal: i32,
+        vertical: i32,
+    },
+    PointerMove {
+        x: i32,
+        y: i32,
+    },
+    /// One native packet's semantic summary; backend retains exact raw values.
+    PointerActivity {
+        moved: bool,
+        scrolled: bool,
+    },
+    ContextChanged {
+        context: ContextSnapshot,
+    },
     DeviceRemoved,
     Reset,
 }

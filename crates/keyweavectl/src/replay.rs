@@ -67,6 +67,9 @@ impl Trace {
         self.outputs.extend(step.outputs);
         for pointer in step.forwarded_pointers {
             let motion = match pointer.event.payload {
+                PointerMotion::Activity { moved, scrolled } => {
+                    json!({"type":"activity","moved":moved,"scrolled":scrolled})
+                }
                 PointerMotion::Move { x, y } => json!({"type":"move", "x":x,"y":y}),
                 PointerMotion::Wheel {
                     horizontal,

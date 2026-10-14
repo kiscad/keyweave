@@ -304,12 +304,7 @@ impl ComplexStageActor {
             self.failed = true;
             return result;
         }
-        if let crate::pointer_work::PointerMotion::Wheel {
-            horizontal,
-            vertical,
-        } = due.event.payload
-            && (horizontal != 0 || vertical != 0)
-        {
+        if due.event.payload.cancels_alone() {
             self.alone_candidate = None;
             self.last_wheel_event = Some(
                 self.last_wheel_event

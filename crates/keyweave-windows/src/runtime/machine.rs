@@ -95,7 +95,9 @@ impl Machine {
             Self::Staged(controller) => {
                 if matches!(
                     input.event,
-                    InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
+                    InputEvent::Wheel { .. }
+                        | InputEvent::PointerMove { .. }
+                        | InputEvent::PointerActivity { .. }
                 ) {
                     return Err(RuntimeError::StagedPointer);
                 }

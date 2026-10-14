@@ -32,6 +32,8 @@ pub struct PhysicalStep {
     pub outputs: Vec<OutputIntent>,
     /// Submit keyboard outputs first, then this step's captured pointer receipt.
     pub forwarded_pointers: Vec<DueEvent<crate::pointer_work::PointerMotion>>,
+    /// Successful pointer registration, for a native owner's exact packet cache.
+    pub registered_pointer: Option<SourceToken>,
     /// Query only. Backend must prove desired/submitted ownership and choose one repeat policy.
     pub repeat_target: Option<KeyId>,
     pub next_deadline: Option<MonoTime>,
@@ -220,6 +222,7 @@ impl PhysicalStageController {
             capture,
             outputs: Vec::new(),
             forwarded_pointers: Vec::new(),
+            registered_pointer: None,
             repeat_target: None,
             next_deadline: self.next_deadline(),
         }
@@ -324,14 +327,17 @@ impl PhysicalStageController {
         if input.provenance == Provenance::Physical {
             if matches!(
                 input.event,
-                InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
+                InputEvent::Wheel { .. }
+                    | InputEvent::PointerMove { .. }
+                    | InputEvent::PointerActivity { .. }
             ) {
                 self.prepare_origin()?;
             }
             match &input.event {
                 InputEvent::Key { .. }
                 | InputEvent::Wheel { .. }
-                | InputEvent::PointerMove { .. } => {
+                | InputEvent::PointerMove { .. }
+                | InputEvent::PointerActivity { .. } => {
                     self.history.check_device(input.device, false)?;
                     if self.next_deadline().is_some_and(|due| due <= input.at_ns) {
                         return Err(PhysicalControllerError::DeadlinePending);
@@ -412,6 +418,7 @@ impl PhysicalStageController {
             payload,
         })?;
         self.next_source = following;
+        step.registered_pointer = Some(source);
         step.capture = CaptureDecision::Capture;
         Ok(())
     }
@@ -523,6 +530,14 @@ impl PhysicalStageController {
                     input.device,
                     input.at_ns,
                     crate::pointer_work::PointerMotion::Move { x, y },
+                    step,
+                )?;
+            }
+            InputEvent::PointerActivity { moved, scrolled } => {
+                self.queue_pointer(
+                    input.device,
+                    input.at_ns,
+                    crate::pointer_work::PointerMotion::Activity { moved, scrolled },
                     step,
                 )?;
             }

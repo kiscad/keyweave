@@ -32,6 +32,7 @@ pub mod pump;
 pub mod reactor;
 pub mod read;
 pub mod relative;
+pub mod relative_pending;
 #[cfg(target_os = "linux")]
 pub mod reload_channel;
 #[cfg(target_os = "linux")]

@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0178 exact native packet cache correlated with actual staged pointer source",
+  "source_base_commit": "12d62f1154d15ca3ae8d995e59a872372fdfddfd",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/complex_actor.rs": "533bef7ce1b965a2e661b5bcb661a0e47e85e40b2a6a2b1902040f19fcf96039",
+    "crates/keyweave-engine/src/lib.rs": "1e79cb1b955a87d94380f543b1f3dc99298c50b414c171ff806a77b65357ff45",
+    "crates/keyweave-engine/src/physical_controller.rs": "5d80598fe9b9ff1055b33e2bfe4d48354754b765da53dafe5220d6a23df00d97",
+    "crates/keyweave-engine/src/pointer_work.rs": "ce1fdfafe5324b77c526bf64ecd344c9e12c101babc3435c19a9e46b31c0ef1e",
+    "crates/keyweave-engine/src/simple_actor.rs": "82ac0294ee1fb3c00b26731d34257f55d1e4395caafe6d6bbe073c470d884c4f",
+    "crates/keyweave-linux/src/lib.rs": "7c762eae16dc073f90c0c2e61da3b2cba6f1888bf922a1eb8394a14d15f26b7a",
+    "crates/keyweave-linux/src/runtime/machine.rs": "2f208a8383d8cc9ef1cea1e5d1a928142e7fb41abc542f6929c81d6fd11603f3",
+    "crates/keyweave-types/src/lib.rs": "1fa03308c07bfc33ec7884f4f86a0fcb2b77f445f86e5997169b95d0b36ab93e",
+    "crates/keyweave-windows/src/runtime/machine.rs": "066aa5102165d306b5e18fec01ca46b355324bfa207161a7ce393ea0111a8f4d",
+    "crates/keyweavectl/src/replay.rs": "99a2b000f10cf4e72b12916f34007d35130a5e7ca927cc0f28b7941c66762527",
+    "crates/keyweave-linux/src/relative_pending.rs": "fd4cdb36733c5a35b7c6cbd7782fc4a63d7ba1cb9fe8368afe20e9936af0fd16",
+    "crates/keyweave-linux/tests/relative_pending.rs": "ee6ee5875dab2db418dcfe792c1802124ab38d9899622ef7bc0aaf5b7ee7becd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1658,
+    "new_tests": 9,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-relative-correlation/tests.log",
+        "sha256": "bf1d88343ab5255da11d7f6a3dfb15e9693eae756b689b010eb82d5871448b79"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-relative-correlation/clippy.log",
+        "sha256": "b38694f06290a12aee14e71cb22707f730eed2f7ab19cc1874c6fd2b4edd5085"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-relative-correlation/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-relative-correlation/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-relative-correlation/abi.log",
+        "sha256": "60d475e06b59a15d2397eb7f0ffb5842be71d92d18f053a000a49a2657cf4c46"
+      }
+    }
+  },
+  "initial_failures": [
+    "Injected fixture initially used a nonexistent Provenance::Injected variant; corrected to the actual OtherInjected variant. Final focused and full checks passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "PointerActivity is explicitly rejected by the existing staged keyboard machine. Shared portable tests ran on Linux; native MSVC/SDK checks remain pending after prior automatic approval quota rejection, without retry/bypass."
+  },
+  "limitations": [
+    "Source/device/Arc/activity/time correlation is trusted native-owner metadata, not authentication or OS/application acceptance proof.",
+    "PendingRelativeFrames must be cold-checked before actual Physical registration by the same owner. Packet capture, consumer authorization and Runtime assembly remain pending.",
+    "Normalized stage history may be later than original input time; actual raw record values remain unchanged in the packet cache.",
+    "No real evdev/uinput/capture/session/hardware run. Windows native pointer, graphical Linux providers, GUI/packaging and driver acceptance remain pending."
+  ]
+}

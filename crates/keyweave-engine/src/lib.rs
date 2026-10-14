@@ -872,7 +872,10 @@ impl Engine {
                 }
             } else if matches!(
                 input.event,
-                InputEvent::Key { .. } | InputEvent::Wheel { .. } | InputEvent::PointerMove { .. }
+                InputEvent::Key { .. }
+                    | InputEvent::Wheel { .. }
+                    | InputEvent::PointerMove { .. }
+                    | InputEvent::PointerActivity { .. }
             ) && self
                 .next_deadline()
                 .is_some_and(|(at, _)| at <= input.at_ns)
@@ -955,6 +958,14 @@ impl Engine {
                 step.capture = CaptureDecision::Pass;
                 self.sync_pointer_modifiers(&mut step.outputs);
                 if horizontal != 0 || vertical != 0 {
+                    self.cancel_alone();
+                }
+            }
+            InputEvent::PointerActivity { scrolled, .. } => {
+                self.update_device(input.device, false, &mut step.outputs)?;
+                step.capture = CaptureDecision::Pass;
+                self.sync_pointer_modifiers(&mut step.outputs);
+                if scrolled {
                     self.cancel_alone();
                 }
             }
