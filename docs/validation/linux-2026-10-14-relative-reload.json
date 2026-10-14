@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "ff59e795c47a2044f3771cac7536583c3e9f402e",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-worker/src/reload_preparation.rs": "e8c4c99b556630edfcf77c7cc6003e2dfa9b2f834e29e7c18542a4247d1e16b9"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1798,
+    "new_tests": 6,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-relative-reload/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-relative-reload/clippy.log",
+        "sha256": "7642f495ddb7c6a31a29b02cbd6c0c05e2cd340862d22ceed1abab797631f50c"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-relative-reload/tests.log",
+        "sha256": "a178ec20c07df1bdba363ee0162f70fae6612496d98e9daa3ece30a2ddbc4067"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-relative-reload/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-relative-reload/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-relative-reload/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial cargo check found a duplicated linux_scope field in the WindowsStaged candidate initializer from the edit; removed before final checks."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Tests use actual cold compiler thread, reload Receiver/Ack and Engine generation mutation; scope metadata is provided by a private sealed test actor, not an actual Linux Runtime. Runtime adapter compiled only.",
+    "Candidate scope matches actual Runtime.relative_enabled before activation; failed scope or cold coverage leaves active generation unchanged and sends Rejected.",
+    "Target.linux_prepared selects immutable spec/mode/scope; X11 session reload extension and host/worker argv scope selection still pending.",
+    "No session/display/input/uinput/capture access. Pinned SDK C ABI passed; native libraries/server/driver policy/output delivery unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}

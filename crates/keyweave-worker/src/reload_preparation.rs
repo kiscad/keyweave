@@ -13,8 +13,24 @@ use std::{io::Read, sync::Arc, thread::JoinHandle};
 pub enum Target {
     Linux(keyweave_linux::output::DeviceSpec),
     LinuxStaged(keyweave_linux::output::DeviceSpec),
+    LinuxRelative(keyweave_linux::output::DeviceSpec),
     Windows,
     WindowsStaged,
+}
+impl Target {
+    pub fn linux_prepared(prepared: &linux::PreparedConfig) -> Self {
+        match (prepared.capture_scope(), prepared.execution_mode()) {
+            (linux::CaptureScope::StagedRelative, _) => {
+                Self::LinuxRelative(prepared.output_spec().clone())
+            }
+            (linux::CaptureScope::Keyboard, linux::ExecutionMode::StagedKeyboard) => {
+                Self::LinuxStaged(prepared.output_spec().clone())
+            }
+            (linux::CaptureScope::Keyboard, linux::ExecutionMode::Legacy) => {
+                Self::Linux(prepared.output_spec().clone())
+            }
+        }
+    }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Platform {
@@ -25,6 +41,7 @@ struct Candidate {
     platform: Platform,
     snapshot: Arc<ConfigSnapshot>,
     linux_mode: Option<keyweave_linux::runtime::ExecutionMode>,
+    linux_scope: Option<linux::CaptureScope>,
     windows_mode: Option<keyweave_windows::runtime::ExecutionMode>,
 }
 struct Completion {
@@ -106,6 +123,7 @@ impl PreparationSlot {
                         platform: Platform::Linux,
                         snapshot: p.snapshot().clone(),
                         linux_mode: Some(p.execution_mode()),
+                        linux_scope: Some(p.capture_scope()),
                         windows_mode: None,
                     }),
                     Target::LinuxStaged(spec) => {
@@ -120,6 +138,24 @@ impl PreparationSlot {
                             platform: Platform::Linux,
                             snapshot: p.snapshot().clone(),
                             linux_mode: Some(p.execution_mode()),
+                            linux_scope: Some(p.capture_scope()),
+                            windows_mode: None,
+                        })
+                    }
+                    Target::LinuxRelative(spec) => {
+                        linux::PreparedConfig::from_bytes_for_generation_with_scope(
+                            received.body,
+                            spec,
+                            request.target,
+                            linux::ExecutionMode::StagedKeyboard,
+                            linux::CaptureScope::StagedRelative,
+                        )
+                        .ok()
+                        .map(|p| Candidate {
+                            platform: Platform::Linux,
+                            snapshot: p.snapshot().clone(),
+                            linux_mode: Some(p.execution_mode()),
+                            linux_scope: Some(p.capture_scope()),
                             windows_mode: None,
                         })
                     }
@@ -134,6 +170,7 @@ impl PreparationSlot {
                             platform: Platform::Windows,
                             snapshot: p.snapshot().clone(),
                             linux_mode: None,
+                            linux_scope: None,
                             windows_mode: Some(p.execution_mode()),
                         })
                     }
@@ -146,6 +183,7 @@ impl PreparationSlot {
                         platform: Platform::Windows,
                         snapshot: p.snapshot().clone(),
                         linux_mode: None,
+                        linux_scope: None,
                         windows_mode: Some(p.execution_mode()),
                     }),
                 };
@@ -221,6 +259,9 @@ impl PreparationSlot {
                     .linux_mode
                     .is_none_or(|mode| actor.supports_linux_mode(mode))
                 && candidate
+                    .linux_scope
+                    .is_none_or(|scope| actor.supports_linux_scope(scope))
+                && candidate
                     .windows_mode
                     .is_none_or(|mode| actor.supports_windows_mode(mode))
                 && actor.apply(candidate.snapshot)
@@ -247,6 +288,9 @@ mod sealed {
         fn supports(&self, linux: bool) -> bool;
         fn supports_linux_mode(&self, mode: keyweave_linux::runtime::ExecutionMode) -> bool {
             mode == keyweave_linux::runtime::ExecutionMode::Legacy
+        }
+        fn supports_linux_scope(&self, scope: linux::CaptureScope) -> bool {
+            scope == linux::CaptureScope::Keyboard
         }
         fn supports_windows_mode(&self, mode: keyweave_windows::runtime::ExecutionMode) -> bool {
             mode == keyweave_windows::runtime::ExecutionMode::Legacy
@@ -279,6 +323,12 @@ impl<S: keyweave_linux::capture::CaptureSource, B: keyweave_linux::pump::FrameBa
     }
     fn supports_linux_mode(&self, mode: keyweave_linux::runtime::ExecutionMode) -> bool {
         mode == self.execution_mode()
+    }
+    fn supports_linux_scope(&self, scope: linux::CaptureScope) -> bool {
+        match scope {
+            linux::CaptureScope::Keyboard => !self.relative_enabled(),
+            linux::CaptureScope::StagedRelative => self.relative_enabled(),
+        }
     }
     fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool {
         self.activate(snapshot).is_ok()
@@ -364,6 +414,187 @@ mod tests {
             assert!(std::time::Instant::now() < until);
             std::thread::yield_now();
         }
+        assert_eq!(slot.poll().unwrap(), PreparationStep::Closed);
+    }
+    const BODY:&[u8]=br#"{"profiles":[{"selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b"}]}]}]}"#;
+    const POINT:&[u8]=br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"pointing_button":"button1"},"to":[{"pointing_button":"button2"}]}]}]}}]}"#;
+    struct ScopeActor {
+        engine: Engine,
+        scope: linux::CaptureScope,
+    }
+    impl sealed::Actor for ScopeActor {
+        fn generation(&self) -> ConfigGeneration {
+            self.engine.config_generation()
+        }
+        fn supports(&self, linux: bool) -> bool {
+            linux
+        }
+        fn supports_linux_mode(&self, mode: linux::ExecutionMode) -> bool {
+            mode == linux::ExecutionMode::StagedKeyboard
+        }
+        fn supports_linux_scope(&self, scope: linux::CaptureScope) -> bool {
+            scope == self.scope
+        }
+        fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool {
+            self.engine.activate(snapshot).is_ok()
+        }
+    }
+    impl ReloadActor for ScopeActor {}
+    fn actor(scope: linux::CaptureScope) -> ScopeActor {
+        ScopeActor {
+            scope,
+            engine: Engine::new(
+                windows::PreparedConfig::from_bytes(BODY.to_vec())
+                    .unwrap()
+                    .snapshot()
+                    .clone(),
+            )
+            .unwrap(),
+        }
+    }
+    fn spec(buttons: &[u16]) -> keyweave_linux::output::DeviceSpec {
+        linux::default_output_spec()
+            .unwrap()
+            .with_relative_axes(keyweave_linux::relative::RelativeAxes::new(&[0, 1]).unwrap())
+            .with_pointing_buttons(keyweave_linux::keys::PointingButtons::new(buttons).unwrap())
+            .unwrap()
+    }
+    fn receiver(body: &[u8]) -> Receiver<std::io::Cursor<Vec<u8>>> {
+        use keyweave_progress::reload::{Worker, transport::ReceiveStep};
+        let request = Request {
+            run_id: 42,
+            id: 1,
+            base: ConfigGeneration(1),
+            target: ConfigGeneration(2),
+            byte_length: body.len() as u64,
+        };
+        let mut wire = request.encode().unwrap().to_vec();
+        wire.extend_from_slice(body);
+        let mut receiver = Receiver::new(
+            std::io::Cursor::new(wire),
+            Worker::new(42, ConfigGeneration(1)).unwrap(),
+        );
+        assert_eq!(receiver.poll().unwrap(), ReceiveStep::Pending);
+        assert_eq!(receiver.poll().unwrap(), ReceiveStep::Ready);
+        receiver
+    }
+    fn complete(slot: &mut PreparationSlot) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while slot.poll().unwrap() != PreparationStep::Ready {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+    }
+    #[test]
+    fn relative_candidate_applies_actual_engine_generation_before_ack() {
+        let mut actor = actor(linux::CaptureScope::StagedRelative);
+        let mut receiver = receiver(POINT);
+        let mut slot = PreparationSlot::new();
+        slot.start(
+            receiver.take().unwrap(),
+            Target::LinuxRelative(spec(&[0x110, 0x111])),
+        )
+        .unwrap();
+        complete(&mut slot);
+        assert_eq!(actor.engine.config_generation(), ConfigGeneration(1));
+        let ack = slot.deliver(&mut receiver, &mut actor).unwrap();
+        assert_eq!(ack.outcome, Outcome::Accepted);
+        assert_eq!(ack.active, ConfigGeneration(2));
+        assert_eq!(actor.engine.config_generation(), ConfigGeneration(2));
+    }
+    #[test]
+    fn relative_candidate_cannot_apply_to_keyboard_scope_with_same_mode() {
+        let mut actor = actor(linux::CaptureScope::Keyboard);
+        let mut receiver = receiver(BODY);
+        let mut slot = PreparationSlot::new();
+        slot.start(
+            receiver.take().unwrap(),
+            Target::LinuxRelative(spec(&[0x110])),
+        )
+        .unwrap();
+        complete(&mut slot);
+        let ack = slot.deliver(&mut receiver, &mut actor).unwrap();
+        assert_eq!(ack.outcome, Outcome::Rejected);
+        assert_eq!(actor.engine.config_generation(), ConfigGeneration(1));
+    }
+    #[test]
+    fn keyboard_staged_candidate_cannot_apply_to_relative_scope() {
+        let mut actor = actor(linux::CaptureScope::StagedRelative);
+        let mut receiver = receiver(BODY);
+        let mut slot = PreparationSlot::new();
+        slot.start(
+            receiver.take().unwrap(),
+            Target::LinuxStaged(linux::default_output_spec().unwrap()),
+        )
+        .unwrap();
+        complete(&mut slot);
+        let ack = slot.deliver(&mut receiver, &mut actor).unwrap();
+        assert_eq!(ack.outcome, Outcome::Rejected);
+        assert_eq!(actor.engine.config_generation(), ConfigGeneration(1));
+    }
+    #[test]
+    fn relative_cold_failure_never_changes_generation_or_acknowledges_applied() {
+        let mut actor = actor(linux::CaptureScope::StagedRelative);
+        let mut receiver = receiver(POINT);
+        let mut slot = PreparationSlot::new();
+        slot.start(
+            receiver.take().unwrap(),
+            Target::LinuxRelative(spec(&[0x110])),
+        )
+        .unwrap();
+        complete(&mut slot);
+        assert_eq!(
+            slot.deliver(&mut receiver, &mut actor).unwrap().outcome,
+            Outcome::Rejected
+        );
+        assert_eq!(actor.engine.config_generation(), ConfigGeneration(1));
+    }
+    #[test]
+    fn prepared_scope_selects_fixed_reload_target() {
+        let keyboard =
+            linux::PreparedConfig::from_bytes(BODY.to_vec(), linux::default_output_spec().unwrap())
+                .unwrap();
+        assert!(matches!(
+            Target::linux_prepared(&keyboard),
+            Target::Linux(_)
+        ));
+        let staged = linux::PreparedConfig::read_with_mode(
+            BODY,
+            linux::default_output_spec().unwrap(),
+            linux::ExecutionMode::StagedKeyboard,
+        )
+        .unwrap();
+        assert!(matches!(
+            Target::linux_prepared(&staged),
+            Target::LinuxStaged(_)
+        ));
+        let relative = linux::PreparedConfig::from_bytes_for_generation_with_scope(
+            POINT.to_vec(),
+            spec(&[0x110, 0x111]),
+            ConfigGeneration(1),
+            linux::ExecutionMode::StagedKeyboard,
+            linux::CaptureScope::StagedRelative,
+        )
+        .unwrap();
+        assert!(matches!(
+            Target::linux_prepared(&relative),
+            Target::LinuxRelative(_)
+        ));
+    }
+    #[test]
+    fn closed_relative_lane_does_not_apply_late_candidate() {
+        let mut actor = actor(linux::CaptureScope::StagedRelative);
+        let mut receiver = receiver(BODY);
+        let mut slot = PreparationSlot::new();
+        slot.start(
+            receiver.take().unwrap(),
+            Target::LinuxRelative(spec(&[0x110])),
+        )
+        .unwrap();
+        complete(&mut slot);
+        slot.close();
+        assert!(slot.deliver(&mut receiver, &mut actor).is_err());
+        assert_eq!(actor.engine.config_generation(), ConfigGeneration(1));
         assert_eq!(slot.poll().unwrap(), PreparationStep::Closed);
     }
 }
