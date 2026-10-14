@@ -3,6 +3,7 @@
 mod x11;
 pub use x11::{
     X11Bootstrap, X11BootstrapFailure, X11Prepared, X11StartupCleanup, X11StartupCleanupReport,
+    X11StartupOutcome,
 };
 
 use crate::{
@@ -146,6 +147,7 @@ impl Plan {
 }
 trait ReadyEvidence {
     fn fresh_for(&self, path: &Path, now: MonoTime) -> bool;
+    fn valid_until(&self) -> MonoTime;
     fn arm<S: CaptureSource>(
         &self,
         group: &mut CaptureGroup<S>,
@@ -155,6 +157,9 @@ trait ReadyEvidence {
     ) -> Result<ArmResult, ActivationError>;
 }
 impl ReadyEvidence for ConsoleReady {
+    fn valid_until(&self) -> MonoTime {
+        self.valid_until()
+    }
     fn fresh_for(&self, path: &Path, now: MonoTime) -> bool {
         self.fresh_for(path, now)
     }
@@ -169,6 +174,9 @@ impl ReadyEvidence for ConsoleReady {
     }
 }
 impl ReadyEvidence for crate::x11_consumer::X11Observation {
+    fn valid_until(&self) -> MonoTime {
+        self.valid_until()
+    }
     fn fresh_for(&self, path: &Path, now: MonoTime) -> bool {
         self.fresh_for(path, now)
     }
@@ -185,6 +193,12 @@ impl ReadyEvidence for crate::x11_consumer::X11Observation {
 // Private injection boundary; no public factory can replace real guard/IO checks.
 trait Platform {
     type Ready: ReadyEvidence;
+    fn next_query_deadline(&self) -> Option<MonoTime> {
+        None
+    }
+    fn poll_interval(&self) -> u64 {
+        crate::reactor::HOUSEKEEPING_NS
+    }
     fn retain_on_close(&self) -> bool {
         false
     }
@@ -255,6 +269,25 @@ impl<P: Platform> Bootstrap<P> {
             return Err(BootstrapError::Deadline);
         }
         Ok(now)
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        if matches!(self.phase, Phase::Closed | Phase::Ready) {
+            return None;
+        }
+        let platform = self.platform.as_ref()?;
+        let mut next = self.last?.checked_add(platform.poll_interval())?;
+        if let Some(limit) = self.deadline {
+            next = next.min(limit);
+        }
+        if let Some(limit) = platform.next_query_deadline() {
+            next = next.min(limit);
+        }
+        if self.phase == Phase::Verify
+            && let Some(ready) = &self.ready
+        {
+            next = next.min(ready.valid_until());
+        }
+        Some(next)
     }
     fn close(&mut self) {
         if self.phase == Phase::Closed {
@@ -467,15 +500,42 @@ where
         &crate::progress::ProgressClient<R, W>,
     ) -> Result<(), BootstrapError>,
 {
-    loop {
-        if client.receive_startup_command()? == crate::progress::RequestEvent::Stop {
-            return Ok(None);
-        }
-        if boot.step()? == BootstrapStep::Ready {
-            return boot.finish().map(Some);
-        }
-        wait(&mut boot, client)?;
+    if drive_until_ready(&mut boot, client, &mut wait)? {
+        boot.finish().map(Some)
+    } else {
+        Ok(None)
     }
+}
+fn drive_until_ready<P, R, W, F>(
+    boot: &mut Bootstrap<P>,
+    client: &mut crate::progress::ProgressClient<R, W>,
+    wait: &mut F,
+) -> Result<bool, BootstrapError>
+where
+    P: Platform,
+    R: io::Read,
+    W: io::Write,
+    F: FnMut(
+        &mut Bootstrap<P>,
+        &crate::progress::ProgressClient<R, W>,
+    ) -> Result<(), BootstrapError>,
+{
+    let result = (|| {
+        loop {
+            if client.receive_startup_command()? == crate::progress::RequestEvent::Stop {
+                boot.close();
+                return Ok(false);
+            }
+            if boot.step()? == BootstrapStep::Ready {
+                return Ok(true);
+            }
+            wait(boot, client)?;
+        }
+    })();
+    if result.is_err() {
+        boot.close();
+    }
+    result
 }
 
 struct Native<'a> {

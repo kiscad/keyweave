@@ -14,6 +14,16 @@ struct NativeX11<'a> {
     cancel_error: Option<io::Error>,
 }
 impl Platform for NativeX11<'_> {
+    fn next_query_deadline(&self) -> Option<MonoTime> {
+        self.observer.next_deadline()
+    }
+    fn poll_interval(&self) -> u64 {
+        if self.observer.job_phase().is_some() {
+            2_000_000
+        } else {
+            crate::reactor::HOUSEKEEPING_NS
+        }
+    }
     type Ready = X11Observation;
     type Source = EvdevSource;
     type Output = UinputDevice;
@@ -74,6 +84,10 @@ pub struct X11Prepared {
     pub runtime: Runtime<EvdevSource, UinputDevice>,
     pub consumer: NativeX11Lease,
     pub clock: MonotonicClock,
+}
+pub enum X11StartupOutcome {
+    Ready(Box<X11Prepared>),
+    Stopped(Option<Box<X11StartupCleanup>>),
 }
 pub struct X11BootstrapFailure {
     pub error: BootstrapError,
@@ -168,23 +182,51 @@ impl<'a> X11Bootstrap<'a> {
         self.inner.step()
     }
     pub fn next_wakeup(&self) -> Option<MonoTime> {
-        if matches!(self.inner.phase, Phase::Closed | Phase::Ready) {
-            return None;
+        self.inner.next_wakeup()
+    }
+    /// Stop before every step. No startup progress is published. Cleanup owners are returned.
+    pub fn run<R, W>(
+        mut self,
+        client: &mut crate::progress::ProgressClient<R, W>,
+    ) -> Result<X11StartupOutcome, Box<X11BootstrapFailure>>
+    where
+        R: io::Read + std::os::fd::AsFd,
+        W: io::Write + std::os::fd::AsFd,
+    {
+        let result = (|| {
+            for request in client.wait_requests_with_control(true) {
+                crate::ioctl::nonblocking(request.fd)?;
+            }
+            drive_until_ready(&mut self.inner, client, &mut |boot, client| {
+                boot.time()?;
+                let deadline = boot.next_wakeup();
+                let requests = client.wait_requests_with_control(true);
+                let native = boot.platform.as_mut().ok_or(BootstrapError::Phase)?;
+                let wake = crate::reactor::wait(
+                    &mut native.clock,
+                    &requests,
+                    deadline,
+                    crate::reactor::HOUSEKEEPING_NS,
+                )?;
+                if wake.any_fault() {
+                    return Err(BootstrapError::Endpoint);
+                }
+                boot.time()?;
+                Ok(())
+            })
+        })();
+        match result {
+            Ok(true) => self
+                .into_prepared()
+                .map(|ready| X11StartupOutcome::Ready(Box::new(ready))),
+            Ok(false) => Ok(X11StartupOutcome::Stopped(
+                self.into_cleanup().map(Box::new),
+            )),
+            Err(error) => Err(Box::new(X11BootstrapFailure {
+                error,
+                cleanup: self.into_cleanup(),
+            })),
         }
-        let native = self.inner.platform.as_ref()?;
-        let now = self.inner.last?;
-        let next = now.checked_add(if native.observer.job_phase().is_some() {
-            2_000_000
-        } else {
-            crate::reactor::HOUSEKEEPING_NS
-        })?;
-        let next = self.inner.deadline.map_or(next, |limit| next.min(limit));
-        Some(
-            native
-                .observer
-                .next_deadline()
-                .map_or(next, |limit| next.min(limit)),
-        )
     }
     pub fn into_cleanup(mut self) -> Option<X11StartupCleanup> {
         self.inner.close();

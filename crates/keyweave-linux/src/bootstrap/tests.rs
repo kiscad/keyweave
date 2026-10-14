@@ -716,6 +716,7 @@ fn staged_plan_propagates_mode_through_bootstrap_group_and_handoff_without_dispa
 }
 
 struct GraphMock {
+    query_deadline: Option<MonoTime>,
     relative: bool,
     retain: bool,
     mock: Mock,
@@ -723,6 +724,9 @@ struct GraphMock {
     latency: u64,
 }
 impl Platform for GraphMock {
+    fn next_query_deadline(&self) -> Option<MonoTime> {
+        self.query_deadline
+    }
     fn retain_on_close(&self) -> bool {
         self.retain
     }
@@ -807,6 +811,7 @@ fn graphical(mock: Mock) -> Bootstrap<GraphMock> {
     Bootstrap::new(
         plan,
         GraphMock {
+            query_deadline: None,
             relative: false,
             retain: false,
             mock,
@@ -906,6 +911,7 @@ fn mixed_graphical(mock: Mock) -> Bootstrap<GraphMock> {
     Bootstrap::new(
         plan,
         GraphMock {
+            query_deadline: None,
             mock,
             pending: true,
             latency: 0,
@@ -1009,5 +1015,137 @@ fn repeated_close_does_not_reopen_or_recancel_startup_transaction() {
         1
     );
     assert!(boot.platform.is_some());
+    drop(boot);
+}
+
+#[test]
+fn controlled_mixed_stop_precedes_creation_or_closes_captured_sources_with_owner_retained() {
+    for delay in [0, 6] {
+        let mock = Mock::new();
+        let trace = mock.trace.clone();
+        let mut boot = mixed_graphical(mock);
+        let mut client = crate::progress::ProgressClient::new(
+            StartupReader {
+                bytes: crate::progress::StopRequest { run_id: 7, id: 1 }
+                    .encode()
+                    .to_vec(),
+                delay,
+            },
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        assert!(!drive_until_ready(&mut boot, &mut client, &mut |_, _| Ok(())).unwrap());
+        assert!(boot.platform.is_some());
+        assert!(!trace.borrow().contains(&"provider-close".into()));
+        if delay == 0 {
+            assert!(!trace.borrow().contains(&"create".into()));
+        } else {
+            assert!(trace.borrow().contains(&"grab1:true".into()));
+            input_owners_closed_before_output(&trace);
+        }
+        assert!(
+            !trace
+                .borrow()
+                .iter()
+                .any(|event| event == "read" || event == "write")
+        );
+        drop(boot);
+    }
+}
+#[test]
+fn controlled_mixed_protocol_or_wait_failure_retains_same_platform() {
+    for protocol in [true, false] {
+        let mock = Mock::new();
+        let trace = mock.trace.clone();
+        let mut boot = mixed_graphical(mock);
+        let mut client = crate::progress::ProgressClient::new(
+            StartupReader {
+                bytes: if protocol { vec![0; 24] } else { vec![] },
+                delay: 0,
+            },
+            io::sink(),
+            7,
+        )
+        .unwrap();
+        let result = drive_until_ready(&mut boot, &mut client, &mut |_, _| {
+            Err(BootstrapError::Endpoint)
+        });
+        assert!(result.is_err());
+        assert_eq!(boot.phase, Phase::Closed);
+        assert!(boot.platform.is_some());
+        assert!(!trace.borrow().contains(&"provider-close".into()));
+        assert_eq!(
+            trace
+                .borrow()
+                .iter()
+                .filter(|event| *event == "abort")
+                .count(),
+            1
+        );
+        drop(boot);
+    }
+}
+#[test]
+fn controlled_mixed_handoff_does_not_publish_metadata_progress() {
+    let mock = Mock::new();
+    let mut boot = mixed_graphical(mock);
+    let bytes = Rc::new(RefCell::new(vec![]));
+    let mut client = crate::progress::ProgressClient::new(
+        StartupReader {
+            bytes: crate::progress::Challenge { run_id: 7, id: 1 }
+                .encode()
+                .to_vec(),
+            delay: 0,
+        },
+        SharedWriter(bytes.clone()),
+        7,
+    )
+    .unwrap();
+    assert!(drive_until_ready(&mut boot, &mut client, &mut |_, _| Ok(())).unwrap());
+    assert!(bytes.borrow().is_empty());
+    let handoff = boot
+        .finish_preserving()
+        .unwrap_or_else(|_| panic!("handoff failed"));
+    assert!(handoff.runtime.relative_enabled());
+    drop(handoff);
+}
+#[test]
+fn bootstrap_wait_uses_previous_evidence_and_query_deadline() {
+    let mock = Mock::new();
+    let mut boot = mixed_graphical(mock);
+    while boot.phase != Phase::Verify {
+        boot.step().unwrap();
+    }
+    boot.platform.as_mut().unwrap().mock.clock.set(240_000_000);
+    boot.time().unwrap();
+    assert_eq!(boot.next_wakeup(), Some(MonoTime(250_000_001)));
+    boot.platform.as_mut().unwrap().query_deadline = Some(MonoTime(244_000_000));
+    assert_eq!(boot.next_wakeup(), Some(MonoTime(244_000_000)));
+    boot.close();
+    assert_eq!(boot.next_wakeup(), None);
+}
+#[test]
+fn controlled_mixed_clock_overflow_closes_without_creation_and_keeps_cleanup_owner() {
+    let mock = Mock::new();
+    let trace = mock.trace.clone();
+    mock.clock.set(u64::MAX);
+    let mut boot = mixed_graphical(mock);
+    let mut client = crate::progress::ProgressClient::new(
+        StartupReader {
+            bytes: vec![],
+            delay: 0,
+        },
+        io::sink(),
+        7,
+    )
+    .unwrap();
+    assert!(matches!(
+        drive_until_ready(&mut boot, &mut client, &mut |_, _| panic!("cannot wait")),
+        Err(BootstrapError::Deadline)
+    ));
+    assert!(boot.platform.is_some());
+    assert!(!trace.borrow().contains(&"create".into()));
+    assert!(!trace.borrow().contains(&"provider-close".into()));
     drop(boot);
 }

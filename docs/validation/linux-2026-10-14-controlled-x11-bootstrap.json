@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "3be7c9dd93178db6f54c186b0290c9e4ccb84f0a",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/bootstrap.rs": "538207c4c308175634fe20326581bdc4ac30e43fa0e1ddfa3e756676d332a1ec",
+    "crates/keyweave-linux/src/bootstrap/x11.rs": "9ca94fafde842ea4cb841697422423c78e6c80c68f7719d826660266c98cadec",
+    "crates/keyweave-linux/src/bootstrap/tests.rs": "10d0a8d17b9d6a7454eb9c63b6733998054333c1bf4d441b9a3b09b5a75ca737"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1780,
+    "new_tests": 5,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-controlled-x11-bootstrap/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-controlled-x11-bootstrap/clippy.log",
+        "sha256": "ddb0092416b337ece906651c29a2126911f8a3f2be69acc68936d36e40a93c6d"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-controlled-x11-bootstrap/tests.log",
+        "sha256": "cf932e9db685b7f8178993e682629b2fe6c83f3aeb8bae9d8cbff0bcc984358d"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-controlled-x11-bootstrap/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-controlled-x11-bootstrap/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-controlled-x11-bootstrap/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Native X11Bootstrap.run compiled only. Shared controlled mixed state machine tested with private platform/mock sources and actual startup protocol bytes; no native session/display/device/capture access.",
+    "Stop/failure outcomes return original startup cleanup owner. Caller must continue same-owner exit confirmation; stopped startup is not Runtime termination evidence.",
+    "No progress is published during bootstrap; active dispatch remains the existing worker handoff after Ready.",
+    "Host/session provider selection and startup cleanup scheduling/reporting integration remain pending.",
+    "Pinned SDK C ABI passed; root-trusted library/server query/driver policy and real delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}
