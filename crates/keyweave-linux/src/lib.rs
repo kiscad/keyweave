@@ -47,6 +47,8 @@ pub mod uinput;
 #[cfg(target_os = "linux")]
 pub mod worker;
 #[cfg(target_os = "linux")]
+pub mod x11_cleanup;
+#[cfg(target_os = "linux")]
 pub mod x11_consumer;
 #[cfg(target_os = "linux")]
 pub mod x11_probe;

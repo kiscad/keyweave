@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "04e7568f6452f150c7459a5687a9621524aad288",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/lib.rs": "ff902904c9d2cfbdd155f4cdc34fb2a0230dd3030b7ac0998476aea053d33d7c",
+    "crates/keyweave-linux/src/x11_cleanup.rs": "34133c0f4a756d721eccaaf0c1e6bc0474c704b5d28fccfecad4aa6f1af2fd44"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1763,
+    "new_tests": 5,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-cleanup/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-cleanup/clippy.log",
+        "sha256": "36961be76e7b7d9add4d2c982ac2cbf01b798ad868361fabf5eb3f72d5e3e044"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-cleanup/tests.log",
+        "sha256": "e4a5bab184f8a6598a4e45e1ce74b8cba7647a73395fb988e6b0e10e8be52787"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-cleanup/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-cleanup/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-cleanup/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial Clippy found unnecessary mut in overflow fixture; corrected before final full checks."
+  ],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Cleanup native wrapper compiled only. State tests and actual owned Python helper exercise the same private cleanup task; no native session/display/device/capture access.",
+    "Observation deadline or clock failure does not stop the owned child itself; canceled owner remains in X11Cleanup until confirmed, or is returned by finish for further same-owner observation.",
+    "finish drops consumer only after NoPendingJob/ObservedExit confirmation, retaining prior cancellation, cleanup cancellation, polling, clock-source and timing failures independently of Runtime outcome.",
+    "Terminal reporting bridge and graphical bootstrap/host/worker selection are not yet connected to cleanup confirmation.",
+    "SDK C ABI is verified against pinned headers; root-trusted dynamic loading/live server/driver settings and output delivery remain unverified.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}
