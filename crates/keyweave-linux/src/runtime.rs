@@ -4486,4 +4486,177 @@ mod tests {
             [Call::InputClose(1), Call::OutputClose]
         );
     }
+    #[cfg(target_os = "linux")]
+    struct X11Gate {
+        cancel_fault: bool,
+        remaining: usize,
+        trace: Trace,
+    }
+    #[cfg(target_os = "linux")]
+    impl crate::worker::X11LeaseControl<Backend> for X11Gate {
+        fn check(
+            &mut self,
+            _: &Backend,
+            clock: &mut crate::reactor::MonotonicClock,
+        ) -> Result<MonoTime, crate::x11_consumer::X11LeaseError> {
+            self.trace.borrow_mut().push(Call::ConsumerCheck);
+            if self.remaining == 0 {
+                return Err(crate::x11_consumer::X11LeaseError::NotReady);
+            }
+            self.remaining -= 1;
+            clock
+                .now()
+                .map_err(crate::x11_consumer::X11LeaseError::Provider)
+        }
+        fn next_wakeup(&self) -> Option<MonoTime> {
+            Some(MonoTime(42))
+        }
+        fn cancel(&mut self) -> io::Result<()> {
+            self.trace.borrow_mut().push(Call::ConsumerClose);
+            if self.cancel_fault {
+                return Err(io::Error::other("cancel failed"));
+            }
+            Ok(())
+        }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_control_failure_precedes_input_and_controller_owner_is_returned() {
+        use crate::{progress::ProgressClient, reactor::MonotonicClock, worker::*};
+        let (runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        let mut control = X11Control::new(X11Gate {
+            cancel_fault: false,
+            remaining: 0,
+            trace: trace.clone(),
+        });
+        let report = run_with_borrowed_poll_control(
+            runtime,
+            ProgressClient::new(BlockedReader, io::sink(), 7).unwrap(),
+            true,
+            MonotonicClock::new(),
+            &mut control,
+            |_, _, _, _| panic!("cannot wait"),
+        );
+        assert!(matches!(
+            report.outcome,
+            Err(WorkerError::X11Consumer(
+                crate::x11_consumer::X11LeaseError::NotReady
+            ))
+        ));
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::ConsumerCheck,
+                Call::InputClose(1),
+                Call::OutputClose,
+                Call::ConsumerClose
+            ]
+        );
+        assert!(report.termination.unwrap().output_recovery_confirmed);
+        assert_eq!(
+            <X11Control<_> as PollControl<Source, Backend>>::next_wakeup(&control),
+            Some(MonoTime(42))
+        );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_control_active_loss_closes_input_before_saved_output_recovery() {
+        use crate::{progress::ProgressClient, reactor::MonotonicClock, worker::*};
+        let (runtime, trace) = make_runtime(
+            vec![vec![frame(30, 1), Err(io::Error::other("must not read"))]],
+            config(1, "b"),
+        );
+        let control = X11Control::new(X11Gate {
+            cancel_fault: false,
+            remaining: 1,
+            trace: trace.clone(),
+        });
+        let report = run_with_poll_control(
+            runtime,
+            ProgressClient::new(BlockedReader, io::sink(), 7).unwrap(),
+            true,
+            MonotonicClock::new(),
+            control,
+            |_, _, clock, deadline| {
+                assert_eq!(deadline, Some(MonoTime(42)));
+                Ok(WorkerWake {
+                    at_ns: clock.now()?,
+                    failure: None,
+                })
+            },
+        );
+        assert!(matches!(report.outcome, Err(WorkerError::X11Consumer(_))));
+        assert_eq!(
+            *trace.borrow(),
+            vec![
+                Call::ConsumerCheck,
+                Call::Submit(vec![NativeKey { code: 48, value: 1 }], false),
+                Call::ConsumerCheck,
+                Call::InputClose(1),
+                Call::Submit(vec![NativeKey { code: 48, value: 0 }], true),
+                Call::OutputClose,
+                Call::ConsumerClose
+            ]
+        );
+        assert!(report.termination.unwrap().output_recovery_confirmed);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stop_wins_before_x11_query_and_cancels_after_runtime_owners() {
+        use crate::{
+            progress::{ProgressClient, StopRequest},
+            reactor::MonotonicClock,
+            worker::*,
+        };
+        let (mut runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        runtime.poll(MonoTime(0)).unwrap();
+        let control = X11Control::new(X11Gate {
+            cancel_fault: false,
+            remaining: 0,
+            trace: trace.clone(),
+        });
+        let report = run_with_poll_control(
+            runtime,
+            ProgressClient::new(
+                io::Cursor::new(StopRequest { run_id: 7, id: 1 }.encode()),
+                io::sink(),
+                7,
+            )
+            .unwrap(),
+            true,
+            MonotonicClock::new(),
+            control,
+            |_, _, _, _| panic!("stop cannot wait"),
+        );
+        assert!(matches!(report.outcome, Ok(StopReason::Pause)));
+        assert!(!trace.borrow().contains(&Call::ConsumerCheck));
+        assert_eq!(trace.borrow().last(), Some(&Call::ConsumerClose));
+        assert!(report.termination.unwrap().output_recovery_confirmed);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_consumer_error_and_cancel_error_remain_independent() {
+        use crate::{progress::ProgressClient, reactor::MonotonicClock, worker::*};
+        let (runtime, trace) = make_runtime(vec![vec![frame(30, 1)]], config(1, "b"));
+        let mut control = X11Control::new(X11Gate {
+            cancel_fault: true,
+            remaining: 0,
+            trace: trace.clone(),
+        });
+        let report = run_with_borrowed_poll_control(
+            runtime,
+            ProgressClient::new(BlockedReader, io::sink(), 7).unwrap(),
+            true,
+            MonotonicClock::new(),
+            &mut control,
+            |_, _, _, _| panic!("cannot wait"),
+        );
+        assert!(matches!(report.outcome, Err(WorkerError::X11Consumer(_))));
+        assert_eq!(
+            control.cancel_error.as_ref().map(|error| error.to_string()),
+            Some("cancel failed".into())
+        );
+        assert_eq!(trace.borrow().last(), Some(&Call::ConsumerClose));
+        assert!(report.termination.unwrap().output_recovery_confirmed);
+    }
 }

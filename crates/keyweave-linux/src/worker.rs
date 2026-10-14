@@ -288,6 +288,8 @@ impl WorkerParentGuard {
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
     #[error(transparent)]
+    X11Consumer(#[from] crate::x11_consumer::X11LeaseError),
+    #[error(transparent)]
     Consumer(#[from] crate::console::ConsoleLeaseError),
     #[error("worker OS boundary failed: {0}")]
     System(#[from] io::Error),
@@ -549,11 +551,38 @@ impl<S: CaptureSource, B: FrameBackend> PollControl<S, B> for NoConsumer {
     }
 }
 pub(crate) fn run_with_poll_control<S, B, R, W, C, F>(
+    runtime: Runtime<S, B>,
+    client: ProgressClient<R, W>,
+    control: bool,
+    clock: MonotonicClock,
+    mut poll_control: C,
+    wait: F,
+) -> WorkerReport
+where
+    S: CaptureSource,
+    B: FrameBackend,
+    R: io::Read,
+    W: io::Write,
+    C: PollControl<S, B>,
+    F: FnMut(
+        &Runtime<S, B>,
+        &ProgressClient<R, W>,
+        &mut MonotonicClock,
+        Option<MonoTime>,
+    ) -> io::Result<WorkerWake>,
+{
+    let report =
+        run_with_borrowed_poll_control(runtime, client, control, clock, &mut poll_control, wait);
+    drop(poll_control);
+    report
+}
+
+pub(crate) fn run_with_borrowed_poll_control<S, B, R, W, C, F>(
     mut runtime: Runtime<S, B>,
     mut client: ProgressClient<R, W>,
     control: bool,
     mut clock: MonotonicClock,
-    mut poll_control: C,
+    poll_control: &mut C,
     mut wait: F,
 ) -> WorkerReport
 where
@@ -613,13 +642,130 @@ where
         runtime.external_fault(StopReason::ControlFault);
         runtime.finish_recovery();
     }
-    poll_control.close();
     let termination = runtime.termination_report();
     drop(runtime); // all capture/output owners precede the read-only provider
-    drop(poll_control);
+    poll_control.close();
     WorkerReport {
         outcome: result,
         termination,
+    }
+}
+
+pub(crate) trait X11LeaseControl<B: FrameBackend> {
+    fn check(
+        &mut self,
+        output: &B,
+        clock: &mut MonotonicClock,
+    ) -> Result<MonoTime, crate::x11_consumer::X11LeaseError>;
+    fn next_wakeup(&self) -> Option<MonoTime>;
+    fn cancel(&mut self) -> io::Result<()>;
+}
+impl X11LeaseControl<crate::uinput::UinputDevice> for crate::x11_consumer::NativeX11Lease {
+    fn check(
+        &mut self,
+        output: &crate::uinput::UinputDevice,
+        clock: &mut MonotonicClock,
+    ) -> Result<MonoTime, crate::x11_consumer::X11LeaseError> {
+        self.check(output, &mut || clock.now())
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        self.next_wakeup()
+    }
+    fn cancel(&mut self) -> io::Result<()> {
+        self.cancel()
+    }
+}
+pub(crate) struct X11Control<L> {
+    lease: L,
+    pub(crate) cancel_error: Option<io::Error>,
+}
+impl<L> X11Control<L> {
+    pub(crate) fn new(lease: L) -> Self {
+        Self {
+            lease,
+            cancel_error: None,
+        }
+    }
+}
+impl<S: CaptureSource, B: FrameBackend, L: X11LeaseControl<B>> PollControl<S, B> for X11Control<L> {
+    fn before_poll(
+        &mut self,
+        runtime: &Runtime<S, B>,
+        clock: &mut MonotonicClock,
+        now: MonoTime,
+    ) -> Result<MonoTime, WorkerError> {
+        if runtime.phase() != RuntimePhase::Active {
+            return Ok(now);
+        }
+        let output = runtime
+            .backend()
+            .ok_or(crate::x11_consumer::X11LeaseError::NotReady)?;
+        Ok(self.lease.check(output, clock)?)
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        self.lease.next_wakeup()
+    }
+    fn close(&mut self) {
+        self.cancel_error = self.lease.cancel().err();
+    }
+}
+/// Runtime facts are independent of pending probe cleanup. Caller retains the owner.
+pub struct X11WorkerReport {
+    pub worker: WorkerReport,
+    pub consumer: crate::x11_consumer::NativeX11Lease,
+    pub cancel_error: Option<io::Error>,
+}
+/// Explicit X11 handoff. Use the admission clock and guarded native observer/node lease.
+/// Poll returned consumer's canceled job until actual exit before reporting provider cleanup.
+pub fn run_x11_worker_controlled_report<R, W>(
+    mut runtime: Runtime<crate::capture::EvdevSource, crate::uinput::UinputDevice>,
+    client: ProgressClient<R, W>,
+    guard: &WorkerParentGuard,
+    lease: crate::x11_consumer::NativeX11Lease,
+    clock: MonotonicClock,
+) -> X11WorkerReport
+where
+    R: io::Read + std::os::fd::AsFd,
+    W: io::Write + std::os::fd::AsFd,
+{
+    let mut control = X11Control::new(lease);
+    let preflight = (|| {
+        guard.verify_isolated_group()?;
+        for request in client.wait_requests_with_control(true) {
+            crate::ioctl::nonblocking(request.fd)?;
+        }
+        Ok::<_, io::Error>(())
+    })();
+    let worker = match preflight {
+        Ok(()) => run_with_borrowed_poll_control(
+            runtime,
+            client,
+            true,
+            clock,
+            &mut control,
+            |runtime, client, clock, deadline| {
+                runtime.wait_native_until(client, clock, true, deadline)
+            },
+        ),
+        Err(error) => {
+            runtime.external_fault(StopReason::ControlFault);
+            runtime.finish_recovery();
+            let termination = runtime.termination_report();
+            drop(runtime);
+            <X11Control<_> as PollControl<
+                crate::capture::EvdevSource,
+                crate::uinput::UinputDevice,
+            >>::close(&mut control);
+            WorkerReport {
+                outcome: Err(WorkerError::System(error)),
+                termination,
+            }
+        }
+    };
+    X11WorkerReport {
+        worker,
+        consumer: control.lease,
+        cancel_error: control.cancel_error,
     }
 }
 

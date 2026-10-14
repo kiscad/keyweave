@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "21d297ed0462728bd3ba47054bd8d4aa07211296",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-linux/src/worker.rs": "8bf4a4605d98d5c346aa4e8893eccecf74b515561a59d7f86f18b7787d0d35cb",
+    "crates/keyweave-linux/src/runtime.rs": "5ed39523c3f7635200231fbd693a87f200491fce68424b1db6c7123712e1cef6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1758,
+    "new_tests": 4,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0,
+      "x11-sdk": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "fmt": {
+        "path": "target/validation/linux-20261014-x11-worker/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-x11-worker/clippy.log",
+        "sha256": "bd519b46a642a0faa39d60cc63671d526973ffb35971ddf660d024f3f2a5fddd"
+      },
+      "tests": {
+        "path": "target/validation/linux-20261014-x11-worker/tests.log",
+        "sha256": "e5257ddce94e31d046f03f4435ae72dca69c8d3ae23b295bc6c52111ded11f1f"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-x11-worker/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-x11-worker/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "path": "target/validation/linux-20261014-x11-worker/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native checks remain pending after previous automatic approval quota rejection; no retry or bypass."
+  },
+  "limitations": [
+    "Native X11 worker entry compiled only. Shared production X11Control/Runtime loop tested through private mock lease; no session/display/device/capture access.",
+    "X11WorkerReport returns consumer owner plus independent cancel_error. Caller must continue poll_canceled until actual probe exit and drop consumer before asserting provider cleanup; returned report alone does not prove it.",
+    "Graphical bootstrap/host/worker selection and terminal report bridge still pending. Default provider selection unchanged.",
+    "Root-trusted dynamic library query/live server/driver policy and actual delivery remain unverified; pinned SDK C layouts/signatures passed.",
+    "Wayland, Windows pointer/native checks, hardware, GUI, packaging and driver acceptance remain pending."
+  ]
+}
