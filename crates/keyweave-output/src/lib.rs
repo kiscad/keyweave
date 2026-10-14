@@ -159,6 +159,15 @@ impl OutputQueue {
         Ok(())
     }
     pub fn begin_due(&mut self, now: MonoTime) -> Result<Option<Submission>, OutputError> {
+        self.begin_due_limited(now, MAX_SUBMISSION_EDGES)
+    }
+    /// A native coordinator can bound a key batch at a non-key FIFO barrier.
+    /// Zero limit is a query with no submission; all existing flight/time checks apply.
+    pub fn begin_due_limited(
+        &mut self,
+        now: MonoTime,
+        limit: usize,
+    ) -> Result<Option<Submission>, OutputError> {
         if self.mode == Mode::Quarantined {
             return Err(OutputError::Quarantined);
         }
@@ -172,7 +181,7 @@ impl OutputQueue {
             .queue
             .iter()
             .take_while(|edge| edge.at_ns <= now)
-            .take(MAX_SUBMISSION_EDGES)
+            .take(limit.min(MAX_SUBMISSION_EDGES))
             .cloned()
             .collect();
         if edges.is_empty() {

@@ -375,7 +375,7 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
                 .engine
                 .next_deadline()
                 .into_iter()
-                .chain(self.output.ledger().next_deadline())
+                .chain(self.output.next_deadline())
                 .chain(Some(self.context_refresh_at))
                 .chain(
                     self.inputs
@@ -529,23 +529,13 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             }
         }
         let mut work = usize::from(self.refresh_device_context()?);
-        if self.pending_keys() == 0
-            && !self
-                .output
-                .ledger()
-                .next_deadline()
-                .is_some_and(|at| at <= self.now)
+        if self.pending_keys() == 0 && !self.output.next_deadline().is_some_and(|at| at <= self.now)
         {
             self.read_one()?;
             work += 1;
         }
         while work < MAX_WORK_PER_POLL {
-            if self
-                .output
-                .ledger()
-                .next_deadline()
-                .is_some_and(|at| at <= self.now)
-            {
+            if self.output.next_deadline().is_some_and(|at| at <= self.now) {
                 self.output.poll(self.now)?;
                 if self.output.phase() != Phase::Normal {
                     return Err(RuntimeError::IncompleteOutput);

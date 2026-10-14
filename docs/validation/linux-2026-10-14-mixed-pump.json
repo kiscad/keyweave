@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-14",
+  "feature": "ADR-0176 relative barriers in the existing Linux OutputPump with exact key recovery",
+  "source_base_commit": "f08de892ccd4b540c632b4c2e360bb27e91cc109",
+  "source_has_uncommitted_changes": true,
+  "source_sha256": {
+    "crates/keyweave-output/src/lib.rs": "4b5b85d5e824682a401ad7ab726d84a5535b60eec18eb1524bdd53a6f2d2c0b7",
+    "crates/keyweave-linux/src/pump.rs": "7e8fe8d4ec0e2e08a733ae5af77be81aaabe191e456cbda9058737c7a385ecf1",
+    "crates/keyweave-linux/src/pump/relative.rs": "0aba4b4b9af38b7ac1c62b593b5546505c65ff22b6d02b9c4d9359f0f1711a2c",
+    "crates/keyweave-linux/src/runtime.rs": "e47f04d1b86817993788b2e132a5fa8dfd7dbd5c3761540a071428b451010a26",
+    "crates/keyweave-linux/tests/mixed_output_pump.rs": "a6d02a5e57c386ba643bcf162c569287a3ae7da4783fae93896fac3bb5371cb6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1639,
+    "new_tests": 11,
+    "command_exits": {
+      "fmt": 0,
+      "clippy": 0,
+      "tests": 0,
+      "sources": 0,
+      "abi": 0
+    },
+    "source_hashes_verified": 60,
+    "logs": {
+      "tests": {
+        "path": "target/validation/linux-20261014-mixed-pump/tests.log",
+        "sha256": "a051fcbbdb3d23ef91137a5c6f06c37344f1d0d0404fb387defa946f232dbd81"
+      },
+      "clippy": {
+        "path": "target/validation/linux-20261014-mixed-pump/clippy.log",
+        "sha256": "0ef9f401fe72b894acb2ea1845c1d2c0b4dbb0d10f9314ba082b900b5b3c5298"
+      },
+      "fmt": {
+        "path": "target/validation/linux-20261014-mixed-pump/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sources": {
+        "path": "target/validation/linux-20261014-mixed-pump/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "path": "target/validation/linux-20261014-mixed-pump/abi.log",
+        "sha256": "60d475e06b59a15d2397eb7f0ffb5842be71d92d18f053a000a49a2657cf4c46"
+      }
+    }
+  },
+  "initial_failures": [
+    "Initial insertion placed a module declaration before inner module documentation; moved it after the documentation. Focused keyboard/mixed and full checks passed."
+  ],
+  "windows": {
+    "status": "native checks not executed",
+    "scope": "Shared OutputQueue begin_due remains unchanged via the same bounded implementation. Linux tests include portable Windows crate tests, but do not prove native Windows compilation; prior automatic approval quota rejection remains pending without retry/bypass."
+  },
+  "limitations": [
+    "Mixed ordering and acceptance are proved through FrameBackend mocks. UinputDevice still advertises no relative axes; real relative setup/probe/native emit and Runtime pointer capture remain pending.",
+    "Relative values have no key owner or Up rollback. A short relative write stops plans, flushes REPORT and recovers only known submitted keys; unknown acceptance remains quarantined.",
+    "Hardware, Windows pointer/native validation, graphical Linux providers, GUI/packaging and driver acceptance remain pending."
+  ]
+}

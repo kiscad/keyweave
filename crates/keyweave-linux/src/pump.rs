@@ -1,5 +1,7 @@
 //! One owner connects bounded semantic scheduling to native frame submission.
 //! Runtime must stop physical capture whenever this pump leaves Normal phase.
+mod relative;
+use crate::relative::{RelativeAxes, RelativeFrame};
 use crate::{
     events::{FrameWrite, NativeKey},
     keys::{self, KeyError},
@@ -7,7 +9,8 @@ use crate::{
 };
 use keyweave_output::{OutputError, OutputQueue};
 use keyweave_types::{KeyEdge, MonoTime, OutputIntent};
-use std::io;
+use relative::MixedWork;
+use std::{collections::VecDeque, io};
 
 /// Implementations own their backend; dropping it must destroy its virtual device.
 /// Err(io::Error) means rejection BEFORE writing; errors after writing must be
@@ -24,6 +27,20 @@ pub trait FrameBackend {
         recovery: bool,
     ) -> io::Result<Result<FrameWrite, WriteError>>;
     fn flush_report(&mut self) -> io::Result<Result<bool, WriteError>>;
+    /// Cold capability only; None keeps keyboard-only backends strict.
+    fn relative_axes(&self) -> Option<&RelativeAxes> {
+        None
+    }
+    /// Err must be before writing; after-write errors are UnknownAcceptance.
+    fn submit_relative(
+        &mut self,
+        _frame: &RelativeFrame,
+    ) -> io::Result<Result<FrameWrite, WriteError>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "relative output is unavailable",
+        ))
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -60,6 +77,9 @@ pub struct OutputPump<B: FrameBackend> {
     queue: OutputQueue,
     phase: Phase,
     now: MonoTime,
+    order: VecDeque<MixedWork>,
+    relative_units: usize,
+    tail_at: MonoTime,
 }
 #[cfg(target_os = "linux")]
 impl OutputPump<crate::uinput::UinputDevice> {
@@ -80,6 +100,9 @@ impl<B: FrameBackend> OutputPump<B> {
             queue: OutputQueue::new(),
             phase: Phase::Normal,
             now: MonoTime(0),
+            order: VecDeque::new(),
+            relative_units: 0,
+            tail_at: MonoTime(0),
         }
     }
     pub fn spec(&self) -> Option<&DeviceSpec> {
@@ -97,6 +120,9 @@ impl<B: FrameBackend> OutputPump<B> {
     pub fn resume(&mut self) -> Result<(), PumpError> {
         if self.phase != Phase::Normal {
             return Err(PumpError::NotReady);
+        }
+        if !self.order.is_empty() {
+            return Err(OutputError::NotNeutral.into());
         }
         self.queue.resume()?;
         Ok(())
@@ -118,22 +144,7 @@ impl<B: FrameBackend> OutputPump<B> {
     }
     /// Validate native capability/repeat policy before mutating semantic state.
     pub fn enqueue(&mut self, edges: &[OutputIntent]) -> Result<(), PumpError> {
-        if self.phase != Phase::Normal {
-            return Err(PumpError::NotReady);
-        }
-        if edges.len() > keyweave_output::MAX_ENQUEUE_EDGES {
-            return Err(OutputError::Capacity.into());
-        }
-        let native = Self::native(edges)?;
-        let backend = self.backend.as_ref().ok_or(PumpError::NotReady)?;
-        for chunk in native.chunks(crate::events::MAX_FRAME_EVENTS) {
-            backend
-                .spec()
-                .validate(chunk)
-                .map_err(PumpError::Rejected)?;
-        }
-        self.queue.enqueue(edges)?;
-        Ok(())
+        self.enqueue_mixed(edges, &[])
     }
     /// Stop capture first. This discards future intents and schedules known ups.
     pub fn begin_recovery(&mut self, now: MonoTime) -> Result<(), PumpError> {
@@ -144,12 +155,14 @@ impl<B: FrameBackend> OutputPump<B> {
             return Err(OutputError::TimeReversed.into());
         }
         self.queue.begin_recovery(now)?;
+        self.clear_mixed();
         self.now = now;
         self.phase = Phase::Recovery;
         Ok(())
     }
     fn quarantine(&mut self) {
         self.queue.quarantine();
+        self.clear_mixed();
         self.phase = Phase::Quarantined;
     }
     /// One bounded operation per call. REPORT completion always precedes recovery
@@ -184,13 +197,27 @@ impl<B: FrameBackend> OutputPump<B> {
                 }
             };
         }
-        let Some(batch) = self.queue.begin_due(now)? else {
+        if self.phase == Phase::Normal
+            && matches!(self.order.front(), Some(MixedWork::Relative { .. }))
+        {
+            return self.poll_relative(now);
+        }
+        let limit = if self.phase == Phase::Normal {
+            match self.order.front() {
+                Some(MixedWork::Keys(count)) => *count,
+                _ => 0,
+            }
+        } else {
+            keyweave_output::MAX_SUBMISSION_EDGES
+        };
+        let Some(batch) = self.queue.begin_due_limited(now, limit)? else {
             return Ok(PumpStep::Idle);
         };
         let native = match Self::native(&batch.edges) {
             Ok(native) => native,
             Err(error) => {
                 self.queue.acknowledge_incomplete(batch.id, 0)?;
+                self.clear_mixed();
                 self.phase = Phase::Recovery;
                 return Err(error);
             }
@@ -203,6 +230,9 @@ impl<B: FrameBackend> OutputPump<B> {
         match result {
             Ok(Ok(FrameWrite::Complete { accepted })) if accepted == native.len() => {
                 self.queue.acknowledge(batch.id, accepted)?;
+                if self.phase == Phase::Normal {
+                    self.finish_keys(accepted)?;
+                }
                 Ok(PumpStep::Submitted { accepted })
             }
             Ok(Ok(FrameWrite::Incomplete {
@@ -210,6 +240,7 @@ impl<B: FrameBackend> OutputPump<B> {
                 report_pending: true,
             })) if accepted <= native.len() => {
                 self.queue.acknowledge_incomplete(batch.id, accepted)?;
+                self.clear_mixed();
                 self.phase = Phase::ReportPending;
                 Ok(PumpStep::ReportPending { accepted })
             }
@@ -219,6 +250,7 @@ impl<B: FrameBackend> OutputPump<B> {
             }
             Ok(Err(WriteError::InvalidFrame(error))) => {
                 self.queue.acknowledge_incomplete(batch.id, 0)?;
+                self.clear_mixed();
                 self.phase = Phase::Recovery;
                 Err(WriteError::InvalidFrame(error).into())
             }
@@ -228,6 +260,7 @@ impl<B: FrameBackend> OutputPump<B> {
             }
             Err(error) => {
                 self.queue.acknowledge_incomplete(batch.id, 0)?;
+                self.clear_mixed();
                 self.phase = Phase::Recovery;
                 Err(PumpError::Rejected(error))
             }
@@ -238,6 +271,7 @@ impl<B: FrameBackend> OutputPump<B> {
     pub fn destroy_backend(&mut self) -> Result<(), PumpError> {
         self.queue.quarantine();
         drop(self.backend.take());
+        self.clear_mixed();
         self.queue.backend_destroyed()?;
         self.phase = Phase::Detached;
         Ok(())
