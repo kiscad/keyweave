@@ -1,5 +1,17 @@
 # Linux 当前使用与验收边界
 
+## Mixed 配置离线检查
+
+在启动前验证同一声明的输出能力，无需 worker、helper、provider 或输入设备：
+
+```sh
+keyweave-host check-linux --config /path/config.json \
+  --execution-mode staged-keyboard --relative-axes 0,1,6,8,11,12 \
+  --pointing-buttons 272,273,274
+```
+
+不传轴/按钮则保留键盘检查；传轴选择 `StagedRelative`，必须 staged 模式；按钮必须配 X/Y，未知/重复能力拒绝。配置中目标按钮未声明时拒绝，即使另一个按钮已启用。成功输出包含 `scope=StagedRelative` 和 `device readiness unverified`，仅表示配置编译和声明能力覆盖，不表示设备或 X server 可用。
+
 ## 实验性 X11 mixed 会话
 
 `run-linux --session-provider x11` 已连接 X11 启动、consumer lease、停止清理与配置监视。必须显式传入 `--execution-mode staged-keyboard`、绝对 `--x11-probe` 路径和 `--relative-axes`；不能携带 `--vt`。helper 必须名为 `keyweave-x11-probe`，位于实际 worker 同目录，并通过配套文件权限校验。
@@ -16,7 +28,7 @@
   --input /dev/input/event1 --input /dev/input/event2 --watch-config
 ```
 
-本轮验证覆盖离线 CLI 和 worker 参数转换，尚无真实 X server/driver、consumer delivery 或硬件捕获验收。现有 `check-linux` 仍是键盘配置离线检查，不能用它证明 mixed pointer 配置或设备就绪。完整限制见 ADR-0205/0206 与 STATUS。
+本轮验证覆盖离线 CLI 和 worker 参数转换，尚无真实 X server/driver、consumer delivery 或硬件捕获验收。`check-linux` 已支持同名 relative/button 参数的 mixed 配置离线检查，仍不能证明设备或 consumer 就绪。完整限制见 ADR-0205/0206 与 STATUS。
 
 console host 支持显式 `--watch-config`，后台读取变化的正文、由 worker 冷准备并确认实际激活；默认不启用。读取失败或拒绝保留旧配置，结果在停止后的汇总中显示。当前实际捕获与监听入口仍需真机验收；None 永久拒绝设备操作且不能启用监听。见 [ADR-0101](ADR-0101-linux-watch-command.md)。
 

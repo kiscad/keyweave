@@ -38,6 +38,8 @@ enum Command {
         execution_mode: LinuxExecution,
         #[arg(long)]
         config: PathBuf,
+        #[command(flatten)]
+        relative: RelativeArgs,
     },
     /// Check a Windows configuration without opening input or starting a worker.
     CheckWindows {
@@ -76,12 +78,42 @@ struct X11Args {
     /// Absolute path to the paired keyweave-x11-probe executable (X11 only).
     #[arg(long)]
     x11_probe: Option<PathBuf>,
-    /// Explicit evdev relative axes: 0,1,6,8,11,12; comma separated (X11 only).
+    #[command(flatten)]
+    relative: RelativeArgs,
+}
+#[derive(clap::Args, Default)]
+struct RelativeArgs {
+    /// Explicit evdev relative axes: 0,1,6,8,11,12; comma separated.
     #[arg(long, value_delimiter = ',')]
     relative_axes: Vec<u16>,
     /// Explicit evdev buttons: 272..279; comma separated, omitted for none.
     #[arg(long, value_delimiter = ',')]
     pointing_buttons: Vec<u16>,
+}
+type RelativeCapabilities = (
+    keyweave_linux::relative::RelativeAxes,
+    Option<keyweave_linux::keys::PointingButtons>,
+);
+impl RelativeArgs {
+    fn capabilities(&self) -> Result<Option<RelativeCapabilities>, String> {
+        if self.relative_axes.is_empty() && self.pointing_buttons.is_empty() {
+            return Ok(None);
+        }
+        let axes = keyweave_linux::relative::RelativeAxes::new(&self.relative_axes)
+            .map_err(|e| e.to_string())?;
+        let buttons = if self.pointing_buttons.is_empty() {
+            None
+        } else {
+            if !axes.contains(0) || !axes.contains(1) {
+                return Err("pointing buttons require relative axes 0 and 1".into());
+            }
+            Some(
+                keyweave_linux::keys::PointingButtons::new(&self.pointing_buttons)
+                    .map_err(|e| e.to_string())?,
+            )
+        };
+        Ok(Some((axes, buttons)))
+    }
 }
 #[cfg(target_os = "linux")]
 fn linux_provider(
@@ -93,8 +125,8 @@ fn linux_provider(
     use keyweave_worker::linux_arguments::SessionProvider;
     if !matches!(provider, LinuxProvider::X11)
         && (x11.x11_probe.is_some()
-            || !x11.relative_axes.is_empty()
-            || !x11.pointing_buttons.is_empty())
+            || !x11.relative.relative_axes.is_empty()
+            || !x11.relative.pointing_buttons.is_empty())
     {
         return Err("X11 options require --session-provider x11".into());
     }
@@ -109,19 +141,10 @@ fn linux_provider(
                 .x11_probe
                 .filter(|path| path.is_absolute())
                 .ok_or("x11 requires an absolute --x11-probe path")?;
-            let axes = keyweave_linux::relative::RelativeAxes::new(&x11.relative_axes)
-                .map_err(|e| e.to_string())?;
-            let buttons = if x11.pointing_buttons.is_empty() {
-                None
-            } else {
-                if !axes.contains(0) || !axes.contains(1) {
-                    return Err("pointing buttons require relative axes 0 and 1".into());
-                }
-                Some(
-                    keyweave_linux::keys::PointingButtons::new(&x11.pointing_buttons)
-                        .map_err(|e| e.to_string())?,
-                )
-            };
+            let (axes, buttons) = x11
+                .relative
+                .capabilities()?
+                .ok_or("x11 requires explicit --relative-axes")?;
             Ok(SessionProvider::X11 {
                 helper,
                 axes,
@@ -202,13 +225,15 @@ fn main() -> ExitCode {
         Command::CheckLinux {
             config,
             execution_mode,
-        } => match check_linux(config, execution_mode) {
+            relative,
+        } => match check_linux(config, execution_mode, relative) {
             Ok(config) => {
                 println!(
-                    "Linux configuration accepted (offline): bytes={}, generation={}, mode={:?}; device readiness unverified",
+                    "Linux configuration accepted (offline): bytes={}, generation={}, mode={:?}, scope={:?}; device readiness unverified",
                     config.bytes().len(),
                     config.snapshot().generation.0,
-                    config.execution_mode()
+                    config.execution_mode(),
+                    config.capture_scope()
                 );
                 ExitCode::SUCCESS
             }
@@ -373,11 +398,41 @@ fn run(
 fn check_linux(
     path: PathBuf,
     mode: LinuxExecution,
+    relative: RelativeArgs,
 ) -> Result<keyweave_worker::linux_preparation::PreparedConfig, String> {
-    keyweave_worker::linux_preparation::PreparedConfig::read_with_mode(
+    check_linux_reader(
         std::fs::File::open(path).map_err(|e| e.to_string())?,
-        keyweave_worker::linux_preparation::default_output_spec().map_err(|e| e.to_string())?,
+        mode,
+        relative,
+    )
+}
+fn check_linux_reader(
+    reader: impl std::io::Read,
+    mode: LinuxExecution,
+    relative: RelativeArgs,
+) -> Result<keyweave_worker::linux_preparation::PreparedConfig, String> {
+    use keyweave_worker::linux_preparation::{CaptureScope, PreparedConfig, default_output_spec};
+    let mut output = default_output_spec().map_err(|e| e.to_string())?;
+    let scope = if let Some((axes, buttons)) = relative.capabilities()? {
+        if !matches!(mode, LinuxExecution::StagedKeyboard) {
+            return Err("relative scope requires --execution-mode staged-keyboard".into());
+        }
+        output = output.with_relative_axes(axes);
+        if let Some(buttons) = buttons {
+            output = output
+                .with_pointing_buttons(buttons)
+                .map_err(|e| e.to_string())?;
+        }
+        CaptureScope::StagedRelative
+    } else {
+        CaptureScope::Keyboard
+    };
+    PreparedConfig::read_for_generation_with_scope(
+        reader,
+        output,
+        keyweave_types::ConfigGeneration(1),
         mode.runtime(),
+        scope,
     )
     .map_err(|e| e.to_string())
 }
@@ -731,5 +786,147 @@ mod x11_cli_tests {
             parse(X11).unwrap(),
             SessionProvider::X11 { buttons: None, .. }
         ));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod linux_offline_cli_tests {
+    use super::*;
+    use keyweave_worker::linux_preparation::CaptureScope;
+    const KEYBOARD: &[u8] = br#"{"profiles":[{"selected":true,"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b"}]}]}]}"#;
+    const POINTER: &[u8] = br#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"pointing_button":"button1"},"to":[{"pointing_button":"button2"}]}]}]}}]}"#;
+    fn check(
+        extra: &[&str],
+        bytes: &[u8],
+    ) -> Result<keyweave_worker::linux_preparation::PreparedConfig, String> {
+        let mut argv = vec!["keyweave-host", "check-linux", "--config", "unused.json"];
+        argv.extend_from_slice(extra);
+        let cli = Cli::try_parse_from(argv).map_err(|e| e.to_string())?;
+        let Command::CheckLinux {
+            execution_mode,
+            relative,
+            ..
+        } = cli.command
+        else {
+            unreachable!()
+        };
+        check_linux_reader(bytes, execution_mode, relative)
+    }
+    #[test]
+    fn explicit_mixed_check_compiles_actual_button_rule_and_preserves_bytes() {
+        let config = check(
+            &[
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "1,0",
+                "--pointing-buttons",
+                "273,272",
+            ],
+            POINTER,
+        )
+        .unwrap();
+        assert_eq!(config.capture_scope(), CaptureScope::StagedRelative);
+        assert_eq!(config.bytes(), POINTER);
+        assert_eq!(
+            config
+                .output_spec()
+                .relative_axes()
+                .unwrap()
+                .codes()
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert_eq!(
+            config
+                .output_spec()
+                .pointing_buttons()
+                .unwrap()
+                .codes()
+                .collect::<Vec<_>>(),
+            [272, 273]
+        );
+    }
+    #[test]
+    fn actual_pointer_outputs_require_declared_buttons_and_target_coverage() {
+        for buttons in [None, Some("272"), Some("274")] {
+            let mut args = vec![
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "0,1",
+            ];
+            if let Some(buttons) = buttons {
+                args.extend(["--pointing-buttons", buttons]);
+            }
+            assert!(check(&args, POINTER).is_err());
+        }
+        assert!(check(&[], POINTER).is_err());
+        assert!(check(&["--execution-mode", "staged-keyboard"], POINTER).is_err());
+    }
+    #[test]
+    fn keyboard_defaults_and_explicit_relative_without_buttons_compile() {
+        for args in [vec![], vec!["--execution-mode", "staged-keyboard"]] {
+            let config = check(&args, KEYBOARD).unwrap();
+            assert_eq!(config.capture_scope(), CaptureScope::Keyboard);
+            assert!(config.output_spec().relative_axes().is_none());
+        }
+        let config = check(
+            &[
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "8",
+            ],
+            KEYBOARD,
+        )
+        .unwrap();
+        assert_eq!(config.capture_scope(), CaptureScope::StagedRelative);
+        assert!(config.output_spec().pointing_buttons().is_none());
+    }
+    #[test]
+    fn invalid_offline_shape_mode_and_execution_options_are_rejected() {
+        for args in [
+            vec!["--relative-axes", "0,1"],
+            vec![
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "0,0",
+            ],
+            vec![
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "2",
+            ],
+            vec![
+                "--execution-mode",
+                "staged-keyboard",
+                "--pointing-buttons",
+                "272",
+            ],
+            vec![
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "8",
+                "--pointing-buttons",
+                "272",
+            ],
+            vec![
+                "--execution-mode",
+                "staged-keyboard",
+                "--relative-axes",
+                "0,1",
+                "--pointing-buttons",
+                "280",
+            ],
+            vec!["--x11-probe", "/helper"],
+            vec!["--session-provider", "x11"],
+        ] {
+            assert!(check(&args, KEYBOARD).is_err(), "{args:?}");
+        }
     }
 }

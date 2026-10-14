@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 clap.workspace = true
 keyweave-worker = { path = "../keyweave-worker" }
+keyweave-linux = { path = "../keyweave-linux" }
 keyweave-windows = { path = "../keyweave-windows" }
 keyweave-progress.workspace = true
 keyweave-types.workspace = true
@@ -15,8 +16,6 @@ keyweave-types.workspace = true
 [lints]
 workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
-keyweave-linux = { path = "../keyweave-linux" }
 
 [[test]]
 name = "linux_session"

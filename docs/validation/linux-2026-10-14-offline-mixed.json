@@ -1,0 +1,148 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "9c793745e4b017c0e0f1c0e8b70ed372e81d6045",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/main.rs": "1fa402143c0618a47fbb914cd21f97c9448f22c28b0dee04487e1a11d4229b5a",
+    "crates/keyweave-host/Cargo.toml": "9b1abccb03308c4422c1a4bd8a163778bded47ef81f5cbc6b89c57667b52218c"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1820,
+    "new_tests": 4,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/1.log",
+        "sha256": "54116516dd5296b191f4fc6a709114ff689acc894c511c80ce0adbaf5b5f4293"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/2.log",
+        "sha256": "f25ef14db8e1727110042b329cdd1a8a697355c8b7e949514b95a014c1a2a5a2"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    },
+    "executable_smoke_checks": [
+      {
+        "command": [
+          "cargo",
+          "run",
+          "-p",
+          "keyweave-host",
+          "--bin",
+          "keyweave-host",
+          "--locked",
+          "--offline",
+          "--",
+          "check-linux",
+          "--config",
+          "target/validation/linux-20261014-offline-mixed/mixed.json",
+          "--execution-mode",
+          "staged-keyboard",
+          "--relative-axes",
+          "0,1",
+          "--pointing-buttons",
+          "272,273"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "log": "target/validation/linux-20261014-offline-mixed/mixed.log",
+        "sha256": "4d3b1f81c2963a861092e1aa2d4ec22686a8f9810d56582bc082d1fe814806a8"
+      },
+      {
+        "command": [
+          "cargo",
+          "run",
+          "-p",
+          "keyweave-host",
+          "--bin",
+          "keyweave-host",
+          "--locked",
+          "--offline",
+          "--",
+          "check-linux",
+          "--config",
+          "target/validation/linux-20261014-offline-mixed/mixed.json",
+          "--execution-mode",
+          "staged-keyboard",
+          "--relative-axes",
+          "0,1",
+          "--pointing-buttons",
+          "272"
+        ],
+        "exit_code": 1,
+        "expected_exit_code": 1,
+        "log": "target/validation/linux-20261014-offline-mixed/missing-output.log",
+        "sha256": "06c6e7bb7dce0227fe77b69f91ae20c81a5c02097ec0f381b2fc43c07343e22b"
+      }
+    ]
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Portable Linux checking code compiled under Linux; Windows native build remains pending after previous approval quota rejection, not retried."
+  },
+  "limitations": [
+    "Offline CLI compiled real button mapping config and rejected missing target output code. No worker/helper process, session/display query, input/uinput capture or injection.",
+    "Declared relative capabilities do not prove physical device or graphical consumer readiness.",
+    "Native X11/driver/hardware, Wayland, Windows pointer/native verification, GUI and packaging remain pending."
+  ]
+}

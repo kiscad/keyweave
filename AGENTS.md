@@ -1,5 +1,7 @@
 # KeyWeave Coding Agent 指南
 
+ADR-0207：check-linux 支持显式 relative axes/pointing buttons，和 run-linux 共用能力校验；缺省 Keyboard，显式轴要求 staged 并编译 StagedRelative。输出诊断带 scope/离线未验证设备说明，不需 provider/helper；Linux纯数据依赖通用化保留跨OS离线入口。新增4真实CLI/配置编译tests，Linux1820项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过；实际binary离线接受按钮映射、拒绝缺目标按钮。无设备/显示/捕获操作，Windows原生构建尚未补验。native X11/driver、Wayland、Windows pointer、硬件、GUI和包装继续。见 [ADR-0207](docs/ADR-0207-linux-offline-mixed-check.md)、[验证记录](docs/validation/linux-2026-10-14-offline-mixed.json)。
+
 ADR-0206：公开 run-linux 已接 X11 provider，显式 helper/relative axes/可选按钮，经能力类型校验后进入 paired cold launch。X11 强制 staged-keyboard、无 VT；其他 provider 拒绝 X11 参数；未知/重复代码及按钮缺 X/Y 冷拒绝。新增4实际 clap→provider→private argv tests，Linux1816项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过；测试lint初轮失败已按既有test-only惯例修正。未启动进程或访问设备/显示。native X server/driver、Wayland、Windows原生补验、硬件、GUI和包装仍待完成。见 [ADR-0206](docs/ADR-0206-host-x11-cli.md)、[验证记录](docs/validation/linux-2026-10-14-host-x11-cli.json)。
 
 ADR-0205：PreparedLaunch启用X11 cold scope/spec，验证private argv后定位同worker目录sidecar，helper非symlink regular executable/同owner/无group-world write，worker锚点与直接目录也检查权限；canonical helper写回argv。此为paired provenance，非签名/摘要认证，ancestor/TOCTOU未证明，system root trust不变。同份config按scope编后seal，X11 watch/reload同owner lane，None不变。新增4非执行fixture/真实配置/封存tests，Linux1812项及Clippy/格式/源码60/C UAPI/固定X11 SDK通过，无spawn/设备操作。公共host CLI选择、native server/driver、Wayland、Windows原生补验、硬件、GUI、包装和driver继续，无新增依赖/unsafe。见 [ADR-0205](docs/ADR-0205-host-x11-cold-launch.md)、[验证记录](docs/validation/linux-2026-10-14-host-x11-cold.json)。
