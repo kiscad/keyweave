@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-14",
+  "source_base_head": "ec899456a71757e29c798ff7753644a0b1f4425d",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/pointer.rs": "862de73bc46256aa1c2f4c565f837baa7595c2fd8f158c68858994af15d461c7",
+    "crates/keyweave-windows/src/native.rs": "b68d19647719e9e454f553f62234886ceece3394222c7debb67ec47cd6797146",
+    "crates/keyweave-windows/src/lib.rs": "322602f28d66528ace10bf01f00c030decaabf20a996f59a7972323468596a19"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1825,
+    "new_tests": 5,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-windows-pointer/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-windows-pointer/1.log",
+        "sha256": "593f0cb821cd1ac848a46e93633d140b71a74d8c5ab7987d3d95c429e6963d37"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-windows-pointer/2.log",
+        "sha256": "f37d5b024a55d1be8b1f8a6421176080812e7bddad6f57c4bca1dd08415a7a15"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-windows-pointer/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-windows-pointer/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261014-windows-pointer/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native build/SDK/injection checks pending after prior automatic approval quota rejection; no retry or bypass."
+  },
+  "references": [
+    "https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput",
+    "https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput"
+  ],
+  "limitations": [
+    "Linux tests validate safe encoding and mock native reprC union packing/preflight. Windows-only sender implementations were not compiled or invoked natively.",
+    "No capture/injection/hardware operation. Runtime/default capabilities remain keyboard-only.",
+    "Mouse Hook input, coordinate policy, mixed output FIFO and button acceptance/recovery ledger still required; pointer partial motion/scroll cannot be replayed.",
+    "Native X11/driver/hardware, Wayland, Windows verification, GUI and packaging remain pending."
+  ]
+}

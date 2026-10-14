@@ -145,6 +145,17 @@ impl Input {
             },
         }
     }
+    fn set_mouse(&mut self, packet: crate::pointer::MousePacket) {
+        self.kind = 0;
+        self.payload.mouse = MouseInput {
+            dx: packet.dx,
+            dy: packet.dy,
+            data: packet.data,
+            flags: packet.flags,
+            time: 0,
+            extra_info: packet.extra_info,
+        };
+    }
     fn set(&mut self, packet: KeyboardPacket) {
         self.kind = 1;
         self.payload.keyboard = KeyboardInput {
@@ -167,6 +178,26 @@ fn valid(packets: &[KeyboardPacket], tag: usize) -> bool {
                 && packet.flags & !11 == 0
                 && packet.time == 0
                 && packet.extra_info == tag
+        })
+}
+
+fn valid_mouse(packets: &[crate::pointer::MousePacket], tag: usize) -> bool {
+    tag != 0
+        && !packets.is_empty()
+        && packets.len() <= MAX_BATCH
+        && packets.iter().all(|packet| {
+            packet.extra_info == tag
+                && match packet.flags {
+                    1 => packet.data == 0,
+                    2 | 4 | 8 | 0x10 | 0x20 | 0x40 => {
+                        packet.dx == 0 && packet.dy == 0 && packet.data == 0
+                    }
+                    0x80 | 0x100 => {
+                        packet.dx == 0 && packet.dy == 0 && (1..=2).contains(&packet.data)
+                    }
+                    0x800 | 0x1000 => packet.dx == 0 && packet.dy == 0,
+                    _ => false,
+                }
         })
 }
 
@@ -208,27 +239,44 @@ impl SendBackend for SendInputBackend {
         for (input, packet) in self.buffer.iter_mut().zip(packets) {
             input.set(*packet);
         }
-        // SAFETY: valid() limits count to 1..=256; the uniquely borrowed buffer
-        // contains that many fully initialized repr(C) INPUTs, discriminant 1
-        // with KEYBDINPUT payload. Win32 uses DWORD/u16/ULONG_PTR sizes and system
-        // calling convention, x86/x64 layouts are tested below. SendInput borrows
-        // the array only for this synchronous call; no pointer escapes. cbSize is
-        // the complete INPUT size (including its MOUSEINPUT-sized union), not KI.
-        // Set/GetLastError are thread-local with no parameters/pointers retained.
+        Ok(self.submit_buffer(packets.len()))
+    }
+}
+#[cfg(target_os = "windows")]
+impl crate::pointer::SendPointerBackend for SendInputBackend {
+    fn submit_pointer(
+        &mut self,
+        packets: &[crate::pointer::MousePacket],
+    ) -> Result<Insertion, SubmitError> {
+        if !valid_mouse(packets, self.tag.value()) {
+            return Err(SubmitError::Rejected);
+        }
+        for (input, packet) in self.buffer.iter_mut().zip(packets) {
+            input.set_mouse(*packet);
+        }
+        Ok(self.submit_buffer(packets.len()))
+    }
+}
+#[cfg(target_os = "windows")]
+impl SendInputBackend {
+    fn submit_buffer(&mut self, count: usize) -> Insertion {
+        // SAFETY: both callers prevalidate 1..=MAX_BATCH and initialize the
+        // uniquely owned repr(C) INPUT prefix with the matching payload/kind.
+        // SendInput synchronously borrows this prefix only; cbSize is full INPUT.
+        // Set/GetLastError are thread-local. No buffer pointer escapes this call.
         let (accepted, error) = unsafe {
             SetLastError(0);
             let accepted = SendInput(
-                packets.len() as u32,
+                count as u32,
                 self.buffer.as_ptr(),
                 std::mem::size_of::<Input>() as i32,
             );
-            let error = GetLastError();
-            (accepted, error)
+            (accepted, GetLastError())
         };
-        Ok(Insertion {
+        Insertion {
             accepted: accepted as usize,
-            last_error: (accepted as usize != packets.len()).then_some(error),
-        })
+            last_error: (accepted as usize != count).then_some(error),
+        }
     }
 }
 
@@ -243,6 +291,73 @@ pub(super) fn outside_callback() -> bool {
 mod tests {
     use super::*;
     use std::mem::{align_of, offset_of, size_of};
+    #[test]
+    fn mouse_union_packing_selects_mouse_discriminant_and_zero_time() {
+        let packet = crate::pointer::MousePacket {
+            dx: i32::MIN,
+            dy: i32::MAX,
+            data: 0,
+            flags: 1,
+            extra_info: usize::MAX,
+        };
+        let mut native = Input::empty();
+        native.set_mouse(packet);
+        assert_eq!(native.kind, 0);
+        // SAFETY: set_mouse selected and initialized this union member.
+        let mouse = unsafe { native.payload.mouse };
+        assert_eq!(
+            (
+                mouse.dx,
+                mouse.dy,
+                mouse.data,
+                mouse.flags,
+                mouse.time,
+                mouse.extra_info
+            ),
+            (i32::MIN, i32::MAX, 0, 1, 0, usize::MAX)
+        );
+    }
+    #[test]
+    fn mouse_preflight_rejects_wrong_marker_shape_and_capacity() {
+        let packet = crate::pointer::MousePacket {
+            dx: 0,
+            dy: 0,
+            data: 1,
+            flags: 0x80,
+            extra_info: 17,
+        };
+        assert!(valid_mouse(&[packet; MAX_BATCH], 17));
+        assert!(!valid_mouse(&[packet; MAX_BATCH + 1], 17));
+        assert!(!valid_mouse(&[], 17));
+        assert!(!valid_mouse(&[packet], 0));
+        assert!(!valid_mouse(&[packet], 18));
+        for invalid in [
+            crate::pointer::MousePacket {
+                flags: 0x880,
+                ..packet
+            },
+            crate::pointer::MousePacket {
+                flags: 0x8000,
+                ..packet
+            },
+            crate::pointer::MousePacket { data: 3, ..packet },
+            crate::pointer::MousePacket { dx: 1, ..packet },
+            crate::pointer::MousePacket { flags: 2, ..packet },
+            crate::pointer::MousePacket { flags: 1, ..packet },
+        ] {
+            assert!(!valid_mouse(&[invalid], 17));
+        }
+        for flags in [1, 2, 4, 8, 16, 32, 64, 0x800, 0x1000] {
+            assert!(valid_mouse(
+                &[crate::pointer::MousePacket {
+                    flags,
+                    data: 0,
+                    ..packet
+                }],
+                17
+            ));
+        }
+    }
     #[test]
     fn input_layout_includes_larger_mouse_union() {
         let wide = size_of::<usize>() == 8;
