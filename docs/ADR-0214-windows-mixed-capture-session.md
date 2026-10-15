@@ -1,0 +1,7 @@
+# ADR-0214：显式 mixed 原生会话生命周期
+
+MixedCaptureSession 显式连接同线程双Hook、MixedSessionActor、guarded mixed sender、WTS通知、访问lease和固定紧急键。共用既有SessionControl/SessionHandler/monitored_wait/refresh_application，不另写一套lease或application算法；现有CaptureSession默认接口保持。
+
+冷编译先于OS；原生输入采样已覆盖VK1..254。键盘Hook与mouse companion在enabled=false时安装，分别追踪pass bindings；启动准入检查两种bindings在实际采样前后都空、session/access/notification及2s deadline，再无OS调用切换actor/guard/enabled。mouse失败移除passive键盘并保独立cleanup码。Position仍Pass，wheel/button显式Capture且使用共同delivery-time lease/emergency gate。
+
+active poll沿原bounded message/control调度，只有真实poll推进progress epoch。任何fault/Stop/Drop先disabled双Hook，显式shutdown保存键盘/鼠标unhook结果，再按access/untracked证据决定accepted-only恢复或quarantine；通知资源最后释放。Drop仍不做注入恢复。没有worker/host选择接线或真实Windows运行证据，默认caps不拓宽。

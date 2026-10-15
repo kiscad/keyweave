@@ -22,9 +22,20 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
+mod mixed;
+pub use mixed::{MixedCaptureSession, MixedShutdownReport};
+
 const STARTUP_NS: u64 = 2_000_000_000;
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
+    #[error(
+        "mouse Hook installation failed: {hook}; keyboard removal: {keyboard_unhook:?}; notification cleanup: {notifications:?}"
+    )]
+    MouseInstall {
+        hook: HookSessionError,
+        keyboard_unhook: Result<(), HookSessionError>,
+        notifications: NotificationCleanup,
+    },
     #[error(transparent)]
     Probe(#[from] ProbeError),
     #[error(transparent)]
@@ -79,9 +90,56 @@ struct ApplicationRefresh {
 }
 const APPLICATION_REFRESH_NS: u64 = 100_000_000;
 const APPLICATION_LIFETIME_NS: u64 = 500_000_000;
-fn refresh_application<B: SendBackend>(
+trait SessionControl {
+    fn control_failed(&mut self, error: RuntimeError);
+    fn context_changed(
+        &mut self,
+        context: ContextSnapshot,
+        now: MonoTime,
+    ) -> Result<(), RuntimeError>;
+    fn tick(&mut self, now: MonoTime) -> Result<(), RuntimeError>;
+    fn next_wakeup(&self) -> Option<MonoTime>;
+    fn key(&mut self, event: HookEvent, now: MonoTime) -> Result<CaptureDecision, RuntimeError>;
+}
+impl<B: SendBackend> SessionControl for SessionActor<B> {
+    fn control_failed(&mut self, e: RuntimeError) {
+        self.control_failed(e)
+    }
+    fn context_changed(&mut self, c: ContextSnapshot, n: MonoTime) -> Result<(), RuntimeError> {
+        self.context_changed(c, n)
+    }
+    fn tick(&mut self, n: MonoTime) -> Result<(), RuntimeError> {
+        self.tick(n)
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        self.next_wakeup()
+    }
+    fn key(&mut self, e: HookEvent, n: MonoTime) -> Result<CaptureDecision, RuntimeError> {
+        self.key(e, n)
+    }
+}
+impl<B: crate::mixed::SendMixedBackend> SessionControl
+    for crate::mixed_actor::MixedSessionActor<B>
+{
+    fn control_failed(&mut self, e: RuntimeError) {
+        self.control_failed(e)
+    }
+    fn context_changed(&mut self, c: ContextSnapshot, n: MonoTime) -> Result<(), RuntimeError> {
+        self.context_changed(c, n)
+    }
+    fn tick(&mut self, n: MonoTime) -> Result<(), RuntimeError> {
+        self.tick(n)
+    }
+    fn next_wakeup(&self) -> Option<MonoTime> {
+        self.next_wakeup()
+    }
+    fn key(&mut self, e: HookEvent, n: MonoTime) -> Result<CaptureDecision, RuntimeError> {
+        self.key(e, n)
+    }
+}
+fn refresh_application<A: SessionControl>(
     state: &mut ApplicationRefresh,
-    actor: &RefCell<SessionActor<B>>,
+    actor: &RefCell<A>,
     emergency: &RefCell<EmergencyChord>,
     access: &RefCell<AccessLease>,
     mut clock: impl FnMut() -> Option<MonoTime>,
@@ -172,7 +230,7 @@ fn refresh_application<B: SendBackend>(
     }
     active_wait(actor, emergency, access, Some(after))
 }
-struct GuardedBackend<B: SendBackend> {
+struct GuardedBackend<B> {
     backend: B,
     enabled: Rc<Cell<bool>>,
 }
@@ -182,18 +240,31 @@ impl<B: SendBackend> SendBackend for GuardedBackend<B> {
         // Reject only before calling this backend; its actual prior receipt was
         // acknowledged by the pump. Shutdown disables the generic fault gate;
         // revoked access independently forbids recovery native submissions.
-        if super::hook_thread::access_lost()
-            || super::session_notifications::access_lost()
-            || self.enabled.get() && super::hook_thread::current_fault().is_some()
-        {
+        if !delivery_allowed(self.enabled.get()) {
             return Err(SubmitError::Rejected);
         }
         self.backend.submit(packets)
     }
 }
-struct SessionHandler<B: SendBackend, C: FnMut() -> Option<MonoTime>> {
+fn delivery_allowed(enabled: bool) -> bool {
+    !super::hook_thread::access_lost()
+        && !super::session_notifications::access_lost()
+        && !(enabled && super::hook_thread::current_fault().is_some())
+}
+impl<B: crate::mixed::SendMixedBackend> crate::mixed::SendMixedBackend for GuardedBackend<B> {
+    fn submit_mixed(
+        &mut self,
+        packets: &[crate::mixed::NativePacket],
+    ) -> Result<Insertion, SubmitError> {
+        if !delivery_allowed(self.enabled.get()) {
+            return Err(SubmitError::Rejected);
+        }
+        self.backend.submit_mixed(packets)
+    }
+}
+struct SessionHandler<A: SessionControl, C: FnMut() -> Option<MonoTime>> {
     enabled: Rc<Cell<bool>>,
-    actor: Rc<RefCell<SessionActor<B>>>,
+    actor: Rc<RefCell<A>>,
     emergency: Rc<RefCell<EmergencyChord>>,
     access: Rc<RefCell<AccessLease>>,
     clock: C,
@@ -214,7 +285,7 @@ fn guard(
     }
     Ok(chord.next_deadline())
 }
-impl<B: SendBackend, C: FnMut() -> Option<MonoTime>> HookHandler for SessionHandler<B, C> {
+impl<A: SessionControl, C: FnMut() -> Option<MonoTime>> HookHandler for SessionHandler<A, C> {
     fn handle(&mut self, event: HookEvent) -> Result<CaptureDecision, HookFault> {
         if !self.enabled.get() {
             return Ok(CaptureDecision::Pass);
@@ -241,8 +312,8 @@ impl<B: SendBackend, C: FnMut() -> Option<MonoTime>> HookHandler for SessionHand
         })
     }
 }
-fn active_wait<B: SendBackend>(
-    actor: &RefCell<SessionActor<B>>,
+fn active_wait<A: SessionControl>(
+    actor: &RefCell<A>,
     emergency: &RefCell<EmergencyChord>,
     access: &RefCell<AccessLease>,
     now: Option<MonoTime>,
@@ -270,8 +341,8 @@ fn active_wait<B: SendBackend>(
             .min(),
     ))
 }
-fn monitored_wait<B: SendBackend>(
-    actor: &RefCell<SessionActor<B>>,
+fn monitored_wait<A: SessionControl>(
+    actor: &RefCell<A>,
     emergency: &RefCell<EmergencyChord>,
     access: &RefCell<AccessLease>,
     mut clock: impl FnMut() -> Option<MonoTime>,

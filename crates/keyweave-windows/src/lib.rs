@@ -34,7 +34,10 @@ pub use native::{IdentityError, RunIdentity};
 pub use native::{check_input_access, sample_input_state};
 
 #[cfg(target_os = "windows")]
-pub use native::{CaptureSession, SessionError, SessionStep, ShutdownReport};
+pub use native::{
+    CaptureSession, MixedCaptureSession, MixedShutdownReport, SessionError, SessionStep,
+    ShutdownReport,
+};
 
 #[cfg(target_os = "windows")]
 pub use native::{NotificationCleanup, NotificationError, SessionNotifications};

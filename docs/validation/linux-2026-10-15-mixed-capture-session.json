@@ -1,0 +1,106 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "c7cf12b5400856e691e59d37e2f234ff543adacb",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/native/session.rs": "d15ffe21d7ab34cc97b8882202a87214c559cbe187896474d41df95c0024952c",
+    "crates/keyweave-windows/src/native/session/mixed.rs": "d0cd492243d49b154a827c48e3f4f4685672b3802542e46f36e281928db77475",
+    "crates/keyweave-windows/src/native/session/mixed_tests.rs": "3d9785cfa0c3161aea7a520b4496c398ad9f955e5f644c3f0fca82793fd3ded0",
+    "crates/keyweave-windows/src/native/hook_thread.rs": "a6217a174e15aff1a51a092a26fd46248471d20c166a19983d2237faec863bc6",
+    "crates/keyweave-windows/src/native.rs": "c61bd8bbf50adaecb320ceac4b87dc4e13ecdf8d64f2b0379f6a65d168928d51",
+    "crates/keyweave-windows/src/lib.rs": "da5b3ce0008d1084d8cfb8dcd9b03485773769e9032722f9bfb901867bf01e89"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1863,
+    "new_tests": 6,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-capture/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-capture/1.log",
+        "sha256": "63ec56db1cf6fbd51ae79c014de0094f9d1ede240321d49768dad65a6b6b03e9"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-capture/2.log",
+        "sha256": "eb6503c34fdf036a0cb7d1cda426e5f3f7fc2dee1c358a7a7300c55229081f9e"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-capture/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-capture/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-capture/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "reason": "Initial child module compilation used parent-level hook_thread/application paths; corrected to native grandparent before final checks. Early unused export/dead code warnings were eliminated by actual lifecycle integration tests.",
+      "exit_status": "Initial shell ended with tail success; cargo exit code was not separately captured. Compiler error output observed; no claimed exit code."
+    }
+  ],
+  "windows": {
+    "status": "Actual native lifecycle code exercised with Win32 API mocks under Linux. Native Windows build/SDK/registration pending after previous automatic approval quota rejection; not retried."
+  },
+  "limitations": [
+    "No actual Hook registration/capture/injection, device access or Windows native execution. Default keyboard CaptureSession/capabilities unchanged.",
+    "Explicit MixedCaptureSession uses common lease/application/emergency helpers and native sample/notification code, mocked API responses only; real OS timing/session delivery remains unverified.",
+    "Mouse neutral uses existing VK1..254 native sampling plus both callback binding sets before/after sample; this is aggregate state, not trustworthy per-device identity.",
+    "Windows worker/host/private argument/config preparation selection and mixed terminal cleanup reporting remain pending.",
+    "MixedShutdownReport keeps keyboard/mouse unhook and recovery results independently; Drop disables hooks without injecting releases.",
+    "Native SDK/hardware, X11/Wayland acceptance, Windows verification, GUI and packaging remain pending."
+  ]
+}

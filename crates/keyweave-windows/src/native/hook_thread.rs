@@ -493,6 +493,9 @@ pub(super) fn session_changed() {
         stop(HookFault::SessionChanged);
     }
 }
+pub(super) fn stop_from_control(fault: HookFault) {
+    stop(fault)
+}
 fn stop(fault: HookFault) {
     if matches!(
         fault,
@@ -758,12 +761,13 @@ mod api {
         1usize as Handle
     }
     thread_local! {
+        pub(super) static MOUSE_INSTALL_FAIL: Cell<bool> = const { Cell::new(false) };
         pub(super) static INSTALL_KINDS: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
         pub(super) static UNHOOK_KINDS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     }
     pub(super) unsafe fn SetWindowsHookExW(kind: i32, _: Callback, _: Handle, _: u32) -> Handle {
         INSTALL_KINDS.with(|v| v.borrow_mut().push(kind));
-        if INSTALL_FAIL.with(Cell::get) {
+        if INSTALL_FAIL.with(Cell::get) || kind == 14 && MOUSE_INSTALL_FAIL.with(Cell::get) {
             null_mut()
         } else {
             kind as usize as Handle
@@ -1349,4 +1353,26 @@ mod mouse_tests {
         assert_eq!(session.fault(), Some(HookFault::Record));
         session.close().1.unwrap();
     }
+}
+
+#[cfg(test)]
+pub(super) fn test_mouse_record(message: u32, data: u32, flags: u32, extra_info: usize) -> isize {
+    let record = MouseHook {
+        x: 1,
+        y: 2,
+        data,
+        flags,
+        time: 0,
+        extra_info,
+    };
+    // SAFETY: test-owned initialized record remains live for this callback.
+    unsafe { mouse_callback(0, message as usize, &record as *const _ as isize) }
+}
+#[cfg(test)]
+pub(super) fn test_mouse_install_failure() {
+    api::MOUSE_INSTALL_FAIL.with(|v| v.set(true));
+}
+#[cfg(test)]
+pub(super) fn test_registered_kinds() -> Vec<i32> {
+    api::INSTALL_KINDS.with(|v| v.borrow().clone())
 }

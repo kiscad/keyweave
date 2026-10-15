@@ -45,7 +45,10 @@ pub use job_process::{
 #[cfg(target_os = "windows")]
 pub use progress_pipe::{PipeCloseReport, PipeReader, PipeWriter};
 #[cfg(target_os = "windows")]
-pub use session::{CaptureSession, SessionError, SessionStep, ShutdownReport};
+pub use session::{
+    CaptureSession, MixedCaptureSession, MixedShutdownReport, SessionError, SessionStep,
+    ShutdownReport,
+};
 #[cfg(target_os = "windows")]
 pub use session_notifications::{NotificationCleanup, NotificationError, SessionNotifications};
 #[cfg(target_os = "windows")]
