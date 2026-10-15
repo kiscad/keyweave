@@ -33,6 +33,8 @@ pub enum ActorPhase {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error(transparent)]
+    Mixed(#[from] crate::mixed::MixedError),
     #[error("application context provider failed: {0}")]
     ApplicationProvider(crate::startup::ProbeError),
     #[error("untracked input may have changed global output ownership")]

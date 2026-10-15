@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "ef780e3bfda738355db335d41e839a608915f8cf",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/mixed_actor.rs": "af40f8cdeab7d65edbfc796773e18f2a1e11e83648cb72e6c3b91d9c0f55994f",
+    "crates/keyweave-windows/src/mixed.rs": "a2ef59a6b354719c5db3fc87332210ecfcb90d533b29ec22939de9891134737a",
+    "crates/keyweave-windows/src/runtime.rs": "e23734e0a360f05d8253d1e864436b24aa67706f16be8032172240d52fa1ee05",
+    "crates/keyweave-windows/src/lib.rs": "210a756698506ecef6001ba3c67103e2d12932faf487b50652a0a78d7721706d"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1857,
+    "new_tests": 7,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-actor/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-actor/1.log",
+        "sha256": "061a578fd7a28a0ce1fab0f9aa9490974261d6be57a32028ec1aca168a15bb79"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-actor/2.log",
+        "sha256": "de9dd319e1783072bcb5d811ed052e8f4d52a11a556c59775765458503ef01fd"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-actor/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-actor/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-actor/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Linux tests exercise portable Windows staged actor and real dispatchers with mock sender. Native Windows checks remain pending after prior automatic approval quota rejection, no retry/bypass."
+  },
+  "limitations": [
+    "No native Hook registration/device capture/input injection. Default SessionActor/Windows capabilities remain keyboard-only.",
+    "Explicit MixedActorHandler bridges both dispatchers to one Rc actor, but actual CaptureSession/worker/host mixed admission and lifetime/emergency/access-lease integration remain pending.",
+    "Existing native sample_input_state already checks VK1..254 including five buttons. Actor start_after_neutral does not independently prove neutral/access or consumer readiness.",
+    "Position feeds activity only and returns Pass; no cursor coordinate conversion or native movement reinjection.",
+    "Combined input append is bounded and atomic in pending queue; engine/native work is not globally rollback atomic if later processing fails. Native host must enforce untracked guard and stop first.",
+    "Native SDK/hardware, X11/Wayland acceptance, Windows verification, GUI and packaging remain pending."
+  ]
+}

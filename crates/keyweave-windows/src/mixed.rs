@@ -292,6 +292,11 @@ impl<B: SendMixedBackend> MixedOutputPump<B> {
             }
         }
     }
+    pub(crate) fn quarantine_without_delivery(&mut self) {
+        if self.phase != Phase::Closed {
+            self.quarantine();
+        }
+    }
     /// Backend destruction cannot release global Windows input state.
     pub fn close(&mut self) {
         self.queue.quarantine();

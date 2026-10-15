@@ -1,0 +1,9 @@
+# ADR-0213：显式 Windows mixed staged actor
+
+新增 MixedSessionActor 独立显式入口，保留原 SessionActor/默认caps。冷校验所有动作输出为 Windows keyboard scan 或五按钮，拒绝device conditions；PhysicalStageController 同一 aggregate STREAM 接键盘/鼠标按钮、wheel和Position activity，输出由 MixedOutputPump统一排队和接受账本。Position只作Activity后Pass，不从屏幕坐标推导raw delta；wheel使用staged pointer receipt里的原signed delta，逐轴不换算/重发。
+
+保留128 pending input、每tick64项工作、原序deadline-before-input、旧Arc hot activation；组合按钮先校验全batch binding/容量，再共同入队，单次handler选择Capture，后续有界drain；handler失败不是对引擎和OS状态的全局回滚，host必须沿untracked guard停止。重复按钮本身不造autorepeat，键盘repeat_target只有desired/submitted都按下才可重复。
+
+start_after_neutral由host独立准入；现有原生sample_input_state扫描VK1..254已含五按钮，不重复查询。stop_after_unhook丢pending并reset引擎，只按实际接受账本最多8次恢复；access/untracked损坏ownership时quarantine禁止ups。不把actor存在/tick/队列空当真实Hook存活或neutral证明。此提交未接CaptureSession/worker/host；真实native guard/session leases/emergency与startup transaction继续。
+
+MixedActorHandler实现两种Handler，显式两个wrapper共享同一Rc actor（clock须同一monotonic域），没有在此桥接中代替native lifecycle的lease/emergency gate；clock失败/处理错误保存到actor并返回hook fault。测试使用真实dispatchers/controller和mock sender，不是纯mock actor。
