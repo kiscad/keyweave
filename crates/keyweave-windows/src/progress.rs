@@ -1,5 +1,9 @@
 //! Windows CaptureSession adapter; transport must be nonblocking and private.
-use crate::{native::CaptureSession, pump::SendBackend};
+use crate::{
+    mixed::SendMixedBackend,
+    native::{CaptureSession, MixedCaptureSession},
+    pump::SendBackend,
+};
 pub use keyweave_progress::{
     CHALLENGE_BYTES, Challenge, Policy, ProgressError, ProgressPhase, ProgressWatchdog,
     RECEIPT_BYTES, Receipt, RequestEvent, StopRequest,
@@ -19,6 +23,32 @@ fn outside_callback() -> Result<(), ClientError> {
         Err(ClientError::InCallback)
     }
 }
+mod sealed {
+    pub trait Sealed {}
+    impl<B: crate::pump::SendBackend + 'static> Sealed for crate::native::CaptureSession<B> {}
+    impl<B: crate::mixed::SendMixedBackend + 'static> Sealed for crate::native::MixedCaptureSession<B> {}
+}
+/// Only owned native session types supply real poll epochs and lifecycle phases.
+pub trait SessionProgress: sealed::Sealed {
+    fn progress_epoch(&self) -> u64;
+    fn progress_phase(&self) -> Option<ProgressPhase>;
+}
+impl<B: SendBackend + 'static> SessionProgress for CaptureSession<B> {
+    fn progress_epoch(&self) -> u64 {
+        self.progress_epoch()
+    }
+    fn progress_phase(&self) -> Option<ProgressPhase> {
+        self.progress_phase()
+    }
+}
+impl<B: SendMixedBackend + 'static> SessionProgress for MixedCaptureSession<B> {
+    fn progress_epoch(&self) -> u64 {
+        self.progress_epoch()
+    }
+    fn progress_phase(&self) -> Option<ProgressPhase> {
+        self.progress_phase()
+    }
+}
 pub struct ProgressClient<R: Read, W: Write> {
     inner: keyweave_progress::ProgressClient<R, W>,
 }
@@ -32,19 +62,13 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
             inner: keyweave_progress::ProgressClient::new(reader, writer, run_id)?,
         })
     }
-    pub fn receive<B: SendBackend + 'static>(
-        &mut self,
-        session: &CaptureSession<B>,
-    ) -> Result<bool, ClientError> {
+    pub fn receive<S: SessionProgress>(&mut self, session: &S) -> Result<bool, ClientError> {
         outside_callback()?;
         self.inner
             .receive(session.progress_epoch())
             .map_err(Into::into)
     }
-    pub fn publish<B: SendBackend + 'static>(
-        &mut self,
-        session: &CaptureSession<B>,
-    ) -> Result<bool, ClientError> {
+    pub fn publish<S: SessionProgress>(&mut self, session: &S) -> Result<bool, ClientError> {
         outside_callback()?;
         match session.progress_phase() {
             Some(phase) => self
@@ -54,9 +78,9 @@ impl<R: Read, W: Write> ProgressClient<R, W> {
             None => Ok(false),
         }
     }
-    pub fn receive_command<B: SendBackend + 'static>(
+    pub fn receive_command<S: SessionProgress>(
         &mut self,
-        session: &CaptureSession<B>,
+        session: &S,
     ) -> Result<RequestEvent, ClientError> {
         outside_callback()?;
         self.inner

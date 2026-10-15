@@ -1,11 +1,16 @@
 //! Guarded capture loop; owns native progress channels, never logs to stdio.
 use super::{
     progress_pipe::{PipeReader, PipeWriter},
-    session::{CaptureSession, SessionError, SessionStep, ShutdownReport},
+    session::{
+        CaptureSession, MixedCaptureSession, MixedShutdownReport, SessionError, SessionStep,
+        ShutdownReport,
+    },
     worker_startup::{WorkerParentGuard, WorkerStartup},
 };
 use crate::{
     keys::{IdentityPolicy, InjectionTag},
+    mixed::SendMixedBackend,
+    progress::SessionProgress,
     progress::{ClientError, ProgressClient, RequestEvent},
     pump::SendBackend,
     runtime::ActorPhase,
@@ -73,13 +78,33 @@ fn context() -> Result<(), WorkerAccessError> {
         Err(WorkerAccessError::InCallback)
     }
 }
-struct Driver<B: SendBackend + 'static, R: Read, W: Write> {
+trait WorkerSession: SessionProgress {
+    fn poll(&mut self) -> Result<SessionStep, SessionError>;
+    fn finish_session(&mut self);
+}
+impl<B: SendBackend + 'static> WorkerSession for CaptureSession<B> {
+    fn poll(&mut self) -> Result<SessionStep, SessionError> {
+        self.poll()
+    }
+    fn finish_session(&mut self) {
+        self.shutdown();
+    }
+}
+impl<B: SendMixedBackend + 'static> WorkerSession for MixedCaptureSession<B> {
+    fn poll(&mut self) -> Result<SessionStep, SessionError> {
+        self.poll()
+    }
+    fn finish_session(&mut self) {
+        self.shutdown();
+    }
+}
+struct Driver<S: WorkerSession, R: Read, W: Write> {
     // Drop order is intentional: capture disables before progress endpoints.
-    session: CaptureSession<B>,
+    session: S,
     client: ProgressClient<R, W>,
     report: Option<WorkerReport>,
 }
-impl<B: SendBackend + 'static, R: Read, W: Write> Driver<B, R, W> {
+impl<S: WorkerSession, R: Read, W: Write> Driver<S, R, W> {
     fn finish(
         &mut self,
         reason: WorkerStopReason,
@@ -89,7 +114,7 @@ impl<B: SendBackend + 'static, R: Read, W: Write> Driver<B, R, W> {
     ) -> WorkerStep {
         // Explicit Hook-close-first recovery; retain this owner/ledger and its
         // independent shutdown report even if recovery remains Unresolved.
-        self.session.shutdown();
+        self.session.finish_session();
         self.report = Some(WorkerReport {
             reason,
             primary,
@@ -177,7 +202,7 @@ impl<B: SendBackend + 'static, R: Read, W: Write> Driver<B, R, W> {
 /// No Clone/raw endpoints; preserve this same-thread owner through termination.
 pub struct Worker<B: SendBackend + 'static> {
     _guard: WorkerParentGuard,
-    driver: Driver<B, PipeReader, PipeWriter>,
+    driver: Driver<CaptureSession<B>, PipeReader, PipeWriter>,
 }
 impl<B: SendBackend + 'static> Worker<B> {
     /// Backend creation must not have captured/injected before admission.
@@ -235,6 +260,59 @@ impl<B: SendBackend + 'static> Worker<B> {
         self.driver.report.as_ref()
     }
     pub fn shutdown_report(&self) -> Option<&ShutdownReport> {
+        self.driver.session.shutdown_report()
+    }
+    pub fn phase(&self) -> ActorPhase {
+        self.driver.session.phase()
+    }
+    pub fn progress_epoch(&self) -> u64 {
+        self.driver.session.progress_epoch()
+    }
+}
+/// Explicit mixed native worker; preserves independent mouse cleanup evidence.
+pub struct MixedWorker<B: SendMixedBackend + 'static> {
+    _guard: WorkerParentGuard,
+    driver: Driver<MixedCaptureSession<B>, PipeReader, PipeWriter>,
+}
+impl<B: SendMixedBackend + 'static> MixedWorker<B> {
+    /// Backend creation must not have captured/injected before admission.
+    /// Installation failure requires process exit, not another startup attempt.
+    pub fn install(
+        startup: WorkerStartup,
+        backend: B,
+        tag: InjectionTag,
+        policy: IdentityPolicy,
+        config: Arc<ConfigSnapshot>,
+    ) -> Result<Self, WorkerInstallError> {
+        context()?;
+        let (guard, run_id, reader, writer) = startup.into_parts();
+        let client = ProgressClient::new(reader, writer, run_id)?;
+        let session = MixedCaptureSession::install(backend, tag, policy, config)?;
+        Ok(Self {
+            _guard: guard,
+            driver: Driver {
+                session,
+                client,
+                report: None,
+            },
+        })
+    }
+    pub fn step(&mut self) -> Result<WorkerStep, WorkerAccessError> {
+        self.driver.step()
+    }
+    pub fn request_stop(&mut self) -> Result<WorkerStep, WorkerAccessError> {
+        self.driver.request_stop()
+    }
+    /// Runs until the loop stops. The report is not output recovery/exit proof;
+    /// caller must also inspect shutdown_report and leave original stdio binary.
+    pub fn run(&mut self) -> Result<&WorkerReport, WorkerAccessError> {
+        while self.step()? != WorkerStep::Stopped {}
+        self.report().ok_or(WorkerAccessError::State)
+    }
+    pub fn report(&self) -> Option<&WorkerReport> {
+        self.driver.report.as_ref()
+    }
+    pub fn shutdown_report(&self) -> Option<&MixedShutdownReport> {
         self.driver.session.shutdown_report()
     }
     pub fn phase(&self) -> ActorPhase {

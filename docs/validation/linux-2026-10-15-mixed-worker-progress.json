@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "165d7426e0c4654f09b6f071f7453e31e330be95",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/progress.rs": "c395b631c70955da922283b28c76ebf83bfcd983b98dfbb177f4d6520978d59f",
+    "crates/keyweave-windows/src/native/worker.rs": "33ebc4db038a217b1d0018cb82f0f700eeacd46d8dafb209ba43f376b8df67bc",
+    "crates/keyweave-windows/src/native/worker/tests.rs": "b8b6afed616a4234269b8740dbb1781a53fe4043115c49a6d6fe0d426ed82e28",
+    "crates/keyweave-windows/src/native.rs": "8a93e76be72bed227cd1446551a46da574e1418e5829737bb3c1391d0fcb9344",
+    "crates/keyweave-windows/src/lib.rs": "de4958942836b8f97842b1e98872cbd8c14457d65f9d3f1d8afdb7a40ce7954f"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1868,
+    "new_tests": 5,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-worker/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-worker/1.log",
+        "sha256": "4e9d0d4e5a4ad2f25d23ac13a0551863f2e273c360a65a341439a0bd27e2e3b8"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-worker/2.log",
+        "sha256": "35b7df7696a13fa27a8bb75666f097a1d0e5162a382e977b22f788aa9e2438c7"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-worker/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-worker/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-worker/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Windows worker/session/native-startup/pipe APIs compiled with mocks under Linux. Native Windows build/SDK/Hook checks remain pending after previous automatic approval quota rejection; no retry/bypass."
+  },
+  "limitations": [
+    "Actual shared Driver/ProgressClient and mixed lifecycle run with mock native APIs/reader/writer/backend. No actual process spawn, native registration, device capture or injection.",
+    "SessionProgress is sealed to two real owned session types; tests do not mint standalone fake epochs. Receipt completion or terminal progress is not actual process exit or recovery proof.",
+    "MixedWorker installation uses existing WorkerStartup ownership contract under mocks; real main early-claim ordering/parent Job/pipe inheritance still need native verification.",
+    "MixedShutdownReport preserves separate keyboard/mouse unhook and recovery. Executable config scope/argv/host selection and terminal-mask conjunction still pending.",
+    "Native Windows/hardware, X11/Wayland acceptance, GUI and packaging remain pending."
+  ]
+}

@@ -88,7 +88,7 @@ impl Write for Writer {
         Ok(())
     }
 }
-type Loop = Driver<Backend, Reader, Writer>;
+type Loop = Driver<CaptureSession<Backend>, Reader, Writer>;
 fn config() -> Arc<ConfigSnapshot> {
     Arc::new(ConfigSnapshot {
         generation: ConfigGeneration(1),
@@ -410,4 +410,194 @@ fn wrong_stop_identity_is_fault_and_does_not_poll_or_publish() {
     );
     assert_eq!(worker.session.progress_epoch(), 0);
     assert_eq!(output.borrow().calls, 0);
+}
+
+struct MixedBackend(Rc<RefCell<Vec<Vec<crate::mixed::NativePacket>>>>);
+impl SendMixedBackend for MixedBackend {
+    fn submit_mixed(
+        &mut self,
+        packets: &[crate::mixed::NativePacket],
+    ) -> Result<Insertion, SubmitError> {
+        for packet in packets {
+            if matches!(packet,crate::mixed::NativePacket::Mouse(p) if matches!(p.flags(),4|16|64|256))
+            {
+                assert_eq!(
+                    super::super::hook_thread::test_mouse_record(0x201, 0, 0, 0),
+                    9
+                );
+            }
+        }
+        self.0.borrow_mut().push(packets.to_vec());
+        Ok(Insertion {
+            accepted: packets.len(),
+            last_error: None,
+        })
+    }
+}
+type MixedLoop = Driver<MixedCaptureSession<MixedBackend>, Reader, Writer>;
+type MixedFixture = (
+    MixedLoop,
+    Rc<RefCell<Input>>,
+    Rc<RefCell<Output>>,
+    Rc<RefCell<Vec<Vec<crate::mixed::NativePacket>>>>,
+);
+fn mixed_fixture() -> MixedFixture {
+    let packets = Rc::new(RefCell::new(vec![]));
+    let session = MixedCaptureSession::install(
+        MixedBackend(packets.clone()),
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+        config(),
+    )
+    .unwrap();
+    let input = Rc::new(RefCell::new(Input {
+        chunk: 24,
+        ..Input::default()
+    }));
+    input
+        .borrow_mut()
+        .bytes
+        .extend(Challenge { run_id: 7, id: 1 }.encode());
+    let output = Rc::new(RefCell::new(Output {
+        chunk: 40,
+        ..Output::default()
+    }));
+    let client = ProgressClient::new(Reader(input.clone()), Writer(output.clone()), 7).unwrap();
+    (
+        Driver {
+            session,
+            client,
+            report: None,
+        },
+        input,
+        output,
+        packets,
+    )
+}
+#[test]
+fn mixed_actual_poll_is_the_only_source_of_active_progress() {
+    let (mut worker, input, output, packets) = mixed_fixture();
+    assert_eq!(worker.session.progress_epoch(), 0);
+    test_probe(i16::MIN, true);
+    assert_eq!(
+        worker.step().unwrap(),
+        WorkerStep::Session(SessionStep::Waiting)
+    );
+    assert!(output.borrow().bytes.is_empty());
+    test_probe(0, true);
+    assert_eq!(
+        worker.step().unwrap(),
+        WorkerStep::Session(SessionStep::Activated)
+    );
+    let receipt = Receipt::decode(&output.borrow().bytes).unwrap();
+    assert_eq!(
+        (receipt.baseline, receipt.epoch, receipt.phase),
+        (0, 2, ProgressPhase::Active)
+    );
+    assert_eq!(
+        super::super::hook_thread::test_mouse_record(0x201, 0, 0, 0),
+        1
+    );
+    assert_eq!(worker.session.progress_epoch(), 2);
+    assert_eq!(packets.borrow().len(), 1);
+    input
+        .borrow_mut()
+        .bytes
+        .extend(Challenge { run_id: 7, id: 2 }.encode());
+    worker.step().unwrap();
+    let receipt = Receipt::decode(&output.borrow().bytes[40..]).unwrap();
+    assert_eq!((receipt.baseline, receipt.epoch), (2, 3));
+    worker.request_stop().unwrap();
+}
+#[test]
+fn mixed_stop_preempts_partial_frame_and_recovers_after_both_hooks_close() {
+    let (mut worker, input, output, packets) = mixed_fixture();
+    output.borrow_mut().chunk = 5;
+    worker.step().unwrap();
+    assert_eq!(
+        super::super::hook_thread::test_mouse_record(0x201, 0, 0, 0),
+        1
+    );
+    input
+        .borrow_mut()
+        .bytes
+        .extend(keyweave_progress::StopRequest { run_id: 7, id: 2 }.encode());
+    assert_eq!(worker.step().unwrap(), WorkerStep::Stopped);
+    assert_eq!(worker.session.progress_epoch(), 1);
+    assert_eq!(output.borrow().bytes.len(), 5);
+    let report = worker.report.as_ref().unwrap();
+    assert_eq!(report.reason, WorkerStopReason::Requested);
+    assert_eq!(report.reply, WorkerReply::FramePending);
+    let shutdown = worker.session.shutdown_report().unwrap();
+    assert!(shutdown.unhook.is_ok() && shutdown.mouse_unhook.is_ok() && shutdown.recovery.is_ok());
+    assert_eq!(packets.borrow().len(), 2);
+    assert!(matches!(packets.borrow()[1][0],crate::mixed::NativePacket::Mouse(p) if p.flags()==4));
+    let reads = input.borrow().calls;
+    worker.step().unwrap();
+    assert_eq!(input.borrow().calls, reads);
+}
+#[test]
+fn mixed_stop_before_activation_performs_no_poll_publish_or_injection() {
+    let (mut worker, input, output, packets) = mixed_fixture();
+    input.borrow_mut().bytes = keyweave_progress::StopRequest { run_id: 7, id: 1 }
+        .encode()
+        .into();
+    assert_eq!(worker.step().unwrap(), WorkerStep::Stopped);
+    assert_eq!(worker.session.progress_epoch(), 0);
+    assert_eq!(output.borrow().calls, 0);
+    assert!(packets.borrow().is_empty());
+    assert!(
+        worker
+            .session
+            .shutdown_report()
+            .unwrap()
+            .mouse_unhook
+            .is_ok()
+    );
+}
+#[test]
+fn mixed_progress_fault_keeps_unresolved_mouse_state_in_separate_report() {
+    let (mut worker, input, _, packets) = mixed_fixture();
+    worker.step().unwrap();
+    assert_eq!(
+        super::super::hook_thread::test_mouse_record(0x201, 0, 0, 0),
+        1
+    );
+    assert_eq!(
+        super::super::hook_thread::test_mouse_record(0x204, 0, 1, 2),
+        9
+    );
+    input.borrow_mut().eof = true;
+    assert_eq!(worker.step().unwrap(), WorkerStep::Stopped);
+    assert!(matches!(
+        worker.report.as_ref().unwrap().primary,
+        Some(WorkerFault::Progress(_))
+    ));
+    let shutdown = worker.session.shutdown_report().unwrap();
+    assert!(shutdown.untracked_input);
+    assert!(shutdown.recovery.is_err());
+    assert_eq!(worker.session.phase(), ActorPhase::Unresolved);
+    assert_eq!(packets.borrow().len(), 1);
+}
+#[test]
+fn mixed_guarded_factory_retains_native_startup_owner_and_caches_terminal_report() {
+    let startup = WorkerStartup::claim(76, 7).unwrap();
+    let packets = Rc::new(RefCell::new(vec![]));
+    let mut worker = MixedWorker::install(
+        startup,
+        MixedBackend(packets.clone()),
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+        config(),
+    )
+    .unwrap();
+    assert_eq!(worker.phase(), ActorPhase::Standby);
+    assert_eq!(worker.progress_epoch(), 0);
+    assert!(worker.report().is_none());
+    with_callback_borrow(|| assert_eq!(worker.step().unwrap_err(), WorkerAccessError::InCallback));
+    worker.request_stop().unwrap();
+    assert_eq!(worker.run().unwrap().reason, WorkerStopReason::Requested);
+    assert!(worker.shutdown_report().unwrap().mouse_unhook.is_ok());
+    assert_eq!(worker.phase(), ActorPhase::Stopped);
+    assert!(packets.borrow().is_empty());
 }

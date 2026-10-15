@@ -1,0 +1,7 @@
+# ADR-0215：mixed worker 与真实会话进度
+
+ProgressClient 将会话适配泛化到 sealed SessionProgress，仅真实 CaptureSession/MixedCaptureSession 可实现，不开放任意epoch/phase注入。仍由真实poll推进epoch，Standby无receipt；pending旧Active帧不是terminal确认。公开ProgressClient方法保持原行为和callback禁止。
+
+原生worker Driver改为私有WorkerSession泛型，共享receive→poll→publish、Stop先于poll、fault后close-first及有限报告逻辑；旧Worker API保持。新增MixedWorker使用真实main已claim的WorkerStartup及原private owned pipes、parent guard，安装MixedCaptureSession；独立报告返回MixedShutdownReport（keyboard/mouse unhook及recovery各自保留）。不改wire，也不把进程退出/发送完成当恢复证明。
+
+此提交只给完整worker库入口，exe argv/cold config/host显式选择下一步接；不能默认开启鼠标能力。mock测试覆盖真实mixed session/Driver/ProgressClient，native启动核验/pipe mock不能替代真实Windows main/OS Hook/硬件验收。

@@ -53,8 +53,8 @@ pub use session::{
 pub use session_notifications::{NotificationCleanup, NotificationError, SessionNotifications};
 #[cfg(target_os = "windows")]
 pub use worker::{
-    Worker, WorkerAccessError, WorkerFault, WorkerInstallError, WorkerReply, WorkerReport,
-    WorkerStep, WorkerStopReason,
+    MixedWorker, Worker, WorkerAccessError, WorkerFault, WorkerInstallError, WorkerReply,
+    WorkerReport, WorkerStep, WorkerStopReason,
 };
 #[cfg(target_os = "windows")]
 pub use worker_startup::{
@@ -319,7 +319,7 @@ impl SendInputBackend {
 }
 
 #[cfg(all(test, not(target_os = "windows")))]
-pub(super) use session::CaptureSession;
+pub(super) use session::{CaptureSession, MixedCaptureSession};
 
 pub(super) fn outside_callback() -> bool {
     hook_thread::outside_callback()
