@@ -152,6 +152,15 @@ impl PreparedConfig {
             scope,
         })
     }
+    /// Derive private argv from this same frozen config scope/mode, never infer it.
+    pub fn worker_arguments(
+        &self,
+        path: &Path,
+        tag: InjectionTag,
+        identity: IdentityPolicy,
+    ) -> Result<Vec<OsString>, ArgumentError> {
+        worker_arguments_with_scope(path, tag, identity, self.mode, self.scope)
+    }
     pub fn capture_scope(&self) -> CaptureScope {
         self.scope
     }

@@ -7,7 +7,7 @@ use keyweave_windows::{
     JobProcessState, OwnedJobProcess, RunIdentity, Supervisor, SupervisorSpawnError,
     SupervisorStatus, TerminationReason,
 };
-use keyweave_worker::preparation::{PreparedConfig, worker_arguments_with_mode};
+use keyweave_worker::preparation::PreparedConfig;
 use std::{
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
@@ -303,13 +303,9 @@ fn run_impl(
         return Ok(cancelled(None));
     }
     let fresh = RunIdentity::generate().map_err(|e| e.to_string())?;
-    let args = worker_arguments_with_mode(
-        diagnostic_path,
-        fresh.tag(),
-        identity,
-        prepared.execution_mode(),
-    )
-    .map_err(|e| e.to_string())?;
+    let args = prepared
+        .worker_arguments(diagnostic_path, fresh.tag(), identity)
+        .map_err(|e| e.to_string())?;
     let mut artifact=prepared.seal(directory).map_err(|mut e|{
         let mut errors=Vec::new();let mut complete=true;
         if let Some(owner)=e.owner.as_mut(){match owner.close(){Ok(r) if r.complete()=>(),other=>{complete=false;record(&mut errors,format!("artifact cleanup: {other:?}"));}}}

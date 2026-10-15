@@ -1,0 +1,164 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "23270f322fbfc3f33de1a7cd1ee04f3e085011e1",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/main.rs": "f7b01e0fadea9898a6ac137140f0d4ba98eec2956a1e1a4cb148e2cf49157bfb",
+    "crates/keyweave-host/src/windows.rs": "370337e2c6cfcdbb354526908d2a827b1d8a4122b2295d77b078ca54c637ff9c",
+    "crates/keyweave-worker/src/preparation.rs": "c8753703ee71cecdf92d759708fc12ec923a4380c8eaa3a16a6a00114674d0c6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1885,
+    "new_tests": 4,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/1.log",
+        "sha256": "dc4b0fd00670eb605c038d669304bc68baafebd9d1307d69394601df1a455943"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/2.log",
+        "sha256": "bcf288cb37635c155957dd06118f821aeb3124955166d1c80fdc556b6182c4fa"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    },
+    "executable_offline_smoke": [
+      {
+        "command": [
+          "cargo",
+          "run",
+          "-p",
+          "keyweave-host",
+          "--bin",
+          "keyweave-host",
+          "--locked",
+          "--offline",
+          "--",
+          "check-windows",
+          "--config",
+          "target/validation/linux-20261015-windows-host-mixed/mixed.json",
+          "--execution-mode",
+          "staged-keyboard",
+          "--capture-scope",
+          "staged-mixed"
+        ],
+        "expected_exit_code": 0,
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-host-mixed/mixed.log",
+        "sha256": "398f4ba28dd8e618ce7a4a1a016d12dfb52117de3b2abb50a9e0fff1618a1bcc"
+      },
+      {
+        "command": [
+          "cargo",
+          "run",
+          "-p",
+          "keyweave-host",
+          "--bin",
+          "keyweave-host",
+          "--locked",
+          "--offline",
+          "--",
+          "check-windows",
+          "--config",
+          "target/validation/linux-20261015-windows-host-mixed/mixed.json"
+        ],
+        "expected_exit_code": 1,
+        "exit_code": 1,
+        "log": "target/validation/linux-20261015-windows-host-mixed/default-keyboard.log",
+        "sha256": "fe41b7c07c0a821cd1d94b27af77ea4e98b4e8fbd1f8b75acbf2e6cf6b8f2ac8"
+      },
+      {
+        "command": [
+          "cargo",
+          "run",
+          "-p",
+          "keyweave-host",
+          "--bin",
+          "keyweave-host",
+          "--locked",
+          "--offline",
+          "--",
+          "check-windows",
+          "--config",
+          "target/validation/linux-20261015-windows-host-mixed/mixed.json",
+          "--capture-scope",
+          "staged-mixed"
+        ],
+        "expected_exit_code": 1,
+        "exit_code": 1,
+        "log": "target/validation/linux-20261015-windows-host-mixed/mixed-legacy.log",
+        "sha256": "b385e5cac65a232a5087ca4a62b918d16a35cbf598b0223427c59293123fd603"
+      }
+    ]
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Windows-only host run_owned and main run-windows branches not compiled/executed natively. Native checks pending after previous automatic approval quota rejection; not retried."
+  },
+  "limitations": [
+    "Real CLI smoke only check-windows offline on Linux: explicit mixed accepted, default keyboard and mixed legacy rejected. No worker spawn, native artifact creation, Hook/capture/injection.",
+    "Actual CLI parser/preparation/private Arguments roundtrip tested with synthetic config handle. Real Windows sealed artifact/Job/handle delivery remains unverified.",
+    "Host now derives argv and seal bytes from same PreparedConfig, default remains keyboard. Windows config watcher/GUI/full driver/package work still pending.",
+    "Native Windows SDK/hardware, X11/Wayland acceptance and end-to-end system validation remain pending."
+  ]
+}

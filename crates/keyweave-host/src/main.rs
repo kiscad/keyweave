@@ -45,6 +45,8 @@ enum Command {
     CheckWindows {
         #[arg(long, value_enum, default_value = "legacy")]
         execution_mode: WindowsExecution,
+        #[arg(long, value_enum, default_value = "keyboard")]
+        capture_scope: WindowsScope,
         #[arg(long)]
         config: PathBuf,
     },
@@ -52,6 +54,8 @@ enum Command {
     RunWindows {
         #[arg(long, value_enum, default_value = "legacy")]
         execution_mode: WindowsExecution,
+        #[arg(long, value_enum, default_value = "keyboard")]
+        capture_scope: WindowsScope,
         #[arg(long)]
         config: PathBuf,
         #[arg(long, value_enum)]
@@ -155,6 +159,32 @@ fn linux_provider(
     }
 }
 #[derive(Clone, Copy, clap::ValueEnum)]
+enum WindowsScope {
+    Keyboard,
+    StagedMixed,
+}
+impl WindowsScope {
+    fn runtime(self) -> keyweave_worker::preparation::CaptureScope {
+        match self {
+            Self::Keyboard => keyweave_worker::preparation::CaptureScope::Keyboard,
+            Self::StagedMixed => keyweave_worker::preparation::CaptureScope::StagedMixed,
+        }
+    }
+}
+fn prepare_windows_reader(
+    reader: impl std::io::Read,
+    mode: WindowsExecution,
+    scope: WindowsScope,
+) -> Result<PreparedConfig, String> {
+    PreparedConfig::read_for_generation_with_scope(
+        reader,
+        keyweave_types::ConfigGeneration(1),
+        mode.runtime(),
+        scope.runtime(),
+    )
+    .map_err(|e| e.to_string())
+}
+#[derive(Clone, Copy, clap::ValueEnum)]
 enum WindowsExecution {
     Legacy,
     StagedKeyboard,
@@ -245,18 +275,18 @@ fn main() -> ExitCode {
         Command::CheckWindows {
             config,
             execution_mode,
+            capture_scope,
         } => match std::fs::File::open(config)
             .map_err(|e| e.to_string())
-            .and_then(|f| {
-                PreparedConfig::read_with_mode(f, execution_mode.runtime())
-                    .map_err(|e| e.to_string())
-            }) {
+            .and_then(|f| prepare_windows_reader(f, execution_mode, capture_scope))
+        {
             Ok(config) => {
                 println!(
-                    "configuration accepted offline: bytes={}, generation={}, mode={:?}; device readiness unverified",
+                    "configuration accepted offline: bytes={}, generation={}, mode={:?}, scope={:?}; device readiness unverified",
                     config.bytes().len(),
                     config.snapshot().generation.0,
-                    config.execution_mode()
+                    config.execution_mode(),
+                    config.capture_scope()
                 );
                 ExitCode::SUCCESS
             }
@@ -267,6 +297,7 @@ fn main() -> ExitCode {
         },
         Command::RunWindows {
             execution_mode,
+            capture_scope,
             config,
             identity,
             worker,
@@ -277,6 +308,7 @@ fn main() -> ExitCode {
             worker,
             artifact_directory,
             execution_mode,
+            capture_scope,
         ),
     }
 }
@@ -287,6 +319,7 @@ fn run(
     _: Option<PathBuf>,
     _: Option<PathBuf>,
     _: WindowsExecution,
+    _: WindowsScope,
 ) -> ExitCode {
     eprintln!("run-windows requires Windows");
     ExitCode::from(78)
@@ -298,6 +331,7 @@ fn run(
     worker: Option<PathBuf>,
     directory: Option<PathBuf>,
     execution_mode: WindowsExecution,
+    capture_scope: WindowsScope,
 ) -> ExitCode {
     use std::{
         io::Read,
@@ -315,11 +349,11 @@ fn run(
         let config = config
             .canonicalize()
             .map_err(|e| format!("config path: {e}"))?;
-        let prepared = PreparedConfig::read_with_mode(
+        let prepared = prepare_windows_reader(
             std::fs::File::open(&config).map_err(|e| e.to_string())?,
-            execution_mode.runtime(),
-        )
-        .map_err(|e| e.to_string())?;
+            execution_mode,
+            capture_scope,
+        )?;
         let directory = directory.unwrap_or_else(std::env::temp_dir);
         if !directory.is_absolute() {
             return Err("artifact directory must be absolute".into());
@@ -928,5 +962,171 @@ mod linux_offline_cli_tests {
         ] {
             assert!(check(&args, KEYBOARD).is_err(), "{args:?}");
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod windows_mixed_cli_tests {
+    use super::*;
+    use keyweave_worker::{Arguments, preparation::CaptureScope};
+    const KEYBOARD: &[u8] = br#"{"profiles":[{"selected":true}]}"#;
+    const MIXED:&[u8]=br#"// retain bytes
+{"profiles":[{"selected":true,"simple_modifications":[{"from":{"pointing_button":"button1"},"to":[{"pointing_button":"button2"}]}]}]}"#;
+    fn check(extra: &[&str], bytes: &[u8]) -> Result<PreparedConfig, String> {
+        let mut args = vec!["keyweave-host", "check-windows", "--config", "unused.json"];
+        args.extend_from_slice(extra);
+        let Command::CheckWindows {
+            execution_mode,
+            capture_scope,
+            ..
+        } = Cli::try_parse_from(args)
+            .map_err(|e| e.to_string())?
+            .command
+        else {
+            unreachable!()
+        };
+        prepare_windows_reader(bytes, execution_mode, capture_scope)
+    }
+    #[test]
+    fn explicit_windows_mixed_cli_compiles_buttons_and_preserves_config_image() {
+        let prepared = check(
+            &[
+                "--execution-mode",
+                "staged-keyboard",
+                "--capture-scope",
+                "staged-mixed",
+            ],
+            MIXED,
+        )
+        .unwrap();
+        assert_eq!(prepared.capture_scope(), CaptureScope::StagedMixed);
+        assert_eq!(prepared.bytes(), MIXED);
+        assert_eq!(
+            prepared.snapshot().simple[0].from,
+            keyweave_types::KeyId::new(keyweave_types::BUTTON_PAGE, 1)
+        );
+    }
+    #[test]
+    fn default_keyboard_and_mixed_mode_errors_are_explicit() {
+        assert_eq!(
+            check(&[], KEYBOARD).unwrap().capture_scope(),
+            CaptureScope::Keyboard
+        );
+        assert_eq!(
+            check(&["--execution-mode", "staged-keyboard"], KEYBOARD)
+                .unwrap()
+                .capture_scope(),
+            CaptureScope::Keyboard
+        );
+        for args in [
+            vec![],
+            vec!["--execution-mode", "staged-keyboard"],
+            vec!["--capture-scope", "staged-mixed"],
+            vec!["--capture-scope", "mixed"],
+        ] {
+            assert!(check(&args, MIXED).is_err(), "{args:?}");
+        }
+        let bad = std::str::from_utf8(MIXED)
+            .unwrap()
+            .replace("button2", "button6");
+        assert!(
+            check(
+                &[
+                    "--execution-mode",
+                    "staged-keyboard",
+                    "--capture-scope",
+                    "staged-mixed"
+                ],
+                bad.as_bytes()
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn frozen_preparation_generates_matching_private_worker_scope() {
+        for scope in ["keyboard", "staged-mixed"] {
+            let prepared = check(
+                &[
+                    "--execution-mode",
+                    "staged-keyboard",
+                    "--capture-scope",
+                    scope,
+                ],
+                KEYBOARD,
+            )
+            .unwrap();
+            let path = std::env::temp_dir().join("diagnostic file with spaces.json");
+            let extra = prepared
+                .worker_arguments(
+                    &path,
+                    keyweave_windows::keys::InjectionTag::new(29).unwrap(),
+                    IdentityPolicy::CanonicalScan,
+                )
+                .unwrap();
+            let mut args = vec![
+                keyweave_worker::WORKER_ARGUMENT.into(),
+                "42".into(),
+                "7".into(),
+            ];
+            args.extend(extra);
+            args.extend(["--keyweave-config-handle".into(), "512".into()]);
+            let worker = Arguments::parse(args).unwrap();
+            assert_eq!(worker.config, path);
+            assert_eq!(worker.capture_scope, prepared.capture_scope());
+            assert_eq!(worker.execution_mode, prepared.execution_mode());
+            assert_eq!(worker.config_handle, Some(512));
+        }
+    }
+    #[test]
+    fn run_windows_scope_selection_uses_the_same_cold_preparation_contract() {
+        for scope in ["keyboard", "staged-mixed"] {
+            let cli = Cli::try_parse_from([
+                "keyweave-host",
+                "run-windows",
+                "--config",
+                "unused.json",
+                "--identity",
+                "canonical-scan",
+                "--execution-mode",
+                "staged-keyboard",
+                "--capture-scope",
+                scope,
+            ])
+            .unwrap();
+            let Command::RunWindows {
+                execution_mode,
+                capture_scope,
+                ..
+            } = cli.command
+            else {
+                unreachable!()
+            };
+            let prepared = prepare_windows_reader(KEYBOARD, execution_mode, capture_scope).unwrap();
+            assert_eq!(prepared.capture_scope(), capture_scope.runtime());
+        }
+        let cli = Cli::try_parse_from([
+            "keyweave-host",
+            "run-windows",
+            "--config",
+            "unused.json",
+            "--identity",
+            "strict",
+        ])
+        .unwrap();
+        let Command::RunWindows {
+            execution_mode,
+            capture_scope,
+            ..
+        } = cli.command
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            prepare_windows_reader(KEYBOARD, execution_mode, capture_scope)
+                .unwrap()
+                .capture_scope(),
+            CaptureScope::Keyboard
+        );
     }
 }
