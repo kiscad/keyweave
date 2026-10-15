@@ -16,8 +16,16 @@ pub enum Target {
     LinuxRelative(keyweave_linux::output::DeviceSpec),
     Windows,
     WindowsStaged,
+    WindowsMixed,
 }
 impl Target {
+    pub fn windows_prepared(prepared: &windows::PreparedConfig) -> Self {
+        match (prepared.capture_scope(), prepared.execution_mode()) {
+            (windows::CaptureScope::StagedMixed, _) => Self::WindowsMixed,
+            (_, windows::ExecutionMode::StagedKeyboard) => Self::WindowsStaged,
+            _ => Self::Windows,
+        }
+    }
     pub fn linux_prepared(prepared: &linux::PreparedConfig) -> Self {
         match (prepared.capture_scope(), prepared.execution_mode()) {
             (linux::CaptureScope::StagedRelative, _) => {
@@ -43,6 +51,7 @@ struct Candidate {
     linux_mode: Option<keyweave_linux::runtime::ExecutionMode>,
     linux_scope: Option<linux::CaptureScope>,
     windows_mode: Option<keyweave_windows::runtime::ExecutionMode>,
+    windows_scope: Option<windows::CaptureScope>,
 }
 struct Completion {
     request: Request,
@@ -125,6 +134,7 @@ impl PreparationSlot {
                         linux_mode: Some(p.execution_mode()),
                         linux_scope: Some(p.capture_scope()),
                         windows_mode: None,
+                        windows_scope: None,
                     }),
                     Target::LinuxStaged(spec) => {
                         linux::PreparedConfig::from_bytes_for_generation_with_mode(
@@ -140,6 +150,7 @@ impl PreparationSlot {
                             linux_mode: Some(p.execution_mode()),
                             linux_scope: Some(p.capture_scope()),
                             windows_mode: None,
+                            windows_scope: None,
                         })
                     }
                     Target::LinuxRelative(spec) => {
@@ -157,6 +168,24 @@ impl PreparationSlot {
                             linux_mode: Some(p.execution_mode()),
                             linux_scope: Some(p.capture_scope()),
                             windows_mode: None,
+                            windows_scope: None,
+                        })
+                    }
+                    Target::WindowsMixed => {
+                        windows::PreparedConfig::from_bytes_for_generation_with_scope(
+                            received.body,
+                            request.target,
+                            windows::ExecutionMode::StagedKeyboard,
+                            windows::CaptureScope::StagedMixed,
+                        )
+                        .ok()
+                        .map(|p| Candidate {
+                            platform: Platform::Windows,
+                            snapshot: p.snapshot().clone(),
+                            linux_mode: None,
+                            linux_scope: None,
+                            windows_mode: Some(p.execution_mode()),
+                            windows_scope: Some(p.capture_scope()),
                         })
                     }
                     Target::WindowsStaged => {
@@ -172,6 +201,7 @@ impl PreparationSlot {
                             linux_mode: None,
                             linux_scope: None,
                             windows_mode: Some(p.execution_mode()),
+                            windows_scope: Some(p.capture_scope()),
                         })
                     }
                     Target::Windows => windows::PreparedConfig::from_bytes_for_generation(
@@ -185,6 +215,7 @@ impl PreparationSlot {
                         linux_mode: None,
                         linux_scope: None,
                         windows_mode: Some(p.execution_mode()),
+                        windows_scope: Some(p.capture_scope()),
                     }),
                 };
                 // Exact bytes and cold diagnostics are dropped here, not on the
@@ -264,6 +295,9 @@ impl PreparationSlot {
                 && candidate
                     .windows_mode
                     .is_none_or(|mode| actor.supports_windows_mode(mode))
+                && candidate
+                    .windows_scope
+                    .is_none_or(|scope| actor.supports_windows_scope(scope))
                 && actor.apply(candidate.snapshot)
         });
         let outcome = if accepted {
@@ -291,6 +325,9 @@ mod sealed {
         }
         fn supports_linux_scope(&self, scope: linux::CaptureScope) -> bool {
             scope == linux::CaptureScope::Keyboard
+        }
+        fn supports_windows_scope(&self, scope: windows::CaptureScope) -> bool {
+            scope == windows::CaptureScope::Keyboard
         }
         fn supports_windows_mode(&self, mode: keyweave_windows::runtime::ExecutionMode) -> bool {
             mode == keyweave_windows::runtime::ExecutionMode::Legacy
@@ -356,6 +393,30 @@ impl<B: keyweave_windows::pump::SendBackend> sealed::Actor
 }
 impl<B: keyweave_windows::pump::SendBackend> ReloadActor
     for keyweave_windows::runtime::SessionActor<B>
+{
+}
+
+impl<B: keyweave_windows::mixed::SendMixedBackend> sealed::Actor
+    for keyweave_windows::mixed_actor::MixedSessionActor<B>
+{
+    fn generation(&self) -> ConfigGeneration {
+        self.config_generation()
+    }
+    fn supports(&self, linux: bool) -> bool {
+        !linux
+    }
+    fn supports_windows_mode(&self, mode: windows::ExecutionMode) -> bool {
+        mode == windows::ExecutionMode::StagedKeyboard
+    }
+    fn supports_windows_scope(&self, scope: windows::CaptureScope) -> bool {
+        scope == windows::CaptureScope::StagedMixed
+    }
+    fn apply(&mut self, snapshot: Arc<ConfigSnapshot>) -> bool {
+        self.activate(snapshot).is_ok()
+    }
+}
+impl<B: keyweave_windows::mixed::SendMixedBackend> ReloadActor
+    for keyweave_windows::mixed_actor::MixedSessionActor<B>
 {
 }
 
@@ -483,6 +544,134 @@ mod tests {
         while slot.poll().unwrap() != PreparationStep::Ready {
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
+        }
+    }
+    struct NoSend;
+    impl keyweave_windows::pump::SendBackend for NoSend {
+        fn submit(
+            &mut self,
+            _: &[keyweave_windows::keys::KeyboardPacket],
+        ) -> Result<keyweave_windows::pump::Insertion, keyweave_windows::pump::SubmitError>
+        {
+            panic!("reload must not submit input")
+        }
+    }
+    impl keyweave_windows::mixed::SendMixedBackend for NoSend {
+        fn submit_mixed(
+            &mut self,
+            _: &[keyweave_windows::mixed::NativePacket],
+        ) -> Result<keyweave_windows::pump::Insertion, keyweave_windows::pump::SubmitError>
+        {
+            panic!("reload must not submit input")
+        }
+    }
+    fn mixed_actor() -> keyweave_windows::mixed_actor::MixedSessionActor<NoSend> {
+        let snapshot = windows::PreparedConfig::from_bytes_for_generation_with_scope(
+            BODY.to_vec(),
+            ConfigGeneration(1),
+            windows::ExecutionMode::StagedKeyboard,
+            windows::CaptureScope::StagedMixed,
+        )
+        .unwrap()
+        .snapshot()
+        .clone();
+        let mut actor = keyweave_windows::mixed_actor::MixedSessionActor::new(
+            NoSend,
+            keyweave_windows::keys::InjectionTag::new(1).unwrap(),
+            snapshot,
+        )
+        .unwrap();
+        actor.start_after_neutral().unwrap();
+        actor
+    }
+    #[test]
+    fn windows_mixed_candidate_applies_actual_mixed_actor_before_accepted_ack() {
+        let mut actor = mixed_actor();
+        let mut receiver = receiver(POINT);
+        let mut slot = PreparationSlot::new();
+        slot.start(receiver.take().unwrap(), Target::WindowsMixed)
+            .unwrap();
+        complete(&mut slot);
+        let ack = slot.deliver(&mut receiver, &mut actor).unwrap();
+        assert_eq!(ack.outcome, Outcome::Accepted);
+        assert_eq!(ack.active, ConfigGeneration(2));
+        assert_eq!(actor.config_generation(), ConfigGeneration(2));
+    }
+    #[test]
+    fn windows_mixed_and_keyboard_candidates_cannot_cross_same_staged_mode() {
+        let mut actor = mixed_actor();
+        let mut receiver = receiver(BODY);
+        let mut slot = PreparationSlot::new();
+        slot.start(receiver.take().unwrap(), Target::WindowsStaged)
+            .unwrap();
+        complete(&mut slot);
+        assert_eq!(
+            slot.deliver(&mut receiver, &mut actor).unwrap().outcome,
+            Outcome::Rejected
+        );
+        assert_eq!(actor.config_generation(), ConfigGeneration(1));
+        let snapshot = windows::PreparedConfig::from_bytes(BODY.to_vec())
+            .unwrap()
+            .snapshot()
+            .clone();
+        let mut actor = keyweave_windows::runtime::SessionActor::new_staged(
+            NoSend,
+            keyweave_windows::keys::InjectionTag::new(1).unwrap(),
+            snapshot,
+        )
+        .unwrap();
+        actor.start_after_neutral().unwrap();
+        let mut receiver = self::receiver(BODY);
+        let mut slot = PreparationSlot::new();
+        slot.start(receiver.take().unwrap(), Target::WindowsMixed)
+            .unwrap();
+        complete(&mut slot);
+        assert_eq!(
+            slot.deliver(&mut receiver, &mut actor).unwrap().outcome,
+            Outcome::Rejected
+        );
+        assert_eq!(actor.config_generation(), ConfigGeneration(1));
+    }
+    #[test]
+    fn windows_prepared_selects_frozen_scope_and_mode_for_reload() {
+        for (mode, scope) in [
+            (
+                windows::ExecutionMode::Legacy,
+                windows::CaptureScope::Keyboard,
+            ),
+            (
+                windows::ExecutionMode::StagedKeyboard,
+                windows::CaptureScope::Keyboard,
+            ),
+            (
+                windows::ExecutionMode::StagedKeyboard,
+                windows::CaptureScope::StagedMixed,
+            ),
+        ] {
+            let prepared = windows::PreparedConfig::from_bytes_for_generation_with_scope(
+                BODY.to_vec(),
+                ConfigGeneration(1),
+                mode,
+                scope,
+            )
+            .unwrap();
+            let target = Target::windows_prepared(&prepared);
+            assert!(matches!(
+                (target, mode, scope),
+                (
+                    Target::Windows,
+                    windows::ExecutionMode::Legacy,
+                    windows::CaptureScope::Keyboard
+                ) | (
+                    Target::WindowsStaged,
+                    windows::ExecutionMode::StagedKeyboard,
+                    windows::CaptureScope::Keyboard
+                ) | (
+                    Target::WindowsMixed,
+                    windows::ExecutionMode::StagedKeyboard,
+                    windows::CaptureScope::StagedMixed
+                )
+            ));
         }
     }
     #[test]

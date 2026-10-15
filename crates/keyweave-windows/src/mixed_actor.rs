@@ -63,6 +63,18 @@ fn validate(config: &ConfigSnapshot) -> Result<(), RuntimeError> {
     }
     Ok(())
 }
+fn prepare_controller(
+    config: Arc<ConfigSnapshot>,
+) -> Result<PhysicalStageController, RuntimeError> {
+    validate(&config)?;
+    let mut controller = PhysicalStageController::new_with_chord_model(config)?;
+    controller.observe_device(STREAM, false, MonoTime(0))?;
+    Ok(controller)
+}
+/// Pure full mixed configuration admission, no backend or native resources.
+pub fn preflight_mixed_config(config: Arc<ConfigSnapshot>) -> Result<(), RuntimeError> {
+    prepare_controller(config).map(drop)
+}
 pub struct MixedSessionActor<B: SendMixedBackend> {
     controller: PhysicalStageController,
     output: MixedOutputPump<B>,
@@ -78,9 +90,7 @@ impl<B: SendMixedBackend> MixedSessionActor<B> {
         tag: InjectionTag,
         config: Arc<ConfigSnapshot>,
     ) -> Result<Self, RuntimeError> {
-        validate(&config)?;
-        let mut controller = PhysicalStageController::new_with_chord_model(config)?;
-        controller.observe_device(STREAM, false, MonoTime(0))?;
+        let controller = prepare_controller(config)?;
         Ok(Self {
             controller,
             output: MixedOutputPump::new(backend, tag),

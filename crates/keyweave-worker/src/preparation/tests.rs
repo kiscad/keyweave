@@ -232,3 +232,111 @@ fn staged_chord_windows_preparation_checks_native_group_after_up_encoding() {
         Err(PreparationError::Load(LoadError::Loss { .. }))
     ));
 }
+
+const MIXED:&[u8]=br#"// exact mixed bytes
+{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"pointing_button":"button1"},"to":[{"pointing_button":"button2"}]}]}]}}]}"#;
+#[test]
+fn mixed_scope_preserves_exact_bytes_and_requires_explicit_staged_admission() {
+    let prepared = PreparedConfig::read_for_generation_with_scope(
+        MIXED,
+        ConfigGeneration(7),
+        ExecutionMode::StagedKeyboard,
+        CaptureScope::StagedMixed,
+    )
+    .unwrap();
+    assert_eq!(prepared.capture_scope(), CaptureScope::StagedMixed);
+    assert_eq!(prepared.execution_mode(), ExecutionMode::StagedKeyboard);
+    assert_eq!(prepared.bytes(), MIXED);
+    assert_eq!(prepared.snapshot().generation, ConfigGeneration(7));
+    assert_eq!(
+        prepared.snapshot().complex[0].from,
+        keyweave_types::KeyId::new(keyweave_types::BUTTON_PAGE, 1)
+    );
+    assert!(PreparedConfig::read_with_mode(MIXED, ExecutionMode::StagedKeyboard).is_err());
+    assert!(!BackendCapabilities::windows_hook().pointing_buttons);
+}
+#[test]
+fn mixed_preparation_rejects_unavailable_button_sources_and_all_output_branches() {
+    for source in ["button6", "button32"] {
+        let text = std::str::from_utf8(MIXED)
+            .unwrap()
+            .replace("button1", source);
+        assert!(
+            PreparedConfig::from_bytes_for_generation_with_scope(
+                text.into_bytes(),
+                ConfigGeneration(1),
+                ExecutionMode::StagedKeyboard,
+                CaptureScope::StagedMixed
+            )
+            .is_err()
+        );
+    }
+    for branch in ["to", "to_if_alone", "to_if_held_down", "to_after_key_up"] {
+        let text = std::str::from_utf8(MIXED)
+            .unwrap()
+            .replace("button2", "button6")
+            .replace("\"to\":", &format!("\"{branch}\":"));
+        assert!(
+            PreparedConfig::from_bytes_for_generation_with_scope(
+                text.into_bytes(),
+                ConfigGeneration(1),
+                ExecutionMode::StagedKeyboard,
+                CaptureScope::StagedMixed
+            )
+            .is_err(),
+            "{branch}"
+        );
+    }
+}
+#[test]
+fn mixed_generation_and_mode_reject_before_reader_access() {
+    struct Never;
+    impl Read for Never {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            panic!("invalid cold metadata must reject before read")
+        }
+    }
+    assert!(matches!(
+        PreparedConfig::read_for_generation_with_scope(
+            Never,
+            ConfigGeneration(0),
+            ExecutionMode::StagedKeyboard,
+            CaptureScope::StagedMixed
+        ),
+        Err(PreparationError::Load(LoadError::Generation))
+    ));
+    assert!(matches!(
+        PreparedConfig::read_for_generation_with_scope(
+            Never,
+            ConfigGeneration(1),
+            ExecutionMode::Legacy,
+            CaptureScope::StagedMixed
+        ),
+        Err(PreparationError::Scope)
+    ));
+    assert!(matches!(
+        PreparedConfig::from_bytes_for_generation_with_scope(
+            vec![0xff],
+            ConfigGeneration(1),
+            ExecutionMode::Legacy,
+            CaptureScope::StagedMixed
+        ),
+        Err(PreparationError::Scope)
+    ));
+}
+#[test]
+fn windows_default_scope_and_same_keyboard_bytes_remain_explicit() {
+    for mode in [ExecutionMode::Legacy, ExecutionMode::StagedKeyboard] {
+        let prepared = PreparedConfig::read_with_mode(JSONC, mode).unwrap();
+        assert_eq!(prepared.capture_scope(), CaptureScope::Keyboard);
+        assert_eq!(prepared.bytes(), JSONC);
+    }
+    let prepared = PreparedConfig::read_for_generation_with_scope(
+        JSONC,
+        ConfigGeneration(1),
+        ExecutionMode::StagedKeyboard,
+        CaptureScope::StagedMixed,
+    )
+    .unwrap();
+    assert_eq!(prepared.capture_scope(), CaptureScope::StagedMixed);
+}

@@ -13,15 +13,24 @@ use keyweave_windows::{
 use std::{ffi::OsString, io::Read, path::Path, sync::Arc};
 #[derive(Debug, thiserror::Error)]
 pub enum PreparationError {
+    #[error("mixed Windows capture requires staged execution")]
+    Scope,
     #[error(transparent)]
     Load(#[from] LoadError),
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CaptureScope {
+    #[default]
+    Keyboard,
+    StagedMixed,
+}
 pub struct PreparedConfig {
     bytes: Box<[u8]>,
     snapshot: Arc<ConfigSnapshot>,
     mode: ExecutionMode,
+    scope: CaptureScope,
 }
 impl std::fmt::Debug for PreparedConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,6 +38,7 @@ impl std::fmt::Debug for PreparedConfig {
             .field("byte_length", &self.bytes.len())
             .field("generation", &self.snapshot.generation)
             .field("execution_mode", &self.mode)
+            .field("capture_scope", &self.scope)
             .finish_non_exhaustive()
     }
 }
@@ -79,25 +89,71 @@ impl PreparedConfig {
         generation: ConfigGeneration,
         mode: ExecutionMode,
     ) -> Result<Self, PreparationError> {
+        Self::from_bytes_for_generation_with_scope(bytes, generation, mode, CaptureScope::Keyboard)
+    }
+    pub fn read_for_generation_with_scope(
+        reader: impl Read,
+        generation: ConfigGeneration,
+        mode: ExecutionMode,
+        scope: CaptureScope,
+    ) -> Result<Self, PreparationError> {
+        if generation.0 == 0 {
+            return Err(LoadError::Generation.into());
+        }
+        if scope == CaptureScope::StagedMixed && mode != ExecutionMode::StagedKeyboard {
+            return Err(PreparationError::Scope);
+        }
+        Self::from_bytes_for_generation_with_scope(
+            read_config_bytes(reader)?,
+            generation,
+            mode,
+            scope,
+        )
+    }
+    pub fn from_bytes_for_generation_with_scope(
+        bytes: Vec<u8>,
+        generation: ConfigGeneration,
+        mode: ExecutionMode,
+        scope: CaptureScope,
+    ) -> Result<Self, PreparationError> {
+        if generation.0 == 0 {
+            return Err(LoadError::Generation.into());
+        }
+        if scope == CaptureScope::StagedMixed && mode != ExecutionMode::StagedKeyboard {
+            return Err(PreparationError::Scope);
+        }
+        let mut capabilities = BackendCapabilities::windows_hook();
+        if scope == CaptureScope::StagedMixed {
+            capabilities.name = "windows-hook-mixed".into();
+            capabilities.pointing_buttons = true;
+        }
         let snapshot = compile_config_bytes_for_generation_with_mode(
             &bytes,
-            &BackendCapabilities::windows_hook(),
+            &capabilities,
             generation,
             match mode {
                 ExecutionMode::Legacy => keyweave_config::CompileMode::Legacy,
                 ExecutionMode::StagedKeyboard => keyweave_config::CompileMode::StagedKeyboard,
             },
         )?;
-        match mode {
-            ExecutionMode::Legacy => preflight_config(snapshot.clone())?,
-            ExecutionMode::StagedKeyboard => preflight_staged_config(snapshot.clone())?,
+        if scope == CaptureScope::StagedMixed {
+            keyweave_windows::mixed_actor::preflight_mixed_config(snapshot.clone())?;
+        } else {
+            match mode {
+                ExecutionMode::Legacy => preflight_config(snapshot.clone())?,
+                ExecutionMode::StagedKeyboard => preflight_staged_config(snapshot.clone())?,
+            }
         }
 
         Ok(Self {
             bytes: bytes.into_boxed_slice(),
             snapshot,
             mode,
+            scope,
         })
+    }
+    pub fn capture_scope(&self) -> CaptureScope {
+        self.scope
     }
     pub fn execution_mode(&self) -> ExecutionMode {
         self.mode

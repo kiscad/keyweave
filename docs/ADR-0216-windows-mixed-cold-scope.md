@@ -1,0 +1,7 @@
+# ADR-0216：Windows mixed 冷配置与 reload 范围绑定
+
+PreparedConfig显式固定CaptureScope.Keyboard/StagedMixed；既有入口仍Keyboard，新with_scope入口StagedMixed必须StagedKeyboard。只在该scope临时启用compiler pointing_buttons，再用同MixedSessionActor冷controller校验所有分支Windows五按钮/scan、设备条件与timed模型；默认BackendCapabilities不变。generation0和非法scope/mode在reader读取前拒绝，保存原bytes/Arc/mode/scope，seal沿同bytes。
+
+reload Target.WindowsMixed以及windows_prepared helper固定scope/mode，Candidate带windows_scope；deliver在apply/ACK前核platform/mode/scope，同staged也不能keyboard↔mixed交叉。真实MixedSessionActor提供sealed ReloadActor且只接受Windows staged mixed；拒绝不推进generation或假Accepted。Windows普通SessionActor保持Keyboard范围。
+
+此提交不改exe argv/host选择；它们必须在下一步传同scope，不能通过config内容猜测scope。cold compile/reload actor测试不证明Windows原生输入或artifact句柄交付。
