@@ -255,3 +255,162 @@ fn inherited_handle_suffix_is_explicit_canonical_and_pointer_bounded() {
     args.push("extra".into());
     assert!(Arguments::parse(args).is_err());
 }
+
+#[test]
+fn mixed_private_arguments_roundtrip_builder_and_same_cold_scope_bytes() {
+    use preparation::{CaptureScope, ExecutionMode, PreparedConfig, worker_arguments_with_scope};
+    let bytes=br#"{"profiles":[{"selected":true,"simple_modifications":[{"from":{"pointing_button":"button1"},"to":[{"key_code":"a"}]}]}]}"#;
+    for identity in [IdentityPolicy::StrictUnique, IdentityPolicy::CanonicalScan] {
+        let path = std::env::temp_dir().join("literal mixed config.json");
+        let mut argv = vec![WORKER_ARGUMENT.into(), "42".into(), "7".into()];
+        argv.extend(
+            worker_arguments_with_scope(
+                &path,
+                InjectionTag::new(17).unwrap(),
+                identity,
+                ExecutionMode::StagedKeyboard,
+                CaptureScope::StagedMixed,
+            )
+            .unwrap(),
+        );
+        argv.extend(["--keyweave-config-handle".into(), "512".into()]);
+        assert_eq!(argv.len(), MAX_ARGUMENT_COUNT);
+        let parsed = Arguments::parse(argv).unwrap();
+        assert_eq!(parsed.config, path);
+        assert_eq!(parsed.identity, identity);
+        assert_eq!(parsed.config_handle, Some(512));
+        assert_eq!(parsed.capture_scope, CaptureScope::StagedMixed);
+        let prepared = PreparedConfig::read_for_generation_with_scope(
+            bytes.as_slice(),
+            ConfigGeneration(1),
+            parsed.execution_mode,
+            parsed.capture_scope,
+        )
+        .unwrap();
+        assert_eq!(prepared.bytes(), bytes);
+        assert_eq!(prepared.capture_scope(), CaptureScope::StagedMixed);
+    }
+}
+#[test]
+fn mixed_private_scope_requires_canonical_order_mode_and_owned_config_handle() {
+    let mut valid = arguments();
+    valid.extend([
+        "--execution-mode".into(),
+        "staged-keyboard".into(),
+        "--capture-scope".into(),
+        "staged-mixed".into(),
+        "--keyweave-config-handle".into(),
+        "512".into(),
+    ]);
+    for value in ["mixed", "StagedMixed", "staged-mixed ", "", "０"] {
+        let mut args = valid.clone();
+        args[12] = value.into();
+        assert!(Arguments::parse(args).is_err());
+    }
+    let mut args = valid.clone();
+    args.truncate(13);
+    assert!(Arguments::parse(args).is_err());
+    let mut args = valid.clone();
+    args[10] = "legacy".into();
+    assert!(Arguments::parse(args).is_err());
+    let mut args = valid.clone();
+    args.drain(9..11);
+    assert!(Arguments::parse(args).is_err());
+    let mut args = valid.clone();
+    args.swap(9, 11);
+    args.swap(10, 12);
+    assert!(Arguments::parse(args).is_err());
+    let mut args = valid.clone();
+    args.swap(11, 13);
+    args.swap(12, 14);
+    assert!(Arguments::parse(args).is_err());
+    let mut args = valid;
+    args.extend(["--capture-scope".into(), "staged-mixed".into()]);
+    assert!(Arguments::parse(args).is_err());
+    assert!(
+        preparation::worker_arguments_with_scope(
+            &std::env::temp_dir().join("config"),
+            InjectionTag::new(1).unwrap(),
+            IdentityPolicy::StrictUnique,
+            preparation::ExecutionMode::Legacy,
+            preparation::CaptureScope::StagedMixed
+        )
+        .is_err()
+    );
+}
+#[test]
+fn keyboard_scope_remains_default_with_legacy_and_staged_arguments() {
+    assert_eq!(
+        Arguments::parse(arguments()).unwrap().capture_scope,
+        preparation::CaptureScope::Keyboard
+    );
+    let mut args = arguments();
+    args.extend(["--execution-mode".into(), "staged-keyboard".into()]);
+    assert_eq!(
+        Arguments::parse(args).unwrap().capture_scope,
+        preparation::CaptureScope::Keyboard
+    );
+}
+#[test]
+fn mouse_unhook_evidence_cannot_erase_keyboard_or_other_terminal_failures() {
+    for keyboard in [true, false] {
+        for mouse in [true, false] {
+            let facts = TerminalFacts {
+                unhook_ok: keyboard,
+                ..clean()
+            }
+            .with_mouse_unhook(mouse);
+            assert_eq!(facts.unhook_ok, keyboard && mouse);
+            let exit = facts.native_exit();
+            if keyboard && mouse {
+                assert_eq!(exit.raw(), WorkerExit::Clean as u32);
+            } else {
+                assert!(
+                    exit.evidence()
+                        .unwrap()
+                        .contains(TerminalIssue::UnhookUnconfirmed)
+                );
+                assert_eq!(facts.exit(), WorkerExit::Cleanup);
+            }
+            let dirty = TerminalFacts {
+                fault: true,
+                progress_failed: true,
+                access_lost: true,
+                unhook_ok: keyboard,
+                ..clean()
+            }
+            .with_mouse_unhook(mouse)
+            .native_exit()
+            .evidence()
+            .unwrap();
+            assert!(
+                dirty.contains(TerminalIssue::Fault)
+                    && dirty.contains(TerminalIssue::ProgressFailed)
+                    && dirty.contains(TerminalIssue::AccessLost)
+            );
+            assert_eq!(
+                dirty.contains(TerminalIssue::UnhookUnconfirmed),
+                !(keyboard && mouse)
+            );
+        }
+    }
+}
+#[cfg(unix)]
+#[test]
+fn mixed_builder_preserves_literal_non_unicode_path() {
+    use std::os::unix::ffi::OsStringExt;
+    let path = PathBuf::from(OsString::from_vec(b"/tmp/mixed-\xff.json".to_vec()));
+    let extra = preparation::worker_arguments_with_scope(
+        &path,
+        InjectionTag::new(1).unwrap(),
+        IdentityPolicy::CanonicalScan,
+        preparation::ExecutionMode::StagedKeyboard,
+        preparation::CaptureScope::StagedMixed,
+    )
+    .unwrap();
+    assert_eq!(extra[1], path.as_os_str());
+    let mut argv = vec![WORKER_ARGUMENT.into(), "42".into(), "7".into()];
+    argv.extend(extra);
+    argv.extend(["--keyweave-config-handle".into(), "512".into()]);
+    assert_eq!(Arguments::parse(argv).unwrap().config, path);
+}

@@ -13,7 +13,7 @@ pub mod reload_preparation;
 
 pub const WORKER_ARGUMENT: &str = "--keyweave-worker";
 pub const ARGUMENT_COUNT: usize = 9;
-pub const MAX_ARGUMENT_COUNT: usize = 13;
+pub const MAX_ARGUMENT_COUNT: usize = 15;
 
 mod exit;
 mod terminal;
@@ -33,6 +33,7 @@ pub struct Arguments {
     pub tag: InjectionTag,
     pub identity: IdentityPolicy,
     pub execution_mode: preparation::ExecutionMode,
+    pub capture_scope: preparation::CaptureScope,
 }
 
 fn decimal(value: &std::ffi::OsStr) -> Result<u64, ArgumentError> {
@@ -49,11 +50,11 @@ fn decimal(value: &std::ffi::OsStr) -> Result<u64, ArgumentError> {
 }
 
 impl Arguments {
-    /// Consume at most fourteen OS arguments; preserve non-Unicode configuration paths.
+    /// Consume at most sixteen OS arguments; preserve non-Unicode configuration paths.
     /// Fixed ordering prevents duplicate/unknown switches from reaching admission.
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, ArgumentError> {
         let args: Vec<_> = args.into_iter().take(MAX_ARGUMENT_COUNT + 1).collect();
-        if ![ARGUMENT_COUNT, 11, MAX_ARGUMENT_COUNT].contains(&args.len())
+        if ![ARGUMENT_COUNT, 11, 13, MAX_ARGUMENT_COUNT].contains(&args.len())
             || args[0] != WORKER_ARGUMENT
             || args[3] != "--config"
             || args[5] != "--tag"
@@ -76,6 +77,17 @@ impl Arguments {
         } else {
             preparation::ExecutionMode::Legacy
         };
+        let capture_scope = if args.get(suffix).is_some_and(|arg| arg == "--capture-scope") {
+            let scope = match args.get(suffix + 1).and_then(|arg| arg.to_str()) {
+                Some("keyboard") => preparation::CaptureScope::Keyboard,
+                Some("staged-mixed") => preparation::CaptureScope::StagedMixed,
+                _ => return Err(ArgumentError),
+            };
+            suffix += 2;
+            scope
+        } else {
+            preparation::CaptureScope::Keyboard
+        };
         let config_handle = if args.len() == suffix + 2 {
             if args[suffix] != "--keyweave-config-handle" {
                 return Err(ArgumentError);
@@ -90,6 +102,12 @@ impl Arguments {
         } else {
             return Err(ArgumentError);
         };
+        if capture_scope == preparation::CaptureScope::StagedMixed
+            && (execution_mode != preparation::ExecutionMode::StagedKeyboard
+                || config_handle.is_none())
+        {
+            return Err(ArgumentError);
+        }
         let parent = u32::try_from(decimal(&args[1])?).map_err(|_| ArgumentError)?;
         let run_id = decimal(&args[2])?;
         // Marker is explicitly restricted to nonzero u32 on both architectures.
@@ -112,6 +130,7 @@ impl Arguments {
             tag,
             identity,
             execution_mode,
+            capture_scope,
         })
     }
 }
@@ -226,6 +245,11 @@ pub struct TerminalFacts {
     pub untracked_input: bool,
 }
 impl TerminalFacts {
+    /// Mouse cleanup can only add an unhook obligation, never erase keyboard failure.
+    pub fn with_mouse_unhook(mut self, mouse_ok: bool) -> Self {
+        self.unhook_ok &= mouse_ok;
+        self
+    }
     pub fn exit(self) -> WorkerExit {
         if !self.shutdown_present
             || !self.stopped

@@ -383,15 +383,22 @@ fn execute(args: Arguments) -> NativeWorkerExit {
         Ok(startup) => startup,
         Err(_) => return WorkerExit::Admission.into(),
     };
+    if args.capture_scope == keyweave_worker::preparation::CaptureScope::StagedMixed
+        && args.config_handle.is_none()
+    {
+        return WorkerExit::Admission.into();
+    }
     let loaded = if let Some(value) = args.config_handle {
         let mut reader = match startup.claim_config_reader(value) {
             Ok(reader) => reader,
             Err(_) => return WorkerExit::Admission.into(),
         };
         // Consume the inherited file object, never reopen the diagnostic path.
-        let loaded = keyweave_worker::preparation::PreparedConfig::read_with_mode(
+        let loaded = keyweave_worker::preparation::PreparedConfig::read_for_generation_with_scope(
             &mut reader,
+            keyweave_types::ConfigGeneration(1),
             args.execution_mode,
+            args.capture_scope,
         );
         if reader.close().is_err() {
             return WorkerExit::Cleanup.into();
@@ -404,9 +411,11 @@ fn execute(args: Arguments) -> NativeWorkerExit {
             .map_err(keyweave_worker::LoadError::from)
             .map_err(keyweave_worker::preparation::PreparationError::from)
             .and_then(|file| {
-                keyweave_worker::preparation::PreparedConfig::read_with_mode(
+                keyweave_worker::preparation::PreparedConfig::read_for_generation_with_scope(
                     file,
+                    keyweave_types::ConfigGeneration(1),
                     args.execution_mode,
+                    args.capture_scope,
                 )
             })
     };
@@ -416,6 +425,15 @@ fn execute(args: Arguments) -> NativeWorkerExit {
     };
     // This constructor allocates only; it does not install or inject input.
     let backend = SendInputBackend::new(args.tag);
+    if prepared.capture_scope() == keyweave_worker::preparation::CaptureScope::StagedMixed {
+        return execute_mixed_windows(
+            startup,
+            backend,
+            args.tag,
+            args.identity,
+            prepared.snapshot().clone(),
+        );
+    }
     let mut worker = match Worker::install_with_mode(
         startup,
         backend,
@@ -456,6 +474,52 @@ fn execute(args: Arguments) -> NativeWorkerExit {
     // Explicit Session shutdown already ran. Drop does not inject. Returning
     // exits the real process and releases original borrowed binary std handles.
     // Terminal mask preserves independent facts, not API details/ledger proof.
+    drop(worker);
+    outcome
+}
+
+#[cfg(windows)]
+fn execute_mixed_windows(
+    startup: keyweave_windows::WorkerStartup,
+    backend: keyweave_windows::SendInputBackend,
+    tag: keyweave_windows::keys::InjectionTag,
+    identity: keyweave_windows::keys::IdentityPolicy,
+    snapshot: std::sync::Arc<keyweave_engine::ConfigSnapshot>,
+) -> NativeWorkerExit {
+    use keyweave_windows::{
+        MixedWorker, NotificationCleanup, WorkerStopReason, runtime::ActorPhase,
+    };
+    let mut worker = match MixedWorker::install(startup, backend, tag, identity, snapshot) {
+        Ok(worker) => worker,
+        Err(_) => return WorkerExit::Install.into(),
+    };
+    let run_failed = worker.run().is_err();
+    if run_failed {
+        let _ = worker.request_stop();
+    }
+    let Some(report) = worker.report() else {
+        return WorkerExit::Loop.into();
+    };
+    let Some(shutdown) = worker.shutdown_report() else {
+        return WorkerExit::Cleanup.into();
+    };
+    let outcome = keyweave_worker::TerminalFacts {
+        fault: run_failed
+            || report.reason == WorkerStopReason::Fault
+            || report.primary.is_some()
+            || shutdown.application_provider.is_some(),
+        progress_failed: report.progress.is_some(),
+        shutdown_present: true,
+        stopped: worker.phase() == ActorPhase::Stopped,
+        unhook_ok: shutdown.unhook.is_ok(),
+        recovery_ok: shutdown.recovery.is_ok(),
+        notifications_ok: shutdown.notifications == NotificationCleanup::default(),
+        access_lost: shutdown.access_lost,
+        session_changed: shutdown.session_changed,
+        untracked_input: shutdown.untracked_input,
+    }
+    .with_mouse_unhook(shutdown.mouse_unhook.is_ok())
+    .native_exit();
     drop(worker);
     outcome
 }

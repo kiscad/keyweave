@@ -509,3 +509,39 @@ fn real_none_entry_claims_reload_pair_and_rejects_bad_or_partial_selectors_witho
         drop(endpoints);
     }
 }
+
+#[test]
+fn mixed_windows_entry_requires_owned_config_and_cannot_bypass_native_admission() {
+    let _creation = ENTRY_PROCESS_CREATION.lock().unwrap();
+    let path = std::env::temp_dir().join("keyweave-direct-mixed-not-opened.json");
+    for owned in [false, true] {
+        let mut args = vec![
+            WORKER_ARGUMENT.into(),
+            OsString::from("1"),
+            OsString::from("1"),
+        ];
+        args.extend(extra(path.clone().into()));
+        args.extend([
+            "--execution-mode".into(),
+            "staged-keyboard".into(),
+            "--capture-scope".into(),
+            "staged-mixed".into(),
+        ]);
+        if owned {
+            args.extend(["--keyweave-config-handle".into(), "512".into()]);
+        }
+        let result = Command::new(env!("CARGO_BIN_EXE_keyweave-worker"))
+            .args(args)
+            .output()
+            .unwrap();
+        let expected = if !owned {
+            WorkerExit::Arguments
+        } else if cfg!(windows) {
+            WorkerExit::Admission
+        } else {
+            WorkerExit::UnsupportedPlatform
+        };
+        assert_eq!(result.status.code(), Some(expected as i32));
+        assert!(result.stdout.is_empty() && result.stderr.is_empty());
+    }
+}

@@ -1,0 +1,106 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "74ed10d091c64eb793028b3c1e5c2c0c24246bbc",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-worker/src/lib.rs": "87b62ef7a51b3b9929128c60bc817795ce48851dce361dbf56f698bd477964cb",
+    "crates/keyweave-worker/src/main.rs": "ebccd78d41a816bb8ed2573bac15aaee23e3d8f0435c0fd0fd1932c014763505",
+    "crates/keyweave-worker/src/preparation.rs": "5c534739d5d9ee2227fac7e2bb0e4c1d69c741910dc1a1c1998cbc48128ee0a6",
+    "crates/keyweave-worker/src/tests.rs": "4cdd14985813a376cef652515571e085fe2b257c9d8765a49a9db4ef55bdd99d",
+    "crates/keyweave-worker/tests/entry.rs": "01bc73d9300f347197e52a043a1a0c6fe455d1c94da418799a63262b99ee31ba"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1881,
+    "new_tests": 6,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-entry/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-entry/1.log",
+        "sha256": "ee55c624e35960be1a664e43893bd4db7658689da627ce2633c6afb58de00ec9"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-entry/2.log",
+        "sha256": "738384db78ef58ad420eff0c79fb8e21017efd003c1269ef949ba85c58063812"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-entry/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-entry/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-windows-mixed-entry/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "reason": "New test accidentally accessed PreparedConfig.capture_scope as a field; corrected to method call.",
+      "log": "target/windows-mixed-entry-focused.log",
+      "sha256": "e0d62c54cede8aabcf74ade99f76a4b2e9b729f58751657c2c3e70bf440cc327",
+      "exit_status": "Cargo failed to compile test; shell tail returned success, cargo exit code not separately captured."
+    }
+  ],
+  "windows": {
+    "status": "Windows-only execute_mixed_windows branch not compiled or executed natively. Native checks pending after previous automatic approval quota rejection; not retried."
+  },
+  "limitations": [
+    "Linux real executable tests launch only rejection paths: malformed mixed/no handle -> Arguments; well-formed Windows prefix -> UnsupportedPlatform with empty stdout/stderr. No native admission, handle reading, Hook, capture or injection.",
+    "Private builder/Arguments/cold reader tests use synthetic handle metadata, exact config bytes and canonical scope/mode. Actual inherited Windows file transfer remains unverified.",
+    "TerminalFacts.with_mouse_unhook tests both removal combinations and independent fault/progress/access bits; actual Windows cleanup/API outcomes not proven.",
+    "Host/public CLI mixed scope selection still pending. Existing default keyboard builder/parser behavior retained.",
+    "Native SDK/hardware, X11/Wayland acceptance, Windows verification, GUI and packaging remain pending."
+  ]
+}

@@ -188,6 +188,18 @@ pub fn worker_arguments_with_mode(
     identity: IdentityPolicy,
     mode: ExecutionMode,
 ) -> Result<Vec<OsString>, ArgumentError> {
+    worker_arguments_with_scope(path, tag, identity, mode, CaptureScope::Keyboard)
+}
+pub fn worker_arguments_with_scope(
+    path: &Path,
+    tag: InjectionTag,
+    identity: IdentityPolicy,
+    mode: ExecutionMode,
+    scope: CaptureScope,
+) -> Result<Vec<OsString>, ArgumentError> {
+    if scope == CaptureScope::StagedMixed && mode != ExecutionMode::StagedKeyboard {
+        return Err(ArgumentError);
+    }
     if !path.is_absolute() || tag.value() > u32::MAX as usize {
         return Err(ArgumentError);
     }
@@ -205,6 +217,9 @@ pub fn worker_arguments_with_mode(
     ];
     if mode == ExecutionMode::StagedKeyboard {
         args.extend(["--execution-mode".into(), "staged-keyboard".into()]);
+    }
+    if scope == CaptureScope::StagedMixed {
+        args.extend(["--capture-scope".into(), "staged-mixed".into()]);
     }
     Ok(args)
 }
