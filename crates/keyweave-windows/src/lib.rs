@@ -26,7 +26,7 @@ pub use native::{ConsoleControl, ConsoleError};
 #[cfg(all(windows, not(test)))]
 pub use native::{ConsoleProbe, with_private_console_event};
 #[cfg(target_os = "windows")]
-pub use native::{HookSession, HookSessionError, LoopStep};
+pub use native::{HookCloseReport, HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
 pub use native::{IdentityError, RunIdentity};
 #[cfg(target_os = "windows")]

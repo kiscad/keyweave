@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "98b6e301dfc813656b237e9cdfee45e8efb667a4",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/native/hook_thread.rs": "6259ddd7e2936f00dca391c4e8794857b8defd8d4e4962ac701418986b8cc681",
+    "crates/keyweave-windows/src/native.rs": "200e4c081ea17eacf7a696f9a5d5d1ce54eae7a9e6295b7a8e735d897f0ef826",
+    "crates/keyweave-windows/src/hook.rs": "baaa7f189edacab326eccfe7aba0d61e9dc2aa8456b54105e1989365e20c79c9",
+    "crates/keyweave-windows/src/lib.rs": "29e53e68235594f8c17d560e99469a3716020790a75c9ad488c3989b79a32b90"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1850,
+    "new_tests": 9,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-mouse-companion/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-mouse-companion/1.log",
+        "sha256": "0fbfd608cbc13f6a5cddeee6d1d0f9e79d34af78d1736a07c35488ce284c1f7a"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-mouse-companion/2.log",
+        "sha256": "f5b4daa992e3df99b23036cd202050425c92460997042d89e1987259ed1c613a"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-mouse-companion/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-mouse-companion/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-mouse-companion/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Native registration/callback code compiled through test API mocks under Linux; real Windows build/SDK/registration pending after previous approval quota rejection, no retry/bypass."
+  },
+  "limitations": [
+    "Tests invoke actual keyboard/mouse callbacks with owned mock records and registration APIs mocked. No OS Hook, input capture/injection or device operation.",
+    "MSLLHOOKSTRUCT reprC size/offset test is not a real Windows SDK oracle or x86 native compilation.",
+    "Mouse companion is explicit on HookSession only; CaptureSession/worker/host mixed Runtime integration still pending. Default keyboard installation unchanged.",
+    "Callback-held bindings do not prove physical neutral; actual mouse button sampling and capture/delivery access gates remain necessary.",
+    "close_with_mouse keeps two handlers/removal results, while legacy close drops mouse handler and combines dual removal error. Callback close rejects Busy before removal, retains owner for retry; Drop inside callback cannot promise actual unhook.",
+    "Native Windows/hardware, X11/Wayland acceptance, GUI and packaging remain pending."
+  ]
+}

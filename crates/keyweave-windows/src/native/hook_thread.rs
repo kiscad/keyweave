@@ -1,7 +1,8 @@
-use super::{KeyboardHook, Message};
+use super::{KeyboardHook, Message, MouseHook};
 use crate::{
     hook::{HookDispatcher, HookFault, HookHandler},
     keys::{HookRecord, IdentityPolicy, InjectionTag, Origin},
+    mouse_hook::{MouseDispatcher, MouseHandler, MouseHookRecord, MouseInputEvent},
     reactor::WaitPlan,
 };
 use keyweave_types::CaptureDecision;
@@ -28,6 +29,9 @@ pub(super) fn outside_callback() -> bool {
     DISPATCHER
         .try_with(|slot| slot.try_borrow_mut().is_ok())
         .unwrap_or(false)
+        && MOUSE_DISPATCHER
+            .try_with(|slot| slot.try_borrow_mut().is_ok())
+            .unwrap_or(false)
 }
 #[cfg(test)]
 pub(super) fn with_callback_borrow<T>(call: impl FnOnce() -> T) -> T {
@@ -37,6 +41,7 @@ pub(super) fn with_callback_borrow<T>(call: impl FnOnce() -> T) -> T {
     })
 }
 thread_local! {
+    static MOUSE_DISPATCHER: RefCell<Option<MouseDispatcher<Box<dyn MouseHandler>>>> = const { RefCell::new(None) };
     static DISPATCHER: RefCell<Option<HookDispatcher<Box<dyn HookHandler>>>> = const { RefCell::new(None) };
     static TAG: Cell<usize> = const { Cell::new(0) };
     static GUARD_TAG: Cell<usize> = const { Cell::new(0) };
@@ -100,6 +105,8 @@ pub enum HookSessionError {
     Callback(HookFault),
     #[error("Windows hook removal failed: {0}")]
     Unhook(u32),
+    #[error("both hooks failed removal: keyboard={keyboard}, mouse={mouse}")]
+    UnhookBoth { keyboard: u32, mouse: u32 },
     #[error("hook session is already closed")]
     Closed,
 }
@@ -107,6 +114,7 @@ pub enum HookSessionError {
 /// must use a passive handler until real session/neutral/readiness gates pass.
 pub struct HookSession {
     handle: Handle,
+    mouse_handle: Handle,
     _thread: PhantomData<Rc<()>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,6 +210,19 @@ impl HookSession {
                 .ok_or(HookSessionError::Closed)
         })
     }
+    /// Callback-tracked mouse bindings only; not a physical state snapshot.
+    pub fn held_mouse_buttons(&self) -> Result<usize, HookSessionError> {
+        if self.handle.is_null() || TAG.with(Cell::get) == 0 {
+            return Err(HookSessionError::Closed);
+        }
+        if let Some(fault) = self.fault() {
+            return Err(HookSessionError::Callback(fault));
+        }
+        MOUSE_DISPATCHER.with(|slot| {
+            let dispatcher = slot.try_borrow().map_err(|_| HookSessionError::Busy)?;
+            Ok(dispatcher.as_ref().map_or(0, MouseDispatcher::held_buttons))
+        })
+    }
     pub fn fault(&self) -> Option<HookFault> {
         FAULT.with(Cell::get)
     }
@@ -228,7 +249,10 @@ impl HookSession {
         tag: InjectionTag,
         policy: IdentityPolicy,
     ) -> Result<Self, (HookSessionError, Box<dyn HookHandler>)> {
-        if POISONED.with(Cell::get) || DISPATCHER.with(|slot| slot.borrow().is_some()) {
+        if !outside_callback()
+            || POISONED.with(Cell::get)
+            || DISPATCHER.with(|slot| slot.borrow().is_some())
+        {
             return Err((HookSessionError::Busy, handler));
         }
         // SAFETY: null requests the current executable's borrowed module handle;
@@ -265,8 +289,110 @@ impl HookSession {
         }
         Ok(Self {
             handle,
+            mouse_handle: null_mut(),
             _thread: PhantomData,
         })
+    }
+    /// Install explicitly on the same active owner thread. Failure returns handler.
+    pub fn install_mouse_handler(
+        &mut self,
+        handler: Box<dyn MouseHandler>,
+    ) -> Result<(), (HookSessionError, Box<dyn MouseHandler>)> {
+        if !outside_callback() || !self.mouse_handle.is_null() || POISONED.with(Cell::get) {
+            return Err((HookSessionError::Busy, handler));
+        }
+        let tag = TAG.with(Cell::get);
+        if self.handle.is_null() || tag == 0 {
+            return Err((HookSessionError::Closed, handler));
+        }
+        // SAFETY: null requests a borrowed current executable module, no ownership.
+        let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+        if module.is_null() {
+            return Err((
+                HookSessionError::Install(unsafe { GetLastError() }),
+                handler,
+            ));
+        }
+        // A synchronous notification may have revoked the original session.
+        if TAG.with(Cell::get) != tag || POISONED.with(Cell::get) {
+            return Err((HookSessionError::Closed, handler));
+        }
+        let tag = InjectionTag::new(tag).unwrap_or_else(|_| unreachable!("checked nonzero tag"));
+        MOUSE_DISPATCHER.with(|slot| *slot.borrow_mut() = Some(MouseDispatcher::new(handler, tag)));
+        // SAFETY: WH_MOUSE_LL=14, static system callback on installing thread,
+        // process module stays loaded; handler is owned TLS, no stack pointer.
+        let handle = unsafe { SetWindowsHookExW(14, mouse_callback, module, 0) };
+        if handle.is_null() {
+            // SAFETY: immediate thread-local diagnostic after failed registration.
+            let error = unsafe { GetLastError() };
+            let dispatcher = MOUSE_DISPATCHER.with(|slot| slot.borrow_mut().take());
+            return Err((
+                HookSessionError::Install(error),
+                dispatcher
+                    .unwrap_or_else(|| unreachable!("owned mouse slot"))
+                    .into_handler(),
+            ));
+        }
+        self.mouse_handle = handle;
+        Ok(())
+    }
+    /// Disable both kinds before removal and return both handlers and diagnostics.
+    pub fn close_with_mouse(&mut self) -> HookCloseReport {
+        if self.handle.is_null() && self.mouse_handle.is_null() {
+            return HookCloseReport {
+                keyboard_handler: None,
+                mouse_handler: None,
+                keyboard_result: Ok(()),
+                mouse_result: Ok(()),
+            };
+        }
+        if !outside_callback() {
+            stop(HookFault::Reentrant);
+            return HookCloseReport {
+                keyboard_handler: None,
+                mouse_handler: None,
+                keyboard_result: Err(HookSessionError::Busy),
+                mouse_result: Err(HookSessionError::Busy),
+            };
+        }
+        TAG.with(|tag| tag.set(0));
+        GUARD_TAG.with(|tag| tag.set(0));
+        let mouse = std::mem::replace(&mut self.mouse_handle, null_mut());
+        let mouse_result = if mouse.is_null() {
+            Ok(())
+        } else {
+            // SAFETY: unique owned same-thread mouse HHOOK, TLS disabled first.
+            if unsafe { UnhookWindowsHookEx(mouse) } == 0 {
+                // SAFETY: immediate thread-local error read.
+                let error = unsafe { GetLastError() };
+                POISONED.with(|p| p.set(true));
+                Err(HookSessionError::Unhook(error))
+            } else {
+                Ok(())
+            }
+        };
+        let mouse_handler = MOUSE_DISPATCHER
+            .with(|slot| slot.borrow_mut().take())
+            .map(MouseDispatcher::into_handler);
+        let (keyboard_handler, keyboard_result) = self.close_keyboard();
+        HookCloseReport {
+            keyboard_handler,
+            mouse_handler,
+            keyboard_result,
+            mouse_result,
+        }
+    }
+    /// Legacy interface. Use close_with_mouse to recover the mouse handler too.
+    pub fn close(&mut self) -> (Option<Box<dyn HookHandler>>, Result<(), HookSessionError>) {
+        let report = self.close_with_mouse();
+        let result = match (report.keyboard_result, report.mouse_result) {
+            (Err(HookSessionError::Unhook(keyboard)), Err(HookSessionError::Unhook(mouse))) => {
+                Err(HookSessionError::UnhookBoth { keyboard, mouse })
+            }
+            (Err(e), _) | (_, Err(e)) => Err(e),
+            _ => Ok(()),
+        };
+        (report.keyboard_handler, result)
     }
     /// Explicit blocking message loop. No deadlines/worker watchdog are supplied
     /// by this primitive; the runtime coordinator must add them before deployment.
@@ -304,7 +430,7 @@ impl HookSession {
     }
     /// Disable first, attempt unhook, then transfer handler for explicit output
     /// recovery. Removal failure does not lose the handler or pretend key release.
-    pub fn close(&mut self) -> (Option<Box<dyn HookHandler>>, Result<(), HookSessionError>) {
+    fn close_keyboard(&mut self) -> (Option<Box<dyn HookHandler>>, Result<(), HookSessionError>) {
         if self.handle.is_null() {
             return (None, Ok(()));
         }
@@ -327,6 +453,12 @@ impl HookSession {
             .map(HookDispatcher::into_handler);
         (handler, result)
     }
+}
+pub struct HookCloseReport {
+    pub keyboard_handler: Option<Box<dyn HookHandler>>,
+    pub mouse_handler: Option<Box<dyn MouseHandler>>,
+    pub keyboard_result: Result<(), HookSessionError>,
+    pub mouse_result: Result<(), HookSessionError>,
 }
 fn checked_control<F: FnMut() -> Result<WaitPlan, HookFault>>(
     control: &mut F,
@@ -441,6 +573,13 @@ unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> is
     if record.origin(tag) != Origin::Physical {
         return forward(code, message, data);
     }
+    if !outside_callback() {
+        stop(HookFault::Reentrant);
+        if guard.is_some() {
+            untracked_input();
+        }
+        return forward(code, message, data);
+    }
     let result = DISPATCHER.try_with(|slot| {
         let Ok(mut slot) = slot.try_borrow_mut() else {
             return Err(HookFault::Reentrant);
@@ -464,6 +603,104 @@ unsafe extern "system" fn callback(code: i32, message: usize, data: isize) -> is
                 // This failed physical down/repeat is now forwarded, so it
                 // can establish an unowned global down even if the scan was
                 // supported. Malformed events do not prove a harmless up.
+                untracked_input();
+            }
+            forward(code, message, data)
+        }
+        Err(_) => forward(code, message, data),
+    }
+}
+
+unsafe extern "system" fn mouse_callback(code: i32, message: usize, data: isize) -> isize {
+    if code != 0 {
+        return forward(code, message, data);
+    }
+    let tag = TAG
+        .try_with(Cell::get)
+        .ok()
+        .and_then(|v| InjectionTag::new(v).ok());
+    let guard = GUARD_TAG
+        .try_with(Cell::get)
+        .ok()
+        .and_then(|v| InjectionTag::new(v).ok());
+    if tag.is_none() && guard.is_none() {
+        return forward(code, message, data);
+    }
+    if data == 0 || u32::try_from(message).is_err() {
+        stop(HookFault::Record);
+        if guard.is_some() {
+            untracked_input();
+        }
+        return forward(code, message, data);
+    }
+    // SAFETY: HC_ACTION non-null OS-owned MSLLHOOKSTRUCT lives for callback;
+    // copy fixed repr(C) fields only, no pointer/reference escapes.
+    let mouse = unsafe { *(data as *const MouseHook) };
+    let record = MouseHookRecord {
+        message: message as u32,
+        x: mouse.x,
+        y: mouse.y,
+        data: mouse.data,
+        flags: mouse.flags,
+        extra_info: mouse.extra_info,
+    };
+    let check_tag = tag
+        .or(guard)
+        .unwrap_or_else(|| unreachable!("checked active tag"));
+    let (origin, input) = match record.decode(check_tag) {
+        Ok(v) => v,
+        Err(e) => {
+            stop(HookFault::Mouse(e));
+            if guard.is_some() {
+                untracked_input();
+            }
+            return forward(code, message, data);
+        }
+    };
+    if origin == Origin::OwnInjected {
+        return forward(code, message, data);
+    }
+    let button = matches!(
+        input,
+        MouseInputEvent::Button { .. } | MouseInputEvent::ButtonPair { .. }
+    );
+    if guard.is_some() && (origin == Origin::OtherInjected || tag.is_none() && button) {
+        untracked_input();
+        return forward(code, message, data);
+    }
+    if origin != Origin::Physical || tag.is_none() {
+        return forward(code, message, data);
+    }
+    if !outside_callback() {
+        stop(HookFault::Reentrant);
+        if guard.is_some() && button {
+            untracked_input();
+        }
+        return forward(code, message, data);
+    }
+    let result = MOUSE_DISPATCHER.try_with(|slot| {
+        let Ok(mut slot) = slot.try_borrow_mut() else {
+            return Err(HookFault::Reentrant);
+        };
+        let Some(dispatcher) = slot.as_mut() else {
+            return Ok(CaptureDecision::Pass);
+        };
+        let decision = dispatcher.dispatch(code, Some(record));
+        dispatcher
+            .fault()
+            .map_or(Ok(decision), |e| Err(HookFault::Mouse(e)))
+    });
+    match result {
+        Ok(Ok(CaptureDecision::Capture)) if TAG.try_with(Cell::get).unwrap_or(0) != 0 => 1,
+        Ok(Ok(_)) => {
+            if guard.is_some() && button {
+                untracked_input();
+            }
+            forward(code, message, data)
+        }
+        Ok(Err(e)) => {
+            stop(e);
+            if guard.is_some() && button {
                 untracked_input();
             }
             forward(code, message, data)
@@ -520,17 +757,23 @@ mod api {
         }
         1usize as Handle
     }
-    pub(super) unsafe fn SetWindowsHookExW(_: i32, _: Callback, _: Handle, _: u32) -> Handle {
+    thread_local! {
+        pub(super) static INSTALL_KINDS: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
+        pub(super) static UNHOOK_KINDS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    }
+    pub(super) unsafe fn SetWindowsHookExW(kind: i32, _: Callback, _: Handle, _: u32) -> Handle {
+        INSTALL_KINDS.with(|v| v.borrow_mut().push(kind));
         if INSTALL_FAIL.with(Cell::get) {
             null_mut()
         } else {
-            2usize as Handle
+            kind as usize as Handle
         }
     }
     pub(super) unsafe fn GetLastError() -> u32 {
         5
     }
-    pub(super) unsafe fn UnhookWindowsHookEx(_: Handle) -> i32 {
+    pub(super) unsafe fn UnhookWindowsHookEx(handle: Handle) -> i32 {
+        UNHOOK_KINDS.with(|v| v.borrow_mut().push(handle as usize));
         i32::from(!UNHOOK_FAIL.with(Cell::get))
     }
     pub(super) unsafe fn CallNextHookEx(_: Handle, _: i32, _: usize, _: isize) -> isize {
@@ -855,4 +1098,255 @@ fn cold_preparation_context_rejects_callback_without_native_work() {
         );
     });
     assert!(crate::startup::ensure_preparation_context().is_ok());
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod mouse_tests {
+    use super::*;
+    use crate::{
+        hook::HookEvent,
+        mouse_hook::{MouseFault, MouseHookEvent},
+    };
+    struct Keyboard;
+    impl HookHandler for Keyboard {
+        fn handle(&mut self, _: HookEvent) -> Result<CaptureDecision, HookFault> {
+            Ok(CaptureDecision::Capture)
+        }
+    }
+    struct Mouse {
+        seen: Rc<Cell<usize>>,
+        nested: Option<bool>,
+    }
+    impl MouseHandler for Mouse {
+        fn handle_mouse(&mut self, event: MouseHookEvent) -> Result<CaptureDecision, MouseFault> {
+            assert!(!outside_callback());
+            self.seen.set(self.seen.get() + 1);
+            if let Some(injected) = self.nested.take() {
+                let keyboard = KeyboardHook {
+                    vk: 0x41,
+                    scan: 0x1e,
+                    flags: if injected { 0x10 } else { 0 },
+                    time: 0,
+                    extra_info: 31,
+                };
+                // SAFETY: owned initialized KBDLLHOOKSTRUCT lives for test call.
+                assert_eq!(
+                    unsafe { callback(0, 0x100, &keyboard as *const _ as isize) },
+                    9
+                );
+            }
+            Ok(if matches!(event.input, MouseInputEvent::Position { .. }) {
+                CaptureDecision::Pass
+            } else {
+                CaptureDecision::Capture
+            })
+        }
+    }
+    fn keyboard() -> HookSession {
+        HookSession::install(
+            Box::new(Keyboard),
+            InjectionTag::new(31).unwrap(),
+            IdentityPolicy::CanonicalScan,
+        )
+        .unwrap_or_else(|(e, _)| panic!("{e}"))
+    }
+    fn mouse(session: &mut HookSession, nested: Option<bool>) -> Rc<Cell<usize>> {
+        let seen = Rc::new(Cell::new(0));
+        session
+            .install_mouse_handler(Box::new(Mouse {
+                seen: seen.clone(),
+                nested,
+            }))
+            .unwrap_or_else(|(e, _)| panic!("{e}"));
+        seen
+    }
+    fn send(message: usize, flags: u32, extra_info: usize) -> isize {
+        let record = MouseHook {
+            x: -70,
+            y: 90,
+            data: 0,
+            flags,
+            time: 0,
+            extra_info,
+        };
+        // SAFETY: owned initialized MSLLHOOKSTRUCT remains live through call.
+        unsafe { mouse_callback(0, message, &record as *const _ as isize) }
+    }
+    #[test]
+    fn companion_owns_both_registrations_and_closes_once_before_reuse() {
+        let mut session = keyboard();
+        let seen = mouse(&mut session, None);
+        assert_eq!(api::INSTALL_KINDS.with(|v| v.borrow().clone()), [13, 14]);
+        // SAFETY: nonaction must not dereference arbitrary pointer.
+        assert_eq!(unsafe { mouse_callback(-1, 0, 1) }, 9);
+        assert_eq!(send(0x201, 0, 0), 1);
+        assert_eq!(session.held_mouse_buttons().unwrap(), 1);
+        assert_eq!(send(0x202, 0, 0), 1);
+        assert_eq!(send(0x200, 0, 0), 9);
+        assert_eq!(seen.get(), 3);
+        assert_eq!(send(0x201, 1, 31), 9);
+        assert_eq!(seen.get(), 3);
+        let report = session.close_with_mouse();
+        assert!(report.keyboard_handler.is_some() && report.mouse_handler.is_some());
+        report.keyboard_result.unwrap();
+        report.mouse_result.unwrap();
+        assert_eq!(api::UNHOOK_KINDS.with(|v| v.borrow().clone()), [14, 13]);
+        assert_eq!(send(0x201, 0, 0), 9);
+        let mut newer = keyboard();
+        let _ = mouse(&mut newer, None);
+        assert!(session.close_with_mouse().mouse_handler.is_none());
+        drop(session);
+        assert_eq!(send(0x201, 0, 0), 1);
+        newer.close_with_mouse().mouse_result.unwrap();
+    }
+    #[test]
+    fn failed_mouse_install_returns_handler_and_keeps_keyboard_owner() {
+        let mut session = keyboard();
+        api::INSTALL_FAIL.with(|v| v.set(true));
+        let seen = Rc::new(Cell::new(0));
+        let failure = session.install_mouse_handler(Box::new(Mouse {
+            seen: seen.clone(),
+            nested: None,
+        }));
+        assert!(matches!(failure, Err((HookSessionError::Install(5), _))));
+        assert!(session.mouse_handle.is_null());
+        assert!(MOUSE_DISPATCHER.with(|v| v.borrow().is_none()));
+        api::INSTALL_FAIL.with(|v| v.set(false));
+        let _ = mouse(&mut session, None);
+        assert!(matches!(
+            session.install_mouse_handler(Box::new(Mouse { seen, nested: None })),
+            Err((HookSessionError::Busy, _))
+        ));
+        session.close().1.unwrap();
+    }
+    #[test]
+    fn cross_reentry_own_injection_bypasses_but_physical_stops_both() {
+        for injected in [true, false] {
+            std::thread::spawn(move || {
+                let mut session = keyboard();
+                let seen = mouse(&mut session, Some(injected));
+                assert_eq!(send(0x201, 0, 0), if injected { 1 } else { 9 });
+                assert_eq!(seen.get(), 1);
+                assert_eq!(
+                    session.fault(),
+                    if injected {
+                        None
+                    } else {
+                        Some(HookFault::Reentrant)
+                    }
+                );
+                session.close().1.unwrap();
+            })
+            .join()
+            .unwrap();
+        }
+    }
+    #[test]
+    fn two_unhook_failures_keep_both_diagnostics_and_handlers() {
+        let mut session = keyboard();
+        let _ = mouse(&mut session, None);
+        api::UNHOOK_FAIL.with(|v| v.set(true));
+        let report = session.close_with_mouse();
+        assert!(report.keyboard_handler.is_some() && report.mouse_handler.is_some());
+        assert_eq!(report.keyboard_result, Err(HookSessionError::Unhook(5)));
+        assert_eq!(report.mouse_result, Err(HookSessionError::Unhook(5)));
+        assert_eq!(api::UNHOOK_KINDS.with(|v| v.borrow().clone()), [14, 13]);
+        assert_eq!(send(0x201, 0, 0), 9);
+        assert!(matches!(
+            HookSession::install(
+                Box::new(Keyboard),
+                InjectionTag::new(31).unwrap(),
+                IdentityPolicy::CanonicalScan
+            ),
+            Err((HookSessionError::Busy, _))
+        ));
+    }
+    #[test]
+    fn guard_allows_position_observation_but_external_injection_revokes() {
+        let mut session = keyboard();
+        let seen = mouse(&mut session, None);
+        session.guard_untracked_input().unwrap();
+        assert_eq!(send(0x200, 0, 0), 9);
+        assert_eq!(session.fault(), None);
+        assert_eq!(seen.get(), 1);
+        assert_eq!(send(0x201, 1, 32), 9);
+        assert_eq!(session.fault(), Some(HookFault::UntrackedInput));
+        assert!(session.untracked_input());
+        assert_eq!(send(0x201, 0, 0), 9);
+        session.close().1.unwrap();
+    }
+    #[test]
+    fn keyboard_callback_borrow_bypasses_own_mouse_and_rejects_physical_mouse() {
+        let mut session = keyboard();
+        let seen = mouse(&mut session, None);
+        with_callback_borrow(|| assert_eq!(send(0x201, 1, 31), 9));
+        assert_eq!(session.fault(), None);
+        with_callback_borrow(|| assert_eq!(send(0x201, 0, 0), 9));
+        assert_eq!(session.fault(), Some(HookFault::Reentrant));
+        assert_eq!(seen.get(), 0);
+        session.close().1.unwrap();
+    }
+    #[test]
+    fn close_inside_callback_retains_owners_for_later_removal() {
+        let mut session = keyboard();
+        let _ = mouse(&mut session, None);
+        with_callback_borrow(|| {
+            let report = session.close_with_mouse();
+            assert_eq!(report.keyboard_result, Err(HookSessionError::Busy));
+            assert_eq!(report.mouse_result, Err(HookSessionError::Busy));
+            assert!(report.keyboard_handler.is_none() && report.mouse_handler.is_none());
+        });
+        assert!(!session.handle.is_null() && !session.mouse_handle.is_null());
+        assert!(api::UNHOOK_KINDS.with(|v| v.borrow().is_empty()));
+        let report = session.close_with_mouse();
+        report.keyboard_result.unwrap();
+        report.mouse_result.unwrap();
+        assert!(report.keyboard_handler.is_some() && report.mouse_handler.is_some());
+    }
+    #[test]
+    fn malformed_mouse_fault_and_legacy_dual_removal_error_are_preserved() {
+        let mut session = keyboard();
+        let _ = mouse(&mut session, None);
+        assert_eq!(send(0x203, 0, 0), 9);
+        assert_eq!(session.fault(), Some(HookFault::Mouse(MouseFault::Record)));
+        api::UNHOOK_FAIL.with(|v| v.set(true));
+        let (handler, result) = session.close();
+        assert!(handler.is_some());
+        assert_eq!(
+            result,
+            Err(HookSessionError::UnhookBoth {
+                keyboard: 5,
+                mouse: 5
+            })
+        );
+    }
+    #[test]
+    fn mouse_sdk_layout_and_null_callback_reject_before_dereference() {
+        use std::mem::{offset_of, size_of};
+        assert_eq!(
+            size_of::<MouseHook>(),
+            if size_of::<usize>() == 8 { 32 } else { 24 }
+        );
+        assert_eq!(
+            (
+                offset_of!(MouseHook, x),
+                offset_of!(MouseHook, y),
+                offset_of!(MouseHook, data),
+                offset_of!(MouseHook, flags),
+                offset_of!(MouseHook, time)
+            ),
+            (0, 4, 8, 12, 16)
+        );
+        assert_eq!(
+            offset_of!(MouseHook, extra_info),
+            if size_of::<usize>() == 8 { 24 } else { 20 }
+        );
+        let mut session = keyboard();
+        let _ = mouse(&mut session, None);
+        // SAFETY: null record must be rejected without dereferencing it.
+        assert_eq!(unsafe { mouse_callback(0, 0x201, 0) }, 9);
+        assert_eq!(session.fault(), Some(HookFault::Record));
+        session.close().1.unwrap();
+    }
 }

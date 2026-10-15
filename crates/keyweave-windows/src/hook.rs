@@ -5,6 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HookFault {
+    Mouse(crate::mouse_hook::MouseFault),
     Record,
     Handler,
     Panic,

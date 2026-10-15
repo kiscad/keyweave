@@ -35,7 +35,7 @@ mod session_notifications;
 mod worker;
 mod worker_startup;
 #[cfg(target_os = "windows")]
-pub use hook_thread::{HookSession, HookSessionError, LoopStep};
+pub use hook_thread::{HookCloseReport, HookSession, HookSessionError, LoopStep};
 #[cfg(target_os = "windows")]
 pub use input_probe::{check_input_access, sample_input_state};
 #[cfg(target_os = "windows")]
@@ -63,6 +63,16 @@ pub use worker_startup::{
 struct KeyboardHook {
     vk: u32,
     scan: u32,
+    flags: u32,
+    time: u32,
+    extra_info: usize,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct MouseHook {
+    x: i32,
+    y: i32,
+    data: u32,
     flags: u32,
     time: u32,
     extra_info: usize,
