@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "e6180e357bffefbf607c72c926b39ef2ee790daf",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/tests/native_link.rs": "ff9b57040e1909b90c0541e14029a8d18e42d4c615966978a1104a1e897e08d6",
+    "tools/windows_input_abi.c": "79131c76de271b472d6e6bfa77ba53bb2b8ae24d1aa3862d85a2d9759d5529ff"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1885,
+    "new_rust_tests": 0,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-native-oracle/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-native-oracle/1.log",
+        "sha256": "a1b72c82bc151c7c01e7b09f41d03452987f14831b8e980a56ab7647b61246e3"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-native-oracle/2.log",
+        "sha256": "ac094b90d0349120fa8283c0e24f681442ca43943f3ce86b81f081247c4373fa"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-native-oracle/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-native-oracle/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mixed-native-oracle/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "source_audit_finding": {
+    "path": "crates/keyweave-windows/tests/native_link.rs",
+    "finding": "Two Windows-only ProgressClient function-address instantiations still used SendInputBackend as generic argument after sealed SessionProgress generalization. Backend does not implement SessionProgress; actual session type required.",
+    "change": "Use CaptureSession<SendInputBackend> and add MixedCaptureSession instantiations plus full mixed native symbol surface.",
+    "verification": "Source type-contract audit only; native build not executed."
+  },
+  "windows": {
+    "native_link": "pending, not compiled/executed on Windows",
+    "sdk_oracle": "extended for mouse ABI/constants but not compiled against actual Windows SDK",
+    "reason": "Previous automatic approval quota rejection; no retry/bypass."
+  },
+  "limitations": [
+    "Linux tests do not compile Windows-only native_link function or Windows SDK C oracle; unchanged 1885 count is not native proof.",
+    "New checks retain production function addresses and compile-only SDK expressions. No Hook install/SendInput/native process/hardware action.",
+    "Real x64/i686 source-pinned MSVC SDK+native link builds/tests/Clippy remain required before Windows acceptance.",
+    "X11/Wayland native acceptance, Windows hardware, config watcher/GUI/driver/packages remain pending."
+  ]
+}

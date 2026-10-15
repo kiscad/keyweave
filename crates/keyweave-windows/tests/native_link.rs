@@ -56,11 +56,38 @@ fn production_native_symbols_link_without_installation_or_injection() {
         keyweave_windows::CaptureSession::<SendInputBackend>::poll as *const () as usize,
         keyweave_windows::CaptureSession::<SendInputBackend>::shutdown as *const () as usize,
         keyweave_windows::progress::ProgressClient::<std::io::Empty, std::io::Sink>::receive::<
-            SendInputBackend,
+            keyweave_windows::CaptureSession<SendInputBackend>,
         > as *const () as usize,
         keyweave_windows::progress::ProgressClient::<std::io::Empty, std::io::Sink>::publish::<
-            SendInputBackend,
+            keyweave_windows::CaptureSession<SendInputBackend>,
         > as *const () as usize,
+        keyweave_windows::progress::ProgressClient::<std::io::Empty, std::io::Sink>::receive_command::<
+            keyweave_windows::CaptureSession<SendInputBackend>,
+        > as *const () as usize,
+        keyweave_windows::progress::ProgressClient::<std::io::Empty, std::io::Sink>::receive::<
+            keyweave_windows::MixedCaptureSession<SendInputBackend>,
+        > as *const () as usize,
+        keyweave_windows::progress::ProgressClient::<std::io::Empty, std::io::Sink>::publish::<
+            keyweave_windows::MixedCaptureSession<SendInputBackend>,
+        > as *const () as usize,
+        keyweave_windows::progress::ProgressClient::<std::io::Empty, std::io::Sink>::receive_command::<
+            keyweave_windows::MixedCaptureSession<SendInputBackend>,
+        > as *const () as usize,
+        keyweave_windows::MixedWorker::<SendInputBackend>::install as *const () as usize,
+        keyweave_windows::MixedWorker::<SendInputBackend>::step as *const () as usize,
+        keyweave_windows::MixedWorker::<SendInputBackend>::run as *const () as usize,
+        keyweave_windows::MixedWorker::<SendInputBackend>::request_stop as *const () as usize,
+        keyweave_windows::MixedCaptureSession::<SendInputBackend>::install as *const () as usize,
+        keyweave_windows::MixedCaptureSession::<SendInputBackend>::poll as *const () as usize,
+        keyweave_windows::MixedCaptureSession::<SendInputBackend>::shutdown as *const () as usize,
+        HookSession::install_mouse_handler as *const () as usize,
+        HookSession::held_mouse_buttons as *const () as usize,
+        HookSession::close_with_mouse as *const () as usize,
+        <SendInputBackend as keyweave_windows::mixed::SendMixedBackend>::submit_mixed as *const ()
+            as usize,
+        <SendInputBackend as keyweave_windows::pointer::SendPointerBackend>::submit_pointer
+            as *const () as usize,
+        keyweave_windows::mixed_actor::preflight_mixed_config as *const () as usize,
         HookSession::run_until_quit as *const () as usize,
         HookSession::poll_with_control::<Control> as *const () as usize,
         <SendInputBackend as SendBackend>::submit as *const () as usize,

@@ -1,5 +1,11 @@
 # Windows 原生验证入口
 
+2026-10-15 mixed 路径新增了 SDK/生产链接验收要求，见 [ADR-0219](ADR-0219-windows-mixed-native-validation.md)。当前源审计已修复 `native_link` 遗留的两个旧泛型实例；新的 Windows 原生构建尚未执行，旧历史报告不能证明本次 mixed 代码通过。
+
+实际 Windows 上须对同一新源码快照分别运行 x64/i686：`tools/validate_windows.ps1 -Arch x64` 和 `-Arch x86`，显式选择已安装的 `-Toolchain`，离线运行须提供已有 registry cache 的 `-SeedCargoHome` 并加 `-Offline`。脚本会新建 Windows-local 快照、manifest 和日志，不覆盖已有验证目录。记录 SDK /Zs 与生产 `native_link`、workspace tests/clippy 的独立结果。fmt/replay 仍按本文后续流程补验。
+
+SDK oracle 现在覆盖 `MSLLHOOKSTRUCT` 所有字段、POINT、INPUT.mi 和鼠标 flags/messages；链接检查只保留 mixed worker/session/Hook/发送函数地址，不安装Hook、不调用SendInput。编译和mock通过后，仍需分别验收实际mouse startup neutral、双Hook、五按钮/组合XBUTTON、滚轮符号、持键热更新、外部注入、访问撤销、父进程死亡和停止恢复；不得把这些原生系统行为算作编译检查已覆盖。
+
 本文按功能切片保留验证历史，各段测试数量对应当次源码。最新已归档记录为 2026-10-10 的 [Linux terminal finalization 双架构验证](validation/windows-2026-10-10-linux-terminal-finalization.json)：固定 Rust 1.97.1，x64/i686 各 732 个 workspace 测试、Clippy、fmt 与既有 SDK 检查通过，两个快照各核对 200 个源码文件哈希。该记录不包含真实键盘抓取/注入或驱动加载；之后的代码修改须重新验证。
 
 已通过 WSL2 调用固定 Windows Rust 1.97.1：x64/i686 各 432 个 workspace 测试、生产 Win32 符号链接、fmt/clippy 和 12 个离线回放通过；SDK x64/x86 oracle 均通过。结果和日志 hash 见 [固定版本验证记录](validation/windows-2026-10-09-pinned.json)。此前的 [1.99 x64 验证记录](validation/windows-2026-10-09.json) 保留历史结果。实际输入验收仍待执行，生产代码与 unit-test 的 Win32 API 替换分开验证。
