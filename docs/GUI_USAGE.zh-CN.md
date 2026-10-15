@@ -22,3 +22,5 @@
 展开 **Import Karabiner rule asset**，输入规则库 JSON/JSONC 或单规则路径并点击 **Load rule asset**。默认不勾选任何规则；明确勾选后 **Append selected rules to draft**，完整规则按原顺序追加到当前 profile。标题、maintainers 等资产包装字段不复制；规则内部的未知字段完整保留。单规则 enabled:false 保持禁用，与上游导入时清除该状态的行为有意不同。导入不执行 JavaScript 或用户命令；不支持规则在后续 Validate 显示诊断并阻止保存已验证副本。规则列表与资产各最多4096条。上游样本中的description_notes说明字段和无to抑制规则现已支持；未知功能字段仍会触发诊断。不能据“导入成功”宣称运行会话已应用。参见 [ADR-0224](ADR-0224-complex-rule-drafts-and-asset-import.md)。
 
 复杂 basic 规则可省略 to，表示抑制匹配按键，等同 to:[]；简单映射仍要求非空目标。规则层 description_notes 为字符串数组，保留在保存的 JSON 中。此支持经过完整离线编译、冷准备和两种执行模式测试，仍不代表真实系统设备验收。参见 [ADR-0225](ADR-0225-empty-basic-suppression-and-rule-notes.md)。
+
+设备专属 simple 配置仍通过原始 JSON 编辑。Linux离线校验的KW-DEVICE-001提示类型上下文依赖；真实会话冷open已接可选udev静态类型provider，其是否可用必须由实际系统验证。当前沙箱root-trust拒绝，不把离线校验显示为“设备类型已验证”。Windows Hook仍不支持逐设备映射；GUI设备列表/实时状态控制继续开发。

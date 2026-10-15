@@ -1,0 +1,129 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "23c8e846b1433f514dc497807250140647e316ab",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.lock": "6d3cceb31100b4693f449e14e4e138580a5fa095d26c24acd648a7fb36b2aaff",
+    "crates/keyweave-linux/Cargo.toml": "e5af4ce5d85101d6d843f5f7f25f96eaad1cac9bc5ae8de40533fc96a26313b6",
+    "crates/keyweave-linux/src/lib.rs": "a076e485f89de52eba7b959b8234c53016bd22bc68d80f32ff8dd8b7356f7394",
+    "crates/keyweave-linux/src/device.rs": "235e075561e9950b45314d4a366d38907b22c9dcde1ae040e5fba5ff4e35abff",
+    "crates/keyweave-linux/src/capture.rs": "f68f7cc68c3e5664f910ba25d531230790065d0d078af848592ea4fde820d729",
+    "crates/keyweave-linux/src/runtime.rs": "b40aadb7e6121f0be912da2542d44df25db6019c1389fc5bfa43b370b805e98c",
+    "crates/keyweave-linux/src/device_types.rs": "758f39923b2d4d3f321e887b888ab1abb97f9a06253b1d8da81cac0a26f0e425",
+    "crates/keyweave-linux/src/device_types/native.rs": "e5726f070c6e7712ea9d9121262c6875d3c7821898008e07a696ebd61ec4f7f4",
+    "crates/keyweave-linux/examples/udev-provider-check.rs": "9a294448c21b4c64503b56591c8786f485ae08a5beea3a2a97acc4faccb54f9d"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1927,
+    "new_tests": 6,
+    "source_hashes_verified": 61,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-udev-types/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-udev-types/clippy.log",
+        "sha256": "c25cdd9df15ed968850cc1fe15b9c96e5740325aecc83caddd89b66cf911e126"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-udev-types/tests.log",
+        "sha256": "e536ad3d7ba78d3f9338415f4f2a8571437f35b2a4134a7b02b8b39ed916332a"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-udev-types/sources.log",
+        "sha256": "0859d02745c038a4467af912721964bf1271e9a61afc01607fecf3300bce6069"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-udev-types/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-udev-types/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "native_probe": {
+    "command": [
+      "cargo",
+      "run",
+      "-p",
+      "keyweave-linux",
+      "--example",
+      "udev-provider-check",
+      "--locked",
+      "--offline"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "stable"
+    },
+    "exit_code": 1,
+    "log": "target/udev-provider-native-probe.log",
+    "sha256": "06016e6ad06d7d050dff4e6595c125bc263b6c2fac24795f03b791ff66708096",
+    "result": "untrusted libudev system library path; library and ancestors exposed UID65534 in this sandbox. Root trust was not relaxed. No device query/open/capture/injection.",
+    "environment_evidence": {
+      "log": "target/validation/linux-20261015-udev-types/native-environment.json",
+      "sha256": "8353cfb512c9337941008a1b2af3f2bb91504f8c818b58211ada0e8b237ed97b"
+    }
+  },
+  "sources": [
+    "https://wayland.freedesktop.org/libinput/doc/latest/device-configuration-via-udev.html",
+    "https://github.com/systemd/systemd/blob/main/src/udev/udev-builtin-input_id.c",
+    "https://raw.githubusercontent.com/systemd/systemd/v257/src/libudev/libudev.h"
+  ],
+  "limitations": [
+    "Native loader compiled, SDK opaque/scalar signatures statically inspected; local libudev.h absent. Existing Linux/X11 C ABI checks do not validate these new SDK signatures. No actual libudev device query or hardware classification was accepted here.",
+    "Mock function table tests exercise actual query/ownership/error paths, including devnum readback and invalid strings. They do not prove native library behavior or device-generation authentication.",
+    "Linux type facts are udev static categories from a complete initialized classification record, not macOS HID roles or libinput readiness. Within that snapshot absent category means false; absent/incomplete record remains wholly Unknown.",
+    "Root-trusted library plus root-trusted non-symlink /run/udev/data/cMAJOR:MINOR record required; fixed system paths/layout are conservative. Not complete administrator-race/image-authentication proof.",
+    "Native cold open revalidates FD device number, kernel input ID and canonical input path after metadata observation. Types copied once to instance context, rules changes need reopen; no live udev type/hotplug monitor in this slice.",
+    "Windows native checks still pending prior automatic approval quota rejection; not retried. Windows Hook per-device capability remains false."
+  ]
+}

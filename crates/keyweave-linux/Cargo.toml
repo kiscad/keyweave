@@ -31,3 +31,6 @@ harness = false
 [[test]]
 name = "reload_channel"
 harness = false
+
+[dev-dependencies]
+keyweave-config.workspace = true

@@ -20,6 +20,7 @@ pub struct EvdevDevice {
     layout: Layout,
     probe: Probe,
     device_number: (u32, u32),
+    device_types: Option<crate::device_types::DeviceTypes>,
 }
 fn error(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -104,10 +105,24 @@ impl EvdevDevice {
             libc::minor(dev)
         ))?;
         ioctl::monotonic_clock(file.as_fd())?;
+        let number = (libc::major(dev), libc::minor(dev));
+        let device_types = crate::device_types::observe(number, &input_syspath).ok();
+        // Classification never changes the opened input identity. Verify the
+        // owned FD and sysfs binding again after optional cold provider IO.
+        let after = file.metadata()?;
+        let after_path =
+            fs::canonicalize(format!("/sys/dev/char/{}:{}/device", number.0, number.1))?;
+        let after_id = ioctl::fixed(file.as_fd(), 2, 8)?;
+        if after.rdev() != metadata.rdev() || after_path != input_syspath || after_id != bytes {
+            return Err(error(
+                "input identity changed during cold metadata observation",
+            ));
+        }
         Ok(Self {
             file,
             layout,
-            device_number: (libc::major(dev), libc::minor(dev)),
+            device_number: number,
+            device_types,
             probe: Probe {
                 id,
                 name,
@@ -122,6 +137,9 @@ impl EvdevDevice {
                 },
             },
         })
+    }
+    pub fn device_types(&self) -> Option<crate::device_types::DeviceTypes> {
+        self.device_types
     }
     pub fn probe(&self) -> &Probe {
         &self.probe

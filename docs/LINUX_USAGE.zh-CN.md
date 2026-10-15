@@ -112,6 +112,14 @@ Linux staged 规则现支持 `from.simultaneous` 组合媒体键与键盘键，�
 
 配置编译器现可读取 `profiles[].devices[].simple_modifications`：先按设备数组顺序尝试专属映射，再尝试 profile 全局 simple，随后进入 complex。设备项要求 `identifiers` 对象；与固定上游 factory 一致，用 vendor_id/product_id（缺省0）、is_keyboard/is_pointing_device（缺省false）四项匹配，location/address不参与这类profile selector；原始数据仍保留。复杂规则的 device_if 条件继续按其显式字段求值。
 
-**当前 Linux Runtime 只提供可信 vendor/product，没有设备类型事实，故上述四字段条件不会在该生产上下文中成立。** 编译通过只证明配置/引擎准入，诊断 `KW-DEVICE-001` 会提示可信类型 provider 尚需接入；未知、过期或不同连接代际回退到全局 simple。测试中的显式 ContextSnapshot 不代替实际 provider。Windows Hook 无可靠逐事件设备身份，继续拒绝设备专属映射。
+Linux Evdev 冷启动现已连接可选 libudev 静态类型 provider（见下节）。只有完整、可信、身份核验通过的分类记录才提供 keyboard/pointing 的明确值；provider 不可用时仍只有 vendor/product，四字段设备条件不会成立。编译通过只证明配置/引擎准入，`KW-DEVICE-001` 会提示需要可信类型事实；未知、过期或不同连接代际回退到全局 simple。Windows Hook 无可靠逐事件设备身份，继续拒绝设备专属映射。
 
 每个设备最多沿共享4096规则预算，设备项总数最多256。ignore:true、未知设备设置、非空 Fn 映射仍拒绝；ignore:false、disable_built_in_keyboard_if_exists:false、treat_as_built_in_keyboard:false 是明确支持的无操作值。此功能不负责发现设备、打开输入节点、LED/系统键盘禁用或证明 capture ready。见 [ADR-0226](ADR-0226-device-specific-simple-mappings.md)。
+
+## 静态 udev 类型 provider
+
+真实 `EvdevDevice::open` 在抓取之前查询当前已打开FD的libudev设备。要求 initialized、ID_INPUT=1、至少一种已知类型标签、固定系统libudev路径及 `/run/udev/data/cMAJOR:MINOR` 记录的root/权限检查通过，并核对devnum、input父路径及前后内核身份。keyboard取ID_INPUT_KEYBOARD，pointing取MOUSE/TOUCHPAD/TOUCHSCREEN/TABLET/TABLET_PAD/POINTINGSTICK的OR；consumer、built-in等没有来源的属性保持未知。该分类是Linux udev静态分类，不等同macOS HID角色，也不证明libinput消费者已初始化。官方[类型标签说明](https://wayland.freedesktop.org/libinput/doc/latest/device-configuration-via-udev.html)作为来源。
+
+类型只在本次打开时读取，随后作为设备实例静态元数据复制到上下文。运行中不加载库/读取udev；修改udev规则后需重新打开会话。没有可用分类记录时整个类型观察保持Unknown，不能按属性缺失补false；只有完整初始化分类范围内，未标记类别才解释为false。
+
+只读诊断：`RUSTUP_TOOLCHAIN=stable cargo run -p keyweave-linux --example udev-provider-check --locked --offline`。它只检查库路径信任/符号可用性，不枚举/打开输入设备，也不抓取或注入。当前沙箱实际返回exit1（系统库与祖先显示UID65534，严格root边界拒绝）。未降低检查，未实际完成libudev设备查询或硬件验收；本机也缺少libudev.h，新增FFI签名按固定v257官方header审阅，尚无本地SDK C编译证明。见 [ADR-0227](ADR-0227-udev-static-device-types.md) 与[验证记录](validation/linux-2026-10-15-udev-types.json)。

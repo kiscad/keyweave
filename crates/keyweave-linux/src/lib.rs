@@ -15,6 +15,7 @@ pub mod config_source;
 pub mod console;
 #[cfg(target_os = "linux")]
 pub mod device;
+pub mod device_types;
 #[cfg(target_os = "linux")]
 pub mod discovery;
 pub mod emergency;

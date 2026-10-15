@@ -334,16 +334,20 @@ impl<S: CaptureSource, B: FrameBackend> Runtime<S, B> {
             } else {
                 Machine::Legacy(Box::new(Engine::new(config)?))
             };
-            // Copy only verified metadata; names/bus/path do not prove other fields.
+            // Copy explicit source metadata only. Native types come from a cold
+            // identity-bound udev snapshot; absent records remain wholly unknown.
             let captured_devices = inputs
                 .iter()
                 .map(|(device, input)| {
                     let probe = input.probe().ok_or(RuntimeError::InvalidStartup)?;
+                    let types = input.device_types();
                     Ok(DeviceContext {
                         device: *device,
                         properties: DeviceProperties {
                             vendor_id: Some(u32::from(probe.id.vendor)),
                             product_id: Some(u32::from(probe.id.product)),
+                            is_keyboard: types.map(|t| t.is_keyboard),
+                            is_pointing_device: types.map(|t| t.is_pointing_device),
                             ..Default::default()
                         },
                     })
@@ -1133,12 +1137,16 @@ mod tests {
         }
     }
     struct Source {
+        types: Option<crate::device_types::DeviceTypes>,
         id: u64,
         probe: Probe,
         reads: VecDeque<io::Result<ReadBatch>>,
         trace: Trace,
     }
     impl CaptureSource for Source {
+        fn device_types(&self) -> Option<crate::device_types::DeviceTypes> {
+            self.types
+        }
         fn probe(&self) -> &Probe {
             &self.probe
         }
@@ -1269,6 +1277,18 @@ mod tests {
         Backend,
         Trace,
     ) {
+        resources_with_types(reads, relative, pointing, &[])
+    }
+    fn resources_with_types(
+        reads: Vec<Vec<io::Result<ReadBatch>>>,
+        relative: bool,
+        pointing: bool,
+        types: &[Option<crate::device_types::DeviceTypes>],
+    ) -> (
+        Vec<(DeviceInstanceId, CaptureDevice<Source>)>,
+        Backend,
+        Trace,
+    ) {
         let trace = Rc::new(RefCell::new(Vec::new()));
         let mut backend = Backend {
             spec: DeviceSpec::new(
@@ -1328,6 +1348,7 @@ mod tests {
                     physical.capabilities.properties.set(0).unwrap();
                 }
                 let source = Source {
+                    types: types.get(index).copied().flatten(),
                     id,
                     probe: physical,
                     reads: reads.into(),
@@ -2208,6 +2229,7 @@ mod tests {
         let mut physical = probe("/sys/devices/mock/input/input1");
         physical.capabilities.keys = bits(768, &[113]);
         let mut input = CaptureDevice::new(Source {
+            types: None,
             id: 1,
             probe: physical,
             reads: VecDeque::new(),
@@ -2748,6 +2770,126 @@ mod tests {
             ));
             assert!(bytes.borrow().is_empty());
         }
+    }
+    #[test]
+    fn cold_type_snapshot_drives_compiled_per_device_mapping_through_real_runtime_pump() {
+        use crate::device_types::DeviceTypes;
+        let text = r#"{"profiles":[{"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"d"}]}],"devices":[{"identifiers":{"vendor_id":1,"product_id":100,"is_keyboard":true,"is_pointing_device":false},"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b"}]}]}]}]}"#;
+        for (mode, compile_mode) in [
+            (ExecutionMode::Legacy, keyweave_config::CompileMode::Legacy),
+            (
+                ExecutionMode::StagedKeyboard,
+                keyweave_config::CompileMode::StagedKeyboard,
+            ),
+        ] {
+            for (types, expected) in [
+                (None, 32),
+                (
+                    Some(DeviceTypes {
+                        is_keyboard: true,
+                        is_pointing_device: false,
+                    }),
+                    48,
+                ),
+                (
+                    Some(DeviceTypes {
+                        is_keyboard: false,
+                        is_pointing_device: true,
+                    }),
+                    32,
+                ),
+                (
+                    Some(DeviceTypes {
+                        is_keyboard: true,
+                        is_pointing_device: true,
+                    }),
+                    32,
+                ),
+            ] {
+                let config = keyweave_config::compile_with_mode(
+                    text,
+                    &keyweave_types::BackendCapabilities::linux(),
+                    ConfigGeneration(1),
+                    compile_mode,
+                )
+                .unwrap();
+                assert!(config.executable_without_loss());
+                let (inputs, backend, trace) = resources_with_types(
+                    vec![vec![frame(30, 1), frame(30, 0)]],
+                    false,
+                    false,
+                    &[types],
+                );
+                let mut runtime =
+                    Runtime::new_with_mode(inputs, backend, Arc::new(config.snapshot), mode)
+                        .unwrap();
+                assert_eq!(
+                    runtime.captured_devices[0].properties.is_keyboard,
+                    types.map(|t| t.is_keyboard)
+                );
+                assert_eq!(
+                    runtime.captured_devices[0].properties.is_pointing_device,
+                    types.map(|t| t.is_pointing_device)
+                );
+                for now in 0..8 {
+                    runtime.poll(MonoTime(now)).unwrap();
+                }
+                let edges = submits(&trace)
+                    .into_iter()
+                    .flat_map(|(edges, _)| edges)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    edges,
+                    vec![
+                        NativeKey {
+                            code: expected,
+                            value: 1
+                        },
+                        NativeKey {
+                            code: expected,
+                            value: 0
+                        }
+                    ]
+                );
+                assert!(runtime.submitted().is_empty());
+                assert_eq!(runtime.engine_state().bindings, 0);
+            }
+        }
+    }
+    #[test]
+    fn static_type_facts_survive_context_renewal_and_are_removed_with_the_source_instance() {
+        let types = crate::device_types::DeviceTypes {
+            is_keyboard: true,
+            is_pointing_device: false,
+        };
+        let (inputs, backend, _trace) =
+            resources_with_types(vec![vec![], vec![]], false, false, &[Some(types), None]);
+        let mut runtime = Runtime::new(inputs, backend, config(1, "b")).unwrap();
+        runtime.poll(MonoTime(0)).unwrap();
+        let generation = runtime.context_revision;
+        runtime.poll(MonoTime(DEVICE_CONTEXT_REFRESH_NS)).unwrap();
+        assert!(runtime.context_revision > generation);
+        assert_eq!(
+            runtime.captured_devices[0].properties.is_keyboard,
+            Some(true)
+        );
+        assert_eq!(
+            runtime.captured_devices[0].properties.is_pointing_device,
+            Some(false)
+        );
+        assert_eq!(runtime.captured_devices[1].properties.is_keyboard, None);
+        runtime
+            .remove_device(
+                DeviceInstanceId {
+                    id: 1,
+                    generation: 1,
+                },
+                MonoTime(DEVICE_CONTEXT_REFRESH_NS + 1),
+            )
+            .unwrap();
+        assert_eq!(runtime.captured_devices.len(), 1);
+        assert_eq!(runtime.captured_devices[0].device.id, 2);
+        assert_eq!(runtime.captured_devices[0].properties.is_keyboard, None);
     }
     fn device_config(
         generation: u64,
@@ -3864,6 +4006,7 @@ mod tests {
         let mut consumer = probe("/sys/devices/mock/input/consumer2");
         consumer.capabilities.keys = bits(768, &[113]);
         let mut input = CaptureDevice::new(Source {
+            types: None,
             id: 2,
             probe: consumer,
             reads: VecDeque::new(),

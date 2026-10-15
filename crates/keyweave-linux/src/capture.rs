@@ -70,6 +70,10 @@ impl<'a> OutputNodeReady<'a> {
 /// its FD cannot escape. Drop must close the client and release any grab.
 pub trait CaptureSource {
     fn probe(&self) -> &Probe;
+    /// Explicit cold source metadata; None means unavailable, never known false.
+    fn device_types(&self) -> Option<crate::device_types::DeviceTypes> {
+        None
+    }
     /// Reconciliation query may flush queued keys; never use during active reads.
     fn pressed_keys(&mut self) -> io::Result<Bits>;
     fn set_grab(&mut self, grabbed: bool) -> io::Result<()>;
@@ -164,6 +168,9 @@ impl<S: CaptureSource> CaptureDevice<S> {
     }
     pub fn phase(&self) -> CapturePhase {
         self.phase
+    }
+    pub fn device_types(&self) -> Option<crate::device_types::DeviceTypes> {
+        self.source.as_ref().and_then(CaptureSource::device_types)
     }
     pub fn probe(&self) -> Option<&Probe> {
         self.source.as_ref().map(CaptureSource::probe)
@@ -344,6 +351,9 @@ impl CaptureDevice<EvdevSource> {
 }
 #[cfg(target_os = "linux")]
 impl CaptureSource for EvdevSource {
+    fn device_types(&self) -> Option<crate::device_types::DeviceTypes> {
+        self.device.device_types()
+    }
     fn probe(&self) -> &Probe {
         self.device.probe()
     }

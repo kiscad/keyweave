@@ -1173,6 +1173,7 @@ dependencies = [
 name = "keyweave-linux"
 version = "0.1.0"
 dependencies = [
+ "keyweave-config",
  "keyweave-engine",
  "keyweave-output",
  "keyweave-progress",
