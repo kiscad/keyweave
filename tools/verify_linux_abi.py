@@ -17,6 +17,13 @@ _Static_assert(BTN_LEFT == 0x110 && BTN_RIGHT == 0x111 && BTN_MIDDLE == 0x112 &&
 _Static_assert(UI_SET_PROPBIT == 0x4004556e, "pointer property ioctl");
 _Static_assert(UI_SET_RELBIT == 0x40045566 && EVIOCGBIT(EV_REL, 8) == 0x80084522, "relative capability ioctls");
 _Static_assert(REL_HWHEEL == 6 && REL_WHEEL == 8 && REL_WHEEL_HI_RES == 11 && REL_HWHEEL_HI_RES == 12, "relative wheel codes");
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+_Static_assert(AF_UNIX == 1 && SOCK_STREAM == 1 && SOCK_NONBLOCK == O_NONBLOCK && SOCK_CLOEXEC == O_CLOEXEC, "local socket constants");
+_Static_assert(SOL_SOCKET == 1 && SO_PEERCRED == 17, "local peer credentials");
+_Static_assert(sizeof(struct ucred) == 12 && offsetof(struct ucred, pid) == 0 && offsetof(struct ucred, uid) == 4 && offsetof(struct ucred, gid) == 8, "peer credential layout");
+_Static_assert(sizeof(struct sockaddr_un) == 110 && offsetof(struct sockaddr_un, sun_path) == 2 && sizeof(socklen_t) == 4, "local socket layout");
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -51,6 +58,10 @@ _Static_assert(F_SEAL_SEAL == 1 && F_SEAL_SHRINK == 2 && F_SEAL_GROW == 4 && F_S
 _Static_assert(O_RDONLY == 0 && O_RDWR == 2 && O_ACCMODE == 3 && FD_CLOEXEC == 1, "descriptor flags");
 _Static_assert(F_DUPFD_CLOEXEC == 1030 && F_GETFD == 1 && F_SETFD == 2, "descriptor handoff");
 int main(void) {
+    int (*local_socket)(int,int,int)=socket;
+    int (*local_connect)(int,const struct sockaddr *,socklen_t)=connect;
+    int (*local_peer)(int,int,int,void *,socklen_t *)=getsockopt;
+    (void)local_socket; (void)local_connect; (void)local_peer;
     int (*read_clock)(clockid_t,struct timespec *) = clock_gettime;
     (void)read_clock;
     int (*notice_init)(int) = inotify_init1;

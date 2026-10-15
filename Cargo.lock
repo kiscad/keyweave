@@ -1217,6 +1217,7 @@ dependencies = [
  "eframe",
  "keyweave-config",
  "keyweave-linux",
+ "keyweave-progress",
  "keyweave-types",
  "keyweave-worker",
  "serde_json",

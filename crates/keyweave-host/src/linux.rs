@@ -121,6 +121,7 @@ struct Controller<O: Owner> {
     signal: Option<StopSignal>,
     fault: Option<Fault>,
     report: Option<Report>,
+    shutdown_requested: bool,
 }
 impl<O: Owner> Controller<O> {
     fn new(owner: O) -> Self {
@@ -129,6 +130,16 @@ impl<O: Owner> Controller<O> {
             signal: None,
             fault: None,
             report: None,
+            shutdown_requested: false,
+        }
+    }
+    fn request_shutdown(&mut self, now: MonoTime) {
+        if self.report.is_some() || self.fault.is_some() || self.shutdown_requested {
+            return;
+        }
+        self.shutdown_requested = true;
+        if let Err(e) = self.owner.shutdown(now) {
+            self.fail(FaultSource::Supervision, e);
         }
     }
     fn fail(&mut self, source: FaultSource, error: io::Error) {
@@ -150,9 +161,7 @@ impl<O: Owner> Controller<O> {
             && let Some(signal) = signal
         {
             self.signal = Some(signal);
-            if let Err(e) = self.owner.shutdown(now) {
-                self.fail(FaultSource::Supervision, e);
-            }
+            self.request_shutdown(now);
         }
         let status = match self.owner.poll(now) {
             Ok(status) => status,

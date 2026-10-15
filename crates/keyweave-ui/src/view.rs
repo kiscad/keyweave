@@ -7,6 +7,7 @@ use eframe::egui;
 #[derive(Default)]
 pub struct SettingsApp {
     pub editor: Editor,
+    pub control: crate::control::ControlPane,
     pub open_path: String,
     pub copy_path: String,
     pub notice: String,
@@ -92,7 +93,8 @@ impl SettingsApp {
             }
         }
         ui.heading("KeyWeave Settings");
-        ui.label("Configuration editor · Offline");
+        ui.label("Configuration editor · Offline validation");
+        self.control.contents(ui);
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.label("Open configuration");

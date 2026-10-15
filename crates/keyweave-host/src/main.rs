@@ -31,6 +31,21 @@ enum Command {
         x11: X11Args,
         #[command(flatten)]
         watch: WatchArgs,
+        /// Explicit local same-user status/stop socket in an existing private directory.
+        #[arg(long)]
+        control_socket: Option<PathBuf>,
+    },
+    /// Query a Linux host; no input access or worker creation.
+    StatusLinux {
+        #[arg(long)]
+        socket: PathBuf,
+    },
+    /// Request stop of a previously observed public session; does not imply exit.
+    StopLinux {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long,value_parser=clap::value_parser!(u64).range(1..))]
+        session: u64,
     },
     /// Check Linux configuration against the full supported output table; no input access.
     CheckLinux {
@@ -243,6 +258,7 @@ fn main() -> ExitCode {
             vt,
             x11,
             watch,
+            control_socket,
         } => run_linux(
             config,
             worker,
@@ -250,8 +266,10 @@ fn main() -> ExitCode {
             input,
             session_provider,
             vt,
-            (watch, execution_mode, x11),
+            (watch, execution_mode, x11, control_socket),
         ),
+        Command::StatusLinux { socket } => local_control(socket, None),
+        Command::StopLinux { socket, session } => local_control(socket, Some(session)),
         Command::CheckLinux {
             config,
             execution_mode,
@@ -479,7 +497,7 @@ fn run_linux(
     _: Vec<PathBuf>,
     _: LinuxProvider,
     _: Option<PathBuf>,
-    _: (WatchArgs, LinuxExecution, X11Args),
+    _: (WatchArgs, LinuxExecution, X11Args, Option<PathBuf>),
 ) -> ExitCode {
     eprintln!("run-linux requires Linux");
     ExitCode::from(78)
@@ -492,7 +510,12 @@ fn run_linux(
     input: Vec<PathBuf>,
     provider: LinuxProvider,
     vt: Option<PathBuf>,
-    (watch, execution_mode, x11): (WatchArgs, LinuxExecution, X11Args),
+    (watch, execution_mode, x11, control_socket): (
+        WatchArgs,
+        LinuxExecution,
+        X11Args,
+        Option<PathBuf>,
+    ),
 ) -> ExitCode {
     use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};
     let provider = match linux_provider(provider, vt, execution_mode, x11) {
@@ -534,10 +557,26 @@ fn run_linux(
             return ExitCode::from(1);
         }
     };
+    let mut control = match control_socket
+        .as_ref()
+        .map(|path| keyweave_linux::session_control::Server::bind(path))
+        .transpose()
+    {
+        Ok(server) => server,
+        Err(e) => {
+            eprintln!("local control setup failed before worker start: {e}");
+            return ExitCode::from(1);
+        }
+    };
     let outcome = match prepared.start() {
         Ok(outcome) => outcome,
         Err(e) => {
             eprintln!("{e}");
+            if let Some(server) = control.as_mut()
+                && let Err(error) = server.close()
+            {
+                eprintln!("control cleanup failed: {error}");
+            }
             return ExitCode::from(1);
         }
     };
@@ -547,15 +586,25 @@ fn run_linux(
                 "startup_cancelled=true, worker_exit=not_started, stop_signal={:?}, signal_close_failure={:?}",
                 cancelled.signal, cancelled.signal_close_failure
             );
-            ExitCode::from(if cancelled.signal_close_failure.is_none() {
-                0
-            } else {
-                1
-            })
+            let control_closed = control.as_mut().is_none_or(|server| match server.close() {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("control cleanup failed: {e}");
+                    false
+                }
+            });
+            ExitCode::from(
+                if cancelled.signal_close_failure.is_none() && control_closed {
+                    0
+                } else {
+                    1
+                },
+            )
         }
         StartOutcome::Running(mut native) => {
             // No file parsing, stdin thread or stdio on this control loop.
             let mut stats = LinuxWatchStats::default();
+            let mut control_error = None;
             let status = loop {
                 let status = if let Some(watcher) = watcher.as_mut() {
                     let result = watcher.poll(&mut native);
@@ -574,10 +623,52 @@ fn run_linux(
                 } else {
                     native.poll_once()
                 };
+                // Supervisor deadline/progress/actual-exit observation takes
+                // priority over each bounded public IPC batch.
+                if control_error.is_none()
+                    && let Some(server) = control.as_mut()
+                {
+                    let result = server.poll(native.control_snapshot(server.session()));
+                    if server.stop_requested() {
+                        native.request_shutdown();
+                    }
+                    if let Err(e) = result {
+                        control_error = Some(e.to_string());
+                        native.fail_control(e);
+                    }
+                }
                 if !matches!(status, DriveStatus::Pending(_)) {
                     break status;
                 }
             };
+            if let Some(server) = control.as_mut() {
+                let mut snapshot = native.control_snapshot(server.session());
+                if matches!(status, DriveStatus::ObservationExpired) {
+                    snapshot.phase = keyweave_progress::session_control::Phase::Unobserved;
+                    snapshot.exit = None;
+                    snapshot.recovery_confirmed = false;
+                    snapshot.fault = true;
+                }
+                // Actual exit is already observed before this bounded final-status
+                // service window. Unobserved owners never wait here or fake exit.
+                let until = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                loop {
+                    if control_error.is_none()
+                        && let Err(e) = server.poll(snapshot)
+                    {
+                        control_error = Some(e.to_string());
+                    }
+                    if !matches!(status, DriveStatus::Exited(_))
+                        || std::time::Instant::now() >= until
+                    {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                if let Err(e) = server.close() {
+                    control_error.get_or_insert_with(|| e.to_string());
+                }
+            }
             let source_reaped = watcher.as_mut().map(reap_linux_source);
             // Terminal metadata only, outside the active supervision loop.
             if watcher.is_some() {
@@ -586,7 +677,11 @@ fn run_linux(
                     watcher.as_ref().and_then(|w| w.notification_error())
                 );
             }
-            let watch_success = stats.fault.is_none() && source_reaped != Some(false);
+            if let Some(error) = control_error.as_ref() {
+                eprintln!("local control failed: {error}");
+            }
+            let watch_success =
+                stats.fault.is_none() && source_reaped != Some(false) && control_error.is_none();
             match status {
                 DriveStatus::Exited(report) => {
                     println!("{report}");
@@ -1128,5 +1223,100 @@ mod windows_mixed_cli_tests {
                 .capture_scope(),
             CaptureScope::Keyboard
         );
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn local_control(_: PathBuf, _: Option<u64>) -> ExitCode {
+    eprintln!("local Linux control requires Linux");
+    ExitCode::from(78)
+}
+#[cfg(target_os = "linux")]
+fn local_control(socket: PathBuf, session: Option<u64>) -> ExitCode {
+    use keyweave_progress::session_control::{Command, Outcome, Request};
+    let request = Request {
+        id: 1,
+        command: session.map_or(Command::Status, |session| Command::Stop { session }),
+    };
+    let result = (|| {
+        let mut client = keyweave_linux::session_control::Client::connect(
+            &socket,
+            request,
+            std::time::Duration::from_secs(2),
+        )?;
+        loop {
+            if let Some(reply) = client.poll()? {
+                return Ok::<_, std::io::Error>(reply);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    })();
+    match result {
+        Ok(reply) => {
+            let s = reply.snapshot;
+            println!(
+                "outcome={:?}, public_session={}, phase={:?}, progress_epoch={}, last_observed_generation={:?}, worker_exit={:?}, recovery_confirmed={}, host_fault={}",
+                reply.outcome,
+                s.session,
+                s.phase,
+                s.progress_epoch,
+                s.generation,
+                s.exit,
+                s.recovery_confirmed,
+                s.fault
+            );
+            ExitCode::from(if reply.outcome == Outcome::StaleSession {
+                1
+            } else {
+                0
+            })
+        }
+        Err(e) => {
+            eprintln!("local control unavailable; worker exit/recovery unconfirmed: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod control_cli_tests {
+    use super::*;
+    #[test]
+    fn public_control_cli_requires_explicit_socket_and_nonzero_expected_stop_session() {
+        assert!(Cli::try_parse_from(["host", "status-linux"]).is_err());
+        assert!(
+            Cli::try_parse_from(["host", "stop-linux", "--socket", "/private/control"]).is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "host",
+                "stop-linux",
+                "--socket",
+                "/private/control",
+                "--session",
+                "0"
+            ])
+            .is_err()
+        );
+        assert!(matches!(
+            Cli::try_parse_from(["host", "status-linux", "--socket", "/private/control"])
+                .unwrap()
+                .command,
+            Command::StatusLinux { .. }
+        ));
+        assert!(matches!(
+            Cli::try_parse_from([
+                "host",
+                "stop-linux",
+                "--socket",
+                "/private/control",
+                "--session",
+                "123"
+            ])
+            .unwrap()
+            .command,
+            Command::StopLinux { session: 123, .. }
+        ));
     }
 }

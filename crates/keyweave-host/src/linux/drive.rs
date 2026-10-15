@@ -111,6 +111,7 @@ struct Pump<O: Owner, S: Schedule> {
     observation_start: Option<Duration>,
     finished: Option<NativeReport>,
     reload: Option<super::reload::NativeReload>,
+    requested_stop: bool,
 }
 impl<O: Owner, S: Schedule> Pump<O, S> {
     fn tick(&mut self) -> DriveStatus {
@@ -142,6 +143,9 @@ impl<O: Owner, S: Schedule> Pump<O, S> {
                 None
             }
         };
+        if self.requested_stop {
+            self.controller.request_shutdown(now);
+        }
         match self.controller.poll(now, signal) {
             super::State::Pending(_) => {}
             super::State::Exited(worker) => {
@@ -261,6 +265,7 @@ impl NativeSession {
                 observation_start: None,
                 finished: None,
                 reload,
+                requested_stop: false,
             },
         }
     }
@@ -348,6 +353,59 @@ impl NativeSession {
             .reload
             .as_mut()
             .and_then(|lane| lane.take_completion())
+    }
+    /// Queue a user control request for the next actual pump tick. This never
+    /// manufactures an OS signal or progress receipt and cannot renew a deadline.
+    pub fn request_shutdown(&mut self) {
+        self.pump.requested_stop = true;
+    }
+    pub fn fail_control(&mut self, error: io::Error) {
+        self.watcher_fail(error);
+    }
+    pub fn control_snapshot(&self, session: u64) -> keyweave_progress::session_control::Snapshot {
+        use keyweave_linux::runtime::RuntimePhase;
+        use keyweave_progress::session_control::{Exit, Phase, Snapshot};
+        use std::os::unix::process::ExitStatusExt;
+        let owner = &self.pump.controller.owner;
+        let status = owner.status();
+        let progress = owner.progress_phase();
+        let (phase, exit) = match status {
+            SupervisorStatus::Exited { status, .. } => (
+                Phase::Exited,
+                status
+                    .code()
+                    .map(|n| Exit::Code(n as u32))
+                    .or_else(|| status.signal().map(|n| Exit::Signal(n as u32))),
+            ),
+            SupervisorStatus::Running if self.pump.requested_stop => (Phase::StopRequested, None),
+            SupervisorStatus::Running
+                if progress == Some(RuntimePhase::Active) && owner.epoch() > 0 =>
+            {
+                (Phase::Active, None)
+            }
+            SupervisorStatus::Running if progress.is_none() => (Phase::Starting, None),
+            _ => (Phase::StopRequested, None),
+        };
+        Snapshot {
+            session,
+            phase,
+            exit,
+            progress_epoch: owner.epoch(),
+            generation: if progress == Some(RuntimePhase::Active) && owner.epoch() > 0 {
+                Some(self.observed_config_generation().map_or(1, |g| g.0))
+            } else {
+                None
+            },
+            recovery_confirmed: self
+                .pump
+                .finished
+                .is_some_and(|r| r.worker.recovery_confirmed()),
+            fault: self.pump.controller.fault.is_some()
+                || self
+                    .pump
+                    .finished
+                    .is_some_and(|r| r.signal_close_failure.is_some()),
+        }
     }
     pub fn status(&self) -> SupervisorStatus {
         self.pump.controller.owner.status()
@@ -459,6 +517,22 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn public_stop_queue_is_idempotent_and_does_not_invent_signal_epoch_or_exit() {
+        let mut p = pump();
+        p.requested_stop = true;
+        assert!(matches!(p.tick(), DriveStatus::Pending(_)));
+        assert_eq!(p.controller.owner.shutdowns, 1);
+        assert_eq!(p.controller.signal, None);
+        assert_eq!(p.controller.owner.epoch(), 0);
+        assert_eq!(p.controller.owner.terminal_reads, 0);
+        assert!(p.finished.is_none());
+        p.schedule.now = MonoTime(2);
+        p.requested_stop = true;
+        assert!(matches!(p.tick(), DriveStatus::Pending(_)));
+        assert_eq!(p.controller.owner.shutdowns, 1);
+        assert!(p.finished.is_none());
+    }
     fn pump() -> Pump<MockOwner, MockSchedule> {
         Pump {
             controller: Controller::new(MockOwner {
@@ -486,6 +560,7 @@ mod tests {
             observation_start: None,
             finished: None,
             reload: None,
+            requested_stop: false,
         }
     }
     #[test]

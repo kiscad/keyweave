@@ -123,3 +123,7 @@ Linux Evdev 冷启动现已连接可选 libudev 静态类型 provider（见下�
 类型只在本次打开时读取，随后作为设备实例静态元数据复制到上下文。运行中不加载库/读取udev；修改udev规则后需重新打开会话。没有可用分类记录时整个类型观察保持Unknown，不能按属性缺失补false；只有完整初始化分类范围内，未标记类别才解释为false。
 
 只读诊断：`RUSTUP_TOOLCHAIN=stable cargo run -p keyweave-linux --example udev-provider-check --locked --offline`。它只检查库路径信任/符号可用性，不枚举/打开输入设备，也不抓取或注入。当前沙箱实际返回exit1（系统库与祖先显示UID65534，严格root边界拒绝）。未降低检查，未实际完成libudev设备查询或硬件验收；本机也缺少libudev.h，新增FFI签名按固定v257官方header审阅，尚无本地SDK C编译证明。见 [ADR-0227](ADR-0227-udev-static-device-types.md) 与[验证记录](validation/linux-2026-10-15-udev-types.json)。
+
+## 显式本地 Status / Stop
+
+在已验证的run-linux命令增加 `--control-socket /absolute/private-dir/control.sock`，目录必须现有、同euid且0700；默认不启用，不替换已有路径。随后CLI可用 `status-linux --socket ...` 取得独立public session，再以 `stop-linux --socket ... --session ID` 请求同会话停止。GUI使用同一客户端。公开Stop不伪造信号/进度、重复不续deadline；EOF不是exit，恢复事实也不由exit0推断。详见 [使用和协议](SESSION_CONTROL.zh-CN.md)。native gate在获准IPC环境中8项通过，含实际host→自有无输入worker的完整退出链；不证明真实键盘/指针捕获可用。

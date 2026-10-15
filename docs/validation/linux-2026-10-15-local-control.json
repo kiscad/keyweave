@@ -1,0 +1,227 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "2fddd3483b34412693c7cea4fcb872f257e2faad",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.lock": "f1c17c540ba9d3ab091b8acbee3bcebc7c596b4a7875e02fc25242066fedd068",
+    "crates/keyweave-progress/src/lib.rs": "25094bc629ad009b001e1e20999ff1be1cf6204a2c961ee62e25e3a811b616e1",
+    "crates/keyweave-progress/src/session_control.rs": "543f9f3a344cd3fcd343dde459adf349300a8f6c832e1347e658327825570aed",
+    "crates/keyweave-linux/src/lib.rs": "410d7e525cf1f4c26d324a02a56a451ab63f6a05f4270e231ad7355eb9f40075",
+    "crates/keyweave-linux/src/session_control.rs": "308f11b63f2d4aa511f0a9dd9c5abff61a1817afc3705ece9c4f9095ba07771e",
+    "crates/keyweave-host/src/linux.rs": "907ec928039fe862a2ffe15bba8b7e8f3c344a607073b82dd7e0a30863b86a74",
+    "crates/keyweave-host/src/linux/drive.rs": "d89d22fabdb69127a3fa88103a3af3a4171cba4f9e628af068c8d24365dac41b",
+    "crates/keyweave-host/src/main.rs": "b5dd0d0fcc1f9720cbde098dd7f91d5723b2add60b9ecf96db65bd6fbc156593",
+    "crates/keyweave-host/tests/linux_session.rs": "d3e01172a057ad1dd996f7ac534c73125046a9bdd407f6b4e40988f2ca9910a3",
+    "crates/keyweave-host/tests/local_control.rs": "cb5a6014b5b82f9626c52373701f99c898fe94ea258ba5843954e219c05449ca",
+    "crates/keyweave-host/examples/session-control-fixture.rs": "c577791dee0e4c64cf7902e505cc491c7623dc99d7620db493b68f841ffda4a9",
+    "crates/keyweave-ui/Cargo.toml": "4791b9ec85e6d2d3c1066f4c12dae1d38324269055a442ae1983eaea450c28bc",
+    "crates/keyweave-ui/src/lib.rs": "a78a2e58dbcab413bf89eb16fc5dc2947bde5f08ef27211ab8c398e18dba0ac1",
+    "crates/keyweave-ui/src/view.rs": "e5f858f4c15a7f811a91c5a7d7d8f7e6d020c4bdeda2c2c3f9e4594b0901d48a",
+    "crates/keyweave-ui/src/control.rs": "f00b2a09cdaa0877f4b8bbd7474aac0f41f80e3aa44e2e5d9da0258021f3f0fd",
+    "tools/verify_linux_abi.py": "fdc1a3e18ced0a83e9138d8133ec90215077157ba61d5738882b72f08a5142b2",
+    "tools/verify_session_control_native.py": "052a6d5ee67a787af564cfe552d31d1dfceee0f3fd7d801b7fc2b20bb17b861d"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1938,
+    "new_default_tests": 6,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/clippy.log",
+        "sha256": "51fe85ae80b8a2f7a0df7962cc00c836eee40c30144ff1b68eb8b1371beef122"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/tests.log",
+        "sha256": "f1e9461e2a4a37c0d53961acc5a98165f1feeb8a5fb4e6dd4ae859d5d5579905"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-local-control/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "native_ipc": {
+    "runner": [
+      "python3",
+      "tools/verify_session_control_native.py"
+    ],
+    "execution": "Reviewer-approved execution outside the socket-restricted sandbox; no input device, capture, Hook or injection. Existing Windows native quota rejection is unrelated and was not retried.",
+    "test_cases_passed": 8,
+    "checks": [
+      {
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "keyweave-host",
+          "--example",
+          "session-control-fixture",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/local-control-native/0.log",
+        "sha256": "8c233a54790c4800d3dd585436af679aa838da259bfdb129412e2d51cdb75cdc"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-linux",
+          "--lib",
+          "session_control",
+          "--locked",
+          "--offline",
+          "--",
+          "--ignored"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/local-control-native/1.log",
+        "sha256": "2137e9a9256c42b946e863c479388e126ac46ee6025ee74c893733a690c576ce"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-host",
+          "--test",
+          "local_control",
+          "--locked",
+          "--offline",
+          "--",
+          "--ignored"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/local-control-native/2.log",
+        "sha256": "df577b43a643d04555ff95cbf8228701bed5ee88111629aa85c67b6fae56c83e"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-ui",
+          "--lib",
+          "actual_gui_client",
+          "--locked",
+          "--offline",
+          "--",
+          "--ignored"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/local-control-native/3.log",
+        "sha256": "b0985a030116af012d87dcb950dc5f1140a2a358c177838c522b3cc49b2139ac"
+      }
+    ],
+    "counts": "3 actual AF_UNIX transport tests + 4 actual CLI/host tests + 1 GUI client test. These same eight are ignored by default workspace tests, not counted as default passes.",
+    "owned_host_case": "Actual host CLI/socket/original Supervisor/owned no-input worker/actual exit/final status; outstanding private challenge receives no fake progress response, epoch stays zero. Synthetic no-input terminal facts are not global recovery proof."
+  },
+  "initial_failures": [
+    {
+      "exit_code": 101,
+      "log": "target/local-control-transport-tests.log",
+      "reason": "Three real Unix socket tests failed creation with EPERM inside sandbox. Explicit native gate subsequently passed in approved IPC-capable execution.",
+      "sha256": "3cdd28e5b46c981ff9985a3d0315796406cbf49d0f0f1d1748cc85addaea7e5f"
+    },
+    {
+      "exit_code": 101,
+      "log": "target/local-control-first-clippy.log",
+      "reason": "bool assert comparison in codec test corrected.",
+      "sha256": "8d3c1fb5bacb4c48de63bc5af44ec758141e8b58aeabe57e19f3fa620e6fbb83"
+    },
+    {
+      "exit_code": 101,
+      "log": "target/local-control-final-clippy.log",
+      "reason": "Collapsible if and test-only unwrap lint corrected.",
+      "sha256": "a6b69e0d577db8b4938461605ff0e64360049dee739f25824a8d04a731957f27"
+    },
+    {
+      "exit_code": 101,
+      "log": "target/local-control-e2e-clippy.log",
+      "reason": "Test fixture env expect lint corrected before final native acceptance.",
+      "sha256": "c54ae532ae6e3398301cb4faf6c46d5f209ff99e82c13ba46558ed22940021d3"
+    }
+  ],
+  "sources": [
+    "https://man7.org/linux/man-pages/man7/unix.7.html",
+    "https://man7.org/linux/man-pages/man2/connect.2.html"
+  ],
+  "limitations": [
+    "Status/Stop only. GUI does not start/resume a session, Apply a configuration, provide devices/Event Viewer or public reload. Windows public transport still pending.",
+    "Same-euid/private-directory authorization, not cross-user or cross-desktop-session broker authorization. Foreign-UID adversarial process tests not performed; actual native tests prove same-user transport and path/credential API behavior.",
+    "Client/server timers and bounded syscalls are not hard realtime scheduling/GUI cold-filesystem IO guarantees. No unbounded retry, IPC-driven progress or lease renewal.",
+    "StopAccepted and EOF/socket disappearance are not actual exit or recovery. Final actual-exit snapshot is available for only a bounded 500ms service window; later clients retain uncertainty.",
+    "Independent public random session ID is a stale-session fence, not a secret authorization token or private watchdog run ID.",
+    "Native GUI client methods and headless GUI logic were tested; no desktop rendering/click/hardware input acceptance. Existing XOpenDisplayFailed/NoCompositor limitation remains.",
+    "No actual evdev/uinput capture or Win32 Hook/injection. Windows native SDK/build/hardware and full migration remain unfinished."
+  ]
+}

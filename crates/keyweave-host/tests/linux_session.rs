@@ -139,7 +139,7 @@ fn main() {
     }
     // Real signals target only this owned no-input harness PID. The child
     // receives a private Stop frame, not a terminal foreground-group signal.
-    for mode in ["complete", "missing"] {
+    for (mode, public_stop) in [("complete", false), ("missing", false), ("complete", true)] {
         use keyweave_host::linux::{DriveStatus, NativeSession};
         use keyweave_linux::{host_signals::HostSignals, reactor::MonotonicClock};
         let signals = HostSignals::install().unwrap();
@@ -156,21 +156,54 @@ fn main() {
             ConfigArtifact::create(b"no input fixture").unwrap(),
         )
         .unwrap();
-        let mut own_signal = Command::new("/bin/kill");
-        own_signal.args(["-s", "INT", &std::process::id().to_string()]);
-        signals.prepare_child(&mut own_signal).unwrap();
-        assert!(own_signal.status().unwrap().success());
+        if !public_stop {
+            let mut own_signal = Command::new("/bin/kill");
+            own_signal.args(["-s", "INT", &std::process::id().to_string()]);
+            signals.prepare_child(&mut own_signal).unwrap();
+            assert!(own_signal.status().unwrap().success());
+        }
         let mut native = NativeSession::new(Session::new(supervisor), signals, clock);
+        if public_stop {
+            use keyweave_progress::session_control::Phase;
+            let initial = native.control_snapshot(999);
+            assert_eq!(initial.phase, Phase::Starting);
+            assert_eq!(initial.exit, None);
+            assert_eq!(initial.progress_epoch, 0);
+            native.request_shutdown();
+            native.request_shutdown();
+            let pending = native.control_snapshot(999);
+            assert_eq!(pending.phase, Phase::StopRequested);
+            assert_eq!(pending.exit, None);
+            assert!(!pending.recovery_confirmed);
+        }
         let DriveStatus::Exited(report) = native.run() else {
             panic!("native child exit was not observed");
         };
         assert_eq!(report.worker.status.code(), Some(0));
-        assert_eq!(report.worker.signal, Some(StopSignal::Interrupt));
+        assert_eq!(
+            report.worker.signal,
+            if public_stop {
+                None
+            } else {
+                Some(StopSignal::Interrupt)
+            }
+        );
         assert_eq!(report.worker.reason, Some(TerminationReason::Cooperative));
         assert_eq!(report.worker.progress_epoch, 0);
         assert_eq!(report.successful(), mode == "complete");
         assert!(report.signal_close_failure.is_none());
         assert_eq!(native.run(), DriveStatus::Exited(report));
+        if public_stop {
+            use keyweave_progress::session_control::{Exit, Phase};
+            let actual = native.control_snapshot(999);
+            assert_eq!(actual.phase, Phase::Exited);
+            assert_eq!(actual.exit, Some(Exit::Code(0)));
+            assert!(
+                actual.recovery_confirmed,
+                "synthetic no-input worker report only"
+            );
+            actual.validate().unwrap();
+        }
     }
     {
         use keyweave_host::linux::{DriveStatus, LaunchOptions, PreparedLaunch, StartOutcome};

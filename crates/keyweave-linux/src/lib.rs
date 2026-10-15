@@ -41,6 +41,8 @@ pub mod reload_channel;
 pub mod run_identity;
 pub mod runtime;
 #[cfg(target_os = "linux")]
+pub mod session_control;
+#[cfg(target_os = "linux")]
 pub mod supervisor;
 pub mod termination;
 #[cfg(target_os = "linux")]
