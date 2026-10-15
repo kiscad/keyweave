@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "ac1e061e43711fabb79776228297811ce41ef5dc",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/mouse_hook.rs": "2e2bf80c96933787d5a279274007eaaea261593d9c7579ac3ad1de2a7c473a7a"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1841,
+    "new_tests": 4,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-combined-mouse/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-combined-mouse/1.log",
+        "sha256": "a7de18b7b37e0545a5dddeb827f99c6c8866b098d6b5c434f300ebebef9fbf84"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-combined-mouse/2.log",
+        "sha256": "dd475c4821b6c1798227de8e66564e30c74fc6c7de9ad942958f8b49fe14ea6a"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-combined-mouse/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-combined-mouse/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-combined-mouse/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Portable semantic tests under Linux; native Hook/SDK checks pending after prior automatic approval quota rejection, not retried."
+  },
+  "limitations": [
+    "Combination decoder/dispatcher tests use real production parser/state machine and mocked handler, no native registration/capture/injection.",
+    "One native record has one capture result: differing saved bindings or partial-orphan combined Up latches BindingConflict/pass and preserves slots; caller must stop capture and recover accepted output separately.",
+    "Only dispatcher slot updates are atomic; handlers must preflight combined engine work and cannot assume dispatcher rolls back handler effects.",
+    "Position remains screen-coordinate Pass. Native mouse callback/session/Runtime, Windows native verification/hardware, X11/Wayland acceptance, GUI and packaging remain pending."
+  ]
+}

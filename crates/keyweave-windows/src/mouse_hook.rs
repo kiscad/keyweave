@@ -27,13 +27,17 @@ pub enum MouseInputEvent {
         key: KeyId,
         edge: KeyEdge,
     },
+    /// One native record: button4 then button5; capture decision is shared.
+    ButtonPair {
+        edges: [KeyEdge; 2],
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MouseFault {
     #[error("invalid mouse hook record")]
     Record,
-    #[error("combined XBUTTON1/XBUTTON2 requires multi-button capture semantics")]
-    CombinedButtons,
+    #[error("one native mouse record cannot satisfy conflicting button bindings")]
+    BindingConflict,
     #[error("mouse handler failed")]
     Handler,
     #[error("mouse handler panicked")]
@@ -73,7 +77,16 @@ impl MouseHookRecord {
                     _ => {
                         let button = self.data >> 16;
                         if button == 3 {
-                            return Err(MouseFault::CombinedButtons);
+                            return Ok((
+                                origin,
+                                MouseInputEvent::ButtonPair {
+                                    edges: [if self.message == 0x20b {
+                                        KeyEdge::Down
+                                    } else {
+                                        KeyEdge::Up
+                                    }; 2],
+                                },
+                            ));
                         }
                         if !(1..=2).contains(&button) {
                             return Err(MouseFault::Record);
@@ -102,6 +115,8 @@ impl MouseHookRecord {
 pub struct MouseHookEvent {
     pub input: MouseInputEvent,
     pub binding: Option<CaptureDecision>,
+    /// Present for ButtonPair only, in button4/button5 order.
+    pub pair_bindings: Option<[Option<CaptureDecision>; 2]>,
 }
 pub trait MouseHandler {
     /// Synchronous bounded callback logic; Position must return Pass.
@@ -167,6 +182,31 @@ impl<H: MouseHandler> MouseDispatcher<H> {
         let mut slot = None;
         let mut binding = None;
         let mut up = false;
+        let mut pair_bindings = None;
+        let mut pair_up = false;
+        if let MouseInputEvent::ButtonPair { mut edges } = input {
+            let previous = [self.slots[3], self.slots[4]];
+            pair_up = edges[0] == KeyEdge::Up;
+            if pair_up && previous == [None; 2] {
+                return CaptureDecision::Pass;
+            }
+            if (previous[0].is_some() && previous[1].is_some() && previous[0] != previous[1])
+                || (pair_up && (previous[0].is_none() || previous[1].is_none()))
+            {
+                self.stop(MouseFault::BindingConflict);
+                return CaptureDecision::Pass;
+            }
+            binding = previous[0].or(previous[1]);
+            pair_bindings = Some(previous);
+            if !pair_up {
+                for (edge, saved) in edges.iter_mut().zip(previous) {
+                    if saved.is_some() {
+                        *edge = KeyEdge::Repeat;
+                    }
+                }
+            }
+            input = MouseInputEvent::ButtonPair { edges };
+        }
         if let MouseInputEvent::Button { key, edge } = input {
             let index = usize::from(key.usage - 1);
             slot = Some(index);
@@ -183,7 +223,11 @@ impl<H: MouseHandler> MouseDispatcher<H> {
             }
         }
         let decision = match catch_unwind(AssertUnwindSafe(|| {
-            self.handler.handle_mouse(MouseHookEvent { input, binding })
+            self.handler.handle_mouse(MouseHookEvent {
+                input,
+                binding,
+                pair_bindings,
+            })
         })) {
             Ok(Ok(d)) => binding.unwrap_or(d),
             Ok(Err(e)) => {
@@ -200,6 +244,11 @@ impl<H: MouseHandler> MouseDispatcher<H> {
         {
             self.stop(MouseFault::MovementCapture);
             return CaptureDecision::Pass;
+        }
+        if pair_bindings.is_some() {
+            let saved = if pair_up { None } else { Some(decision) };
+            self.slots[3] = saved;
+            self.slots[4] = saved;
         }
         if let Some(index) = slot {
             self.slots[index] = if up { None } else { Some(decision) };
@@ -249,7 +298,12 @@ mod tests {
         }
         assert_eq!(
             record(0x20b, 0x30000).decode(tag()),
-            Err(MouseFault::CombinedButtons)
+            Ok((
+                Origin::Physical,
+                MouseInputEvent::ButtonPair {
+                    edges: [KeyEdge::Down; 2]
+                }
+            ))
         );
     }
     #[test]
@@ -400,6 +454,133 @@ mod tests {
         assert_eq!(d.held_buttons(), 0);
         assert_eq!(d.dispatch(0, None), CaptureDecision::Pass);
         assert_eq!(d.fault(), Some(MouseFault::Record));
+    }
+    #[test]
+    fn combined_pair_commits_once_with_shared_decision_and_saved_edges() {
+        let mut d = dispatcher();
+        assert_eq!(
+            d.dispatch(0, Some(record(0x20b, 3 << 16))),
+            CaptureDecision::Capture
+        );
+        assert_eq!(
+            (d.held_buttons(), d.held_captured(), d.handler.events.len()),
+            (2, 2, 1)
+        );
+        assert_eq!(d.handler.events[0].pair_bindings, Some([None; 2]));
+        d.handler.decision = CaptureDecision::Pass;
+        assert_eq!(
+            d.dispatch(0, Some(record(0x20b, 3 << 16))),
+            CaptureDecision::Capture
+        );
+        assert_eq!(
+            d.handler.events[1].input,
+            MouseInputEvent::ButtonPair {
+                edges: [KeyEdge::Repeat; 2]
+            }
+        );
+        assert_eq!(
+            d.handler.events[1].pair_bindings,
+            Some([Some(CaptureDecision::Capture); 2])
+        );
+        assert_eq!(
+            d.dispatch(0, Some(record(0x20c, 3 << 16))),
+            CaptureDecision::Capture
+        );
+        assert_eq!(d.held_buttons(), 0);
+        let calls = d.handler.events.len();
+        assert_eq!(
+            d.dispatch(0, Some(record(0x20c, 3 << 16))),
+            CaptureDecision::Pass
+        );
+        assert_eq!(d.handler.events.len(), calls);
+    }
+    #[test]
+    fn combined_new_and_repeat_share_existing_binding_in_both_slot_orders() {
+        for first in [1, 2] {
+            for decision in [CaptureDecision::Pass, CaptureDecision::Capture] {
+                let mut d = dispatcher();
+                d.handler.decision = decision;
+                d.dispatch(0, Some(record(0x20b, first << 16)));
+                d.handler.decision = if decision == CaptureDecision::Capture {
+                    CaptureDecision::Pass
+                } else {
+                    CaptureDecision::Capture
+                };
+                assert_eq!(d.dispatch(0, Some(record(0x20b, 3 << 16))), decision);
+                assert_eq!(d.held_buttons(), 2);
+                let edges = if first == 1 {
+                    [KeyEdge::Repeat, KeyEdge::Down]
+                } else {
+                    [KeyEdge::Down, KeyEdge::Repeat]
+                };
+                assert_eq!(
+                    d.handler.events[1].input,
+                    MouseInputEvent::ButtonPair { edges }
+                );
+                assert_eq!(d.handler.events[1].binding, Some(decision));
+                assert_eq!(d.dispatch(0, Some(record(0x20c, 3 << 16))), decision);
+                assert_eq!(d.held_buttons(), 0);
+            }
+        }
+    }
+    #[test]
+    fn combined_conflicts_do_not_call_handler_or_change_either_binding() {
+        for up in [false, true] {
+            let mut d = dispatcher();
+            d.dispatch(0, Some(record(0x20b, 1 << 16)));
+            d.handler.decision = CaptureDecision::Pass;
+            d.dispatch(0, Some(record(0x20b, 2 << 16)));
+            let calls = d.handler.events.len();
+            assert_eq!(
+                d.dispatch(0, Some(record(if up { 0x20c } else { 0x20b }, 3 << 16))),
+                CaptureDecision::Pass
+            );
+            assert_eq!(d.fault(), Some(MouseFault::BindingConflict));
+            assert_eq!(
+                (d.held_buttons(), d.held_captured(), d.handler.events.len()),
+                (2, 1, calls)
+            );
+        }
+        let mut d = dispatcher();
+        d.dispatch(0, Some(record(0x20b, 1 << 16)));
+        assert_eq!(
+            d.dispatch(0, Some(record(0x20c, 3 << 16))),
+            CaptureDecision::Pass
+        );
+        assert_eq!(d.fault(), Some(MouseFault::BindingConflict));
+        assert_eq!(d.held_captured(), 1);
+    }
+    #[test]
+    fn combined_failure_keeps_both_slots_and_injected_pair_bypasses_state() {
+        for panic in [false, true] {
+            let mut d = dispatcher();
+            d.dispatch(0, Some(record(0x20b, 3 << 16)));
+            d.handler.panic = panic;
+            d.handler.error = !panic;
+            assert_eq!(
+                d.dispatch(0, Some(record(0x20c, 3 << 16))),
+                CaptureDecision::Pass
+            );
+            assert_eq!(d.held_captured(), 2);
+            assert_eq!(d.handler.events.len(), 2);
+        }
+        for extra_info in [23, 24] {
+            let mut d = dispatcher();
+            assert_eq!(
+                d.dispatch(
+                    0,
+                    Some(MouseHookRecord {
+                        flags: 1,
+                        extra_info,
+                        ..record(0x20b, 3 << 16)
+                    })
+                ),
+                CaptureDecision::Pass
+            );
+            assert_eq!(d.held_buttons(), 0);
+            assert!(d.handler.events.is_empty());
+            assert_eq!(d.fault(), None);
+        }
     }
     #[test]
     fn faults_preserve_held_slots_and_position_capture_is_rejected() {

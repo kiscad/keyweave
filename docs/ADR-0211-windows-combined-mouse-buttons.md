@@ -1,0 +1,7 @@
+# ADR-0211：组合 XBUTTON 的原子捕获决定
+
+MSLLHOOKSTRUCT mouseData 高word可同时为 XBUTTON1|XBUTTON2。解析 mask3 为 ButtonPair，固定顺序button4、button5；每个槽保持自己的Down/Repeat/Up边，但一个原生Hook记录只能有一个Capture/Pass结果，因此handler只调用一次，两个槽只在成功后共同提交。
+
+首次两个Down由handler一次决定；若其中一个已有binding，整个记录沿该binding；已有两个binding不同则 BindingConflict，锁存故障/pass且槽不变。两个orphan Up一起pass；一真Up一orphan不能在同记录保持捕获来源一致，也报 BindingConflict/pass保槽，交由调用者先停capture再按输出接受账本恢复。非一致决定无法通过拆两次callback模拟，否则第一侧提交后第二侧失败无法回滚原生抑制结果。无Capture原子性承诺扩展到handler自身：handler必须为该组合冷预检/原子更新引擎，失败后dispatcher保槽并停止，但不撤销handler副作用。
+
+MouseHookEvent 为pair另带每槽原binding，公共binding为可兼容的共同约束；单按钮接口不变。注入pair仍pass且不改状态；panic/handler失败保原双槽。废除先前所有pair直接unsupported的CombinedButtons故障，改为仅表达确实无法满足的BindingConflict。仍无原生注册/捕获操作、没有改变Position透传或默认Runtime。
