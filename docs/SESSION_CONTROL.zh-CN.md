@@ -93,3 +93,7 @@ native gate 包含 3 个真实 transport/path/partial/timeout cases、4 个实�
 ## Windows 控制开发状态
 
 ADR-0230 已提供冷阶段 `ControlIdentity` 与明确用户/SYSTEM 的 `ControlSecurity` 权限资源；公开 Windows pipe、Status/Stop CLI 与 GUI transport 尚未实现。主体比较包含用户 SID、登录 LUID 与 session；任意 PID 比较结果不构成 pipe-peer 认证。新增 Windows SDK 和生产链接检查尚未原生执行。后续 transaction、取消与 peer 绑定步骤见 [ADR-0230](ADR-0230-windows-control-principal.md)。
+
+ADR-0231 已实现独立的 Windows 服务端/客户端消息事务（`keyweave_windows::session_control`），沿用 KWCC/KWSC。一连接一请求，完整 Read 后鉴权，再执行一次业务处理器；回复后客户端主动关闭，服务端有界观察关闭并清理后复用。默认 1 秒绝对事务期限和额外 100ms 关闭期限，每 poll 至多一个 transport 方法或一次 handler；无内部重试/阻塞 flush。机器只借用 transport，不拥有 OS 资源：fatal error/panic/关闭未完成时仍需 native owner 独立回收，不能调用新 machine 假装取消完成。
+
+目前仅双机内存 transport 与 callback guard 经过测试。尚无 Windows 实际公开 pipe、host 接入或 status/stop 客户端命令，GUI 也仍只接 Linux 控制。消息鉴权必须绑定最后已读消息并恢复原线程身份，ADR-0230 的任意 PID primary-token 比较不能独自承担它。见 [ADR-0231](ADR-0231-windows-control-message-transactions.md)。

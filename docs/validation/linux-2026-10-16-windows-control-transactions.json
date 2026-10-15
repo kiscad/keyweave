@@ -1,0 +1,117 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "dc2c0411df7538a52e38a8553e89c2562c0fcdfb",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/lib.rs": "05932fd41f9acd2bfac1d8397bb393e0bf594fa12754b2b5c0cf39226e6fec73",
+    "crates/keyweave-windows/src/native.rs": "e93e13e6164d06133a423224826f197cb34279fc71c677b287a5724658ae2e3e",
+    "crates/keyweave-windows/src/session_control.rs": "7dd10622d1a93a9757dcd946bf7127a2e6f19afa0a22ff01deee57b75badfaf3",
+    "crates/keyweave-windows/src/session_control/tests.rs": "bf9c98432e550ec50565452bb58cb51eb4a4c6f765e8f9ed95ac1d192973c3c1"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1960,
+    "new_default_tests": 11,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/clippy.log",
+        "sha256": "d882269d777ba1f1da178c0c7966d608338fafbe1422d45e8c4142cb759978a1"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/tests.log",
+        "sha256": "fc85b2d04545406a4d630c2d5fede1cbdfd0a54258e023a32710dd20890ab3f3"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-transactions/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "exit_code": 101,
+      "log": "target/windows-control-transaction-message-auth-tests.log",
+      "sha256": "7a8e2fe4878c927e881265b7e59d511596e190f03d0d156a7bb085df3b658c3c",
+      "reason": "After moving server authorization after complete message read, peer-close-before-request now completes one poll earlier. Updated that test to assert the actual terminal event; added mock last-read-message-context assertion so authorization-before-read cannot regress silently."
+    }
+  ],
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient",
+    "https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-server-using-overlapped-i-o"
+  ],
+  "limitations": [
+    "Pure message transaction machines with paired in-memory transports and callback guard tests. No Windows named-pipe OS adapter, public host integration, CLI or GUI transport yet. Does not establish OS peer authorization or cancellation correctness.",
+    "Server authorization must attest last-read message context and restore original thread token before returning, not just call primary-token PID comparison. Actual native adapter and adversarial tests remain required.",
+    "Machines borrow transports and do not own or clean native resources. Fatal error, panic or unresolved close requires owning adapter independent bounded cleanup. Finished write is not client receipt; Stop dispatch can precede transport failure.",
+    "One nonblocking transport method or one bounded handler per poll, absolute deadlines require caller scheduling/fresh monotonic observations; these are not hard realtime or kernel scheduling guarantees.",
+    "Prior Windows native automatic approval quota rejection was not retried or bypassed. Windows native SDK/link, pipe behavior and hardware were not exercised. Eight existing Linux native IPC tests remain ignored in this default run, not re-counted as passed.",
+    "Full migration including Windows native/hardware acceptance, GUI start/resume/apply, Wayland and packaging is still incomplete."
+  ]
+}

@@ -16,6 +16,7 @@ pub mod progress;
 pub mod pump;
 pub mod reactor;
 pub mod runtime;
+pub mod session_control;
 pub mod startup;
 #[cfg(target_os = "windows")]
 pub use native::SendInputBackend;

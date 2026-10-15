@@ -331,6 +331,76 @@ pub(super) fn outside_callback() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn control_transactions_reject_callback_without_transport_or_handler_calls() {
+        use crate::session_control::*;
+        use keyweave_progress::session_control::{Command, Request};
+        use std::{io, task::Poll, time::Duration};
+        struct NoIo;
+        impl ServerTransport for NoIo {
+            fn accept(&mut self) -> Poll<io::Result<()>> {
+                panic!("callback I/O")
+            }
+            fn authorize(&mut self) -> Poll<io::Result<bool>> {
+                panic!("callback I/O")
+            }
+            fn read(&mut self, _: &mut [u8; MESSAGE_CAPACITY]) -> Poll<io::Result<ReadResult>> {
+                panic!("callback I/O")
+            }
+            fn write(&mut self, _: &[u8; 64]) -> Poll<io::Result<()>> {
+                panic!("callback I/O")
+            }
+            fn disconnect(&mut self) -> Poll<io::Result<()>> {
+                panic!("callback I/O")
+            }
+        }
+        impl ClientTransport for NoIo {
+            fn connect(&mut self) -> Poll<io::Result<()>> {
+                panic!("callback I/O")
+            }
+            fn authorize(&mut self) -> Poll<io::Result<bool>> {
+                panic!("callback I/O")
+            }
+            fn read(&mut self, _: &mut [u8; MESSAGE_CAPACITY]) -> Poll<io::Result<ReadResult>> {
+                panic!("callback I/O")
+            }
+            fn write(&mut self, _: &[u8; 32]) -> Poll<io::Result<()>> {
+                panic!("callback I/O")
+            }
+            fn close(&mut self) -> Poll<io::Result<()>> {
+                panic!("callback I/O")
+            }
+        }
+        let request = Request {
+            id: 1,
+            command: Command::Status,
+        };
+        let mut client = Client::new(request, Duration::ZERO).unwrap();
+        let mut server = Server::new();
+        hook_thread::with_callback_borrow(|| {
+            assert!(matches!(
+                Client::new(request, Duration::ZERO),
+                Err(Error::InCallback)
+            ));
+            assert!(matches!(
+                client.poll(&mut NoIo, Duration::ZERO),
+                Err(Error::InCallback)
+            ));
+            assert!(matches!(
+                server.poll(&mut NoIo, Duration::ZERO, |_| panic!("callback handler")),
+                Err(Error::InCallback)
+            ));
+        });
+        assert!(matches!(
+            client.poll(&mut NoIo, Duration::ZERO),
+            Err(Error::Terminal)
+        ));
+        assert!(matches!(
+            server.poll(&mut NoIo, Duration::ZERO, |_| panic!("handler")),
+            Err(Error::Terminal)
+        ));
+    }
     use std::mem::{align_of, offset_of, size_of};
     #[test]
     fn mouse_union_packing_selects_mouse_discriminant_and_zero_time() {
