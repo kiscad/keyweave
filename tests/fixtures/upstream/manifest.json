@@ -67,6 +67,21 @@
       "path": "vk-none/expected.json",
       "source_path": "tests/src/post_event_to_virtual_devices/json/expected_post_event_to_virtual_devices_queue/vk_none_1.json",
       "sha256": "b49d1640cb311c721b794f8ce20ab3899cd2ba16241908a011db3abff90ad206"
+    },
+    {
+      "path": "complex_assets/single_rule.json",
+      "source_path": "tests/src/complex_modifications_assets/json/single_rule.json",
+      "sha256": "2cc6a1f1d2952ff2da0fb557c37753783b3af46637eee36889214fc07a8616e4"
+    },
+    {
+      "path": "complex_assets/single_rule_enabled_false.json",
+      "source_path": "tests/src/complex_modifications_assets/json/single_rule_enabled_false.json",
+      "sha256": "53a08ba3acb5f0083d88b0da344d53c054e0271597ea9db562cc7e64d25b91e3"
+    },
+    {
+      "path": "complex_assets/library.json",
+      "source_path": "tests/src/complex_modifications_assets/json/complex_modifications/1.json",
+      "sha256": "02f38401de9593861e6c573a38df8520c97a0c50e9bb8bba9d5310700758c3c6"
     }
   ]
 }

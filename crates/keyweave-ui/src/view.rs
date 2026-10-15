@@ -18,7 +18,11 @@ pub struct SettingsApp {
 }
 impl SettingsApp {
     pub fn unsaved(&self) -> bool {
-        self.editor.dirty() || self.visual.as_ref().is_some_and(|p| p.draft.dirty())
+        self.editor.dirty()
+            || self
+                .visual
+                .as_ref()
+                .is_some_and(|p| p.draft.dirty() || p.pending())
     }
     pub fn open_visual(&mut self) -> Result<(), String> {
         if self.visual.is_some() {
@@ -28,6 +32,9 @@ impl SettingsApp {
         Ok(())
     }
     pub fn apply_visual(&mut self) -> Result<(), String> {
+        if self.visual.as_ref().is_some_and(|p| p.pending()) {
+            return Err("Commit or discard rule JSON changes before applying the draft".into());
+        }
         let text = self
             .visual
             .as_ref()
@@ -233,6 +240,10 @@ impl SettingsApp {
 }
 impl eframe::App for SettingsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| self.contents(ui));
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("settings-page")
+                .show(ui, |ui| self.contents(ui));
+        });
     }
 }

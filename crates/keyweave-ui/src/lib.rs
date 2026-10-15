@@ -1,6 +1,8 @@
 //! Rust settings GUI: offline editor only; runtime control is a separate owner.
 pub mod files;
 pub mod model;
+pub mod rules;
+pub mod rules_view;
 pub mod view;
 pub mod visual;
 pub mod visual_view;

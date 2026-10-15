@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "e421e167d99000533bdcbe64ee28fcedd5fbedc0",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-ui/src/files.rs": "a6760c729034705f4ee1b7f7fb87f35dec70f07412e63f142ce02c3c1ba64fd2",
+    "crates/keyweave-ui/src/lib.rs": "ec622784f0e834fe9e6915cd23ced8ada9fdbd5ebf4eaf2178db0abeb9f89078",
+    "crates/keyweave-ui/src/main.rs": "072f834f2b9b6adedb5280117aea097e4bba3d699c068afac9cee6c2bb8ae6f8",
+    "crates/keyweave-ui/src/model.rs": "e0f1465d3dd0a2e2cd661e9703bf45636ebe85aa6d80eee26f6e92faffe9a68b",
+    "crates/keyweave-ui/src/rules.rs": "fb44fbd2d8a66e3d50e7e9bf7a7859bbbf3d25a57a6a10cbdaf9e500d977b58f",
+    "crates/keyweave-ui/src/rules_view.rs": "794543e06dae1c96543aa1bdf56c879177e128756eece91d3ca3e24d1c49b281",
+    "crates/keyweave-ui/src/view.rs": "d5db76fd8fd18f4452cb188845d1834cfbaaa8f5db5cab9cd85b773612bae37f",
+    "crates/keyweave-ui/src/visual.rs": "b2b4f378227dce5e8dd96a6f7a72cef8278ed5a8eb119b4a8b925da5c30509c9",
+    "crates/keyweave-ui/src/visual_view.rs": "60d2f0d1595182ddc7e988cd68ad60c7a2020d8de014e52aac9f335fbcf32ccb",
+    "crates/keyweave-ui/tests/rules.rs": "43b5ad98498b48d3d84bf19f6e322b82e3d533a402e16b325e954ad549eb42a1",
+    "tests/fixtures/upstream/manifest.json": "2a9d6f43755d022a489c488bb2b3761bc74921399aafda65b50cbeb161f6b6bd",
+    "tests/fixtures/upstream/complex_assets/library.json": "02f38401de9593861e6c573a38df8520c97a0c50e9bb8bba9d5310700758c3c6",
+    "tests/fixtures/upstream/complex_assets/single_rule.json": "2cc6a1f1d2952ff2da0fb557c37753783b3af46637eee36889214fc07a8616e4",
+    "tests/fixtures/upstream/complex_assets/single_rule_enabled_false.json": "53a08ba3acb5f0083d88b0da344d53c054e0271597ea9db562cc7e64d25b91e3"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1912,
+    "new_tests": 7,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-complex-ui/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-complex-ui/clippy.log",
+        "sha256": "2c3edf894dc23e638f41727edd2240bb15ef5187850eb0da849e722d2a878bfa"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-complex-ui/tests.log",
+        "sha256": "d8681e716e63bb630888e9786643da53e6b5901ba2a6e09afbf38792622cf241"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-complex-ui/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-complex-ui/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-complex-ui/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "keyweave-ui",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "reason": "Result error type &str versus String corrected.",
+      "log": "target/gui-complex-check.log",
+      "sha256": "e4179247ede633fc8910a26c3c4b18545d88c146621c24314b664fb3a2217648"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "reason": "New upstream fixture exposed current compiler rejection of no-output basic rules. Updated test to assert this specific existing compatibility diagnostic; a follow-up semantic fix is required.",
+      "log": "target/validation/linux-20261015-complex-ui/initial-tests.log",
+      "sha256": "c9b9183d6a75ff9e05f777c5b47f5aeab6eff0a66d3f102a253ff21e134dd954"
+    }
+  ],
+  "limitations": [
+    "Offline draft/asset management only; no runtime IPC/profile activation.",
+    "Asset wrapper metadata is retained in import model but not appended into profile. Complete selected rules appended in source order, unlike upstream push-front. Single enabled:false retained, unlike upstream single-rule erase(enabled).",
+    "Existing compiler rejects description_notes/maintainers rule metadata and no-output basic suppressor; this slice preserves and exposes those errors without lossy stripping.",
+    "Rule JSON buffer commit/discard gates profile changes and draft apply/close; exact old rule Value fences replacement. Whole-document exact text fence remains.",
+    "Headless layout/tessellation only. No native desktop capture/injection. Windows native checks pending previous automatic approval quota rejection; not retried."
+  ]
+}

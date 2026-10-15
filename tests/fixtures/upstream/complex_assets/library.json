@@ -1,0 +1,16 @@
+{
+    "title": "CCC",
+    "rules": [
+        {
+            "description": "CCC1",
+            "manipulators": [
+                {
+                    "from": {
+                        "key_code": "spacebar"
+                    },
+                    "type": "basic"
+                }
+            ]
+        }
+    ]
+}

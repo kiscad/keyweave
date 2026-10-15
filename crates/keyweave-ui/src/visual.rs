@@ -5,8 +5,8 @@ pub const MAX_PROFILES: usize = 128;
 pub const MAX_ROWS: usize = 4096;
 pub struct VisualDraft {
     source: String,
-    raw: Value,
-    dirty: bool,
+    pub(crate) raw: Value,
+    pub(crate) dirty: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimpleRow {
@@ -73,6 +73,7 @@ impl VisualDraft {
                 return Err("Visual editing needs an array of at most 4096 simple mappings".into());
             }
         }
+        crate::rules::validate_profiles(profiles)?;
         Ok(Self {
             source: source.into(),
             raw,

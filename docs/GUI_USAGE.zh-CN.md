@@ -16,3 +16,7 @@
 点击 **Use edited JSON** 才把草稿写入文档：会移除注释、重排格式，但保留未编辑的 JSON 值、未知字段与复杂规则；随后必须重新 Validate。若原始文本已变化，旧草稿会拒绝应用，请关闭草稿后重新打开。**Close visual editor** 对已修改草稿要求确认丢弃；打开文件和关闭窗口也检查草稿修改。未点击 Rename/Update/Add 的输入框内容只是待提交输入。**Save validated copy** 保存当前文档，未应用的草稿不会进入副本。
 
 可视化界面上限为 128 个 profile、每 profile 4096 条简单映射，超过时保留文本编辑功能，拒绝可视化加载而不截断数据。参见 [ADR-0223](ADR-0223-visual-profiles-and-simple-mappings.md) 与[验证记录](validation/linux-2026-10-15-visual-ui.json)。
+
+可视化草稿的 **Complex rules** 支持勾选启用状态、↑/↓排序、确认删除及 **Edit JSON** 单规则编辑。点击 **Commit rule JSON** 将编辑存入草稿，或明确 **Discard rule JSON edits**；有未提交修改时不能切换 profile 或应用/关闭旧草稿。完成后仍需 Use edited JSON → Validate → Save validated copy。
+
+展开 **Import Karabiner rule asset**，输入规则库 JSON/JSONC 或单规则路径并点击 **Load rule asset**。默认不勾选任何规则；明确勾选后 **Append selected rules to draft**，完整规则按原顺序追加到当前 profile。标题、maintainers 等资产包装字段不复制；规则内部的未知字段完整保留。单规则 enabled:false 保持禁用，与上游导入时清除该状态的行为有意不同。导入不执行 JavaScript 或用户命令；不支持规则在后续 Validate 显示诊断并阻止保存已验证副本。规则列表与资产各最多4096条。当前上游样本中的说明元数据及无to suppressor仍会触发编译器兼容诊断，不能据“导入成功”宣称可运行。参见 [ADR-0224](ADR-0224-complex-rule-drafts-and-asset-import.md)。

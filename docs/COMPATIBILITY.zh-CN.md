@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+ADR-0224：GUI新增复杂规则启用/排序/删除确认/单条JSONC编辑，以及Karabiner规则库与单规则文件显式选择追加。完整规则值/未知字段保留，包装元数据明确不复制，保留单规则enabled:false；未提交rule buffer参与dirty并阻止切profile/应用，expected Value与整原文双fence。增加页面滚动以容纳编辑区。新增7tests/3未改动上游fixture，Linux1912项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过。初错类型及上游样本预期已处理；样本暴露description_notes/maintainers与无to suppressor的既有编译拒绝，待下一语义切片修复。未执行Windows原生/真实桌面、设备或IPC；原目标继续。见 [ADR-0224](ADR-0224-complex-rule-drafts-and-asset-import.md)、[验证记录](validation/linux-2026-10-15-complex-ui.json)。
+
 ADR-0223：GUI新增profile浏览/显式选择/重命名/添加、简单映射编辑/增删的可视化草稿。严格JSONC保留未知字段/复杂规则；高级行只读，原文精确fence拒绝过期草稿覆盖，Use edited JSON明确重写格式/注释并保baseline、撤销校验；未应用草稿修改参与打开/关闭确认。128profiles/4096rows有界且不截断。新增5tests，Linux1905项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过；初轮两项Clippy已修。仍为离线编辑，未运行Windows原生或桌面/设备验收，运行时IPC/profile激活、GUI设备/字体/a11y、Wayland、包装和完整兼容继续。见 [ADR-0223](ADR-0223-visual-profiles-and-simple-mappings.md)、[验证记录](validation/linux-2026-10-15-visual-ui.json)。
 
 ADR-0222：新增Rust原生keyweave-ui（固定eframe/egui0.36.2，glow+x11+wayland/default fonts，Cargo.lock），提供JSONC编辑、四backend/mode离线冷校验、结构化诊断、单worker异步校验和按revision/target/mode/原文精确绑定结果；新副本sync后hard-link发布、不覆盖已有文件，未保存编辑替换/关闭需确认。新增6 GUI/model/file/headless tests，Linux1900项及格式/Clippy/源码60/C UAPI/固定X11 SDK通过。依赖DNS/HTTP2、headless纹理清理与Clippy初错已处理。实际窗口smoke因XOpenDisplayFailed/NoCompositor失败，未宣称桌面显示或Windows GUI验收；无Hook/注入。原生验收、中文字体/a11y/tray、可视化映射/profile/设备/运行时IPC控制、安装包装及完整目标继续。见 [ADR-0222](ADR-0222-native-settings-ui.md)、[验证记录](validation/linux-2026-10-15-native-ui.json)、[GUI使用说明](GUI_USAGE.zh-CN.md)。
