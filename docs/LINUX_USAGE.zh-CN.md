@@ -104,3 +104,6 @@ host 返回0要求实际 worker code0、可接受终止原因、完整恢复 fac
 ## 尚需完成
 
 当前验证覆盖离线引擎、模拟输入/输出、无输入子进程和真实 None 冷链路。真实 VT、evdev 抓取/uinput 输出、按键释放、暂停/切换、Ctrl+C、suspend/resume 与系统权限/故障仍需真机验收。图形消费者、动态添加设备、LED、高级规则、跨平台热配置、GUI、包装发布与驱动仍未完成；完整状态以 [STATUS](STATUS.md) 为准。
+
+
+Linux staged 规则现支持 `from.simultaneous` 组合媒体键与键盘键，例如 `[{"consumer_key_code":"mute"},{"key_code":"a"}]`。首项也可为键盘；两者在阈值内匹配后只发送所配置目标，未匹配则按原顺序回放。此能力使用已有 Linux consumer 映射与 backend gate，仍须通过现有设备、session/consumer-ready 和 neutral 准入；规则接受不是硬件捕获证明。Windows consumer_keys 仍关闭，不能套用这一规则。

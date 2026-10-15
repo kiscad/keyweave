@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "a2ac6ee0be45ee0b24945ef82a7eac7450b6ffb9",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-engine/src/simultaneous.rs": "d344caf72b42c0491fae363d1f701ed457bcbea2f06d05eeb4fa1fc9b04bccd6",
+    "crates/keyweave-config/src/simultaneous.rs": "53430a9a15dbe8d272dd5507a303347007f76a730861d49b8f8cb0a0d0beb757",
+    "crates/keyweave-config/tests/simultaneous.rs": "de3fcb1335ddb82b61b2381eb0aa1ebd0e7322e501d404c52fd306f2de330f50",
+    "crates/keyweave-windows/src/mixed_actor.rs": "8b338deb51d034aed1bee734aea237e44959a1e0d4f4345cc20eb17544bf0d50",
+    "crates/keyweave-worker/tests/consumer_chords.rs": "d138775927974e2271b3fcd3cd20ddf095af77312479558ec628cee98cb1a73c"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1894,
+    "new_tests": 4,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-consumer-chords/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-consumer-chords/1.log",
+        "sha256": "f0ec26d50dd36dc8a012cf4af6689cdb60fd11ef7d73133a89bb42524d3bb647"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-consumer-chords/2.log",
+        "sha256": "a3c9c7cdc22cc7a64c10e0022005429b9a260f2bc206e814f58cb858fd7cc796"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-consumer-chords/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-consumer-chords/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-consumer-chords/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Portable source-gate/actor tests under Linux only. Windows consumer capability remains disabled; native build/SDK/hardware pending after prior automatic approval quota rejection, no retry."
+  },
+  "limitations": [
+    "JSON/cold Linux preparation, canonical evdev mapping, actual PhysicalStageController, OutputPump and accepted ledger exercised with mock frame backend. No physical devices, grabs, session/display queries or native injection.",
+    "KEY_MUTE canonical evdev identity does not prove a particular HID descriptor/per-device source. Existing native capture/session admission and coverage remain independently required.",
+    "Consumer chords require explicit backend consumer_keys capability; Windows compiler and manual mixed snapshot gates reject consumer members.",
+    "Nonzero consumer usage in the generic chord model does not guarantee native support for every usage; actual mappings/output coverage still constrain backends.",
+    "Native Windows SDK/hardware, X11/Wayland acceptance, config watch/GUI/driver/packages and complete macOS parity remain pending."
+  ]
+}

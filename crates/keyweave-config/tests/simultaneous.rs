@@ -309,7 +309,7 @@ fn staged_button_chords_preserve_first_event_and_require_backend_capability() {
 fn staged_button_chords_keep_duplicate_page_and_exclusive_shape_rejections() {
     for from in [
         json!({"simultaneous":[{"pointing_button":"button1"},{"pointing_button":"button1"}]}),
-        json!({"simultaneous":[{"consumer_key_code":"mute"},{"key_code":"a"}]}),
+        json!({"simultaneous":[{"pointing_button":"button33"},{"key_code":"a"}]}),
         json!({"simultaneous":[{"pointing_button":"button1"},{"key_code":"a"}],"pointing_button":"button2"}),
     ] {
         let result = staged_compile(
@@ -330,7 +330,39 @@ fn staged_button_chords_keep_duplicate_page_and_exclusive_shape_rejections() {
             .is_err()
     );
     assert!(
-        Simultaneous::new(vec![KeyId::new(CONSUMER_PAGE, 0xe2)])
+        Simultaneous::new(vec![KeyId::new(CONSUMER_PAGE, 0)])
+            .validate()
+            .is_err()
+    );
+}
+
+#[test]
+fn staged_consumer_chords_preserve_page_and_require_consumer_capability() {
+    for members in [
+        json!([{"consumer_key_code":"mute"},{"key_code":"a"}]),
+        json!([{"key_code":"a"},{"consumer_key_code":"mute"}]),
+    ] {
+        let body =
+            json!([{"type":"basic","from":{"simultaneous":members},"to":[{"key_code":"x"}]}]);
+        for caps in [BackendCapabilities::offline(), BackendCapabilities::linux()] {
+            let result = staged_compile(body.clone(), &caps);
+            assert!(result.executable_without_loss());
+            let rule = &result.snapshot.complex[0];
+            let chord = rule.extras.simultaneous.as_ref().unwrap();
+            assert!(chord.keys.contains(&KeyId::new(CONSUMER_PAGE, 0xe2)));
+            assert_eq!(rule.from, chord.keys[0]);
+        }
+        let result = staged_compile(body, &BackendCapabilities::windows_hook());
+        assert!(!result.executable_without_loss());
+        assert!(result.snapshot.complex.is_empty());
+    }
+    assert!(
+        Simultaneous::new(vec![KeyId::new(CONSUMER_PAGE, 0)])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        Simultaneous::new(vec![KeyId::new(0xffff, 1)])
             .validate()
             .is_err()
     );

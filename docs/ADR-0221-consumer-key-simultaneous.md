@@ -1,0 +1,7 @@
+# ADR-0221：媒体键 simultaneous 与后端准入
+
+沿ADR-0220和固定上游通用event_definition，simultaneous加入非零Consumer HID usage，首项保留consumer_key_code，仍只允许keyboard/consumer/button离散键类；32成员/256事件/阈值/来源及旧Arc不改。compiler每项仍检查BackendCapabilities，Windows windows_hook/mixed均consumer_keys=false；Linux已有canonical KEY_MUTE等映射，不新增原生设备能力。
+
+Windows mixed公共冷controller也检查所有源成员page，只允许keyboard/五按钮，防止手工构造snapshot绕过compiler送入consumer chord。默认Windows backend不会因此启用媒体键capture。Linux测试明确使用CanonicalEvdev证据，不称为verified HID或设备独占证明。
+
+新增实际JSON→Linux冷编→evdev code映射→Physical controller→OutputPump/accepted ledger测试，覆盖媒体键首项/键盘首项、成功全组释放和超时普通媒体键重放；compiler和Windows手工snapshot拒绝测试分开。源拓展并非Windows媒体键Hook、硬件或上游C++验收完成。

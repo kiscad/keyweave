@@ -53,18 +53,20 @@ impl Compiler<'_> {
                 diagnostic(
                     &format!("{pointer}/simultaneous"),
                     "KW-LIMIT-001",
-                    "expected 1..=32 keyboard/button entries",
+                    "expected 1..=32 keyboard/consumer/button entries",
                 )
             })?;
         let mut keys = Vec::with_capacity(entries.len());
         for (index, entry) in entries.iter().enumerate() {
             let at = format!("{pointer}/simultaneous/{index}");
             let key = self.key(Some(entry), &at)?;
-            if !matches!(key.page, KEYBOARD_PAGE | BUTTON_PAGE) || keys.contains(&key) {
+            if !matches!(key.page, KEYBOARD_PAGE | CONSUMER_PAGE | BUTTON_PAGE)
+                || keys.contains(&key)
+            {
                 return Err(diagnostic(
                     &at,
                     "KW-CONFIG-001",
-                    "simultaneous requires distinct keyboard keys or pointing buttons",
+                    "simultaneous requires distinct keyboard, consumer keys or pointing buttons",
                 ));
             }
             keys.push(key);
@@ -116,10 +118,10 @@ impl Compiler<'_> {
                 }
             }
         }
-        let field = if chord.keys[0].page == BUTTON_PAGE {
-            "pointing_button"
-        } else {
-            "key_code"
+        let field = match chord.keys[0].page {
+            BUTTON_PAGE => "pointing_button",
+            CONSUMER_PAGE => "consumer_key_code",
+            _ => "key_code",
         };
         from.insert(
             field.into(),

@@ -46,6 +46,8 @@ fn validate(config: &ConfigSnapshot) -> Result<(), RuntimeError> {
                     InjectionTag::new(1)?,
                 )
                 .map_err(crate::mixed::MixedError::from)?;
+            } else if key.page != KEYBOARD_PAGE {
+                return Err(keys::KeyError::Native.into());
             }
         }
         for action in mapping.actions() {
@@ -921,6 +923,31 @@ mod tests {
                 "{input:?}"
             );
             a.stop_after_unhook().unwrap();
+        }
+    }
+    #[test]
+    fn manual_consumer_chord_snapshot_cannot_bypass_windows_native_source_gate() {
+        for first in [true, false] {
+            let mut snapshot = (*config(1, vec![])).clone();
+            let members = if first {
+                vec![KeyId::new(CONSUMER_PAGE, 0xe2), key(4)]
+            } else {
+                vec![key(4), KeyId::new(CONSUMER_PAGE, 0xe2)]
+            };
+            snapshot.complex.push(Mapping {
+                id: "media".into(),
+                from: members[0],
+                to: vec![key(5).into()],
+                allow_extra_modifiers: true,
+                extras: MappingExtras {
+                    simultaneous: Some(keyweave_engine::simultaneous::Simultaneous::new(members)),
+                    ..MappingExtras::default()
+                },
+            });
+            assert!(matches!(
+                preflight_mixed_config(Arc::new(snapshot)),
+                Err(RuntimeError::Key(keys::KeyError::Native))
+            ));
         }
     }
     #[test]
