@@ -1,5 +1,7 @@
 //! Windows keyboard semantics and explicit native integration. No automatic capture.
 pub mod access;
+#[cfg(any(target_os = "windows", test))]
+pub mod control_identity;
 pub mod emergency;
 pub mod hook;
 pub mod keys;
@@ -61,3 +63,6 @@ pub use native::{PipeCloseReport, PipeReader, PipeWriter};
 pub use native::{
     WorkerParentGuard, WorkerStartup, WorkerStartupError, check_synchronous_progress_pipe_rejected,
 };
+
+#[cfg(target_os = "windows")]
+pub use native::{ControlIdentity, ControlSecurity};

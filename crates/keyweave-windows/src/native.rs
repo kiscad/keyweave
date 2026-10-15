@@ -2,6 +2,9 @@
 #![allow(unsafe_code)]
 use crate::keys::{KeyboardPacket, MAX_BATCH};
 mod application;
+mod control_identity;
+#[cfg(target_os = "windows")]
+pub use control_identity::{ControlIdentity, ControlSecurity};
 mod config_artifact;
 mod console_control;
 #[cfg(windows)]

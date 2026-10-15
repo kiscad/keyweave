@@ -89,3 +89,7 @@ python3 tools/verify_session_control_native.py
 native gate 包含 3 个真实 transport/path/partial/timeout cases、4 个实际 CLI/host cases、1 个 GUI client case。完整 host case 显式构建 session-control-fixture：验证 startup guard 和密封配置，读取但不回复 challenge，接受合作 Stop，发送 synthetic no-input 终止报告；actual host→socket→原 Supervisor→owned child→actual exit→最终 Status 全链 epoch 始终为 0。它从不构造 Runtime 或设备，不证明真实输入恢复。fixture 不作为发行 worker。
 
 既有 C oracle 增加 sockaddr_un/ucred、SO_PEERCRED/flags/函数签名检查。实际跨 UID 对抗进程、Windows pipe、桌面 GUI 显示与真实捕获仍未验收。见 [ADR-0229](ADR-0229-local-session-status-stop.md) 与[验证记录](validation/linux-2026-10-15-local-control.json)。
+
+## Windows 控制开发状态
+
+ADR-0230 已提供冷阶段 `ControlIdentity` 与明确用户/SYSTEM 的 `ControlSecurity` 权限资源；公开 Windows pipe、Status/Stop CLI 与 GUI transport 尚未实现。主体比较包含用户 SID、登录 LUID 与 session；任意 PID 比较结果不构成 pipe-peer 认证。新增 Windows SDK 和生产链接检查尚未原生执行。后续 transaction、取消与 peer 绑定步骤见 [ADR-0230](ADR-0230-windows-control-principal.md)。

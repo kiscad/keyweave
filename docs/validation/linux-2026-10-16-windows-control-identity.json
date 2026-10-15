@@ -1,0 +1,117 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "f465a034df751d63fd4051dacc35d3dc170fa82a",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/control_identity.rs": "d8aa9ef04ae88b35b4aa2ac16b35689c1a2416b915d09c05aeb26602e9f0bfce",
+    "crates/keyweave-windows/src/lib.rs": "90e7abfcbcabfc9fa1d58d2a7a885cbf8e9dbf710e3f7a03dc588cad64ffebd3",
+    "crates/keyweave-windows/src/native.rs": "92e89813c5ec3726a8d2dcaf31acb503963da04f930f75bded164955b748583a",
+    "crates/keyweave-windows/src/native/control_identity.rs": "fcd7c6b6dbd9b14a794b003e21da3471f588d9305f8404536a91a2935af3309a",
+    "crates/keyweave-windows/src/native/control_identity/api.rs": "a2a7216192c25bfd3cb7c581379955984e34e48d1e4b3b47ea2875be89fbc6af",
+    "crates/keyweave-windows/src/native/control_identity/api_mock.rs": "2e6859be498c0dbd721e41e43af9a6af4edf2313a3f9b4641d1b827a94b92584",
+    "crates/keyweave-windows/src/native/control_identity/tests.rs": "8cf8a42a9bb93852857bac4c7c9dfd1bdcac91332cad4aea0673bcb60bb12acb",
+    "crates/keyweave-windows/tests/native_link.rs": "bf42d9fe6701687e19df8438fb59d49db4dc6f76bb7887cd115435d57d6786c0",
+    "tools/windows_input_abi.c": "6c9b958e0939ee2ac323619c00e249dcda67f0aa3fba0a1489f5133519af5937"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1949,
+    "new_default_tests": 11,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/clippy.log",
+        "sha256": "22e0df986057b9ba5be07526ac5fb348862a3dedef42108383cc3e088acbb889"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/tests.log",
+        "sha256": "8e3b5929b76e2b6bbddc608eb4f2b29c34e94ba4be1d99f71bc23f4cc788b85f"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-identity/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "exit_code": 101,
+      "log": "target/windows-control-identity-final-tests.log",
+      "sha256": "f59eacc01224860b45d7846ffc7e483745d1608c62d7e5c5b9fe45ae932f272b",
+      "reason": "Mock ignored the changed current_session fixture and peer process-read counters. Corrected mock GetTokenInformation/GetProcessId to exercise production guards; expanded negative branches; final full suite passed."
+    }
+  ],
+  "limitations": [
+    "Windows SDK assertions and production native_link additions were not compiled or run on Windows. Prior native Windows automatic approval quota rejection remains; no retry or bypass. Linux mock success does not prove Windows ABI or OS behavior.",
+    "Foundation only: no Windows public named-pipe transport, CLI or GUI client. Process primary-token scope comparison is not connected-pipe peer attestation. No input capture, Hook or injection was performed.",
+    "Nonzero Windows session does not prove active desktop or unlocked state. Explicit user DACL alone does not bind logon/session. Actual peer/lifetime binding and adversarial tests remain required.",
+    "Eight existing Linux native IPC tests were ignored in this default run; their prior approved execution is recorded in linux-2026-10-15-local-control.json, not counted again here.",
+    "Full migration, Windows native/hardware acceptance, GUI runtime start/resume/apply, Wayland and packaging remain unfinished."
+  ]
+}
