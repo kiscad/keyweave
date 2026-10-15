@@ -173,7 +173,7 @@ impl ComplexStageActor {
                 waiting.devices.push(due.event.device);
             }
         } else if due.event.payload.edge == KeyEdge::Down
-            && matches!(due.event.payload.target, ActionTarget::Key(key) if key.page == keyweave_types::KEYBOARD_PAGE)
+            && matches!(due.event.payload.target, ActionTarget::Key(key) if simultaneous::is_chord_key(key))
         {
             self.interrupt_arbitrated_down(due, context, &mut step)?;
             let (_, identity) = self.registered_group_down(&due.event)?;

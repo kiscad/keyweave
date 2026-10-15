@@ -9,13 +9,16 @@ use crate::{
 pub use arbiter::{
     Arbitration, ArbitrationChoice, ChordArbiter, MAX_ARBITER_RULES, MAX_ARBITRATION_WORK,
 };
-use keyweave_types::{KEYBOARD_PAGE, KeyEdge, KeyId, MonoTime};
+use keyweave_types::{BUTTON_PAGE, KEYBOARD_PAGE, KeyEdge, KeyId, MonoTime};
 pub use owner::{
     GroupBindingOwner, GroupBranchAdmission, GroupOwnerError, RejectedGroupOwner,
     UnfinishedGroupOwner,
 };
 use thiserror::Error;
 
+pub(crate) fn is_chord_key(key: KeyId) -> bool {
+    key.page == KEYBOARD_PAGE || key.page == BUTTON_PAGE && (1..=32).contains(&key.usage)
+}
 pub const MAX_CHORD_KEYS: usize = 32;
 pub const MAX_CHORD_EVENTS: usize = 256;
 pub const MAX_CHORD_THRESHOLD_NS: u64 = 1_000_000_000;
@@ -57,7 +60,7 @@ impl Simultaneous {
     pub fn validate(&self) -> Result<(), ChordError> {
         if self.keys.is_empty()
             || self.keys.len() > MAX_CHORD_KEYS
-            || self.keys.iter().any(|key| key.page != KEYBOARD_PAGE)
+            || self.keys.iter().any(|key| !is_chord_key(*key))
             || self
                 .keys
                 .iter()
@@ -85,7 +88,7 @@ impl Simultaneous {
 }
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum ChordError {
-    #[error("invalid bounded keyboard simultaneous definition")]
+    #[error("invalid bounded keyboard/button simultaneous definition")]
     Definition,
     #[error("invalid Complex input receipt")]
     Input,

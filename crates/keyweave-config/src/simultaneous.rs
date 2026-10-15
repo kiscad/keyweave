@@ -33,11 +33,14 @@ impl Compiler<'_> {
             .and_then(Value::as_object)
             .cloned()
             .ok_or_else(|| diagnostic(pointer, "KW-CONFIG-001", "expected from object"))?;
-        if from.contains_key("key_code") {
+        if ["key_code", "pointing_button", "consumer_key_code"]
+            .iter()
+            .any(|field| from.contains_key(*field))
+        {
             return Err(diagnostic(
                 &format!("{pointer}/key_code"),
                 "KW-CONFIG-001",
-                "choose either key_code or simultaneous",
+                "choose either a single event or simultaneous",
             ));
         }
         let entries = from
@@ -50,18 +53,18 @@ impl Compiler<'_> {
                 diagnostic(
                     &format!("{pointer}/simultaneous"),
                     "KW-LIMIT-001",
-                    "expected 1..=32 keyboard entries",
+                    "expected 1..=32 keyboard/button entries",
                 )
             })?;
         let mut keys = Vec::with_capacity(entries.len());
         for (index, entry) in entries.iter().enumerate() {
             let at = format!("{pointer}/simultaneous/{index}");
             let key = self.key(Some(entry), &at)?;
-            if key.page != KEYBOARD_PAGE || keys.contains(&key) {
+            if !matches!(key.page, KEYBOARD_PAGE | BUTTON_PAGE) || keys.contains(&key) {
                 return Err(diagnostic(
                     &at,
                     "KW-CONFIG-001",
-                    "simultaneous requires distinct standard keyboard keys",
+                    "simultaneous requires distinct keyboard keys or pointing buttons",
                 ));
             }
             keys.push(key);
@@ -113,10 +116,15 @@ impl Compiler<'_> {
                 }
             }
         }
+        let field = if chord.keys[0].page == BUTTON_PAGE {
+            "pointing_button"
+        } else {
+            "key_code"
+        };
         from.insert(
-            "key_code".into(),
-            entries[0].get("key_code").cloned().ok_or_else(|| {
-                diagnostic(pointer, "KW-CONFIG-001", "expected keyboard key_code")
+            field.into(),
+            entries[0].get(field).cloned().ok_or_else(|| {
+                diagnostic(pointer, "KW-CONFIG-001", "missing first simultaneous event")
             })?,
         );
         let (first, modifiers) = self.input_key(Some(&Value::Object(from)), pointer, true)?;

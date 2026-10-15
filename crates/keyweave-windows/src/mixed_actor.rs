@@ -30,15 +30,23 @@ fn validate(config: &ConfigSnapshot) -> Result<(), RuntimeError> {
         {
             return Err(RuntimeError::DeviceCondition);
         }
-        if mapping.from.page == BUTTON_PAGE {
-            pointer::encode(
-                MouseAction::Button {
-                    key: mapping.from,
-                    edge: KeyEdge::Down,
-                },
-                InjectionTag::new(1)?,
-            )
-            .map_err(crate::mixed::MixedError::from)?;
+        for key in std::iter::once(mapping.from).chain(
+            mapping
+                .extras
+                .simultaneous
+                .iter()
+                .flat_map(|chord| chord.keys.iter().copied()),
+        ) {
+            if key.page == BUTTON_PAGE {
+                pointer::encode(
+                    MouseAction::Button {
+                        key,
+                        edge: KeyEdge::Down,
+                    },
+                    InjectionTag::new(1)?,
+                )
+                .map_err(crate::mixed::MixedError::from)?;
+            }
         }
         for action in mapping.actions() {
             for key in action
@@ -869,6 +877,51 @@ mod tests {
         ));
         assert_eq!(actor.borrow().phase(), ActorPhase::StopRequired);
         actor.borrow_mut().stop_after_unhook().unwrap();
+    }
+    #[test]
+    fn mixed_position_and_zero_wheel_keep_alone_but_nonzero_scroll_cancels_it() {
+        for input in [
+            MouseInputEvent::Position { x: 5, y: 8 },
+            MouseInputEvent::Wheel {
+                horizontal: true,
+                delta: 0,
+            },
+            MouseInputEvent::Wheel {
+                horizontal: false,
+                delta: 1,
+            },
+            MouseInputEvent::Wheel {
+                horizontal: true,
+                delta: -1,
+            },
+        ] {
+            let mut snapshot = (*config(1, vec![])).clone();
+            snapshot.complex.push(Mapping {
+                id: "alone".into(),
+                from: key(4),
+                to: vec![],
+                allow_extra_modifiers: true,
+                extras: MappingExtras {
+                    if_alone: vec![key(6).into()],
+                    ..MappingExtras::default()
+                },
+            });
+            let (mut a, log) = actor(Arc::new(snapshot), vec![]);
+            a.key(ke(KeyEdge::Down), MonoTime(0)).unwrap();
+            a.mouse(event(input, None), MonoTime(1)).unwrap();
+            a.key(ke(KeyEdge::Up), MonoTime(2)).unwrap();
+            drain(&mut a, 2);
+            let alone =
+                log.borrow().iter().flatten().any(
+                    |packet| matches!(packet,NativePacket::Keyboard(packet) if packet.scan==0x2e),
+                );
+            assert_eq!(
+                alone,
+                !matches!(input, MouseInputEvent::Wheel { delta, .. } if delta != 0),
+                "{input:?}"
+            );
+            a.stop_after_unhook().unwrap();
+        }
     }
     #[test]
     fn cold_unsupported_button_and_full_pair_append_reject_before_mutation() {

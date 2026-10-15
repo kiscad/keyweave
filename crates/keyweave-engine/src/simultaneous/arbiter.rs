@@ -50,7 +50,7 @@ impl ChordArbiter {
     pub fn new(first: DueEvent<PlannedAction>) -> Result<Self, Box<RejectedChordEvent>> {
         if !valid(&first)
             || first.event.payload.edge != KeyEdge::Down
-            || !key(&first).is_some_and(|key| key.page == KEYBOARD_PAGE)
+            || !key(&first).is_some_and(is_chord_key)
         {
             return Err(Box::new(RejectedChordEvent {
                 error: ChordError::Input,

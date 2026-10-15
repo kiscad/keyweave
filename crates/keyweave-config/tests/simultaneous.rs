@@ -281,3 +281,57 @@ fn staged_mode_does_not_enable_simple_simultaneous() {
     assert!(!result.executable_without_loss());
     assert!(result.snapshot.simple.is_empty());
 }
+
+#[test]
+fn staged_button_chords_preserve_first_event_and_require_backend_capability() {
+    for members in [
+        json!([{"pointing_button":"button1"},{"key_code":"a"}]),
+        json!([{"key_code":"a"},{"pointing_button":"button32"}]),
+    ] {
+        let body = json!([{"type":"basic","from":{"simultaneous":members,"modifiers":{"optional":["any"]}},"to":[{"key_code":"x"}]}]);
+        let accepted = staged_compile(body.clone(), &BackendCapabilities::offline());
+        assert!(accepted.executable_without_loss());
+        let mapping = &accepted.snapshot.complex[0];
+        let chord = mapping.extras.simultaneous.as_ref().unwrap();
+        assert_eq!(mapping.from, chord.keys[0]);
+        assert!(chord.validate().is_ok());
+        for caps in [
+            BackendCapabilities::windows_hook(),
+            BackendCapabilities::linux(),
+        ] {
+            let rejected = staged_compile(body.clone(), &caps);
+            assert!(!rejected.executable_without_loss());
+            assert!(rejected.snapshot.complex.is_empty());
+        }
+    }
+}
+#[test]
+fn staged_button_chords_keep_duplicate_page_and_exclusive_shape_rejections() {
+    for from in [
+        json!({"simultaneous":[{"pointing_button":"button1"},{"pointing_button":"button1"}]}),
+        json!({"simultaneous":[{"consumer_key_code":"mute"},{"key_code":"a"}]}),
+        json!({"simultaneous":[{"pointing_button":"button1"},{"key_code":"a"}],"pointing_button":"button2"}),
+    ] {
+        let result = staged_compile(
+            json!([{"type":"basic","from":from,"to":[{"key_code":"x"}]}]),
+            &BackendCapabilities::offline(),
+        );
+        assert!(!result.executable_without_loss());
+        assert!(result.snapshot.complex.is_empty());
+    }
+    assert!(
+        Simultaneous::new(vec![KeyId::new(BUTTON_PAGE, 0)])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        Simultaneous::new(vec![KeyId::new(BUTTON_PAGE, 33)])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        Simultaneous::new(vec![KeyId::new(CONSUMER_PAGE, 0xe2)])
+            .validate()
+            .is_err()
+    );
+}

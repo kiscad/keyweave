@@ -19,3 +19,5 @@ keyweave-host check-windows --config config.json --execution-mode staged-keyboar
 可以用 `--worker` 选择绝对路径的 worker，用 `--artifact-directory` 指定已有本地目录。host 将同一已验证配置的原始字节封存，经原有 owned Job/句柄事务交付；worker mixed 入口强制继承配置句柄，不能重读用户路径。Enter 或 Ctrl+C 请求停止。配置监视/GUI、完整 driver 路线和安装包装尚待完成。
 
 本轮测试是在 Linux 下验证 CLI、配置编译、参数范围绑定和既有 Win32 mock 生命周期；没有启动实际 Windows Hook 或注入输入。Windows 原生构建、SDK/Job/Hook/鼠标实机验收仍需按 [验证说明](WINDOWS_VALIDATION.zh-CN.md) 补齐，离线配置接受不表示系统可捕获或应用已收到输出。
+
+Mixed staged 规则还支持 `from.simultaneous` 中组合键盘与鼠标按钮，首项可为 `key_code` 或 `pointing_button`；Windows 每个按钮成员仍限button1..5。普通屏幕移动和零滚轮不取消 `to_if_alone`，非零横向/纵向滚轮会取消。以上由真实配置编译与staged模型测试验证，仍需原生输入验收。

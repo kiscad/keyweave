@@ -1,0 +1,117 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "9f828ab880d69ea7a6409aeb7649d192d1de8122",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-config/src/simultaneous.rs": "1438907a2162a97467c92681db1c60501b5dd26dcd1e426f2f8dab9a536b2062",
+    "crates/keyweave-config/tests/simultaneous.rs": "60725b52b261e43176ac381baaa55599d207d4af1071f35f7f5250221b1cbc63",
+    "crates/keyweave-engine/src/simultaneous.rs": "5f5e2e207eef34eae0c4e52a9f83ad32d040b5380547759ad083417b0348c02f",
+    "crates/keyweave-engine/src/simultaneous/arbiter.rs": "578294831ca1fa543d904408395d410c9c5ddd99b84655cf0acb3fd7decaf4f6",
+    "crates/keyweave-engine/src/complex_actor/arbitration.rs": "a02b04082dd492d7e6ab39ae61e0404e8cbf46c0cfe51261a7bd7c3868ee14fb",
+    "crates/keyweave-windows/src/mixed_actor.rs": "b9b819dd4f20b08ed4b860db12aef3d503e5156dad1ef688c762e8a0ed300a5b",
+    "crates/keyweave-worker/src/preparation/tests.rs": "be08005623712968b1736a322c441ddfbf8921138d43afec978adf424bed494f"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1890,
+    "new_tests": 5,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-button-chords/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-button-chords/1.log",
+        "sha256": "34c24138b01dde338cd2a428f0691883235ae95c293a21e940dddd76e0abd475"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-button-chords/2.log",
+        "sha256": "5d07dfbcb7414a68151ed9304246755f725d9a06f827d924b849c7d4f1cace55"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-button-chords/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-button-chords/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-button-chords/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "reason": "Compiler accessed moved keys after constructing Simultaneous; corrected to chord.keys before final checks.",
+      "log": "target/button-chord-focused.log",
+      "sha256": "8b36ca9aac7d3e10a99a741405084ea47215649fcaee2ec2d52cedca14cf838f",
+      "exit_status": "Compiler failure observed; cargo exit not separately captured from shell tail success."
+    }
+  ],
+  "upstream_inspected": [
+    {
+      "path": "src/share/manipulator/manipulators/basic/from_event_definition.hpp",
+      "sha256": "7586c75550f7035104d6b382e0a88883aec7f637f5dac9ef419624f2ce4b9ea3"
+    },
+    {
+      "path": "src/share/manipulator/manipulators/basic/basic.hpp",
+      "sha256": "7e6c71f0e9db479314665b20ee69549236dbf9c0d1703104fe76d05fb62a0706"
+    }
+  ],
+  "windows": {
+    "status": "Portable compiler/controller/mixed ledger tested under Linux. Native Windows checks pending after previous automatic approval quota rejection; not retried."
+  },
+  "limitations": [
+    "Tests exercise actual JSON cold compile, staged controller and Windows mixed accepted ledger with mock sender, not OS Hook or application delivery.",
+    "Chord model now accepts keyboard/button1..32; backend compiler capability gates unchanged. Windows mixed preflight rejects every chord member outside native five buttons. Consumer chords remain unsupported.",
+    "Alone behavior checked against inspected upstream source; upstream C++ tests/macOS runtime not executed.",
+    "Native Windows SDK/hardware, X11/Wayland acceptance, config watcher/GUI/driver/packages and complete parity remain pending."
+  ]
+}

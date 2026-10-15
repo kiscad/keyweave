@@ -340,3 +340,159 @@ fn windows_default_scope_and_same_keyboard_bytes_remain_explicit() {
     .unwrap();
     assert_eq!(prepared.capture_scope(), CaptureScope::StagedMixed);
 }
+
+#[test]
+fn mixed_simultaneous_cold_checks_every_native_button_member_and_default_gate() {
+    for first in [
+        r#"{"key_code":"a"},{"pointing_button":"button1"}"#,
+        r#"{"pointing_button":"button1"},{"key_code":"a"}"#,
+    ] {
+        let text = format!(
+            r#"{{"profiles":[{{"selected":true,"complex_modifications":{{"rules":[{{"manipulators":[{{"type":"basic","from":{{"simultaneous":[{first}]}},"to":[{{"pointing_button":"button2"}}]}}]}}]}}}}]}}"#
+        );
+        let prepared = PreparedConfig::from_bytes_for_generation_with_scope(
+            text.as_bytes().to_vec(),
+            ConfigGeneration(1),
+            ExecutionMode::StagedKeyboard,
+            CaptureScope::StagedMixed,
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.snapshot().complex[0]
+                .extras
+                .simultaneous
+                .as_ref()
+                .unwrap()
+                .keys
+                .len(),
+            2
+        );
+        assert!(
+            PreparedConfig::read_with_mode(text.as_bytes(), ExecutionMode::StagedKeyboard).is_err()
+        );
+        let unsupported = text.replace("button1", "button6");
+        assert!(
+            PreparedConfig::from_bytes_for_generation_with_scope(
+                unsupported.into_bytes(),
+                ConfigGeneration(1),
+                ExecutionMode::StagedKeyboard,
+                CaptureScope::StagedMixed
+            )
+            .is_err()
+        );
+    }
+}
+#[test]
+fn mixed_simultaneous_json_runs_actual_controller_and_windows_output_ledger() {
+    use keyweave_types::{BUTTON_PAGE, CaptureDecision, KeyEdge, KeyId, MonoTime};
+    use keyweave_windows::{
+        hook::HookEvent,
+        keys::ResolvedKey,
+        mixed::{NativePacket, SendMixedBackend},
+        mixed_actor::MixedSessionActor,
+        mouse_hook::{MouseHookEvent, MouseInputEvent},
+        pump::{Insertion, SubmitError},
+    };
+    struct Sender;
+    impl SendMixedBackend for Sender {
+        fn submit_mixed(&mut self, packets: &[NativePacket]) -> Result<Insertion, SubmitError> {
+            Ok(Insertion {
+                accepted: packets.len(),
+                last_error: None,
+            })
+        }
+    }
+    for pointer_first in [true, false] {
+        let first = if pointer_first {
+            r#"{"pointing_button":"button1"},{"key_code":"a"}"#
+        } else {
+            r#"{"key_code":"a"},{"pointing_button":"button1"}"#
+        };
+        let text = format!(
+            r#"{{"profiles":[{{"selected":true,"complex_modifications":{{"rules":[{{"manipulators":[{{"type":"basic","from":{{"simultaneous":[{first}],"simultaneous_options":{{"key_up_when":"all"}}}},"to":[{{"pointing_button":"button2"}}]}}]}}]}}}}]}}"#
+        );
+        let prepared = PreparedConfig::from_bytes_for_generation_with_scope(
+            text.into_bytes(),
+            ConfigGeneration(1),
+            ExecutionMode::StagedKeyboard,
+            CaptureScope::StagedMixed,
+        )
+        .unwrap();
+        let mut actor = MixedSessionActor::new(
+            Sender,
+            InjectionTag::new(1).unwrap(),
+            prepared.snapshot().clone(),
+        )
+        .unwrap();
+        actor.start_after_neutral().unwrap();
+        for is_pointer in [pointer_first, !pointer_first] {
+            if is_pointer {
+                actor
+                    .mouse(
+                        MouseHookEvent {
+                            input: MouseInputEvent::Button {
+                                key: KeyId::new(BUTTON_PAGE, 1),
+                                edge: KeyEdge::Down,
+                            },
+                            binding: None,
+                            pair_bindings: None,
+                        },
+                        MonoTime(0),
+                    )
+                    .unwrap();
+            } else {
+                actor
+                    .key(
+                        HookEvent {
+                            identity: ResolvedKey {
+                                key: KeyId::new(7, 4),
+                                known_aliases: false,
+                            },
+                            edge: KeyEdge::Down,
+                            binding: None,
+                        },
+                        MonoTime(0),
+                    )
+                    .unwrap();
+            }
+        }
+        actor.tick(MonoTime(50_000_000)).unwrap();
+        assert!(
+            actor
+                .output()
+                .ledger()
+                .submitted()
+                .contains(&KeyId::new(BUTTON_PAGE, 2))
+        );
+        assert_eq!(actor.output().ledger().submitted().len(), 1);
+        actor
+            .key(
+                HookEvent {
+                    identity: ResolvedKey {
+                        key: KeyId::new(7, 4),
+                        known_aliases: false,
+                    },
+                    edge: KeyEdge::Up,
+                    binding: Some(CaptureDecision::Capture),
+                },
+                MonoTime(50_000_001),
+            )
+            .unwrap();
+        actor
+            .mouse(
+                MouseHookEvent {
+                    input: MouseInputEvent::Button {
+                        key: KeyId::new(BUTTON_PAGE, 1),
+                        edge: KeyEdge::Up,
+                    },
+                    binding: Some(CaptureDecision::Capture),
+                    pair_bindings: None,
+                },
+                MonoTime(50_000_002),
+            )
+            .unwrap();
+        actor.tick(MonoTime(50_000_002)).unwrap();
+        assert!(actor.output().ledger().submitted().is_empty());
+        actor.stop_after_unhook().unwrap();
+    }
+}
