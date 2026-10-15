@@ -4,6 +4,7 @@ pub mod emergency;
 pub mod hook;
 pub mod keys;
 pub mod mixed;
+pub mod mouse_hook;
 #[cfg(any(target_os = "windows", test))]
 mod native;
 pub mod pointer;

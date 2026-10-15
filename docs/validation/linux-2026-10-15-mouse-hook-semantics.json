@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "de3db7f2bd69b5fde984b6b754112346aac8cd7c",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/mouse_hook.rs": "60b44f04fc708a941980b4975f971afa9a4b441437ee03e06c71b1a8e4727612",
+    "crates/keyweave-windows/src/lib.rs": "0f12ab6aee19305f10c88473fe9fb1803795fd6f22a305584f6c43c7984d0ba9"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1837,
+    "new_tests": 6,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mouse-hook/0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mouse-hook/1.log",
+        "sha256": "4a6845ea190bc5e15a811700b186ad84e927ad9db9e41931917c516a1440d3f9"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mouse-hook/2.log",
+        "sha256": "ff4feaf610d456a9e0b0af56ffb690e19d4d733d21d6fd85e7f2c072f7cca1d8"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mouse-hook/3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mouse-hook/4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-mouse-hook/5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "windows": {
+    "status": "Portable semantics tested under Linux, not native Hook registration. Native verification pending after prior automatic approval quota rejection; no retry/bypass."
+  },
+  "references": [
+    "https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-msllhookstruct",
+    "https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc"
+  ],
+  "limitations": [
+    "No Hook registration, device read, capture or injection. Native callback/SDK/thread ownership/session/runtime integration remain pending.",
+    "Screen coordinate motion stays Pass; requesting Capture latches MovementCapture. No raw delta inferred from coordinate differences.",
+    "Combined XBUTTON1/XBUTTON2 mask=3 is legal Win32 input but explicitly unsupported here: CombinedButtons latches/pass. Atomic multi-button decision handling remains pending.",
+    "Mouse origin marker is not authentication or physical device identity. Unknown injected flags reject; all recognized injected events bypass handler and bindings.",
+    "Default runtime/capabilities unchanged; native X11/Wayland/hardware, Windows native verification, GUI and packaging remain pending."
+  ]
+}
