@@ -1,0 +1,186 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "0bf3054946a339385ad37a9e1d4cf7cf359cbe28",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.toml": "c184215ed48971c7fbd760a8a9f91d28697d3d119c8145b057b7ef7b18f3710f",
+    "Cargo.lock": "c5cbeac3c691d5132c2b8ff5c5bab859eaece4b26dd85f0fd3605aaaeb22822b",
+    "crates/keyweave-ui/Cargo.toml": "40a7bcc18166150d1025114a2615ff320d2b149c6134d9def9a9d845424771f4",
+    "crates/keyweave-ui/src/files.rs": "a6760c729034705f4ee1b7f7fb87f35dec70f07412e63f142ce02c3c1ba64fd2",
+    "crates/keyweave-ui/src/lib.rs": "1f919a2fdd7abbcaf642eb892f3e37d52ae7bf1b818247b167fba89a172cd0ff",
+    "crates/keyweave-ui/src/main.rs": "072f834f2b9b6adedb5280117aea097e4bba3d699c068afac9cee6c2bb8ae6f8",
+    "crates/keyweave-ui/src/model.rs": "e5e57feeef4182cb9c50bceb46faa6c99f17715726ca273a8017904e88948663",
+    "crates/keyweave-ui/src/view.rs": "48922e2a2ec9137c13f8142f188fdc9f1fefa65b70bf2dd867b71aa1b285c38a",
+    "crates/keyweave-ui/tests/editor.rs": "60972def0425709e8f94d5c3f1b5244ffb358c273f4429867fe0efc6be216c5f"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1900,
+    "new_tests": 6,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-ui/final-0.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-ui/final-1.log",
+        "sha256": "35e76597d2b0f6cae310b8d1a7aefa3260c5f2ac4347b475413f3dfa8c482e6c"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-ui/final-2.log",
+        "sha256": "5bb0a111435f52f42b7f4e3106a1696192cf2a1f69324eec48cd1e35f1c814bd"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-ui/final-3.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-ui/final-4.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-native-ui/final-5.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "dependencies": {
+    "eframe": "=0.36.2",
+    "features": [
+      "default_fonts",
+      "glow",
+      "x11",
+      "wayland"
+    ],
+    "default_features": false,
+    "locked_packages": 329,
+    "cargo_lock_sha256": "c5cbeac3c691d5132c2b8ff5c5bab859eaece4b26dd85f0fd3605aaaeb22822b",
+    "sources": [
+      "https://docs.rs/eframe/0.36.2/eframe/",
+      "https://github.com/emilk/egui/releases"
+    ]
+  },
+  "initial_failures": [
+    "Sandbox public crates.io fetch failed DNS resolution; approved network fetch proceeded. HTTP/2 stream reset exited 101; HTTP/1 locked resume completed exit0. Wayland extra dependencies were subsequently resolved and fetched successfully.",
+    "First headless test dropped unapplied egui TexturesDelta; corrected harness to clear deltas. Final six GUI tests passed.",
+    "Wayland feature offline attempt lacked registry metadata; fetched dependencies before successful rebuild.",
+    "First Clippy run flagged collapsible_if; corrected before full final checks."
+  ],
+  "logs": [
+    {
+      "path": "/tmp/keyweave-ui-fetch.log",
+      "sha256": "bbddd4c0b5c5f43b87012d9b24eff9046abbd97df5e4af2eceda079e7fb512d8"
+    },
+    {
+      "path": "/tmp/keyweave-ui-fetch-network.log",
+      "sha256": "2d6574c2b99dd24383e295d1fd6002442e09777c8dafbe254f30f54d06b65179"
+    },
+    {
+      "path": "/tmp/keyweave-ui-fetch-http1.log",
+      "sha256": "5776bc6bf53ed222bab56b038d7ead48772258e762842a33f9d55e95afba02c0"
+    },
+    {
+      "path": "/tmp/keyweave-ui-fetch-wayland.log",
+      "sha256": "929fc897409ba2f8b46ee11b97dc7397bbea93ed45d44d9c01fecdc16c645bc8"
+    },
+    {
+      "path": "target/gui-first-build.log",
+      "sha256": "f20e4e57a6a39ec3d80848ec7a79c5c56fbd3896878453159c0f60b33e109d94"
+    },
+    {
+      "path": "target/gui-final-focused.log",
+      "sha256": "8b5cd740b23ad15a05f9868f8fceb17123011e0f952aeebbbe5822f40e66ef88"
+    },
+    {
+      "path": "target/gui-wayland-build.log",
+      "sha256": "291d157f2d33ab85909dae6ee2cb8200e3ef3b8f1895d8d5c18218e35e011ff5"
+    },
+    {
+      "path": "target/gui-wayland-final-build.log",
+      "sha256": "534f213cf88d184d8595d6cf6a808fcf9781ee6ef09fa81684c6fb60a25170f8"
+    },
+    {
+      "path": "target/gui-native-smoke.log",
+      "sha256": "850504676899211b493f84a53c9d5338b3387d46ebf718e29c120d44f5ba4967"
+    },
+    {
+      "path": "target/gui-native-wayland-smoke.log",
+      "sha256": "1e055afb0c2424a2055e197158ebf1b6de90e3befc7eee0d6fa4a859090b573b"
+    },
+    {
+      "path": "target/validation/linux-20261015-native-ui/1.log",
+      "sha256": "368e2b349c1f76fa412e42a4065cdbd98d7cc1262da613defc572b8483b47138"
+    }
+  ],
+  "native_gui_smoke": [
+    {
+      "command": "timeout --kill-after=5s 30s target/debug/keyweave-ui --smoke",
+      "features": "X11 only initial build",
+      "exit_code": 1,
+      "result": "XOpenDisplayFailed",
+      "log": "target/gui-native-smoke.log"
+    },
+    {
+      "command": "timeout --kill-after=5s 30s target/debug/keyweave-ui --smoke",
+      "features": "X11 and Wayland final configuration",
+      "exit_code": 1,
+      "result": "Wayland Connection(NoCompositor)",
+      "log": "target/gui-native-wayland-smoke.log"
+    }
+  ],
+  "windows": {
+    "status": "GUI not built or run natively on Windows. Previous native approval quota rejection remains un-retried; public GUI dependency fetch was a separate approved operation."
+  },
+  "limitations": [
+    "Headless test exercises real egui layout/tessellation and explicitly clears texture deltas; no GPU presentation/desktop visibility proof. Native window smoke failed before a usable desktop window.",
+    "GUI performs offline config editing/validation/new-copy storage only. No runtime IPC, Apply/activation, global capture, Hook or injection.",
+    "Save-copy assumes a trusted user directory and hard-link-capable filesystem; not privileged artifact authentication or complete ancestor/TOCTOU/power-failure durability proof. Existing files are not overwritten.",
+    "One background validation job; revision/target/mode and exact text bind accepted reports. Thread scheduling/join/allocator are not hard realtime guarantees.",
+    "English UI; CJK fonts, accessibility/tray, visual mapping/profile management, device/runtime controls, native acceptance and packages remain pending."
+  ]
+}
