@@ -175,3 +175,7 @@ shell handler 明确 `/bin/sh -c`，迁移到 Windows 无法直接复用。前�
 ### 设备专属 Simple 接线补审（ADR-0226）
 
 固定源码 simple_modifications_manipulator_manager.hpp 的 update 先遍历 profile.devices 顺序，为每个 simple 添加 make_device_if_condition，再加入全局 simple；KeyWeave沿现有同一Simple阶段/条件实现此顺序。condition_factory.hpp 的 profile-device factory 只选 vendor/product/is_keyboard/is_pointing_device，未选 location/address 等其他身份字段。types/device_identifiers.hpp 缺省ID0/类型false；该新审计文件加入 source-manifest，校验数为61。没有运行macOS上游测试，也不从静态源码推断Linux类型事实已存在。当前Linux production ContextSnapshot的类型仍未知，匹配功能须接入可信provider后再验收。详细证据与限制见 [ADR-0226](ADR-0226-device-specific-simple-mappings.md)。
+
+### UTF-8正则补审（ADR-0228）
+
+固定上游 vendor/vendor/include/pqrs/regex.hpp v1.3.0（BSL-1.0第三方文件，只审阅/记录hash，不复制进生产）以std::string/std::regex ECMAScript保存pattern；frontmost_application.hpp与input_source_selector/specifier.hpp以string迭代器regex_search。未发现所审src路径改变std::locale::global或regex.imbue。KeyWeave按字节语义补UTF-8文字匹配，保留原语法子集限制；新增wrapper摘要使source-manifest计62。30自有golden由本机libstdc++ classic locale与Rust共同核对，不声称macOS libc++全等或已运行上游测试。

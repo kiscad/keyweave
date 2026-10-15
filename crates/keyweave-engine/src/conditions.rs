@@ -2,7 +2,7 @@ use keyweave_types::*;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
-pub struct Pattern(Arc<regex::Regex>);
+pub struct Pattern(Arc<regex::bytes::Regex>);
 impl PartialEq for Pattern {
     fn eq(&self, other: &Self) -> bool {
         self.0.as_str() == other.0.as_str()
@@ -11,8 +11,8 @@ impl PartialEq for Pattern {
 impl Eq for Pattern {}
 impl Pattern {
     pub fn compile(pattern: &str) -> Result<Self, String> {
-        if pattern.len() > 1024 || !pattern.is_ascii() || pattern.contains(['\r', '\n']) {
-            return Err("pattern must be ASCII single-line and at most 1024 bytes".into());
+        if pattern.len() > 1024 || pattern.contains(['\r', '\n']) {
+            return Err("pattern must be single-line UTF-8 and at most 1024 bytes".into());
         }
         if pattern.contains("&&") || pattern.contains("~~") || pattern.contains("--") {
             return Err("regex character-class set operations are unsupported".into());
@@ -22,6 +22,9 @@ impl Pattern {
         while let Some(ch) = chars.next() {
             if ch == '\\' {
                 let escaped = chars.next().ok_or("incomplete regex escape")?;
+                if !escaped.is_ascii() {
+                    return Err("non-ASCII regex escapes are unsupported; use literal UTF-8".into());
+                }
                 if in_class && escaped.is_ascii_alphanumeric() {
                     return Err("shorthand escapes inside character classes are unsupported".into());
                 }
@@ -49,8 +52,9 @@ impl Pattern {
                 }
             }
         }
-        // ASCII shorthands avoid Unicode automata and preserve ECMAScript
-        // character/word behavior on the supported ASCII single-line inputs.
+        // C++ std::regex<char> searches UTF-8 as bytes. Keep ASCII shorthands,
+        // then encode every non-ASCII literal byte internally without grouping:
+        // quantifiers/classes must retain the original byte-level scope.
         let mut normalized = String::new();
         let mut chars = pattern.chars();
         while let Some(ch) = chars.next() {
@@ -74,7 +78,19 @@ impl Pattern {
                 normalized.push(ch);
             }
         }
-        regex::RegexBuilder::new(&normalized)
+        let mut byte_pattern = String::with_capacity(normalized.len());
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        for byte in normalized.bytes() {
+            if byte.is_ascii() {
+                byte_pattern.push(char::from(byte));
+            } else {
+                byte_pattern.push_str("\\x");
+                byte_pattern.push(char::from(HEX[usize::from(byte >> 4)]));
+                byte_pattern.push(char::from(HEX[usize::from(byte & 15)]));
+            }
+        }
+        regex::bytes::RegexBuilder::new(&byte_pattern)
+            .unicode(false)
             .size_limit(32 * 1024)
             .dfa_size_limit(16 * 1024)
             .build()
@@ -83,8 +99,8 @@ impl Pattern {
     }
     fn test(&self, value: &Option<String>) -> Truth {
         match value {
-            Some(value) if value.is_ascii() && !value.contains(['\r', '\n']) => {
-                if self.0.is_match(value) {
+            Some(value) if !value.contains(['\r', '\n']) => {
+                if self.0.is_match(value.as_bytes()) {
                     Truth::True
                 } else {
                     Truth::False

@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "contract": "std::regex<char> ECMAScript classic locale search over UTF-8 bytes; supported KeyWeave subset",
+  "cases": [
+    {
+      "id": "literal-cn",
+      "pattern": "用户/编辑器",
+      "value": "/home/用户/编辑器",
+      "matches": true
+    },
+    {
+      "id": "not-match-cn",
+      "pattern": "编辑器",
+      "value": "/home/用户/终端",
+      "matches": false
+    },
+    {
+      "id": "windows-path",
+      "pattern": "^C:\\\\Users\\\\用户\\\\工具\\.exe$",
+      "value": "C:\\Users\\用户\\工具.exe",
+      "matches": true
+    },
+    {
+      "id": "windows-path-other",
+      "pattern": "^C:\\\\Users\\\\用户\\\\工具\\.exe$",
+      "value": "C:\\Users\\用户\\工具xexe",
+      "matches": false
+    },
+    {
+      "id": "one-byte-dot",
+      "pattern": "^.$",
+      "value": "é",
+      "matches": false
+    },
+    {
+      "id": "two-byte-dot",
+      "pattern": "^..$",
+      "value": "é",
+      "matches": true
+    },
+    {
+      "id": "three-byte-cn",
+      "pattern": "^...$",
+      "value": "中",
+      "matches": true
+    },
+    {
+      "id": "four-byte-emoji",
+      "pattern": "^....$",
+      "value": "😀",
+      "matches": true
+    },
+    {
+      "id": "one-scalar-not-dot",
+      "pattern": "^.$",
+      "value": "😀",
+      "matches": false
+    },
+    {
+      "id": "byte-quantifier",
+      "pattern": "^é+$",
+      "value": "éé",
+      "matches": false
+    },
+    {
+      "id": "group-quantifier",
+      "pattern": "^(?:é)+$",
+      "value": "éé",
+      "matches": true
+    },
+    {
+      "id": "cn-byte-quantifier",
+      "pattern": "^中+$",
+      "value": "中中",
+      "matches": false
+    },
+    {
+      "id": "cn-group-quantifier",
+      "pattern": "^(?:中)+$",
+      "value": "中中",
+      "matches": true
+    },
+    {
+      "id": "byte-class-overlap",
+      "pattern": "[é]",
+      "value": "ê",
+      "matches": true
+    },
+    {
+      "id": "byte-class-anchored",
+      "pattern": "^[é]$",
+      "value": "é",
+      "matches": false
+    },
+    {
+      "id": "ascii-word",
+      "pattern": "^\\w+$",
+      "value": "café",
+      "matches": false
+    },
+    {
+      "id": "ascii-digit",
+      "pattern": "^\\d+$",
+      "value": "１２",
+      "matches": false
+    },
+    {
+      "id": "non-ascii-word",
+      "pattern": "\\W",
+      "value": "中",
+      "matches": true
+    },
+    {
+      "id": "word-boundary",
+      "pattern": "\\b用户",
+      "value": "用户",
+      "matches": false
+    },
+    {
+      "id": "ascii-boundary",
+      "pattern": "\\bfoo\\b",
+      "value": "中文fooé",
+      "matches": true
+    },
+    {
+      "id": "literal-e-accent",
+      "pattern": "café",
+      "value": "café",
+      "matches": true
+    },
+    {
+      "id": "no-normalization",
+      "pattern": "café",
+      "value": "café",
+      "matches": false
+    },
+    {
+      "id": "decomposed-literal",
+      "pattern": "café",
+      "value": "café",
+      "matches": true
+    },
+    {
+      "id": "ascii-substring",
+      "pattern": "editor",
+      "value": "/home/用户/editor",
+      "matches": true
+    },
+    {
+      "id": "ascii-negative",
+      "pattern": "editor",
+      "value": "/home/用户/other",
+      "matches": false
+    },
+    {
+      "id": "unicode-alternation",
+      "pattern": "^(编辑器|Terminal)$",
+      "value": "编辑器",
+      "matches": true
+    },
+    {
+      "id": "non-english-source",
+      "pattern": "^日本語$",
+      "value": "日本語",
+      "matches": true
+    },
+    {
+      "id": "unicode-space-not-ascii",
+      "pattern": "^\\s$",
+      "value": "　",
+      "matches": false
+    },
+    {
+      "id": "unicode-line-separator",
+      "pattern": "^...$",
+      "value": " ",
+      "matches": true
+    },
+    {
+      "id": "ascii-whitespace",
+      "pattern": "^\\s+$",
+      "value": "\t ",
+      "matches": true
+    }
+  ]
+}

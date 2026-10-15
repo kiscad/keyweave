@@ -50,18 +50,14 @@ fn app_search_is_or_across_fields_and_unknown_only_blocks_unresolved_results() {
     assert_eq!(evaluate(&condition, &context, 0), Truth::False);
 }
 #[test]
-fn app_unless_does_not_turn_unicode_multiline_missing_or_expired_into_true() {
+fn app_unless_does_not_turn_multiline_missing_or_expired_into_true() {
     let condition = Condition::Application {
         bundle_identifiers: vec![],
         file_paths: vec![pattern("editor")],
         unless: true,
     };
     let mut context = context();
-    for path in [
-        None,
-        Some("/home/用户/editor".into()),
-        Some("/bin/other\n".into()),
-    ] {
+    for path in [None, Some("/bin/other\n".into())] {
         context.application.as_mut().unwrap().file_path = path;
         assert_eq!(evaluate(&condition, &context, 0), Truth::Unknown);
     }
@@ -111,7 +107,6 @@ fn unsupported_or_expensive_regex_is_rejected_before_replay() {
         "\\u0061",
         "\\x61",
         "[a&&b]",
-        "编辑器",
         "[",
         "a{100000000}",
         "[[a]]",
@@ -128,5 +123,87 @@ fn unsupported_or_expensive_regex_is_rejected_before_replay() {
         "\\w+\\d*",
     ] {
         assert!(Pattern::compile(value).is_ok(), "{value}");
+    }
+}
+#[test]
+fn utf8_pattern_goldens_match_byte_ecmascript_search_for_app_and_input_source() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/regex/ecmascript-utf8.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let mut context = context();
+        let text = case["value"].as_str().unwrap().to_owned();
+        context.application.as_mut().unwrap().file_path = Some(text.clone());
+        context.input_source.as_mut().unwrap().language = Some(text);
+        let pattern = pattern(case["pattern"].as_str().unwrap());
+        for unless in [false, true] {
+            let expected = if case["matches"].as_bool().unwrap() != unless {
+                Truth::True
+            } else {
+                Truth::False
+            };
+            for condition in [
+                Condition::Application {
+                    bundle_identifiers: vec![],
+                    file_paths: vec![pattern.clone()],
+                    unless,
+                },
+                Condition::InputSource {
+                    sources: vec![InputSourceFilter {
+                        language: Some(pattern.clone()),
+                        ..Default::default()
+                    }],
+                    unless,
+                },
+            ] {
+                assert_eq!(
+                    evaluate(&condition, &context, 1),
+                    expected,
+                    "{}: {:?}",
+                    case["id"],
+                    condition
+                );
+            }
+        }
+    }
+}
+#[test]
+fn utf8_unless_observes_real_nonmatch_but_never_missing_multiline_or_stale_data() {
+    let condition = Condition::Application {
+        bundle_identifiers: vec![],
+        file_paths: vec![pattern("编辑器")],
+        unless: true,
+    };
+    let mut context = context();
+    context.application.as_mut().unwrap().file_path = Some("/home/用户/编辑器".into());
+    assert_eq!(evaluate(&condition, &context, 1), Truth::False);
+    context.application.as_mut().unwrap().file_path = Some("/home/用户/终端".into());
+    assert_eq!(evaluate(&condition, &context, 1), Truth::True);
+    assert_eq!(evaluate(&condition, &context, 100), Truth::Unknown);
+    for value in [
+        None,
+        Some("/home/用户/终端\n".into()),
+        Some("/home/用户/终端\r".into()),
+    ] {
+        context.application.as_mut().unwrap().file_path = value;
+        assert_eq!(evaluate(&condition, &context, 1), Truth::Unknown);
+    }
+}
+#[test]
+fn utf8_byte_budget_and_unsupported_escape_diagnostics_remain_bounded() {
+    assert!(Pattern::compile(&"é".repeat(512)).is_ok());
+    assert!(Pattern::compile(&"é".repeat(513)).is_err());
+    for value in [
+        "编辑\n器",
+        "编辑\r器",
+        r"\中",
+        r"\u4e2d",
+        r"\xE4",
+        r"(?i)编辑器",
+        r"(?=编辑器)",
+        r"[\w中]",
+    ] {
+        assert!(Pattern::compile(value).is_err(), "{value}");
     }
 }

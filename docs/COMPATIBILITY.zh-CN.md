@@ -1,5 +1,7 @@
 # 当前配置兼容范围
 
+ADR-0228：应用/输入源Pattern允许UTF-8文字与subject，按上游std::regex<char>字节search语义使用锁定regex1.8.1 bytes builder+内部非ASCII字节hex化；不做Unicode scalar/归一化/locale扩展。CRLF/缺失/过期仍Unknown，原语法拒绝和1024bytes/256patterns/32KiB/16KiB预算保持。新增5tests含Win32 UTF16真实采样逻辑mock→条件、全目标完整冷准备、App/InputSource三态/限额；30共享golden由Rust与本机C++17 classic locale参考共同验证。Linux1932项及格式/Clippy/源码62/C UAPI/X11 SDK/新regex oracle通过，无初错。非macOS libc++/Windows原生或硬件证明；完整目标继续。见 [ADR-0228](ADR-0228-utf8-byte-pattern-conditions.md)、[验证记录](validation/linux-2026-10-15-utf8-regex.json)。
+
 ADR-0227：Linux Evdev冷open新增identity-bound libudev静态类型快照→CaptureSource可选接口→Runtime DeviceContext，类型来自initialized/ID_INPUT/至少一正类型标签的完整记录，缺记录/错误整体Unknown，不猜名称/键码；类别缺省false仅在该完整分类范围解释。FD devnum/内核ID/input父路径前后核验，库和/run/udev/data记录root/权限边界保持；poll不查询udev，规则变更需重开。新增6纯分类/实际FFI-table释放与身份故障/真实JSON→两模式Runtime/pump/context续期和移除tests，Linux1927项及格式/Clippy/源码61/C UAPI/固定X11 SDK通过。只读native loader probe实际exit1（系统库祖先UID65534→root-trust拒绝），未绕过；本机无libudev.h，新SDK签名仅源审，不由既有C ABI绿灯推断。原生设备分类/硬件、GUI IPC/设备列表、自动热插拔/Wayland/包装及完整目标继续。见 [ADR-0227](ADR-0227-udev-static-device-types.md)、[验证记录](validation/linux-2026-10-15-udev-types.json)。
 
 ADR-0226：profile.devices[].simple_modifications编入既有Simple/Device条件并按设备顺序优先于全局Simple，保存旧binding/Arc；共享严格标识解析、每设备整批拒绝、256项/共享4096规则预算、原pointer诊断。遵循上游四字段selector（缺省ID0/类型false，忽略location/address），Windows Hook仍拒绝。KW-DEVICE-001明确provider依赖：当前Linux仅提供vendor/product、类型未知，生产selector尚不能匹配，不能宣称每设备功能真机可用。新增6编译/两mode真实Engine/Controller/context/代际/过期/热更/拔除/cold tests，Linux1921项及格式/Clippy/源码61/C UAPI/固定X11 SDK通过，无初错。可信类型provider、设备GUI、ignore/LED/Fn、原生验收及完整目标继续。见 [ADR-0226](ADR-0226-device-specific-simple-mappings.md)、[验证记录](validation/linux-2026-10-15-device-simple.json)。
@@ -302,12 +304,12 @@ Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 con
 | 持键更新 | 已持键完成旧输出，之后的 down 用新 generation；Repeat 不重新执行宏 |
 | 多来源相同输出 | owner 引用集合，防止他人持键被中间 tap/up 打断；ADR-0002 说明上游兼容差异 |
 | 设备代际 | 每个 id 仅保留最高 generation/removed；旧移除幂等忽略，旧 key/wheel/move 拒绝；4096 身份上限，Reset 保留历史；ADR-0005 描述容量恢复契约 |
-| 应用条件 | frontmost_application_if/unless；bundle_identifiers/file_paths regex_search OR；没有标题匹配；provider 属性缺失/非 ASCII/CRLF/过期 Unknown |
+| 应用条件 | frontmost_application_if/unless；bundle_identifiers/file_paths regex_search OR；没有标题匹配；provider 属性缺失/CRLF/过期 Unknown；UTF-8属性按字节搜索 |
 | 输入源条件 | input_source_if/unless；input_sources 字段 language/input_source_id/input_mode_id AND、条目 OR；空 specifier 在已知源对象中 True |
 | 变量条件 | variable_if/unless；严格 i64/bool/String 相等；未设置/unset 为整数 0；引擎本地状态不受 ContextSnapshot 过期影响 |
 | 变量动作 | complex to/alone/after 中 set_variable，默认 type=set；value/key_up_value 至少一个，type=unset 不接受被忽略的 value；最后 repeat=true 的 up 值保留到原输入 up；非最后/extra/repeat=false 完整 down/up；没有按键 owner |
 | 变量预算与恢复 | 256 names、256 bytes/name、4096 bytes/string；构造/激活预留，跨热更新保留，Reset 清值并回收旧配置名字；移除完成已执行 action 的 up 值，保留普通持久赋值；全局按顺序覆盖，ADR-0010 |
-| 正则 | 仅 ASCII 单行匹配；配置时预编译，最多 256 patterns/当前配置、1024 bytes/pattern；32 KiB 程序/16 KiB DFA cache；拒绝 lookaround/backreference/inline flags/Unicode 或 hex 转义、集合运算、嵌套字符类/类内 shorthand；不是完整 C++ ECMAScript，ADR-0009 |
+| 正则 | UTF-8单行文字/subject按std::regex<char>字节语义搜索（无Unicode scalar/归一化）；配置时预编译，最多 256 patterns/当前配置、1024 bytes/pattern；32 KiB 程序/16 KiB DFA cache；拒绝 lookaround/backreference/inline flags/Unicode 或 hex 转义、集合运算、嵌套字符类/类内 shorthand；不是完整 C++ ECMAScript，ADR-0009/ADR-0228 |
 | 设备条件 | device_if/unless/exists_if/exists_unless；identifier 字段 AND、列表 OR；空对象忽略；规则数组全部 True；输出 action.conditions 在执行时筛选；未知/过期对 if/unless 均不激活，ADR-0008 记录上游差异 |
 | 上下文输入 | ContextChanged：严格 revision、provider、[observed, valid_until) 纳秒；一天有效期上限；256 项设备库存、每 id 唯一；未知属性用 None；设备重连使 metadata 失效；离线合成、Linux captured-device metadata 已接入；Windows 应用路径 provider 代码已连接，原生验证待完成 |
 | 未实现动作/条件 | 禁用整条外层 rule，保留 AST 与 JSON Pointer 诊断；validate/import/replay 不允许有损激活 |
@@ -319,7 +321,7 @@ Linux 已有实验 `run-linux` host/worker 冷启动与监督入口；当前 con
 | 平台能力 | offline 支持上述 HID 页；linux-evdev 声明 keyboard/consumer；windows-hook 声明 keyboard。windows-hook 拒绝设备条件；后端代码与显式分阶段会话已实现；声明只用于提前检查，真实设备/原生验收另行记录 |
 
 
-显式 StagedKeyboard 会话及其冷准备/热重载现已支持 Complex simultaneous 与 hold_down_milliseconds；Legacy 编译/引擎仍拒绝这两项，Simple simultaneous 仍拒绝。尚未实现：expression/系统变量、布局/锁状态、Linux 应用及两平台输入源 provider、Unicode 条件正则与会话动作。含不支持必要字段的规则准确拒绝；支持的条件没有可信 provider 值时保持 Unknown。Windows 应用 provider 代码的接入与未验证范围见 ADR-0074。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，显式 lazy/halt 的状态与预算见 ADR-0013。
+显式 StagedKeyboard 会话及其冷准备/热重载现已支持 Complex simultaneous 与 hold_down_milliseconds；Legacy 编译/引擎仍拒绝这两项，Simple simultaneous 仍拒绝。尚未实现：expression/系统变量、布局/锁状态、Linux 应用及两平台输入源 provider、完整 Unicode scalar/ECMAScript 正则与会话动作。含不支持必要字段的规则准确拒绝；支持的条件没有可信 provider 值时保持 Unknown。Windows 应用 provider 代码的接入与未验证范围见 ADR-0074。所有时间为外部注入整数纳秒；同一时刻的输出以数组次序为准。wheel/move 当前只有离线 Pass、取消与受 repeat/button 状态约束的修饰刷新，没有指针捕获/映射后端。隐式 mandatory/scope 修饰恢复见 ADR-0006/0007，显式 lazy/halt 的状态与预算见 ADR-0013。
 
 展开限额、不同来源 tap 冲突见 ADR-0003；轻触/松开生命周期与预算见 ADR-0004；实现与测试状态见 STATUS。不要通过删除不支持字段生成看似可执行的导入结果。
 

@@ -24,3 +24,5 @@
 复杂 basic 规则可省略 to，表示抑制匹配按键，等同 to:[]；简单映射仍要求非空目标。规则层 description_notes 为字符串数组，保留在保存的 JSON 中。此支持经过完整离线编译、冷准备和两种执行模式测试，仍不代表真实系统设备验收。参见 [ADR-0225](ADR-0225-empty-basic-suppression-and-rule-notes.md)。
 
 设备专属 simple 配置仍通过原始 JSON 编辑。Linux离线校验的KW-DEVICE-001提示类型上下文依赖；真实会话冷open已接可选udev静态类型provider，其是否可用必须由实际系统验证。当前沙箱root-trust拒绝，不把离线校验显示为“设备类型已验证”。Windows Hook仍不支持逐设备映射；GUI设备列表/实时状态控制继续开发。
+
+应用与输入源条件可使用UTF-8文字正则，例如 file_paths 中的 `编辑器\\.exe$`（JSON中的反斜线需按JSON规则转义）。匹配采用上游std::regex<char>字节语义：`^.$`不匹配两字节é，`^..$`可匹配；重复完整文字用分组，如 `(?:编辑器)+`，不是Unicode scalar匹配。JSON自身的\uXXXX解码与正则\\uXXXX转义不同；后者仍拒绝。缺失/过期/含CRLF的provider值保持Unknown。离线通过不证明平台已有相应输入源provider，参见 [ADR-0228](ADR-0228-utf8-byte-pattern-conditions.md)。

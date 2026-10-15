@@ -762,7 +762,7 @@ fn app_and_input_source_conditions_compile_without_device_inventory_capability()
 }
 #[test]
 fn regex_errors_have_exact_pointers_and_disable_all_manipulators_in_rule() {
-    for pattern in ["(?=a)", "(a)\\1", "[", "(?i)a", "[a&&b]", "中文"] {
+    for pattern in ["(?=a)", "(a)\\1", "[", "(?i)a", "[a&&b]", "\\中"] {
         let raw = profile(
             json!([{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b"}]},
             {"type":"basic","from":{"key_code":"c"},"to":[{"key_code":"d","conditions":[{"type":"frontmost_application_if","bundle_identifiers":[pattern]}]}]}]}]),

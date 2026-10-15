@@ -90,3 +90,45 @@ fn close_failure_is_not_masked_by_sampling_failure_and_is_not_retried() {
         assert_eq!((m.closes, m.live), (1, true));
     });
 }
+#[test]
+fn actual_utf16_sample_matches_utf8_path_conditions_without_fabricating_bundle_id() {
+    use keyweave_engine::{Condition, Pattern, Truth};
+    use keyweave_types::{ContextSnapshot, DeviceInstanceId, MonoTime};
+    MOCK.with(|m| {
+        *m.borrow_mut() = Mock {
+            path: "C:\\应用\\editor.exe".encode_utf16().collect(),
+            ..Default::default()
+        }
+    });
+    let application = sample().unwrap().unwrap();
+    let context = ContextSnapshot {
+        revision: 1,
+        provider: "Win32 API mock".into(),
+        observed_at_ns: MonoTime(0),
+        valid_until_ns: MonoTime(100),
+        application: Some(application),
+        ..Default::default()
+    };
+    let condition = Condition::Application {
+        file_paths: vec![Pattern::compile(r"^C:\\应用\\editor\.exe$").unwrap()],
+        bundle_identifiers: vec![],
+        unless: false,
+    };
+    let device = DeviceInstanceId {
+        id: 1,
+        generation: 1,
+    };
+    assert_eq!(
+        condition.evaluate(&context, device, MonoTime(1)),
+        Truth::True
+    );
+    assert_eq!(
+        condition.evaluate(&context, device, MonoTime(100)),
+        Truth::Unknown
+    );
+    assert_eq!(context.application.unwrap().bundle_identifier, None);
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!((m.queries, m.closes, m.live), (1, 1, false));
+    });
+}

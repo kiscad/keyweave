@@ -184,3 +184,20 @@ fn offline_device_mapping_validation_keeps_windows_gate_and_exposes_metadata_rea
         }
     }
 }
+#[test]
+fn utf8_application_and_input_source_patterns_reach_all_offline_backend_preparations() {
+    let text = r#"{"profiles":[{"selected":true,"complex_modifications":{"rules":[{"manipulators":[{"type":"basic","from":{"key_code":"a"},"to":[{"key_code":"b","conditions":[{"type":"input_source_if","input_sources":[{"language":"^日本語$"}]}]}],"conditions":[{"type":"frontmost_application_if","file_paths":["编辑器\\.exe$"]}]}]}]}}]}"#;
+    for target in Target::ALL {
+        for staged in [false, true] {
+            if target.mixed() && !staged {
+                continue;
+            }
+            let report = model::validate(text, target, staged);
+            assert!(
+                report.accepted,
+                "{target:?}/{staged}: {:?}",
+                report.diagnostics
+            );
+        }
+    }
+}

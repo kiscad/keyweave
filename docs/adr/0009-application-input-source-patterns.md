@@ -1,5 +1,7 @@
 # ADR-0009：应用与输入源条件的受限正则
 
+更新：ADR-0228已取代下述历史ASCII限定，现支持UTF-8文字/subject的字节正则，限额与Unknown边界保持。参考 [ADR-0228](../ADR-0228-utf8-byte-pattern-conditions.md)。以下保留最初设计和当时验证记录。
+
 状态：已实现离线受限模式；2026-10-08。
 
 引擎只接收 ContextSnapshot 中的应用/输入源属性；条件不会查询 OS。每个属性可独立 Unknown；整个快照过期时全部 Unknown。应用 bundle_identifiers/file_paths 两组 OR；输入源单个 specifier 字段 AND、列表 OR；unless 不反转 Unknown。输出动作条件与规则条件共用 IR。

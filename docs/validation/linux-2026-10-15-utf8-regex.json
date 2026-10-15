@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "cb3a3d38e78480f2b3ab93eab7be2ec43f125a21",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.lock": "135d512db5e18565deec5a3402a36b140f9b0dcca68588fded68e877bc8a6a61",
+    "crates/keyweave-engine/Cargo.toml": "cb143600d543457570508adc7c6e33668ceb1c6104e2862031fae4ef9c3b8b76",
+    "crates/keyweave-engine/src/conditions.rs": "e3151107c9e2771624ba8fb718e47364808bce75ab6a1d62f11e98a6dedb25ee",
+    "crates/keyweave-engine/tests/text_conditions.rs": "29f52101c0782e703c7d2b4249e7d4929b86ad7f372c6de11c650df852d0b7ce",
+    "crates/keyweave-config/tests/compiler.rs": "cae8f49bb4ae24801f382609bc63a6be512176128e01cb54e80b8e6e11c2de42",
+    "crates/keyweave-ui/tests/editor.rs": "ed0ea50e9f563fd188d91c8edf90763cc35fa781ef479940d128cf445f04c446",
+    "crates/keyweave-windows/src/native/application/tests.rs": "90da68249826dec5f92520208ae83c01c9690b67c7b8b1bc29f390681404ca63",
+    "tests/fixtures/regex/ecmascript-utf8.json": "626325e03b95dedac4033d6ba863e80abfcc2531543949766d227525c97a79c3",
+    "tools/verify_regex_oracle.py": "11356811f98e8bbcb732c6c784a88a4ab7cf96f2a5a000670e7291d213aff9d6",
+    "docs/source-manifest.json": "123a7fba44e9d51a2eff30fb061c0ebb97818a4f60f428421f653a28986c0081"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1932,
+    "new_tests": 5,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/clippy.log",
+        "sha256": "c2b72e3617b6c27393792f973758425947f773c7faca4e70f290a615ee6e3131"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/tests.log",
+        "sha256": "3866818a4fd72093aed597e1a2dd9deebc0d735d091b2861aa753cf5d5170dd9"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-utf8-regex/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "regex_oracle": {
+    "cases_verified": 30,
+    "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "contract": "std::regex<char> ECMAScript classic locale regex_search on UTF-8 bytes",
+    "fixture_sha256": "626325e03b95dedac4033d6ba863e80abfcc2531543949766d227525c97a79c3"
+  },
+  "source_evidence": {
+    "upstream_commit": "ec2fea8940f7254a748c052a890ee9db7113d9b1",
+    "files": [
+      "vendor/vendor/include/pqrs/regex.hpp",
+      "src/share/manipulator/conditions/frontmost_application.hpp",
+      "vendor/vendor/include/pqrs/osx/input_source_selector/specifier.hpp"
+    ],
+    "regex_builder": "Existing cached/pinned regex1.8.1 src/re_builder.rs bytes::RegexBuilder unicode(false), size_limit and dfa_size_limit reviewed; no registry dependency upgrade."
+  },
+  "limitations": [
+    "This supports UTF-8 literal patterns/subjects with byte ECMAScript subset semantics, not Unicode scalar regex, case folding or NFC/NFD normalization. Dot, quantifier and class scope remains byte-oriented.",
+    "User regex Unicode/hex escapes, non-ASCII escaped literals, lookaround, backreferences, inline flags and previous unsupported syntax still reject. Ordinary JSON Unicode decoding remains separate.",
+    "Missing, CR/LF or expired values remain Unknown; unless cannot invert Unknown into True. Existing 1024 pattern bytes, 256 patterns, 32KiB program/16KiB DFA limits retained.",
+    "Native C++ oracle is local Linux libstdc++ classic locale, not macOS libc++ execution or complete C++ ECMAScript equivalence. Windows UTF-16 sampling test uses API mocks on Linux; native Windows checks pending previous automatic approval quota rejection, not retried.",
+    "No actual application/input-source provider query, desktop input, capture or injection during validation; actual hardware and platform sessions remain unverified."
+  ]
+}
