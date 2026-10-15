@@ -107,3 +107,11 @@ host 返回0要求实际 worker code0、可接受终止原因、完整恢复 fac
 
 
 Linux staged 规则现支持 `from.simultaneous` 组合媒体键与键盘键，例如 `[{"consumer_key_code":"mute"},{"key_code":"a"}]`。首项也可为键盘；两者在阈值内匹配后只发送所配置目标，未匹配则按原顺序回放。此能力使用已有 Linux consumer 映射与 backend gate，仍须通过现有设备、session/consumer-ready 和 neutral 准入；规则接受不是硬件捕获证明。Windows consumer_keys 仍关闭，不能套用这一规则。
+
+## 设备专属 Simple 的当前边界
+
+配置编译器现可读取 `profiles[].devices[].simple_modifications`：先按设备数组顺序尝试专属映射，再尝试 profile 全局 simple，随后进入 complex。设备项要求 `identifiers` 对象；与固定上游 factory 一致，用 vendor_id/product_id（缺省0）、is_keyboard/is_pointing_device（缺省false）四项匹配，location/address不参与这类profile selector；原始数据仍保留。复杂规则的 device_if 条件继续按其显式字段求值。
+
+**当前 Linux Runtime 只提供可信 vendor/product，没有设备类型事实，故上述四字段条件不会在该生产上下文中成立。** 编译通过只证明配置/引擎准入，诊断 `KW-DEVICE-001` 会提示可信类型 provider 尚需接入；未知、过期或不同连接代际回退到全局 simple。测试中的显式 ContextSnapshot 不代替实际 provider。Windows Hook 无可靠逐事件设备身份，继续拒绝设备专属映射。
+
+每个设备最多沿共享4096规则预算，设备项总数最多256。ignore:true、未知设备设置、非空 Fn 映射仍拒绝；ignore:false、disable_built_in_keyboard_if_exists:false、treat_as_built_in_keyboard:false 是明确支持的无操作值。此功能不负责发现设备、打开输入节点、LED/系统键盘禁用或证明 capture ready。见 [ADR-0226](ADR-0226-device-specific-simple-mappings.md)。

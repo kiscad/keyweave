@@ -171,3 +171,7 @@ shell handler 明确 `/bin/sh -c`，迁移到 Windows 无法直接复用。前�
 | 中 | 全 Rust 驱动生产工具链与签名 | 独立 D10 gate，用户态版不受其阻塞 |
 
 对应解决方案、阶段和验收标准已落实到开发指导与任务清单；这些风险是具体实现要求，不是“移植不可行”的结论。
+
+### 设备专属 Simple 接线补审（ADR-0226）
+
+固定源码 simple_modifications_manipulator_manager.hpp 的 update 先遍历 profile.devices 顺序，为每个 simple 添加 make_device_if_condition，再加入全局 simple；KeyWeave沿现有同一Simple阶段/条件实现此顺序。condition_factory.hpp 的 profile-device factory 只选 vendor/product/is_keyboard/is_pointing_device，未选 location/address 等其他身份字段。types/device_identifiers.hpp 缺省ID0/类型false；该新审计文件加入 source-manifest，校验数为61。没有运行macOS上游测试，也不从静态源码推断Linux类型事实已存在。当前Linux production ContextSnapshot的类型仍未知，匹配功能须接入可信provider后再验收。详细证据与限制见 [ADR-0226](ADR-0226-device-specific-simple-mappings.md)。

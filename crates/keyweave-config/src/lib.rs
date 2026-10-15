@@ -1,4 +1,5 @@
 //! Bounded JSONC parsing and fail-closed compilation. No script or shell evaluation.
+mod devices;
 mod simultaneous;
 mod unique_json;
 use keyweave_engine::{
@@ -282,12 +283,19 @@ pub fn compile_with_mode(
             }
         }
     }
-    for field in ["devices", "fn_function_keys"] {
-        if let Some(value) = profile.get(field)
-            && !array(value, &format!("{pointer}/{field}"))?.is_empty()
-        {
-            compiler.reject(&format!("{pointer}/{field}"), "KW-CAP-001", "device/Fn mapping is not implemented in this build; profile cannot be activated without loss");
-        }
+    if let Some(value) = profile.get("devices") {
+        let mut per_device = devices::compile(&mut compiler, value, &format!("{pointer}/devices"))?;
+        per_device.append(&mut simple);
+        simple = per_device;
+    }
+    if let Some(value) = profile.get("fn_function_keys")
+        && !array(value, &format!("{pointer}/fn_function_keys"))?.is_empty()
+    {
+        compiler.reject(
+            &format!("{pointer}/fn_function_keys"),
+            "KW-CAP-001",
+            "Fn mapping is not implemented in this build; profile cannot be activated without loss",
+        );
     }
     let mut complex = Vec::new();
     if let Some(value) = profile.get("complex_modifications") {
@@ -1025,58 +1033,7 @@ impl Compiler<'_> {
                 let mut filters = Vec::new();
                 for (index, value) in identifiers.iter().enumerate() {
                     let location = format!("{location}/identifiers/{index}");
-                    let mut object = value.as_object().cloned().ok_or_else(|| {
-                        diagnostic(
-                            &location,
-                            "KW-CONFIG-001",
-                            "expected device identifier object",
-                        )
-                    })?;
-                    object.remove("description");
-                    for name in object.keys() {
-                        if ![
-                            "vendor_id",
-                            "product_id",
-                            "location_id",
-                            "device_address",
-                            "is_keyboard",
-                            "is_pointing_device",
-                            "is_game_pad",
-                            "is_consumer",
-                            "is_built_in_keyboard",
-                        ]
-                        .contains(&name.as_str())
-                        {
-                            return Err(diagnostic(
-                                &format!("{location}/{}", escape_pointer(name)),
-                                "KW-CAP-001",
-                                "unsupported device identifier field",
-                            ));
-                        }
-                        let valid = match name.as_str() {
-                            "vendor_id" | "product_id" => object[name]
-                                .as_u64()
-                                .is_some_and(|value| u32::try_from(value).is_ok()),
-                            "location_id" => object[name]
-                                .as_i64()
-                                .is_some_and(|value| i32::try_from(value).is_ok()),
-                            "device_address" => object[name]
-                                .as_str()
-                                .is_some_and(|value| value.len() <= 256),
-                            _ => object[name].is_boolean(),
-                        };
-                        if !valid {
-                            return Err(diagnostic(
-                                &format!("{location}/{}", escape_pointer(name)),
-                                "KW-CONFIG-001",
-                                "invalid device identifier type or bounded value",
-                            ));
-                        }
-                    }
-                    let properties: DeviceProperties =
-                        serde_json::from_value(Value::Object(object)).map_err(|_| {
-                            diagnostic(&location, "KW-CONFIG-001", "invalid device identifier")
-                        })?;
+                    let properties = devices::identifier(value, &location)?;
                     if properties.has_constraints() {
                         filters.push(properties);
                     }

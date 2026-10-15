@@ -381,6 +381,12 @@
       "sha256": "9b46d20e30df8e9a1efb46f6d1bbbc1b08f749032a6c0b507343d38bb50b108c",
       "bytes": 5672,
       "lines": 162
+    },
+    {
+      "path": "src/share/types/device_identifiers.hpp",
+      "sha256": "0bf2ce65a4c05fc01a92486494bf94777b8cc8692b2756efa518a3281704198d",
+      "bytes": 7502,
+      "lines": 283
     }
   ]
 }

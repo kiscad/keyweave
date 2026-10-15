@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "111800ef02b0d9f69b5c815ce12a8ae9902acbdf",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-config/src/lib.rs": "50fc27145ee6db18a7c3da6ffda2d5bb26d20839b4b4c6391bb1d8995bb91b90",
+    "crates/keyweave-config/src/devices.rs": "7c8436269c086ecb94e9a8c6452933683e26c62fd64128b9a31f9aedc254f356",
+    "crates/keyweave-config/tests/devices.rs": "ad43057d1f80f1ea7f0f58c932f8bddb95af70cfa43265e6e38d791a44bca786",
+    "crates/keyweave-ui/tests/editor.rs": "4f4ebe0faded69bb44d3672113b7d0c0fbcffadb7c665887f739d918c2659a06",
+    "docs/source-manifest.json": "421fb6d076de9b2371ce6413eaf80e844b86dce72b8e8bc32f3f17e98304c6f0"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1921,
+    "new_tests": 6,
+    "source_hashes_verified": 61,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-device-simple/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-device-simple/clippy.log",
+        "sha256": "c91ab79abac2f3df366f8d94e18e777871ab2c4785cedcba91626ba703c31f37"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-device-simple/tests.log",
+        "sha256": "39445b72dfdfeea04cc481a2fd11e1f4e3eb19f4b9dd7ccc42bc6b537cb97ce4"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-device-simple/sources.log",
+        "sha256": "0859d02745c038a4467af912721964bf1271e9a61afc01607fecf3300bce6069"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-device-simple/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-device-simple/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "behavior": [
+    "Device Simple mappings are compiled before global Simple in original device order. Same existing condition model and Down-bound snapshot; no additional stage.",
+    "Profile device selector normalizes missing vendor/product=0 and is_keyboard/is_pointing_device=false; ignores location/address/other type constraints as upstream factory does. Complex device_if remains explicit-field matching.",
+    "Each device batch is all-or-nothing on unsupported settings or malformed mapping; 256-device and shared 4096-mapping bounds. Windows Hook reliable-device gate unchanged.",
+    "KW-DEVICE-001 warning makes trusted fresh type-metadata dependency explicit; raw input and precise original pointer diagnostics preserved."
+  ],
+  "limitations": [
+    "This is compiler/controller integration. Linux Runtime currently reports vendor/product only, not keyboard/pointing type facts; this four-field selector will not match that production context until a trusted type provider is integrated. Unknown/expired identity falls back to global Simple, never guessing false or true.",
+    "Tests inject explicit trusted ContextSnapshot data into actual engines. They do not prove native device metadata, hardware capture or output.",
+    "Device capture/ignore:true, LED, nonempty Fn and unknown hardware fields remain rejected. Only specifically recognized false no-op flags accepted.",
+    "Windows Hook cannot implement per-device input. No native Windows verification, physical input, capture or injection in this slice; previous automatic approval quota rejection remains un-retried."
+  ]
+}

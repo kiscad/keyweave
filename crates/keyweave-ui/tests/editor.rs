@@ -154,3 +154,33 @@ fn headless_native_settings_layout_paints_diagnostics_without_runtime() {
             .is_some_and(|report| !report.diagnostics.is_empty())
     );
 }
+#[test]
+fn offline_device_mapping_validation_keeps_windows_gate_and_exposes_metadata_readiness() {
+    let text = r#"{"profiles":[{"devices":[{"identifiers":{"vendor_id":10,"product_id":20,"is_keyboard":true,"is_pointing_device":false},"simple_modifications":[{"from":{"key_code":"a"},"to":[{"key_code":"b"}]}]}]}]}"#;
+    for staged in [false, true] {
+        for target in [
+            Target::LinuxKeyboard,
+            Target::LinuxMixed,
+            Target::WindowsKeyboard,
+            Target::WindowsMixed,
+        ] {
+            if target.mixed() && !staged {
+                continue;
+            }
+            let report = model::validate(text, target, staged);
+            if matches!(target, Target::LinuxKeyboard | Target::LinuxMixed) {
+                assert!(report.accepted, "{:?}", report.diagnostics);
+                assert!(report.diagnostics.iter().any(|d| d.code == "KW-DEVICE-001"
+                    && d.severity == keyweave_config::Severity::Warning));
+            } else {
+                assert!(!report.accepted);
+                assert!(
+                    report
+                        .diagnostics
+                        .iter()
+                        .any(|d| d.pointer.contains("/devices/0"))
+                );
+            }
+        }
+    }
+}
