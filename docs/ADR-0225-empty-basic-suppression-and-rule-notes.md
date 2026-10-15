@@ -1,0 +1,9 @@
+# ADR-0225：无 to 的 basic 抑制规则与说明性元数据
+
+ADR-0224三个原样上游资产揭示当前编译器的兼容缺口：basic含from但缺to/任何extra被额外拒绝，虽然上游允许空to_，成功匹配仍将原事件标为invalid；description_notes被误当功能字段拒绝。maintainers早已属于显式元数据白名单，无需拓宽。
+
+依据固定ec2fea8940f7254a748c052a890ee9db7113d9b1，src/share/manipulator/manipulators/basic/basic.hpp构造函数29–132仅遇到to时追加，467成功匹配置invalid，484发送可能为空的to_。src/share/core_configuration/details/profile/complex_modifications_rule.hpp的description_notes要求字符串数组，保留原JSON。没有运行macOS上游测试。
+
+选择：删除mapping末尾“必须有to或extra”的附加限制；complex的actions(None,allow_empty=true)本来已返回空数组，沿既有Engine/PhysicalStageController空输出binding抑制语义，无需伪造vk_none动作。simple的actions缺to/空数组仍拒绝。无type/无from/null to/未知功能字段等错误保持拒绝；simultaneous仍需显式staged和完整准入。
+
+rule层单独准入description_notes，严格验证array<string>并保留raw，不将其加入全局功能白名单。其他未知功能字段与eval_js继续拒绝，不运行脚本。编译测试覆盖说明字段类型错误及从上游资产经GUI→共享编译→两模式完整冷准备，语义测试覆盖省略to与显式空to的Down/Repeat/Up一致、旧快照持键/热更新、Reset不造输出、无关键透传。测试不是实际系统输出验收。

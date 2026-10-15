@@ -126,7 +126,7 @@
   "limitations": [
     "Offline draft/asset management only; no runtime IPC/profile activation.",
     "Asset wrapper metadata is retained in import model but not appended into profile. Complete selected rules appended in source order, unlike upstream push-front. Single enabled:false retained, unlike upstream single-rule erase(enabled).",
-    "Existing compiler rejects description_notes/maintainers rule metadata and no-output basic suppressor; this slice preserves and exposes those errors without lossy stripping.",
+    "Existing compiler rejects description_notes rule metadata (maintainers was already accepted) and no-output basic suppressor; this slice preserves and exposes those errors without lossy stripping.",
     "Rule JSON buffer commit/discard gates profile changes and draft apply/close; exact old rule Value fences replacement. Whole-document exact text fence remains.",
     "Headless layout/tessellation only. No native desktop capture/injection. Windows native checks pending previous automatic approval quota rejection; not retried."
   ]

@@ -1,0 +1,110 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "df76f05bac27be79d590375b6ea8422e7a4f2a39",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-config/src/lib.rs": "f55977148d603aeb29ee7fb22ee608c8c6b4789cd59c6c19a52b52956b45eeb6",
+    "crates/keyweave-config/tests/suppression.rs": "fc8eb870be97f3093adf820f1b6e3282eaf1b4b0a42f82faf9037580a2826e80",
+    "crates/keyweave-ui/tests/rules.rs": "9c9eb3f314363ae2ad2fb5da0c1f5394d541c6c0eac4e9a26d13b0ed81dbb7f8"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1915,
+    "new_tests": 3,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-basic-suppression/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-basic-suppression/clippy.log",
+        "sha256": "e4ce09efdef52597196acc84e3086084ac760cee39f808c3dbfe0041231ba28b"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-basic-suppression/tests.log",
+        "sha256": "3cffa799f43bce3e59422530c446a6d5c6b69617bbdd0f90da1ebbade775fefe"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-basic-suppression/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-basic-suppression/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-basic-suppression/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "upstream_evidence": {
+    "head": "ec2fea8940f7254a748c052a890ee9db7113d9b1",
+    "paths": [
+      "src/share/manipulator/manipulators/basic/basic.hpp",
+      "src/share/core_configuration/details/profile/complex_modifications_rule.hpp"
+    ],
+    "fixtures": [
+      "tests/fixtures/upstream/complex_assets/library.json",
+      "tests/fixtures/upstream/complex_assets/single_rule.json",
+      "tests/fixtures/upstream/complex_assets/single_rule_enabled_false.json"
+    ],
+    "evidence": "Static code inspection plus full unchanged fixture import/compile/backend cold preparation across all GUI targets and applicable modes. No upstream macOS execution."
+  },
+  "behavior": [
+    "Complex basic with no to/extras compiles to existing empty action binding, equivalent to explicit empty to; Simple missing/empty to still rejected.",
+    "description_notes validated as string array at rule layer, exact raw JSON retained. maintainers was already allowed metadata; unknown functional fields still reject.",
+    "Both execution modes suppress Down/Repeat/Up without falling through to later mapping, retain old held snapshot through reload, reset without fabricated ups; unrelated b key passes unchanged."
+  ],
+  "limitations": [
+    "No engine algorithm or OS capability widening; offline tests do not establish native input delivery.",
+    "Windows native build and actual desktop/hardware acceptance remain pending; previous automatic approval quota rejection not retried.",
+    "No runtime GUI IPC/profile activation or real Hook/input capture/injection."
+  ]
+}

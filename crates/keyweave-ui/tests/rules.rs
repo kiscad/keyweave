@@ -213,23 +213,26 @@ fn pinned_upstream_single_and_library_assets_import_as_exact_original_rules() {
             model::Target::LinuxKeyboard,
             true,
         );
-        // Descriptive metadata in single_rule.json is preserved. Current compiler
-        // rejects unknown rule metadata rather than silently stripping it on import.
-        if raw.get("description_notes").is_some() {
-            assert!(!report.accepted);
-            assert!(!report.diagnostics.is_empty());
-        } else if raw.get("title").is_some() {
-            // Baseline compiler currently rejects a no-output suppressor. Import
-            // must expose that diagnostic while retaining the unchanged rule.
-            assert!(!report.accepted);
-            assert!(report.diagnostics.iter().any(|d| d.code == "KW-CONFIG-001"
-                && d.message == "mapping requires to or an extra output action"));
-        } else {
-            assert!(
-                report.accepted,
-                "{}: {:?}",
-                report.summary, report.diagnostics
-            );
+        // The original upstream rule objects reach complete offline backend
+        // preparation without stripping metadata or inventing a `to` action.
+        assert!(
+            report.accepted,
+            "{}: {:?}",
+            report.summary, report.diagnostics
+        );
+        for target in model::Target::ALL {
+            for staged in [false, true] {
+                if target.mixed() && !staged {
+                    continue;
+                }
+                let report =
+                    model::validate(&draft.edited_json(model::TEMPLATE).unwrap(), target, staged);
+                assert!(
+                    report.accepted,
+                    "{target:?}/{staged}: {:?}",
+                    report.diagnostics
+                );
+            }
         }
     }
 }

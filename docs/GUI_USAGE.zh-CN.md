@@ -19,4 +19,6 @@
 
 可视化草稿的 **Complex rules** 支持勾选启用状态、↑/↓排序、确认删除及 **Edit JSON** 单规则编辑。点击 **Commit rule JSON** 将编辑存入草稿，或明确 **Discard rule JSON edits**；有未提交修改时不能切换 profile 或应用/关闭旧草稿。完成后仍需 Use edited JSON → Validate → Save validated copy。
 
-展开 **Import Karabiner rule asset**，输入规则库 JSON/JSONC 或单规则路径并点击 **Load rule asset**。默认不勾选任何规则；明确勾选后 **Append selected rules to draft**，完整规则按原顺序追加到当前 profile。标题、maintainers 等资产包装字段不复制；规则内部的未知字段完整保留。单规则 enabled:false 保持禁用，与上游导入时清除该状态的行为有意不同。导入不执行 JavaScript 或用户命令；不支持规则在后续 Validate 显示诊断并阻止保存已验证副本。规则列表与资产各最多4096条。当前上游样本中的说明元数据及无to suppressor仍会触发编译器兼容诊断，不能据“导入成功”宣称可运行。参见 [ADR-0224](ADR-0224-complex-rule-drafts-and-asset-import.md)。
+展开 **Import Karabiner rule asset**，输入规则库 JSON/JSONC 或单规则路径并点击 **Load rule asset**。默认不勾选任何规则；明确勾选后 **Append selected rules to draft**，完整规则按原顺序追加到当前 profile。标题、maintainers 等资产包装字段不复制；规则内部的未知字段完整保留。单规则 enabled:false 保持禁用，与上游导入时清除该状态的行为有意不同。导入不执行 JavaScript 或用户命令；不支持规则在后续 Validate 显示诊断并阻止保存已验证副本。规则列表与资产各最多4096条。上游样本中的description_notes说明字段和无to抑制规则现已支持；未知功能字段仍会触发诊断。不能据“导入成功”宣称运行会话已应用。参见 [ADR-0224](ADR-0224-complex-rule-drafts-and-asset-import.md)。
+
+复杂 basic 规则可省略 to，表示抑制匹配按键，等同 to:[]；简单映射仍要求非空目标。规则层 description_notes 为字符串数组，保留在保存的 JSON 中。此支持经过完整离线编译、冷准备和两种执行模式测试，仍不代表真实系统设备验收。参见 [ADR-0225](ADR-0225-empty-basic-suppression-and-rule-notes.md)。

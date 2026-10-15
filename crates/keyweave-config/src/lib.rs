@@ -364,11 +364,28 @@ pub fn compile_with_mode(
                         "expected string",
                     ));
                 }
+                if let Some(notes) = rule.get("description_notes") {
+                    let notes = array(notes, &format!("{location}/description_notes"))?;
+                    for (index, note) in notes.iter().enumerate() {
+                        if !note.is_string() {
+                            return Err(structure(
+                                &format!("{location}/description_notes/{index}"),
+                                "expected string",
+                            ));
+                        }
+                    }
+                }
                 let disabled_before = compiler.disabled;
                 compiler.reject_unknown_fields(
                     rule,
                     &location,
-                    &["enabled", "description", "manipulators", "eval_js"],
+                    &[
+                        "enabled",
+                        "description",
+                        "description_notes",
+                        "manipulators",
+                        "eval_js",
+                    ],
                 );
                 if compiler.disabled != disabled_before {
                     continue;
@@ -588,24 +605,9 @@ impl Compiler<'_> {
             )?
             .unwrap_or(self.alone_timeout_ns),
         };
-        if !object.contains_key("to")
-            && extras.delayed.as_ref().is_none_or(|delayed| {
-                delayed.if_invoked.is_empty() && delayed.if_canceled.is_empty()
-            })
-            && extras.if_held_down.is_empty()
-            && extras.if_alone.is_empty()
-            && extras.after_key_up.is_empty()
-            && extras
-                .simultaneous
-                .as_ref()
-                .is_none_or(|chord| chord.after_key_up.is_empty())
-        {
-            return Err(diagnostic(
-                pointer,
-                "KW-CONFIG-001",
-                "mapping requires to or an extra output action",
-            ));
-        }
+        // An absent complex `to` is an empty producer: consume the matched
+        // physical binding without inventing output. Simple mappings still
+        // require a nonempty `to` in actions(..., allow_empty = false).
         Ok(Mapping {
             id: pointer.into(),
             from,
