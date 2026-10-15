@@ -215,6 +215,11 @@ impl Editor {
         self.text = text;
         self.changed();
     }
+    /// A user edit preserves the loaded/saved baseline and revokes validation.
+    pub fn edit(&mut self, text: String) {
+        self.text = text;
+        self.changed();
+    }
     pub fn dirty(&self) -> bool {
         self.text != self.baseline
     }

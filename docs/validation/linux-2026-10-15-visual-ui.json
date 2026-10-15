@@ -1,0 +1,118 @@
+{
+  "date": "2026-10-15",
+  "source_base_head": "644ece77bf29f2aee8baf1b111d946afb6a60bd7",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.lock": "9f93b5b8d47b061c83d3a345d4c587a484972d3b8977fe0abbbfc6bb7e52a05c",
+    "crates/keyweave-ui/Cargo.toml": "c23bcd7d470a2dc44ae5f1032ad5fef41e43383811c2168b8a08f48482f4cc12",
+    "crates/keyweave-ui/src/files.rs": "a6760c729034705f4ee1b7f7fb87f35dec70f07412e63f142ce02c3c1ba64fd2",
+    "crates/keyweave-ui/src/lib.rs": "a7cd0c9b37ef5043f3790e1ee3bfbbf192b764328922125f10a36789e08dea86",
+    "crates/keyweave-ui/src/main.rs": "072f834f2b9b6adedb5280117aea097e4bba3d699c068afac9cee6c2bb8ae6f8",
+    "crates/keyweave-ui/src/model.rs": "e0f1465d3dd0a2e2cd661e9703bf45636ebe85aa6d80eee26f6e92faffe9a68b",
+    "crates/keyweave-ui/src/view.rs": "e65435b5e49d8673763fd78132999700ba211d382c2eb46020040635ab8509d8",
+    "crates/keyweave-ui/src/visual.rs": "c41c6bb731d2d9afd714262902dca1d87533115eb1511b96958bce7b278362d3",
+    "crates/keyweave-ui/src/visual_view.rs": "d133c9db7fcdc868ddeb70f37bc69f16f02f5f7d0f9caa2f0dcd7d4673d476b5",
+    "crates/keyweave-ui/tests/visual.rs": "3e3e5ed110be8129328c7c24608f57236b1e691a53821182d986ce18c5f3dfc6"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1905,
+    "new_tests": 5,
+    "source_hashes_verified": 60,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-visual-ui/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-visual-ui/clippy.log",
+        "sha256": "62eccc1c63b144af1829e516cfd3f9102b98f9bf2688d907fe8b617cf40be58f"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-visual-ui/tests.log",
+        "sha256": "25bd1e6726c2e60963d2efd8ad9c0d5d9969eb8633256ba724b0a1945699faf5"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-visual-ui/sources.log",
+        "sha256": "f2b85a0674949449f1805833c5fd366b1bb9b8f934a3bb07655d5ca8a8472605"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-visual-ui/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261015-visual-ui/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failure": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--locked",
+      "--offline",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 101,
+    "reason": "Two collapsible_if Clippy diagnostics corrected before final verification.",
+    "log": "target/validation/linux-20261015-visual-ui/initial-clippy.log",
+    "sha256": "c20234482ca28d21c43f0c4b1aa933b0ab4ebfabf6ab7aab7c47dffa34f41454"
+  },
+  "limitations": [
+    "Offline visual configuration draft only; no runtime profile activation or IPC.",
+    "Visual serialization rewrites comments/formatting; full parsed JSON values including unknown fields are retained. Advanced simple mappings are read-only in the panel and editable through JSON.",
+    "Text fields require Rename/Update/Add to commit to draft, followed by Use edited JSON to commit to document. Save validated copy saves the current document, not an unapplied draft.",
+    "At most 128 profiles and 4096 simple mappings per profile in visual editor; larger documents remain text-editable.",
+    "Headless layout/tessellation only. Previous native X11/Wayland smoke failed before window display; not retried or claimed as accepted.",
+    "Windows native build not performed; previous automatic approval quota rejection remains un-retried. No native input capture or injection."
+  ]
+}

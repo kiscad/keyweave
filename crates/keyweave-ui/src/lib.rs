@@ -2,3 +2,5 @@
 pub mod files;
 pub mod model;
 pub mod view;
+pub mod visual;
+pub mod visual_view;

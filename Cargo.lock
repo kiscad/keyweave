@@ -1217,6 +1217,7 @@ dependencies = [
  "keyweave-linux",
  "keyweave-types",
  "keyweave-worker",
+ "serde_json",
 ]
 
 [[package]]

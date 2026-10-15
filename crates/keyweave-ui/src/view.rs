@@ -1,6 +1,7 @@
 use crate::{
     files,
     model::{Editor, Target},
+    visual_view::{Action, VisualPane},
 };
 use eframe::egui;
 #[derive(Default)]
@@ -9,12 +10,35 @@ pub struct SettingsApp {
     pub open_path: String,
     pub copy_path: String,
     pub notice: String,
+    pub visual: Option<VisualPane>,
     pending_document: Option<String>,
     confirm_close: bool,
     allow_close: bool,
     pub smoke_passes: Option<u8>,
 }
 impl SettingsApp {
+    pub fn unsaved(&self) -> bool {
+        self.editor.dirty() || self.visual.as_ref().is_some_and(|p| p.draft.dirty())
+    }
+    pub fn open_visual(&mut self) -> Result<(), String> {
+        if self.visual.is_some() {
+            return Err("Close the current visual draft first".into());
+        }
+        self.visual = Some(VisualPane::new(&self.editor.text)?);
+        Ok(())
+    }
+    pub fn apply_visual(&mut self) -> Result<(), String> {
+        let text = self
+            .visual
+            .as_ref()
+            .ok_or("No visual draft")?
+            .draft
+            .edited_json(&self.editor.text)?;
+        self.editor.edit(text);
+        self.visual = None;
+        Ok(())
+    }
+
     pub fn contents(&mut self, ui: &mut egui::Ui) {
         self.editor.poll();
         if let Some(passes) = self.smoke_passes.as_mut() {
@@ -25,9 +49,7 @@ impl SettingsApp {
                 ui.ctx().request_repaint();
             }
         }
-        if ui.ctx().input(|i| i.viewport().close_requested())
-            && self.editor.dirty()
-            && !self.allow_close
+        if ui.ctx().input(|i| i.viewport().close_requested()) && self.unsaved() && !self.allow_close
         {
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -55,6 +77,7 @@ impl SettingsApp {
             });
             if replace && let Some(text) = self.pending_document.take() {
                 self.editor.replace(text);
+                self.visual = None;
                 self.notice = "Configuration opened".into();
             }
             if cancel {
@@ -70,10 +93,11 @@ impl SettingsApp {
             if ui.button("Open").clicked() {
                 match files::read_document(std::path::Path::new(&self.open_path)) {
                     Ok(text) => {
-                        if self.editor.dirty() {
+                        if self.unsaved() {
                             self.pending_document = Some(text);
                         } else {
                             self.editor.replace(text);
+                            self.visual = None;
                             self.notice = "Configuration opened".into();
                         }
                     }
@@ -107,6 +131,25 @@ impl SettingsApp {
         });
         if self.editor.target == Target::LinuxMixed {
             ui.label("Offline target: full supported mouse output capabilities.");
+        }
+        if self.visual.is_none()
+            && ui.button("Edit profiles and simple mappings").clicked()
+            && let Err(e) = self.open_visual()
+        {
+            self.notice = e;
+        }
+        if let Some(pane) = self.visual.as_mut() {
+            match pane.contents(ui, &mut self.notice) {
+                Action::Apply => match self.apply_visual() {
+                    Ok(()) => {
+                        self.notice =
+                            "Draft applied; validate the changed document before saving".into()
+                    }
+                    Err(e) => self.notice = e,
+                },
+                Action::Close => self.visual = None,
+                Action::None => {}
+            }
         }
         egui::ScrollArea::vertical()
             .id_salt("document")
