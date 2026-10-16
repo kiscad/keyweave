@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 pub struct VisualPane {
     pub draft: VisualDraft,
     pub rules: crate::rules_view::RulesPane,
+    pub devices: crate::devices_view::DevicesPane,
     profile: usize,
     name: String,
     from: String,
@@ -25,6 +26,7 @@ impl VisualPane {
         Ok(Self {
             draft,
             rules: Default::default(),
+            devices: Default::default(),
             profile,
             name,
             from: "a".into(),
@@ -38,9 +40,10 @@ impl VisualPane {
         self.name = self.draft.profile_name(profile).into();
         self.rows.clear();
         self.rules.profile_changed();
+        self.devices.profile_changed();
     }
     pub fn pending(&self) -> bool {
-        self.rules.pending()
+        self.rules.pending() || self.devices.pending()
     }
     pub fn contents(&mut self, ui: &mut egui::Ui, notice: &mut String) -> Action {
         ui.separator();
@@ -50,7 +53,7 @@ impl VisualPane {
         );
         ui.label("Draft edits do not change the document until Use edited JSON. This does not activate a runtime profile.");
         if self.pending() {
-            ui.label("Commit or discard rule JSON edits to change profiles or apply the draft.");
+            ui.label("Commit or discard rule/device edits to change profiles or apply the draft.");
         }
         ui.add_enabled_ui(!self.pending(), |ui| {
             let mut chosen = self.profile;
@@ -164,6 +167,8 @@ impl VisualPane {
             });
         });
         self.rules
+            .contents(ui, &mut self.draft, self.profile, notice);
+        self.devices
             .contents(ui, &mut self.draft, self.profile, notice);
         let mut action = Action::None;
         ui.add_enabled_ui(!self.pending(), |ui| {

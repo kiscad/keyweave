@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "5fc0a3e506e8631bb5271b916a5bdfdfcd878f1b",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-ui/src/devices.rs": "03310d0553ca8e685d643d200230077fe10ae2c1ad301f77fee427144ad4cd36",
+    "crates/keyweave-ui/src/devices_view.rs": "1552014a125af72a0b3297e812d5d3935ac6f1e7d11445919582ff1aaeb17e13",
+    "crates/keyweave-ui/src/lib.rs": "36a047e693064c96f6243cff314391c5f0beac21a52ffe2a3c8afb77b80a8233",
+    "crates/keyweave-ui/src/view.rs": "b802dbd9a4555f8023ae7f8d170e8813774038231801a47119a220554472e6be",
+    "crates/keyweave-ui/src/visual.rs": "eb40901179cb9ff60cffbe27f6a7fa541c504344a4216cb3cd27a90de9dc999e",
+    "crates/keyweave-ui/src/visual_view.rs": "2adb56c6eb773dfe98b9b4d0acccfb51813b5f9deee22ba69cfcd9d8342913ae",
+    "crates/keyweave-ui/tests/devices.rs": "f7aeec6a3d7bd8d3345e3769149536a6d080ef129854b5f150b6e90a98ff9849"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 2004,
+    "new_default_tests": 6,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/clippy.log",
+        "sha256": "22e0df986057b9ba5be07526ac5fb348862a3dedef42108383cc3e088acbb889"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/tests.log",
+        "sha256": "b958ac1fc89c716cbde3dc5f921637242c71646beb6426ad3bc1b9d39ca1d1c5"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-configured-device-ui/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "limitations": [
+    "Configured-device draft editor only, not an actual connected hardware inventory or live device-control surface. No input device, Hook, injection or native GUI window was opened. Headless egui layout is not actual desktop usability/accessibility acceptance.",
+    "Windows Hook still rejects per-device mappings due to unreliable per-event physical identity; no backend capability was widened. Linux offline acceptance retains KW-DEVICE-001 and requires actual trusted vendor/product/type context. Existing sandbox root-trust failure is not bypassed.",
+    "Device buffers and unknown JSON are preserved until explicit commit/use-edited-JSON and existing save-copy flow; this is not runtime Apply or hardware ignore/LED/Fn support. Only editable simple rows are changed visually; advanced rows require raw JSON.",
+    "Visual profile simple budget is 4096 global plus device rows, devices256. Full complex/mixed/global compiler budgets remain independently enforced during validation. Invalid shape/over-limit documents require raw JSON repair; nothing is truncated.",
+    "Eight existing native Unix IPC tests remain ignored in this default run, not counted as fresh passes; control transport code was unchanged by this slice. Windows native SDK/GUI/pipe gates and hardware acceptance remain pending; existing Windows approval quota rejection was not retried.",
+    "Full migration including actual discovery/device events, GUI Start/Resume/Apply, native/hardware/Wayland acceptance and packaging remains unfinished."
+  ]
+}

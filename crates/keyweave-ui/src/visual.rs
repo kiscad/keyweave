@@ -31,7 +31,7 @@ fn event_key(value: &Value) -> Option<KeyId> {
             .filter(|key| key.page == BUTTON_PAGE)
     }
 }
-fn event_definition(name: &str) -> Result<Value, String> {
+pub(crate) fn event_definition(name: &str) -> Result<Value, String> {
     let key: KeyId = name
         .trim()
         .parse()
@@ -51,6 +51,20 @@ fn event_definition(name: &str) -> Result<Value, String> {
         BUTTON_PAGE if (1..=32).contains(&key.usage) => Ok(json!({"pointing_button":canonical})),
         _ => Err("Choose a named keyboard key, consumer:key or button1..32".into()),
     }
+}
+pub(crate) fn simple_row(value: &Value) -> Option<SimpleRow> {
+    if value.as_object()?.len() != 2 {
+        return None;
+    }
+    let from = event_key(value.get("from")?)?;
+    let to = value.get("to")?.as_array()?;
+    if to.len() != 1 {
+        return None;
+    }
+    Some(SimpleRow {
+        from: from.name(),
+        to: event_key(&to[0])?.name(),
+    })
 }
 impl VisualDraft {
     pub fn parse(source: &str) -> Result<Self, String> {
@@ -74,6 +88,7 @@ impl VisualDraft {
             }
         }
         crate::rules::validate_profiles(profiles)?;
+        crate::devices::validate_profiles(profiles)?;
         Ok(Self {
             source: source.into(),
             raw,
@@ -156,19 +171,9 @@ impl VisualDraft {
             .get("simple_modifications")?
             .as_array()?
             .get(index)?;
-        if value.as_object()?.len() != 2 {
-            return None;
-        }
-        let from = event_key(value.get("from")?)?;
-        let to = value.get("to")?.as_array()?;
-        if to.len() != 1 {
-            return None;
-        }
-        Some(SimpleRow {
-            from: from.name(),
-            to: event_key(&to[0])?.name(),
-        })
+        simple_row(value)
     }
+
     pub fn set_row(
         &mut self,
         profile: usize,
@@ -185,7 +190,9 @@ impl VisualDraft {
         Ok(())
     }
     pub fn add_row(&mut self, profile: usize, from: &str, to: &str) -> Result<(), String> {
-        if profile >= self.len() || self.row_count(profile) >= MAX_ROWS {
+        if profile >= self.len()
+            || crate::devices::simple_count(&self.raw["profiles"][profile]) >= MAX_ROWS
+        {
             return Err("Profile missing or visual mapping limit reached".into());
         }
         let row = json!({"from":event_definition(from)?,"to":[event_definition(to)?]});

@@ -7,7 +7,7 @@
 3. 编辑配置，点击 **Validate**。校验复用现有编译器与 worker 冷准备，显示错误代码、严重性、JSON Pointer 和原因。校验在单独线程执行；修改内容、模式或目标会使旧结果失效。
 4. 当前文档验证通过后，在 **New copy path** 输入新路径，点击 **Save validated copy**。副本保存完整 UTF-8 字节，不覆盖已有文件或符号链接。保存先完成同目录临时文件写入与 sync，再以 hard link 发布；文件系统不支持时返回错误。临时文件清理失败会独立显示。
 
-窗口关闭时会提示未保存编辑。会话启动继续使用 [Linux CLI](LINUX_USAGE.zh-CN.md) 或 [Windows CLI](WINDOWS_USAGE.zh-CN.md)。Linux/Windows host可显式启用本地Status/Stop，GUI连接方式见下；Windows专属工厂与界面仍待原生验收。不会把离线验证显示为“已应用”。设备列表、会话Start/Resume/Apply仍待接入。
+窗口关闭时会提示未保存编辑。会话启动继续使用 [Linux CLI](LINUX_USAGE.zh-CN.md) 或 [Windows CLI](WINDOWS_USAGE.zh-CN.md)。Linux/Windows host可显式启用本地Status/Stop，GUI连接方式见下；Windows专属工厂与界面仍待原生验收。不会把离线验证显示为“已应用”。已连接设备列表、会话Start/Resume/Apply仍待接入。
 
 `keyweave-ui --smoke` 用于创建窗口并在三个 UI pass 后请求关闭，不安装键盘/鼠标 Hook，也不注入输入。当前 WSL 环境的窗口测试分别返回 XOpenDisplayFailed/NoCompositor；headless 布局、文件行为与校验模型已测试，不能据此宣称实际桌面显示或 Windows GUI 已验收。参见 [ADR-0222](ADR-0222-native-settings-ui.md) 与[验证记录](validation/linux-2026-10-15-native-ui.json)。
 
@@ -23,7 +23,7 @@
 
 复杂 basic 规则可省略 to，表示抑制匹配按键，等同 to:[]；简单映射仍要求非空目标。规则层 description_notes 为字符串数组，保留在保存的 JSON 中。此支持经过完整离线编译、冷准备和两种执行模式测试，仍不代表真实系统设备验收。参见 [ADR-0225](ADR-0225-empty-basic-suppression-and-rule-notes.md)。
 
-设备专属 simple 配置仍通过原始 JSON 编辑。Linux离线校验的KW-DEVICE-001提示类型上下文依赖；真实会话冷open已接可选udev静态类型provider，其是否可用必须由实际系统验证。当前沙箱root-trust拒绝，不把离线校验显示为“设备类型已验证”。Windows Hook仍不支持逐设备映射；GUI设备列表/实时状态控制继续开发。
+设备专属 simple 配置现在可在 Visual editor 的 **Configured devices** 中编辑；高级字段仍使用原始 JSON。Linux离线校验的KW-DEVICE-001提示类型上下文依赖；真实会话冷open已接可选udev静态类型provider，其是否可用必须由实际系统验证。当前沙箱root-trust拒绝，不把离线校验显示为“设备类型已验证”。Windows Hook仍不支持逐设备映射；已连接设备发现与运行时设备状态继续开发。
 
 应用与输入源条件可使用UTF-8文字正则，例如 file_paths 中的 `编辑器\\.exe$`（JSON中的反斜线需按JSON规则转义）。匹配采用上游std::regex<char>字节语义：`^.$`不匹配两字节é，`^..$`可匹配；重复完整文字用分组，如 `(?:编辑器)+`，不是Unicode scalar匹配。JSON自身的\uXXXX解码与正则\\uXXXX转义不同；后者仍拒绝。缺失/过期/含CRLF的provider值保持Unknown。离线通过不证明平台已有相应输入源provider，参见 [ADR-0228](ADR-0228-utf8-byte-pattern-conditions.md)。
 
@@ -38,3 +38,11 @@ Linux状态/停止在真实Unix socket、实际CLI、实际host/无输入worker�
 Windows Settings 的同一控制区显示 **Windows host endpoint**，粘贴所选 host 冷输出的完整 `control_endpoint` 值（无需单独填写 PID/FILETIME），再 **Query host**。host 需显式选择 `--control-pipe`；CLI/描述符格式见 [Windows说明](WINDOWS_USAGE.zh-CN.md)。GUI源码使用同一有界 parser、pinned client 和消息事务，每帧推进一步，不在界面等待循环或自动启动 host。冷 metadata/SDK 查询仍同步，不能保证无延迟。
 
 切换 endpoint、**Disconnect observer** 或连接失败会撤销可停止资格与二次确认。旧 pending 请求仍到有界结束，但其结果不会使 Stop 重新可用；已提交的 Stop 仍可能生效。最后观察会保留来源和 age，仅供查看；重新 Query 接受新结果后才能再次申请停止。Windows native factory/界面显示/实际 host 链仍待原生验证，当前通过的是 Linux scripted driver 与Unix socket回归。见 [ADR-0236](ADR-0236-windows-settings-status-stop.md)。
+
+## 配置设备的专属映射
+
+在 visual editor 的 **Configured devices** 选择 **Edit device** 或 **Add configured device**。填写 vendor/product ID（十进制或 `0x` 十六进制）及 Keyboard/Pointing device 两个精确匹配标志，再编辑该设备的 simple 映射。缺省 ID/type 沿配置语义为0/false，界面不会猜测真实设备类型。
+
+**Commit device draft** 先完整验证本地设备buffer，再写入visual draft；**Use edited JSON** 才更新文档，之后仍需 **Validate** 和保存新副本。未提交设备字段会阻止切换profile或应用draft，并参与未保存提示；可用 **Discard device edits** 放弃。删除整个device需二次确认，已有高级映射、未知/硬件字段和其他profile不会因普通编辑而丢弃。
+
+这里只显示配置中的selector，不是已连接设备列表，也不直接启用映射。设备最多256、同profile全局和设备simple合计4096；其他完整compiler预算仍由Validate检查。Windows Hook目前不支持逐设备身份，Linux离线通过仍带类型provider依赖，实际硬件/LED/Fn/ignore设置均未由这个面板验证。见 [ADR-0238](ADR-0238-configured-device-drafts.md)。
