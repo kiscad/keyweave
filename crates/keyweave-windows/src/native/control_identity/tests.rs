@@ -220,3 +220,220 @@ fn live_descriptor_drop_in_callback_defers_free_and_poison_blocks_further_alloca
         Some(Error::Poisoned)
     );
 }
+
+#[test]
+fn message_scope_checks_sid_logon_session_and_restores_before_returning() {
+    for different in 0..4 {
+        reset(|m| {
+            m.peer_sid = different == 1;
+            m.peer_logon = different == 2;
+            m.peer_session = different == 3;
+        });
+        let identity = ControlIdentity::capture().unwrap();
+        assert_eq!(
+            identity.authorize_message(123usize as Handle).unwrap(),
+            different == 0
+        );
+        MOCK.with(|m| {
+            let m = m.borrow();
+            assert_eq!(m.impersonations, 1);
+            assert_eq!(m.reversions, 1);
+            assert!(!m.impersonating);
+        });
+        clear();
+    }
+}
+#[test]
+fn message_query_errors_malformed_tokens_and_panic_restore_without_process_fallback() {
+    for bad in [
+        "sid",
+        "pointer",
+        "length",
+        "stats",
+        "changed",
+        "zero",
+        "primary",
+        "anonymous",
+        "impersonation",
+        "delegation",
+    ] {
+        reset(|m| m.message_bad = Some(bad));
+        let identity = ControlIdentity::capture().unwrap();
+        assert!(
+            identity.authorize_message(123usize as Handle).is_err(),
+            "{bad}"
+        );
+        MOCK.with(|m| {
+            let m = m.borrow();
+            assert_eq!(m.reversions, 1);
+            assert!(!m.impersonating);
+        });
+        clear();
+    }
+    for class in [1, 10, 12] {
+        reset(|m| m.message_class = class);
+        let identity = ControlIdentity::capture().unwrap();
+        assert!(matches!(
+            identity
+                .authorize_message(123usize as Handle)
+                .unwrap_err()
+                .operation,
+            Some(Error::Api { code: 5, .. })
+        ));
+        MOCK.with(|m| {
+            let m = m.borrow();
+            assert_eq!(m.reversions, 1);
+            assert!(!m.impersonating);
+        });
+        clear();
+    }
+    reset(|m| m.fail_message_open = true);
+    let identity = ControlIdentity::capture().unwrap();
+    assert!(identity.authorize_message(123usize as Handle).is_err());
+    MOCK.with(|m| assert_eq!(m.borrow().reversions, 1));
+    clear();
+    reset(|m| m.panic_message_query = true);
+    let identity = ControlIdentity::capture().unwrap();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || identity.authorize_message(123usize as Handle)
+        ))
+        .is_err()
+    );
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.reversions, 1);
+        assert!(!m.impersonating);
+    });
+    clear();
+}
+#[test]
+fn impersonation_failure_never_runs_message_query_and_revert_failure_never_returns_normally() {
+    reset(|m| m.fail_impersonate = true);
+    let identity = ControlIdentity::capture().unwrap();
+    assert!(matches!(
+        identity
+            .authorize_message(123usize as Handle)
+            .unwrap_err()
+            .operation,
+        Some(Error::Api { code: 5, .. })
+    ));
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.impersonations, 1);
+        assert_eq!(m.reversions, 0);
+        assert!(!m.impersonating);
+    });
+    clear();
+    reset(|m| m.fail_revert = true);
+    let identity = ControlIdentity::capture().unwrap();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || identity.authorize_message(123usize as Handle)
+        ))
+        .is_err()
+    );
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.reversions, 1);
+        assert!(m.impersonating);
+    });
+    clear();
+}
+#[test]
+fn message_cleanup_failure_is_preserved_and_identity_is_still_restored() {
+    for class in [0, 1] {
+        reset(|m| {
+            m.peer_only_failure = true;
+            m.fail_close = true;
+            m.message_class = class;
+        });
+        let identity = ControlIdentity::capture().unwrap();
+        let error = identity.authorize_message(123usize as Handle).unwrap_err();
+        assert_eq!(error.token_close, Some(6));
+        if class == 0 {
+            assert!(error.operation.is_none());
+        } else {
+            assert!(matches!(error.operation, Some(Error::Api { code: 5, .. })));
+        }
+        MOCK.with(|m| {
+            let m = m.borrow();
+            assert_eq!(m.reversions, 1);
+            assert!(!m.impersonating);
+        });
+        assert!(matches!(
+            ControlIdentity::capture().unwrap_err().operation,
+            Some(Error::Poisoned)
+        ));
+    }
+    reset(|m| m.message_bad = Some("free"));
+    let identity = ControlIdentity::capture().unwrap();
+    let error = identity.authorize_message(123usize as Handle).unwrap_err();
+    assert_eq!(error.sid_text_free, Some(5));
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.reversions, 1);
+        assert!(!m.impersonating);
+    });
+}
+#[test]
+fn caller_changes_existing_impersonation_and_callback_cannot_authorize_a_message() {
+    reset(|_| {});
+    let identity = ControlIdentity::capture().unwrap();
+    MOCK.with(|m| m.borrow_mut().current_session = 2);
+    assert_eq!(
+        identity
+            .authorize_message(123usize as Handle)
+            .unwrap_err()
+            .operation,
+        Some(Error::CallerChanged)
+    );
+    MOCK.with(|m| assert_eq!(m.borrow().impersonations, 0));
+    clear();
+    reset(|m| m.after_message_session = Some(2));
+    let identity = ControlIdentity::capture().unwrap();
+    assert_eq!(
+        identity
+            .authorize_message(123usize as Handle)
+            .unwrap_err()
+            .operation,
+        Some(Error::CallerChanged)
+    );
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.reversions, 1);
+        assert!(!m.impersonating);
+    });
+    clear();
+    reset(|_| {});
+    let identity = ControlIdentity::capture().unwrap();
+    MOCK.with(|m| m.borrow_mut().impersonating = true);
+    assert_eq!(
+        identity
+            .authorize_message(123usize as Handle)
+            .unwrap_err()
+            .operation,
+        Some(Error::Impersonating)
+    );
+    MOCK.with(|m| {
+        let m = m.borrow();
+        assert_eq!(m.impersonations, 0);
+        assert_eq!(m.reversions, 0);
+        assert!(m.impersonating);
+    });
+    clear();
+    reset(|_| {});
+    let identity = ControlIdentity::capture().unwrap();
+    let before = MOCK.with(|m| m.borrow().calls);
+    super::super::hook_thread::with_callback_borrow(|| {
+        assert_eq!(
+            identity
+                .authorize_message(123usize as Handle)
+                .unwrap_err()
+                .operation,
+            Some(Error::InCallback)
+        );
+    });
+    assert_eq!(before, MOCK.with(|m| m.borrow().calls));
+    clear();
+}

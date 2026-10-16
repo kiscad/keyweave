@@ -1,7 +1,21 @@
 #![allow(non_snake_case)]
 use super::*;
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 pub(super) struct Mock {
+    pub after_message_session: Option<u32>,
+    pub fail_impersonate: bool,
+    pub fail_revert: bool,
+    pub fail_message_open: bool,
+    pub pipe_impersonating: bool,
+    pub message_bad: Option<&'static str>,
+    pub message_class: i32,
+    pub panic_message_query: bool,
+    pub impersonations: usize,
+    pub reversions: usize,
+    thread_tokens: BTreeSet<usize>,
     pub current_session: u32,
     pub peer_only_failure: bool,
     pub wrong_process_after: bool,
@@ -37,6 +51,17 @@ pub(super) struct Mock {
 impl Default for Mock {
     fn default() -> Self {
         Self {
+            after_message_session: None,
+            fail_impersonate: false,
+            fail_revert: false,
+            fail_message_open: false,
+            pipe_impersonating: false,
+            message_bad: None,
+            message_class: 0,
+            panic_message_query: false,
+            impersonations: 0,
+            reversions: 0,
+            thread_tokens: BTreeSet::new(),
             current_session: 1,
             peer_only_failure: false,
             wrong_process_after: false,
@@ -94,13 +119,21 @@ pub(super) unsafe fn OpenThreadToken(
             m.error = 87;
             return 0;
         }
+        if m.pipe_impersonating && m.fail_message_open {
+            m.error = 5;
+            return 0;
+        }
         if !m.impersonating {
             m.error = m.thread_error;
             return 0;
         }
         m.next += 1;
         let h = m.next;
-        m.handles.insert(h, false);
+        let message = m.pipe_impersonating;
+        m.handles.insert(h, message);
+        if message {
+            m.thread_tokens.insert(h);
+        }
         // SAFETY: caller provides one writable initialized HANDLE output.
         unsafe {
             *out = h as Handle;
@@ -181,6 +214,15 @@ pub(super) unsafe fn GetTokenInformation(
         let mut m = m.borrow_mut();
         m.calls += 1;
         let peer = m.handles.get(&(token as usize)).copied().unwrap_or(false);
+        let message = m.thread_tokens.contains(&(token as usize));
+        if message && m.panic_message_query {
+            panic!("mock message query panic");
+        }
+        if message && class == m.message_class {
+            m.error = 5;
+            return 0;
+        }
+        let bad = if message { m.message_bad } else { None };
         if len != 1024 || class == m.fail_class && (!m.peer_only_failure || peer) {
             m.error = 5;
             return 0;
@@ -198,10 +240,10 @@ pub(super) unsafe fn GetTokenInformation(
                 .unwrap_or_else(|_| unreachable!());
                 let offset = size_of::<SidAttributes>();
                 bytes[offset..offset + sid.bytes().len()].copy_from_slice(sid.bytes());
-                if m.bad_sid {
+                if m.bad_sid || bad == Some("sid") {
                     bytes[offset] = 0;
                 }
-                let pointer = if m.bad_pointer {
+                let pointer = if m.bad_pointer || bad == Some("pointer") {
                     data as usize + 2048
                 } else {
                     data as usize + offset
@@ -212,19 +254,36 @@ pub(super) unsafe fn GetTokenInformation(
             10 => {
                 let times = m.stats.entry(token as usize).or_default();
                 *times += 1;
-                let changed = *times > 1 && m.changed;
+                let changed = *times > 1 && (m.changed || bad == Some("changed"));
                 bytes[..8].copy_from_slice(&(token as u64).to_le_bytes());
                 bytes[8..16].copy_from_slice(
                     &(if peer && m.peer_logon { 56u64 } else { 55u64 }).to_le_bytes(),
                 );
-                bytes[24..28]
-                    .copy_from_slice(&(if m.token_type_bad { 2u32 } else { 1u32 }).to_le_bytes());
+                bytes[24..28].copy_from_slice(
+                    &(if message {
+                        if bad == Some("primary") { 1u32 } else { 2u32 }
+                    } else if m.token_type_bad {
+                        2u32
+                    } else {
+                        1u32
+                    })
+                    .to_le_bytes(),
+                );
+                bytes[28..32].copy_from_slice(
+                    &(match bad {
+                        Some("anonymous") => 0u32,
+                        Some("impersonation") => 2,
+                        Some("delegation") => 3,
+                        _ => 1,
+                    })
+                    .to_le_bytes(),
+                );
                 bytes[48..56].copy_from_slice(&u64::from(changed).to_le_bytes());
                 56
             }
             12 => {
                 bytes[..4].copy_from_slice(
-                    &(if m.session_zero {
+                    &(if m.session_zero || bad == Some("zero") {
                         0u32
                     } else if peer && m.peer_session {
                         2u32
@@ -242,9 +301,9 @@ pub(super) unsafe fn GetTokenInformation(
         };
         // SAFETY: live DWORD output as specified above.
         unsafe {
-            *needed = if m.bad_length {
+            *needed = if m.bad_length || bad == Some("length") {
                 2048
-            } else if class == 10 && m.short_stats {
+            } else if class == 10 && (m.short_stats || bad == Some("stats")) {
                 55
             } else {
                 count as u32
@@ -319,7 +378,7 @@ pub(super) unsafe fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
 pub(super) unsafe fn LocalFree(memory: Handle) -> Handle {
     MOCK.with(|m| {
         let mut m = m.borrow_mut();
-        if m.fail_free {
+        if m.fail_free || m.pipe_impersonating && m.message_bad == Some("free") {
             m.error = 5;
             return memory;
         }
@@ -330,5 +389,39 @@ pub(super) unsafe fn LocalFree(memory: Handle) -> Handle {
             m.error = 6;
             memory
         }
+    })
+}
+
+pub(super) unsafe fn ImpersonateNamedPipeClient(pipe: Handle) -> i32 {
+    assert!(!pipe.is_null());
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.calls += 1;
+        m.impersonations += 1;
+        assert!(!m.impersonating);
+        if m.fail_impersonate {
+            m.error = 5;
+            return 0;
+        }
+        m.impersonating = true;
+        m.pipe_impersonating = true;
+        1
+    })
+}
+pub(super) unsafe fn RevertToSelf() -> i32 {
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.calls += 1;
+        m.reversions += 1;
+        if m.fail_revert {
+            m.error = 5;
+            return 0;
+        }
+        m.impersonating = false;
+        m.pipe_impersonating = false;
+        if let Some(session) = m.after_message_session {
+            m.current_session = session;
+        }
+        1
     })
 }

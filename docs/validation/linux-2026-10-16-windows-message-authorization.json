@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "e2ac91f0cca37d2ed935dae5f284e3854eb0c33f",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/lib.rs": "2891c370789d800aec9229582b7d9f4be698e9c00ca627ea7035885182a45161",
+    "crates/keyweave-windows/src/native.rs": "ae1f37ed33c8ba6fbdbc7ad2769fc4ccf0038bc7865ef995968f3121ec90bdc7",
+    "crates/keyweave-windows/src/native/control_identity.rs": "2fb202d2f0f4ed717c59eebad97c7e9de9bf8e8408cea0770705a4a0f3f37b1e",
+    "crates/keyweave-windows/src/native/control_identity/api.rs": "35b2acd753ec39e06c9b152c68c883ecebf7b8e0cc8f45b6047c3891c1815836",
+    "crates/keyweave-windows/src/native/control_identity/api_mock.rs": "a62ffaae06baf673b0aa44c8883dc474215bf9c60aaf61b76858ba004341d8ed",
+    "crates/keyweave-windows/src/native/control_identity/tests.rs": "fc50d03352fd6fe66ee24760541cac6ba14107eb24969d64c373901e6ec44f00",
+    "crates/keyweave-windows/src/native/control_message_pipe.rs": "33d00a300364ebeaf99edc72c2f516ac1976ac5e83b5c0a6d74d57a77f77e821",
+    "crates/keyweave-windows/src/native/control_server.rs": "dcc1355dc21464fa5b702dc6bb7dbdb5e7ad183decbb94e0e1b321b17d688e4a",
+    "crates/keyweave-windows/src/native/control_server/tests.rs": "aae5754dc3a52f44a923c14082de298ff17cdf686c99119c393df9440182ad5c",
+    "crates/keyweave-windows/tests/native_link.rs": "e71ae21c6c5afa3cf053b23534e713bf6528fd580d8d8765be3b5017c567bce5",
+    "tools/windows_input_abi.c": "913f364a9337b1abfadda49df01481a0243c48e8708b64cfbb9a4744923e3a2d"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1980,
+    "new_default_tests": 7,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/clippy.log",
+        "sha256": "0c9569162840a6dde1c2f25a07f550fc42601402f4a28ebc67b9194ee2b9cef8"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/tests.log",
+        "sha256": "42f2c5cac33e0f84bce0dc9738ff9bf81e4a299309ae99dffff64bf0e138ef5a"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-authorization/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient",
+    "https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-reverttoself",
+    "https://learn.microsoft.com/en-us/windows/win32/ipc/impersonating-a-named-pipe-client"
+  ],
+  "limitations": [
+    "Production server transport, transaction machine, owned pipe and last-message thread-token query path are composed in tests with Win32 API mocks. The handler records a synthetic Stop intent; it does not use a real host Supervisor, worker or input device. Actual Windows peer/message identity and adversarial OS behavior are not proven by these tests.",
+    "Client actual-server attestation, Windows host/CLI/GUI public transport wiring and native x64/x86 SDK/link/pipe acceptance remain unfinished. Prior Windows native automatic approval quota rejection was not retried or bypassed.",
+    "RevertToSelf failure directly aborts the production process; tests replace only that nonreturning endpoint with a caught panic. Actual native abort/owned Job effects and input recovery were not exercised or asserted. No success response is returned after restoration failure.",
+    "Only exact SecurityIdentification thread tokens are admitted, matching the defined client SQOS. Primary/anonymous/stronger impersonation levels reject. User SID/logon/session equality does not prove active or unlocked desktop, administrator equivalence or hardware readiness.",
+    "Factory/authorization performs bounded synchronous SDK calls but not hard realtime timing guarantees; no unbounded wait/retry or worker progress/lease renewal occurs here. Native resources still require explicit bounded close after terminal transaction failures.",
+    "Eight existing Linux native IPC tests remain ignored in the default workspace run and are not counted as passed again. No actual keyboard capture, Hook, injection or Windows desktop/hardware acceptance was performed.",
+    "Full migration including client transport, host/GUI start/resume/apply, Wayland, native/hardware acceptance and packaging is still incomplete."
+  ]
+}

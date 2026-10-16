@@ -131,9 +131,12 @@ struct Stamp {
     logon: [u8; 8],
     modified: [u8; 8],
 }
-fn stamp(info: &Information) -> Result<Stamp, Error> {
+fn stamp(info: &Information, token_type: u32) -> Result<Stamp, Error> {
     let bytes = info.bytes();
-    if bytes.len() != 56 || bytes[24..28] != 1u32.to_le_bytes() {
+    if bytes.len() != 56
+        || bytes[24..28] != token_type.to_le_bytes()
+        || token_type == 2 && bytes[28..32] != 1u32.to_le_bytes()
+    {
         return Err(Error::Malformed);
     }
     let mut result = Stamp {
@@ -203,7 +206,11 @@ fn read_principal(
         return Err(Error::Malformed);
     }
     resources.token = token;
-    let before = stamp(&query(token, 10)?)?;
+    read_token(resources, 1)
+}
+fn read_token(resources: &mut Resources, token_type: u32) -> Result<(Principal, String), Error> {
+    let token = resources.token;
+    let before = stamp(&query(token, 10)?, token_type)?;
     let user = query(token, 1)?;
     let (sid, offset) = user_sid(&user)?;
     let session = query(token, 12)?;
@@ -254,7 +261,7 @@ fn read_principal(
     if Sid::text(&text)? != sid {
         return Err(Error::Malformed);
     }
-    let after = stamp(&query(token, 10)?)?;
+    let after = stamp(&query(token, 10)?, token_type)?;
     if before != after {
         return Err(Error::Changed);
     }
@@ -303,6 +310,38 @@ fn collect(pid: Option<u32>) -> Result<(Principal, String), Failure> {
     })();
     resources.finish(result)
 }
+/// Never return control to host under an unresolved impersonation context.
+struct MessageImpersonation {
+    active: bool,
+}
+impl MessageImpersonation {
+    fn restore(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        // SAFETY: this guard uniquely owns the impersonation scope, entered
+        // only after proving absence of any pre-existing thread token.
+        if unsafe { api::RevertToSelf() } == 0 {
+            POISONED.set(true);
+            // No logging/callback/normal cleanup under an unknown identity.
+            restoration_failed();
+        }
+    }
+}
+impl Drop for MessageImpersonation {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+#[cfg(not(test))]
+fn restoration_failed() -> ! {
+    std::process::abort()
+}
+#[cfg(test)]
+fn restoration_failed() -> ! {
+    panic!("fatal: control message thread identity restoration failed")
+}
 /// Immutable cold primary-token snapshot. Not an authenticated pipe connection.
 pub struct ControlIdentity {
     principal: Principal,
@@ -336,6 +375,47 @@ impl ControlIdentity {
             return Err(Failure::operation(Error::CallerChanged));
         }
         Ok(peer == self.principal)
+    }
+    /// The owning server supplies its actual live handle only after a complete
+    /// message read and with no concurrent read/disconnect. No arbitrary PID.
+    pub(super) fn authorize_message(&self, pipe: Handle) -> Result<bool, Failure> {
+        let current = Self::capture()?;
+        if current.principal != self.principal {
+            return Err(Failure::operation(Error::CallerChanged));
+        }
+        if pipe.is_null() || pipe as usize == usize::MAX {
+            return Err(Failure::operation(Error::Malformed));
+        }
+        // SAFETY: caller is the owned server's one-shot last-read-message gate;
+        // no existing thread impersonation, no flight or concurrent handle use.
+        if unsafe { api::ImpersonateNamedPipeClient(pipe) } == 0 {
+            return Err(Failure::operation(error(
+                "ImpersonateNamedPipeClient(control)",
+            )));
+        }
+        let mut restore = MessageImpersonation { active: true };
+        let mut resources = Resources::default();
+        let result = (|| {
+            let mut token = null_mut();
+            // SAFETY: query only the current impersonation token, OpenAsSelf;
+            // no fallback to process token, TOKEN_QUERY only.
+            if unsafe { api::OpenThreadToken(api::GetCurrentThread(), 8, 1, &mut token) } == 0 {
+                return Err(error("OpenThreadToken(control message)"));
+            }
+            if token.is_null() {
+                return Err(Error::Malformed);
+            }
+            resources.token = token;
+            read_token(&mut resources, 2).map(|(principal, _)| principal == self.principal)
+        })();
+        let result = resources.finish(result);
+        restore.restore();
+        let accepted = result?;
+        let after = Self::capture()?;
+        if after.principal != self.principal {
+            return Err(Failure::operation(Error::CallerChanged));
+        }
+        Ok(accepted)
     }
     pub fn security_descriptor(&self) -> Result<ControlSecurity, Failure> {
         let current = Self::capture()?;
@@ -421,4 +501,16 @@ mod tests;
 pub(super) fn reset_pipe_test_identity() {
     POISONED.set(false);
     api_mock::MOCK.with(|m| *m.borrow_mut() = api_mock::Mock::default());
+}
+
+#[cfg(test)]
+pub(super) fn set_server_test_peer_mismatch(mismatch: bool) {
+    api_mock::MOCK.with(|m| m.borrow_mut().peer_logon = mismatch);
+}
+#[cfg(test)]
+pub(super) fn server_test_restored() -> bool {
+    api_mock::MOCK.with(|m| {
+        let m = m.borrow();
+        !m.impersonating && m.reversions == 1
+    })
 }

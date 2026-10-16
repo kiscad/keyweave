@@ -79,6 +79,8 @@ CHECK(FILE_FLAG_OVERLAPPED == 0x40000000);
 CHECK(FILE_FLAG_FIRST_PIPE_INSTANCE == 0x80000);
 CHECK(PIPE_ACCESS_INBOUND == 1 && PIPE_REJECT_REMOTE_CLIENTS == 8);
 CHECK(PIPE_ACCESS_DUPLEX == 3 && SECURITY_IDENTIFICATION == 0x10000);
+CHECK(TokenImpersonation == 2 && SecurityIdentification == 1);
+CHECK(offsetof(TOKEN_STATISTICS, ImpersonationLevel) == 28);
 CHECK(ERROR_MORE_DATA == 234 && ERROR_NO_DATA == 232 && ERROR_PIPE_NOT_CONNECTED == 233);
 CHECK(PIPE_TYPE_BYTE == 0 && PIPE_READMODE_BYTE == 0 && PIPE_WAIT == 0);
 CHECK(SECURITY_SQOS_PRESENT == 0x100000 && SECURITY_ANONYMOUS == 0);
@@ -317,6 +319,9 @@ int main(void) {
     BOOL (WINAPI *close_handle)(HANDLE) = CloseHandle;
     BOOL (WINAPI *process_token)(HANDLE, DWORD, PHANDLE) = OpenProcessToken;
     BOOL (WINAPI *thread_token)(HANDLE, DWORD, BOOL, PHANDLE) = OpenThreadToken;
+    BOOL (WINAPI *impersonate_message)(HANDLE) = ImpersonateNamedPipeClient;
+    BOOL (WINAPI *revert_message)(void) = RevertToSelf;
+    (void)impersonate_message; (void)revert_message;
     BOOL (WINAPI *token_info)(HANDLE, TOKEN_INFORMATION_CLASS, LPVOID, DWORD, PDWORD) = GetTokenInformation;
     BOOL (WINAPI *process_session)(DWORD, DWORD *) = ProcessIdToSessionId;
     BOOL (WINAPI *session_info)(HANDLE, DWORD, WTS_INFO_CLASS, LPWSTR *, DWORD *) = WTSQuerySessionInformationW;

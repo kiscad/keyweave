@@ -32,6 +32,9 @@ pub use supervisor::{
     SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
 };
 mod control_message_pipe;
+mod control_server;
+#[cfg(windows)]
+pub use control_server::ControlServerTransport;
 mod progress_pipe;
 #[cfg(windows)]
 pub use control_message_pipe::{ControlMessagePipe, ControlPipeCleanup, ControlPipeCreateError};

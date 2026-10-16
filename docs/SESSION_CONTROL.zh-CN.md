@@ -101,3 +101,7 @@ ADR-0231 已实现独立的 Windows 服务端/客户端消息事务（`keyweave_
 ADR-0232 新增底层 `ControlMessagePipe`：可显式创建／打开本地 `\\.\pipe\keyweave-control-<32 lowercase hex>` 消息管道，使用具体用户 DACL、非继承、异步单 flight 和明确 message read mode。它是未鉴权 I/O owner，尚未实现可信控制 transport，不是新的 Status/Stop 命令入口。不能在消息主体鉴权完成前把读出的 Request 交给业务处理器。
 
 `close()` 是零等待回收快照；Pending 要在上层绝对 deadline 内继续 poll，取消请求不是完成。Drop 仅一次有限回退，未知飞行资源会保留到进程退出并阻止该线程继续建管道。新 Win32 调用目前通过 API mock 验证，实际 SDK/link 和真实管道验收尚未执行。见 [ADR-0232](ADR-0232-windows-control-message-pipe-owner.md)。
+
+ADR-0233 已新增 `ControlServerTransport`，可与 `keyweave_windows::session_control::Server` 组合：完整读取后以最后消息的 thread token 鉴权，恢复原线程身份后才允许业务处理与回复。每连接只尝试一次鉴权；未读完、截断、提前或重复鉴权都拒绝，断开/新连接撤销旧授权。原始 `ControlMessagePipe` 仍是不带授权的 I/O owner。
+
+鉴权只接受定义客户端 SQOS 对应的 SecurityIdentification，精确比较 SID、登录 LUID、session；不会因 token 查询失败回退为进程身份。恢复线程身份失败时生产进程立即终止，不能将它解释为 Stop 成功或输入恢复。当前组合链经过 API mock 测试，没有运行实际 Windows pipe/abort；客户端 server attestation、host/CLI/GUI 接入及 SDK/原生验收仍待完成。见 [ADR-0233](ADR-0233-windows-message-token-authorization.md)。

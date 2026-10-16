@@ -11,6 +11,8 @@ unsafe extern "system" {
 }
 #[link(name = "advapi32")]
 unsafe extern "system" {
+    pub(super) fn ImpersonateNamedPipeClient(pipe: Handle) -> i32;
+    pub(super) fn RevertToSelf() -> i32;
     pub(super) fn OpenThreadToken(
         thread: Handle,
         access: u32,

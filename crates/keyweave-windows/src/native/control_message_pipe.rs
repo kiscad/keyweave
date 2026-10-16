@@ -132,6 +132,7 @@ pub struct ControlMessagePipe {
     flight: Option<Flight>,
     server: bool,
     connected: bool,
+    message_ready: bool,
     eof: bool,
     failed: bool,
     closing: bool,
@@ -248,6 +249,7 @@ impl ControlMessagePipe {
             flight: None,
             server,
             connected: !server,
+            message_ready: false,
             eof: false,
             failed: false,
             closing: false,
@@ -463,6 +465,7 @@ impl ControlMessagePipe {
         if self.eof {
             return Poll::Ready(Ok(ReadResult::Disconnected));
         }
+        self.message_ready = false;
         let result = if self.flight.is_some() {
             self.completion(Kind::Read, MESSAGE_CAPACITY)
         } else {
@@ -494,6 +497,7 @@ impl ControlMessagePipe {
         };
         result.map(|r| {
             r.map(|(length, more, eof)| {
+                self.message_ready = self.server && !eof && !more && length == 32;
                 if eof {
                     ReadResult::Disconnected
                 } else {
@@ -507,6 +511,30 @@ impl ControlMessagePipe {
                 }
             })
         })
+    }
+    /// Authenticate only the owning server's complete last-read request once.
+    /// This consumes the gate even on denial/error, never accepts a supplied PID.
+    pub(super) fn authorize_message(
+        &mut self,
+        identity: &ControlIdentity,
+    ) -> Result<bool, crate::control_identity::ControlIdentityFailure> {
+        use crate::control_identity::{
+            ControlIdentityError as Error, ControlIdentityFailure as Failure,
+        };
+        if !super::outside_callback() {
+            return Err(Failure::operation(Error::InCallback));
+        }
+        let ready = std::mem::replace(&mut self.message_ready, false);
+        if !ready
+            || !self.server
+            || !self.connected
+            || self.closing
+            || self.failed
+            || self.flight.is_some()
+        {
+            return Err(Failure::operation(Error::Malformed));
+        }
+        identity.authorize_message(self.handle)
     }
     pub fn poll_write(&mut self, input: &[u8]) -> Poll<io::Result<()>> {
         if let Err(e) = context() {
@@ -581,6 +609,7 @@ impl ControlMessagePipe {
         }
     }
     pub fn poll_disconnect(&mut self) -> Poll<io::Result<()>> {
+        self.message_ready = false;
         if let Err(e) = context() {
             return Poll::Ready(Err(e));
         }
@@ -669,3 +698,21 @@ impl Drop for ControlMessagePipe {
 }
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) fn reset_server_test_pipe(payload: Vec<u8>) {
+    POISONED.set(false);
+    api_mock::MOCK.with(|m| {
+        let mut state = api_mock::Mock::fresh();
+        state.payload = payload;
+        *m.borrow_mut() = state;
+    });
+}
+#[cfg(test)]
+pub(super) fn server_test_peer_closed() {
+    api_mock::MOCK.with(|m| m.borrow_mut().read = api_mock::Mode::Error(109));
+}
+#[cfg(test)]
+pub(super) fn server_test_writes() -> Vec<Vec<u8>> {
+    api_mock::MOCK.with(|m| m.borrow().writes.clone())
+}

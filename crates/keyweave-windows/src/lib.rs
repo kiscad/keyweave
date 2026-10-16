@@ -70,3 +70,6 @@ pub use native::{ControlIdentity, ControlSecurity};
 
 #[cfg(windows)]
 pub use native::{ControlMessagePipe, ControlPipeCleanup, ControlPipeCreateError};
+
+#[cfg(windows)]
+pub use native::ControlServerTransport;
