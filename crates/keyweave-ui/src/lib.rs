@@ -3,6 +3,8 @@ pub mod control;
 pub mod devices;
 pub mod devices_view;
 pub mod files;
+#[cfg(target_os = "linux")]
+pub mod inventory;
 pub mod model;
 pub mod rules;
 pub mod rules_view;

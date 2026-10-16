@@ -53,4 +53,15 @@ Windows Settings 的同一控制区显示 **Windows host endpoint**，粘贴所�
 
 **Discard row input** 放弃单行输入；**Discard simple inputs** 放弃未提交的全局行、名称和新行输入，保留已提交draft及独立的规则/设备buffer。无效按键或过期raw值会拒绝Update/Rename且保留输入，不会覆盖其他编辑操作已改变的值。新增mapping只有成功后重置输入。最终仍需Use edited JSON、Validate及保存新副本；这不表示运行时已应用。见 [ADR-0239](ADR-0239-global-visual-buffer-fences.md)。
 
-Linux只读元数据CLI现可用 `keyweave-host list-linux-devices`；它与 **Configured devices** 分离，不自动将节点加入抓取或运行上下文。GUI后台刷新/选择仍待接入；类型null、partial和capability诊断不能当设备已就绪。命令边界和当前无`/dev/input`限制见 [Linux说明](LINUX_USAGE.zh-CN.md)。
+Linux只读元数据CLI现可用 `keyweave-host list-linux-devices`；它与 **Configured devices** 分离，不自动将节点加入抓取或运行上下文。GUI也可显式后台刷新并生成选择器草稿（见下）；类型null、partial和capability诊断不能当设备已就绪。命令边界和当前无`/dev/input`限制见 [Linux说明](LINUX_USAGE.zh-CN.md)。
+
+
+## 从 Linux 设备元数据生成选择器
+
+打开 visual editor，在 **Linux device metadata** 点击 **Refresh Linux devices**。该操作只查询 `/dev/input/eventN` 元数据，不读取按键事件、不抓取设备、不启动映射。扫描在单独线程进行；同一进程最多一个扫描，关闭面板不会取消已经阻塞的系统调用。没有自动轮询或热插拔监控。
+
+快照显示来源、从刷新开始计算的年龄、目录和探测的完整性及逐节点错误。**Partial snapshot** 表示结果不完整；缺失节点不能解释为没有设备。**Types: Unknown** 保留分类不可用的事实，不将其自动改为 false。名称按 JSON 字符串转义显示，损坏的 UTF-8 有 lossy 标记。扫描诊断最多显示前16项并报告其余数量。
+
+在已知分类的节点上点击 **Generate selector draft**，会填入 vendor/product ID 和两种类型标志。观察超过30秒或刷新进行中时需要重新刷新；这只是避免误用旧显示的编辑门槛，不保证设备仍在线。已知节点可以来自部分快照。名字与 event 路径不写入匹配选择器，型号相同且类型相同的多个设备会共同匹配。
+
+生成操作保留为未提交设备编辑，必须 **Commit device draft** → **Use edited JSON** → **Validate** → 保存新副本。现有未提交设备编辑必须先提交或放弃，不能被生成操作覆盖。它不自动选择抓取路径、不修改 Runtime 条件上下文，也不说明目标支持、设备就绪或硬件验收完成。Windows 设备发现和实际桌面/硬件验收仍待接入。见 [ADR-0241](ADR-0241-settings-linux-device-discovery.md)。

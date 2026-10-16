@@ -1,5 +1,7 @@
 # KeyWeave 开发指导文档
 
+ADR-0241：Linux 设置界面新增显式异步元数据刷新，显示 /dev/input 来源、年龄、目录/探测完整性与逐节点错误。进程级单扫描 guard 跨面板关闭保持，刷新清除旧结果；仅完成且30秒内、分类已知的节点可生成新的 DeviceEdit 草稿，有 pending 设备编辑时拒绝替换，仍需 Commit/Use edited JSON/Validate/保存。Unknown 不猜类型，不自动抓取或更新 Runtime；同步 syscall 不能取消，关闭面板不证明任务结束。新增6项测试，Linux2021通过/8已有native默认ignored，七项检查通过；首次 egui API 编译错误已修。未运行真实窗口/设备/Windows gate，完整目标仍未完成。见 [ADR-0241](ADR-0241-settings-linux-device-discovery.md)、[验证记录](validation/linux-2026-10-16-settings-inventory.json)。
+
 ADR-0240：新增 list-linux-devices/只读inspect元数据，固定/dev/input canonical eventN、数字排序/去重、1024目录项/256候选/2s同步操作间预算；scan/probe完整性与逐节点kind/errno独立，clock故障锁存。inspect复用原FD-ID-sysfs核验但不配clock/读event或state/grab/uinput，DTO不带FD；Capture.open原行为保持。name JSON转义/lossy标记、诊断取16项、types unknown保null，不猜类型/自动选capture/更新Runtime。新增5tests，Linux2015通过/8ignored，7checks通过；实际只读CLI exit1因/dev/input NotFound，0节点/未跑新硬件ioctl路径，不称硬件通过。GUI发现/原生硬件完整目标继续。见 [ADR-0240](ADR-0240-linux-readonly-device-inventory.md)、[验证记录](validation/linux-2026-10-16-device-inventory.json)。
 
 ADR-0239：修复全局simple行/name/new输入未提交即切profile或Apply可能丢失：全部计pending/unsaved，profile/结构删除/Apply门槛，Update/Rename/Add/Discard仍可完成。行原始Value/名称optional值fence拒绝过期覆盖，错误保留输入、未改cache可跟随显式draft变更；单行/总Discard与新增成功重置，不清其他行pending。全局/设备文本固定widget IDs，egui合成连续两帧输入证明pending提示出现后焦点保留，无OS注入。新增6tests，Linux2010通过/8默认ignored，7checks通过；未跑native窗口/Windows/硬件，原额度拒绝未重试。见 [ADR-0239](ADR-0239-global-visual-buffer-fences.md)、[验证记录](validation/linux-2026-10-16-visual-input-fences.json)。

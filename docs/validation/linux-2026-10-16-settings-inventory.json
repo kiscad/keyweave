@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "62e4dafa3d6e1ed84face0da9c504d4c98e14c66",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-ui/src/lib.rs": "f6d21ce564eb0527f80502bd5b2d83e56ade2b9091c76500a66c72caca7d4cfe",
+    "crates/keyweave-ui/src/devices_view.rs": "b1db92c3a4f52ebd3b2795f1089d7f92e06f89762024390983be688a714d514e",
+    "crates/keyweave-ui/src/inventory.rs": "a6b711018b0bd7ff0abe90e2c0d4e38b258972dad04587bf45993981938e5c3f",
+    "crates/keyweave-ui/src/inventory/tests.rs": "aa4d99a4daa400d7ef9a2ad1207247f1176ad7b824980debc84587c1ce6ea7a4"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 2021,
+    "new_default_tests": 6,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/clippy.log",
+        "sha256": "21f916d52e28991f8428f8e1736de7358a9a79f051e057ac6994222fee4e7705"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/tests.log",
+        "sha256": "779b7df8e1d335bddb0b2871dd91e7f99cb1b6d25a6b3c6beea69b1fc5a99db3"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-settings-inventory/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "command": "cargo fmt --all",
+      "result": "exit1 while inventory/tests.rs module was declared before the test file was created",
+      "resolution": "Created the test module; final formatting check passed.",
+      "log": "tool transcript only; no separate log file saved"
+    },
+    {
+      "command": "cargo test --locked --offline -p keyweave-ui inventory",
+      "result": "compile failed E0599: egui 0.36.2 Context has run_ui, not run",
+      "log": "target/gui-inventory-tests.log",
+      "sha256": "b6aa43b2c392c5f0e4d1d55c99160b7745f1b53d41a9a18c196fe23ee3a19cf8",
+      "resolution": "Use existing run_ui API and clear headless texture deltas; final workspace tests and Clippy passed."
+    }
+  ],
+  "limitations": [
+    "All new discovery tests use synthetic metadata and controlled closures/channels. Headless egui builds layout without displaying a native window. No actual device ioctl, event read, grab, uinput, Hook or injection was executed for this slice.",
+    "Process-wide busy guard prevents simultaneous metadata scans even after pane destruction. Drop detaches an unfinished scan; it is not cancellation or evidence of worker exit. Blocking filesystem/ioctl/libudev calls cannot be forcibly interrupted by this UI.",
+    "Snapshot age starts when the refresh is requested; selector generation requires a current result no older than 30 seconds and known type classification. This edit fence does not prove hotplug identity, online status, capture readiness or globally complete inventory. Partial snapshots may provide known individual nodes.",
+    "Selector generation only opens a new DeviceEdit buffer and copies vendor/product/keyboard/pointing facts. Existing pending device edits are rejected, append fences remain enforced, and Commit/Use edited JSON/Validate/save are separate. Same selectors match multiple interfaces/devices; no automatic capture selection or Runtime context update occurs.",
+    "Windows discovery, GUI Start/Resume/Apply, native GUI/hardware, Wayland completeness, drivers and packaging remain unfinished. Prior Windows native approval quota rejection was not retried. No new dependencies, Cargo.lock, native ABI or control transport changes; existing eight Unix IPC gates were not rerun for this UI-only slice."
+  ]
+}

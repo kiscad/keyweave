@@ -6,6 +6,8 @@ use eframe::egui;
 use serde_json::Value;
 #[derive(Default)]
 pub struct DevicesPane {
+    #[cfg(target_os = "linux")]
+    pub inventory: crate::inventory::InventoryPane,
     edit: Option<DeviceEdit>,
     delete: Option<(usize, usize, Value)>,
 }
@@ -30,6 +32,21 @@ impl DevicesPane {
         self.delete = None;
         Ok(())
     }
+    pub fn generate_selector(
+        &mut self,
+        draft: &VisualDraft,
+        profile: usize,
+        selector: crate::devices::Selector,
+    ) -> Result<(), String> {
+        if self.pending() {
+            return Err("Commit or discard the current device edits first".into());
+        }
+        let mut edit = DeviceEdit::open(draft, profile, None)?;
+        edit.selector = selector;
+        self.edit = Some(edit);
+        self.delete = None;
+        Ok(())
+    }
     pub fn editor(&mut self) -> Option<&mut DeviceEdit> {
         self.edit.as_mut()
     }
@@ -51,6 +68,16 @@ impl DevicesPane {
         profile: usize,
         notice: &mut String,
     ) {
+        #[cfg(target_os = "linux")]
+        {
+            let can_select = !self.pending();
+            if let Some(selector) = self.inventory.contents(ui, can_select, notice) {
+                *notice = match self.generate_selector(draft, profile, selector) {
+                    Ok(()) => "Selector draft generated; review and Commit device draft".into(),
+                    Err(error) => error,
+                };
+            }
+        }
         ui.separator();
         ui.heading("Configured devices");
         ui.label("Configured selectors are not a connected-device inventory. Validate target support before running.");
