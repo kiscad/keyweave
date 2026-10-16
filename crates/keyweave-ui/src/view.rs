@@ -34,7 +34,7 @@ impl SettingsApp {
     }
     pub fn apply_visual(&mut self) -> Result<(), String> {
         if self.visual.as_ref().is_some_and(|p| p.pending()) {
-            return Err("Commit or discard rule/device changes before applying the draft".into());
+            return Err("Commit or discard pending visual inputs before applying the draft".into());
         }
         let text = self
             .visual

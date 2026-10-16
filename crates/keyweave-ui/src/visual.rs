@@ -164,14 +164,15 @@ impl VisualDraft {
             .and_then(Value::as_array)
             .map_or(0, Vec::len)
     }
-    pub fn row(&self, profile: usize, index: usize) -> Option<SimpleRow> {
-        let value = self
-            .profiles()
+    pub(crate) fn raw_row(&self, profile: usize, index: usize) -> Option<&Value> {
+        self.profiles()
             .get(profile)?
             .get("simple_modifications")?
             .as_array()?
-            .get(index)?;
-        simple_row(value)
+            .get(index)
+    }
+    pub fn row(&self, profile: usize, index: usize) -> Option<SimpleRow> {
+        simple_row(self.raw_row(profile, index)?)
     }
 
     pub fn set_row(

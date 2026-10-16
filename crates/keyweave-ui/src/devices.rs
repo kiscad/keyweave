@@ -177,6 +177,9 @@ impl VisualDraft {
     }
 }
 impl DeviceEdit {
+    pub(crate) fn ui_key(&self) -> (usize, usize) {
+        (self.profile, self.index)
+    }
     pub fn open(draft: &VisualDraft, profile: usize, index: Option<usize>) -> Result<Self, String> {
         if profile >= draft.len() {
             return Err("Profile no longer exists".into());

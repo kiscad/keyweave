@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "1e0209b64ecbb3ad136b92b7781a628c859038c6",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-ui/src/devices.rs": "2730d894f5d020b1c7ff3e5d1ec16ed50811206725f323b2cefcddba4af2fc0a",
+    "crates/keyweave-ui/src/devices_view.rs": "4a9637ca3b6351285d62d23bbf26675f9358c5e877ed91b8df47c5dd69dde63d",
+    "crates/keyweave-ui/src/view.rs": "9b5e3d705694405473327f44387ac9d7cedc92de90d266655a48f75c833840cc",
+    "crates/keyweave-ui/src/visual.rs": "fa467befe89917d7444e8ceac423372d62fab4ed99f4e236d3b0b8f0ebee1a4d",
+    "crates/keyweave-ui/src/visual_view.rs": "ae0fbf29eaac7a84d0361b76569ac2e155630c2a6368c3ed37c5399882844a37",
+    "crates/keyweave-ui/tests/visual.rs": "8a83a000ac19c81df6d3b6aed33a550ea6b975bec7ca8969b088e93612f9d7b9"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 2010,
+    "new_default_tests": 6,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/clippy.log",
+        "sha256": "488ab69fe14dfb3c2d7bf2b15a65b1febd92518d433e63741a70ceb40904fa28"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/tests.log",
+        "sha256": "8bfb1914c667e1d5610b318dee9ff54afbdf29b78fef7396a66202f5968d9b2d"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-visual-input-fences/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "limitations": [
+    "GUI visual-buffer correctness only. No runtime profile activation, input device, Hook, driver or injection occurred. Synthetic egui Event::Text exercises headless focus, not OS keyboard injection or actual desktop focus acceptance.",
+    "Whole-source and raw-row/name fences guard draft commits; they do not establish external file provenance or hardware readiness. Existing save-copy/offline-validation and platform capability gates remain required.",
+    "Explicit Discard simple inputs intentionally discards uncommitted global row/name/new-mapping buffers only. Rule/device buffers retain their independent pending/commit workflow.",
+    "Eight existing Unix native IPC tests remain ignored and were not re-run because control transport was unchanged. Windows native compiler/GUI/window/pipe and hardware acceptance remain outstanding; prior native approval quota rejection was not retried.",
+    "Full migration including actual device discovery/events, GUI Start/Resume/Apply, native/hardware/Wayland acceptance and packaging remains unfinished."
+  ]
+}

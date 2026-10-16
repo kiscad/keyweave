@@ -46,3 +46,9 @@ Windows Settings 的同一控制区显示 **Windows host endpoint**，粘贴所�
 **Commit device draft** 先完整验证本地设备buffer，再写入visual draft；**Use edited JSON** 才更新文档，之后仍需 **Validate** 和保存新副本。未提交设备字段会阻止切换profile或应用draft，并参与未保存提示；可用 **Discard device edits** 放弃。删除整个device需二次确认，已有高级映射、未知/硬件字段和其他profile不会因普通编辑而丢弃。
 
 这里只显示配置中的selector，不是已连接设备列表，也不直接启用映射。设备最多256、同profile全局和设备simple合计4096；其他完整compiler预算仍由Validate检查。Windows Hook目前不支持逐设备身份，Linux离线通过仍带类型provider依赖，实际硬件/LED/Fn/ignore设置均未由这个面板验证。见 [ADR-0238](ADR-0238-configured-device-drafts.md)。
+
+## 尚未提交的简单映射输入
+
+全局simple行的 **Update**、profile名的 **Rename**、新行的 **Add mapping** 都会先处理各自输入buffer。输入尚未完成时会计入未保存状态，并阻止切换profile、结构删除和 **Use edited JSON**；这些完成按钮仍可使用，不会因pending状态被禁用。
+
+**Discard row input** 放弃单行输入；**Discard simple inputs** 放弃未提交的全局行、名称和新行输入，保留已提交draft及独立的规则/设备buffer。无效按键或过期raw值会拒绝Update/Rename且保留输入，不会覆盖其他编辑操作已改变的值。新增mapping只有成功后重置输入。最终仍需Use edited JSON、Validate及保存新副本；这不表示运行时已应用。见 [ADR-0239](ADR-0239-global-visual-buffer-fences.md)。

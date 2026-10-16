@@ -125,6 +125,7 @@ impl DevicesPane {
         let mut commit = false;
         let mut discard = false;
         if let Some(edit) = &mut self.edit {
+            let ui_key = edit.ui_key();
             ui.label(
                 "Match vendor/product and both type flags exactly. Omitted IDs/types mean 0/false.",
             );
@@ -132,12 +133,14 @@ impl DevicesPane {
                 ui.label("Vendor ID");
                 ui.add(
                     egui::TextEdit::singleline(&mut edit.selector.vendor)
+                        .id(egui::Id::new(("device-vendor", ui_key)))
                         .char_limit(12)
                         .desired_width(115.0),
                 );
                 ui.label("Product ID");
                 ui.add(
                     egui::TextEdit::singleline(&mut edit.selector.product)
+                        .id(egui::Id::new(("device-product", ui_key)))
                         .char_limit(12)
                         .desired_width(115.0),
                 );
@@ -156,12 +159,18 @@ impl DevicesPane {
                                 Row::Editable(row) => {
                                     ui.add(
                                         egui::TextEdit::singleline(&mut row.from)
+                                            .id(egui::Id::new((
+                                                "device-simple-from",
+                                                ui_key,
+                                                index,
+                                            )))
                                             .char_limit(128)
                                             .desired_width(135.0),
                                     );
                                     ui.label("→");
                                     ui.add(
                                         egui::TextEdit::singleline(&mut row.to)
+                                            .id(egui::Id::new(("device-simple-to", ui_key, index)))
                                             .char_limit(128)
                                             .desired_width(135.0),
                                     );
