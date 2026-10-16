@@ -210,6 +210,78 @@ impl Reply {
             }
     }
 }
+/// Public Windows host selection metadata; not an authorization secret.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowsEndpoint {
+    pipe: String,
+    process_id: u32,
+    creation_time: u64,
+}
+impl WindowsEndpoint {
+    pub fn new(pipe: &str, process_id: u32, creation_time: u64) -> Result<Self, &'static str> {
+        let suffix = pipe
+            .strip_prefix(r"\\.\pipe\keyweave-control-")
+            .ok_or("invalid Windows control pipe namespace")?;
+        if suffix.len() != 32
+            || !suffix
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || process_id == 0
+            || creation_time == 0
+        {
+            return Err("invalid Windows control endpoint");
+        }
+        Ok(Self {
+            pipe: pipe.to_owned(),
+            process_id,
+            creation_time,
+        })
+    }
+    pub fn pipe(&self) -> &str {
+        &self.pipe
+    }
+    pub fn process_id(&self) -> u32 {
+        self.process_id
+    }
+    pub fn creation_time(&self) -> u64 {
+        self.creation_time
+    }
+}
+impl std::str::FromStr for WindowsEndpoint {
+    type Err = &'static str;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.len() > 128 {
+            return Err("oversized Windows control endpoint");
+        }
+        let mut parts = value.split('|');
+        let pipe = parts.next().ok_or("missing pipe")?;
+        let pid = parts.next().ok_or("missing process id")?;
+        let created = parts.next().ok_or("missing creation time")?;
+        if parts.next().is_some()
+            || pid.is_empty()
+            || created.is_empty()
+            || !pid.bytes().all(|b| b.is_ascii_digit())
+            || !created.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err("invalid Windows control instance metadata");
+        }
+        Self::new(
+            pipe,
+            pid.parse().map_err(|_| "invalid process id")?,
+            created.parse().map_err(|_| "invalid creation time")?,
+        )
+    }
+}
+impl std::fmt::Display for WindowsEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}|{}|{}",
+            self.pipe, self.process_id, self.creation_time
+        )
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

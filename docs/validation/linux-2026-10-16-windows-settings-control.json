@@ -1,0 +1,190 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "78d5795ac63757e2bd4c3dbc09bdfac5088068cc",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.lock": "474c4d338b0ea52e807c0a9915d17813abe7b71c7b204a37021c0b31db3b2cb7",
+    "crates/keyweave-host/src/public_control.rs": "2a4a7fe2fe2f6a9f51b1a60832cc27534e03d30cf44920bf25a1cd850fee9dce",
+    "crates/keyweave-progress/src/session_control.rs": "5d4bbe5524a088af8c2339be697b67179d9926618855f0250ee84ccb882d4b0c",
+    "crates/keyweave-ui/Cargo.toml": "6db997fbe67ad36debdd7b166acc9b65cfc36191d93113f2a791bdbad1bc0389",
+    "crates/keyweave-ui/src/control.rs": "b9f0d4c22d8caa162534372c9e9f0132062b0d69ffa00b4b766e83ed1d26fc57",
+    "crates/keyweave-ui/src/control/message_request.rs": "6ec0601cbe0c46b6ba587d10e3efe58ac789b10e479217e41392dcb5eede7579",
+    "crates/keyweave-ui/src/control/message_request/tests.rs": "7ae477a7f7b729bbb5c0426ac22309ae7a206202cc28b7091f03fef0122b7530"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1998,
+    "new_default_tests": 5,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/clippy.log",
+        "sha256": "488ab69fe14dfb3c2d7bf2b15a65b1febd92518d433e63741a70ceb40904fa28"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/tests.log",
+        "sha256": "360fe8268baae77d7ee8ee579df0abc5a9719f0eeddcb4095e58e1a7cf426d4e"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "native_ipc": {
+    "runner": [
+      "python3",
+      "tools/verify_session_control_native.py"
+    ],
+    "execution": "Reviewer-approved IPC-capable execution using existing no-input AF_UNIX gate; no device/Hook/injection. This is unrelated to the prior Windows native quota rejection, which was not retried.",
+    "test_cases_passed": 8,
+    "checks": [
+      {
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "keyweave-host",
+          "--example",
+          "session-control-fixture",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/native/0.log",
+        "sha256": "07d7e4d8ea6e7ee6aaa051081a35d9a9308a212958ebb3b58cf6a3fc70f4948f"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-linux",
+          "--lib",
+          "session_control",
+          "--locked",
+          "--offline",
+          "--",
+          "--ignored"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/native/1.log",
+        "sha256": "1fa2c1aa1ffa382a83d11fc7eec625c327e1a1d69f9091a93a0f719ae816c09c"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-host",
+          "--test",
+          "local_control",
+          "--locked",
+          "--offline",
+          "--",
+          "--ignored"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/native/2.log",
+        "sha256": "494d963ab859d4cdb9cf4ac1c0a85f681d66bc26ba0052d7e09ca2d6cd892d7d"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-ui",
+          "--lib",
+          "actual_gui_client",
+          "--locked",
+          "--offline",
+          "--",
+          "--ignored"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-settings-control/native/3.log",
+        "sha256": "b5e5441aefe43c8cc4f367f77cede02ffaf79961e3137c762a726091f98ca347"
+      }
+    ],
+    "scope": "3 actual Unix socket transport + 4 actual CLI/owned no-input host chain + 1 actual GUI client. No desktop rendering/click or hardware recovery claim."
+  },
+  "initial_failures": [],
+  "development_notes": [
+    "Initial formatting during file creation reported a missing tests module; the file was then added. That individual formatter exit was not captured because the shell continued to a successful cargo check. Final format/test/lint gates all passed.",
+    "Cargo.lock adds only the already-workspace-local keyweave-windows direct UI dependency; no new external dependency/version or network access."
+  ],
+  "limitations": [
+    "Windows GUI native factory/conditional UI wiring has not been type-checked or run by a Windows compiler/runtime. Portable generic request driver with real Client machine is tested using scripted transport on Linux; not an actual Windows pipe/SDK/GUI test. Prior Windows native automatic approval quota rejection was not retried or bypassed.",
+    "Windows transaction polling performs at most one transport method per frame without sleep/wait loops. Cold peer pin and individual SDK calls are synchronous on the same UI thread and are not hard realtime or guaranteed latency-free.",
+    "Disconnect/endpoint switch invalidates display/Stop capability for old pending results but does not cancel an already submitted Stop. Default Drop cleanup is bounded; unresolved native flights/pins may be retained until process exit.",
+    "The last observation remains visible with source/age after failure/disconnect but cannot authorize Stop until an accepted new observation. Closing settings never owns/terminates the host.",
+    "Windows host discovery/launch UX, Start/Resume/Apply, devices/Event Viewer, actual desktop/accessibility/Chinese fonts, x64/x86 native SDK/pipe/host acceptance, Wayland, hardware and packaging remain incomplete.",
+    "Default eight ignored IPC tests were separately actually run and passed, counted only in native_ipc. No actual keyboard capture, Hook/injection or global input recovery was tested."
+  ]
+}

@@ -1,18 +1,38 @@
-//! Explicit status/stop client; never owns, starts or captures a worker.
+//! Explicit status/stop clients. GUI never owns, starts or captures a worker.
 use eframe::egui;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use keyweave_progress::session_control::Request;
 use keyweave_progress::session_control::{Command, Outcome, Phase, Reply};
 use std::time::{Duration, Instant};
+#[cfg(any(windows, test))]
+mod message_request;
 struct Observation {
     endpoint: String,
     reply: Reply,
     at: Instant,
 }
 #[cfg(target_os = "linux")]
+type PlatformClient = keyweave_linux::session_control::Client;
+#[cfg(windows)]
+type PlatformClient = message_request::MessageRequest<keyweave_windows::ControlClientTransport>;
+#[cfg(any(target_os = "linux", windows))]
 struct Pending {
     endpoint: String,
-    client: keyweave_linux::session_control::Client,
+    display: bool,
+    client: PlatformClient,
+}
+#[cfg(any(target_os = "linux", windows))]
+impl Pending {
+    fn poll(&mut self) -> Result<Option<Reply>, String> {
+        #[cfg(target_os = "linux")]
+        {
+            self.client.poll().map_err(|e| e.to_string())
+        }
+        #[cfg(windows)]
+        {
+            self.client.poll_at(Instant::now())
+        }
+    }
 }
 #[derive(Default)]
 pub struct ControlPane {
@@ -21,11 +41,12 @@ pub struct ControlPane {
     last: Option<Observation>,
     confirm: Option<(String, u64)>,
     follow: Option<String>,
-    #[cfg(any(target_os = "linux", test))]
+    available: bool,
+    #[cfg(any(target_os = "linux", windows, test))]
     next: Option<Instant>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     id: u64,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pending: Option<Pending>,
 }
 impl ControlPane {
@@ -33,15 +54,21 @@ impl ControlPane {
         self.last.as_ref().map(|o| o.reply.snapshot)
     }
     pub fn can_stop(&self) -> bool {
-        self.last.as_ref().is_some_and(|o| {
-            o.endpoint == self.path
-                && o.at.elapsed() < Duration::from_secs(2)
-                && !matches!(o.reply.snapshot.phase, Phase::Exited | Phase::Unobserved)
-        })
+        self.available
+            && self.last.as_ref().is_some_and(|o| {
+                o.endpoint == self.path
+                    && o.at.elapsed() < Duration::from_secs(2)
+                    && !matches!(o.reply.snapshot.phase, Phase::Exited | Phase::Unobserved)
+            })
     }
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", windows, test))]
     fn observe(&mut self, endpoint: String, reply: Reply) {
-        self.notice=match reply.outcome{Outcome::Status=>"Last host observation; capture readiness is not inferred".into(),Outcome::StopAccepted=>"Stop request accepted; wait for observed process exit and independent recovery facts".into(),Outcome::StaleSession=>"Session changed; previous Stop was not applied".into()};
+        self.available = true;
+        self.notice=match reply.outcome {
+            Outcome::Status=>"Last host observation; capture readiness is not inferred".into(),
+            Outcome::StopAccepted=>"Stop request accepted; wait for observed process exit and independent recovery facts".into(),
+            Outcome::StaleSession=>"Session changed; previous Stop was not applied".into(),
+        };
         if matches!(reply.snapshot.phase, Phase::Exited | Phase::Unobserved) {
             self.follow = None;
         }
@@ -52,7 +79,32 @@ impl ControlPane {
         });
         self.next = Some(Instant::now() + Duration::from_millis(200));
     }
-    #[cfg(target_os = "linux")]
+    /// Observation disconnect never promises cancellation of a submitted Stop.
+    pub fn disconnect(&mut self) {
+        self.available = false;
+        self.follow = None;
+        self.confirm = None;
+        #[cfg(any(target_os = "linux", windows))]
+        if let Some(pending) = &mut self.pending {
+            pending.display = false;
+        }
+    }
+    #[cfg(any(target_os = "linux", windows, test))]
+    fn deliver(&mut self, endpoint: String, display: bool, result: Result<Reply, String>) {
+        if !display || endpoint != self.path {
+            return;
+        }
+        match result {
+            Ok(reply) => self.observe(endpoint, reply),
+            Err(error) => {
+                self.disconnect();
+                self.notice = format!(
+                    "Host unavailable; submitted requests may have taken effect; exit/recovery unconfirmed: {error}"
+                );
+            }
+        }
+    }
+    #[cfg(any(target_os = "linux", windows))]
     fn begin(&mut self, command: Command) -> Result<(), String> {
         if self.pending.is_some() {
             return Err("A host request is already pending".into());
@@ -61,27 +113,50 @@ impl ControlPane {
             .id
             .checked_add(1)
             .ok_or("Host request ID exhausted; reopen settings")?;
+        let request = Request {
+            id: self.id,
+            command,
+        };
+        #[cfg(target_os = "linux")]
         let client = keyweave_linux::session_control::Client::connect(
             std::path::Path::new(&self.path),
-            Request {
-                id: self.id,
-                command,
-            },
+            request,
             Duration::from_secs(2),
         )
         .map_err(|e| e.to_string())?;
+        #[cfg(windows)]
+        let client = {
+            let started = Instant::now();
+            let endpoint = self
+                .path
+                .parse::<keyweave_progress::session_control::WindowsEndpoint>()
+                .map_err(str::to_owned)?;
+            let instance = keyweave_windows::ControlServerInstance::from_parts(
+                endpoint.process_id(),
+                endpoint.creation_time(),
+            )
+            .map_err(|e| e.to_string())?;
+            let transport =
+                keyweave_windows::ControlClientTransport::new(endpoint.pipe(), instance)
+                    .map_err(|e| e.to_string())?;
+            message_request::MessageRequest::new_at(transport, request, started)?
+        };
         self.pending = Some(Pending {
             endpoint: self.path.clone(),
+            display: true,
             client,
         });
         Ok(())
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     fn begin(&mut self, _: Command) -> Result<(), String> {
-        Err("Windows session control transport is not implemented yet".into())
+        Err("Local session control is available on Windows and Linux".into())
     }
     pub fn query(&mut self) -> Result<(), String> {
-        self.begin(Command::Status)?;
+        if let Err(error) = self.begin(Command::Status) {
+            self.disconnect();
+            return Err(error);
+        }
         self.follow = Some(self.path.clone());
         Ok(())
     }
@@ -96,7 +171,10 @@ impl ControlPane {
                     .into(),
             );
         }
-        self.begin(Command::Stop { session: *session })?;
+        if let Err(error) = self.begin(Command::Stop { session: *session }) {
+            self.disconnect();
+            return Err(error);
+        }
         self.confirm = None;
         Ok(())
     }
@@ -115,60 +193,68 @@ impl ControlPane {
             .as_ref()
             .is_some_and(|endpoint| endpoint != &self.path)
         {
-            self.follow = None;
-            self.confirm = None;
+            self.disconnect();
         }
-        #[cfg(target_os = "linux")]
-        if let Some(pending) = self.pending.as_mut() {
-            match pending.client.poll() {
-                Ok(Some(reply)) => {
-                    let endpoint = pending.endpoint.clone();
-                    self.pending = None;
-                    self.observe(endpoint, reply);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    self.pending = None;
-                    self.follow = None;
-                    self.notice = format!("Host unavailable; exit/recovery unconfirmed: {e}");
-                }
-            }
-        }
-        #[cfg(target_os = "linux")]
-        if self.pending.is_none()
-            && self.follow.as_ref() == Some(&self.path)
-            && self.next.is_some_and(|at| Instant::now() >= at)
-            && let Err(e) = self.begin(Command::Status)
+        #[cfg(any(target_os = "linux", windows))]
         {
-            self.follow = None;
-            self.notice = format!("Host unavailable; exit/recovery unconfirmed: {e}");
+            if self
+                .pending
+                .as_ref()
+                .is_some_and(|p| p.endpoint != self.path)
+            {
+                self.disconnect();
+            }
+            let result = self
+                .pending
+                .as_mut()
+                .and_then(|pending| match pending.poll() {
+                    Ok(None) => None,
+                    Ok(Some(reply)) => Some((pending.endpoint.clone(), pending.display, Ok(reply))),
+                    Err(error) => Some((pending.endpoint.clone(), pending.display, Err(error))),
+                });
+            if let Some((endpoint, display, result)) = result {
+                self.pending = None;
+                self.deliver(endpoint, display, result);
+            }
+            if self.pending.is_none()
+                && self.follow.as_ref() == Some(&self.path)
+                && self.next.is_some_and(|at| Instant::now() >= at)
+                && let Err(error) = self.begin(Command::Status)
+            {
+                self.disconnect();
+                self.notice = format!("Host unavailable; exit/recovery unconfirmed: {error}");
+            }
         }
     }
     pub fn contents(&mut self, ui: &mut egui::Ui) {
         self.poll();
-        ui.collapsing("Local session status and stop",|ui|{
+        ui.collapsing("Local session status and stop",|ui| {
             ui.label("Connect to an explicitly started host. Closing Settings keeps that host independent.");
-            #[cfg(not(target_os="linux"))]
-            ui.label("Windows public session control transport is pending.");
-            ui.horizontal(|ui|{
-                ui.label("Linux control socket");ui.text_edit_singleline(&mut self.path);
-                if ui.button("Query host").clicked() && let Err(e)=self.query(){self.notice=e;}
-                if ui.button("Disconnect observer").clicked(){self.follow=None;self.confirm=None;}
+            ui.horizontal(|ui| {
+                #[cfg(target_os="linux")]
+                ui.label("Linux control socket");
+                #[cfg(windows)]
+                ui.label("Windows host endpoint");
+                #[cfg(not(any(target_os="linux",windows)))]
+                ui.label("Host endpoint");
+                if ui.text_edit_singleline(&mut self.path).changed() {self.disconnect();}
+                if ui.button("Query host").clicked() && let Err(error)=self.query() {self.disconnect();self.notice=error;}
+                if ui.button("Disconnect observer").clicked() {self.disconnect();self.notice="Observer disconnected; submitted requests may still take effect".into();}
             });
-            if let Some(o)=self.last.as_ref(){let s=o.reply.snapshot;
+            if let Some(o)=&self.last {let s=o.reply.snapshot;
                 ui.label(format!("Last observation from {} ({:.1}s ago)",o.endpoint,o.at.elapsed().as_secs_f32()));
                 ui.label(format!("Public session {} · {:?} · progress {} · last observed generation {:?}",s.session,s.phase,s.progress_epoch,s.generation));
                 ui.label(format!("Observed worker exit: {:?} · worker recovery confirmed: {} · host fault: {}",s.exit,s.recovery_confirmed,s.fault));
             }
-            if ui.add_enabled(self.can_stop(),egui::Button::new("Request stop")).clicked() && let Err(e)=self.select_stop(){self.notice=e;}
-            if let Some((_,session))=self.confirm.as_ref(){let session=*session;ui.horizontal(|ui|{
+            if ui.add_enabled(self.can_stop(),egui::Button::new("Request stop")).clicked() && let Err(error)=self.select_stop() {self.notice=error;}
+            if let Some((_,session))=&self.confirm {let session=*session;ui.horizontal(|ui| {
                 ui.label(format!("Request Stop for public session {session}?"));
-                if ui.button("Confirm stop request").clicked() && let Err(e)=self.confirm_stop(){self.notice=e;}
-                if ui.button("Keep session running").clicked(){self.confirm=None;}
+                if ui.button("Confirm stop request").clicked() && let Err(error)=self.confirm_stop() {self.notice=error;}
+                if ui.button("Keep session running").clicked() {self.confirm=None;}
             });}
-            if !self.notice.is_empty(){ui.label(&self.notice);}
+            if !self.notice.is_empty() {ui.label(&self.notice);}
         });
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         if self.pending.is_some() || self.follow.is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(20));
         }
@@ -227,7 +313,7 @@ mod tests {
         pane.observe(pane.path.clone(), ack);
         assert_eq!(pane.snapshot().unwrap().exit, None);
         assert!(!pane.snapshot().unwrap().recovery_confirmed);
-        pane.follow = None;
+        pane.disconnect();
         assert_eq!(pane.snapshot().unwrap().phase, Phase::StopRequested);
         let mut exited = reply(1);
         exited.snapshot.phase = Phase::Exited;
@@ -235,6 +321,34 @@ mod tests {
         pane.observe(pane.path.clone(), exited);
         assert!(!pane.can_stop());
         assert!(!pane.snapshot().unwrap().recovery_confirmed);
+    }
+    #[test]
+    fn disconnect_failure_or_endpoint_switch_does_not_reenable_stop_from_a_late_result() {
+        let mut pane = ControlPane {
+            path: "old".into(),
+            ..Default::default()
+        };
+        pane.observe("old".into(), reply(1));
+        pane.select_stop().unwrap();
+        pane.disconnect();
+        assert!(!pane.can_stop() && pane.confirm.is_none());
+        pane.deliver("old".into(), false, Ok(reply(1)));
+        assert!(!pane.can_stop());
+        pane.path = "new".into();
+        pane.deliver("old".into(), true, Ok(reply(2)));
+        assert!(!pane.can_stop());
+        pane.path = "old".into();
+        assert!(!pane.can_stop());
+        pane.deliver("old".into(), true, Ok(reply(2)));
+        assert!(pane.can_stop());
+        pane.deliver(
+            "old".into(),
+            true,
+            Err("synthetic transport failure".into()),
+        );
+        assert!(!pane.can_stop());
+        assert_eq!(pane.snapshot().unwrap().session, 2);
+        assert!(pane.notice.contains("unconfirmed"));
     }
     #[test]
     #[cfg(target_os = "linux")]

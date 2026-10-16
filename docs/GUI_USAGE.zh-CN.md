@@ -7,7 +7,7 @@
 3. 编辑配置，点击 **Validate**。校验复用现有编译器与 worker 冷准备，显示错误代码、严重性、JSON Pointer 和原因。校验在单独线程执行；修改内容、模式或目标会使旧结果失效。
 4. 当前文档验证通过后，在 **New copy path** 输入新路径，点击 **Save validated copy**。副本保存完整 UTF-8 字节，不覆盖已有文件或符号链接。保存先完成同目录临时文件写入与 sync，再以 hard link 发布；文件系统不支持时返回错误。临时文件清理失败会独立显示。
 
-窗口关闭时会提示未保存编辑。会话启动继续使用 [Linux CLI](LINUX_USAGE.zh-CN.md) 或 [Windows CLI](WINDOWS_USAGE.zh-CN.md)。Linux host可显式启用本地Status/Stop，GUI连接方式见下；不会把离线验证显示为“已应用”。设备列表、会话Start/Resume/Apply和Windows公开控制仍待接入。
+窗口关闭时会提示未保存编辑。会话启动继续使用 [Linux CLI](LINUX_USAGE.zh-CN.md) 或 [Windows CLI](WINDOWS_USAGE.zh-CN.md)。Linux/Windows host可显式启用本地Status/Stop，GUI连接方式见下；Windows专属工厂与界面仍待原生验收。不会把离线验证显示为“已应用”。设备列表、会话Start/Resume/Apply仍待接入。
 
 `keyweave-ui --smoke` 用于创建窗口并在三个 UI pass 后请求关闭，不安装键盘/鼠标 Hook，也不注入输入。当前 WSL 环境的窗口测试分别返回 XOpenDisplayFailed/NoCompositor；headless 布局、文件行为与校验模型已测试，不能据此宣称实际桌面显示或 Windows GUI 已验收。参见 [ADR-0222](ADR-0222-native-settings-ui.md) 与[验证记录](validation/linux-2026-10-15-native-ui.json)。
 
@@ -27,10 +27,14 @@
 
 应用与输入源条件可使用UTF-8文字正则，例如 file_paths 中的 `编辑器\\.exe$`（JSON中的反斜线需按JSON规则转义）。匹配采用上游std::regex<char>字节语义：`^.$`不匹配两字节é，`^..$`可匹配；重复完整文字用分组，如 `(?:编辑器)+`，不是Unicode scalar匹配。JSON自身的\uXXXX解码与正则\\uXXXX转义不同；后者仍拒绝。缺失/过期/含CRLF的provider值保持Unknown。离线通过不证明平台已有相应输入源provider，参见 [ADR-0228](ADR-0228-utf8-byte-pattern-conditions.md)。
 
-## 已运行 Linux host 的状态与停止
+## 已运行 host 的状态与停止
 
 展开 **Local session status and stop**，填写原host的 `--control-socket` 路径并 **Query host**；socket需在当前用户拥有的0700目录中，host不默认启用端点。之后每200ms查询，显示最后观察的endpoint/age、public session、phase、真实进度、已观察generation、退出及worker恢复事实。GUI不因此创建worker或抓取输入。
 
 **Request stop → Confirm stop request** 只针对当时已查询且不超过2秒的endpoint/session；变化后需重新查询。StopAccepted表示请求交付，继续观察到Exited才能确认进程退出，recovery_confirmed独立于exit code。EOF/超时/端点消失不能当作停止完成。Disconnect停止后续观察，已发送请求可能完成；关闭GUI不关闭独立host。
 
-当前状态/停止transport在Linux真实Unix socket、实际CLI、实际host/无输入worker和GUIclient代码中完成验收，共8个native cases。没有运行真实桌面点击或输入捕获；Windows transport、Start/Resume/Apply、设备与Event Viewer继续开发。完整命令、权限边界与wire schema见 [本地会话控制](SESSION_CONTROL.zh-CN.md)。
+Linux状态/停止在真实Unix socket、实际CLI、实际host/无输入worker和GUIclient中通过8个native cases，本次已重跑通过。没有运行真实桌面点击或输入捕获；Windows GUI接线尚未原生编译运行，Start/Resume/Apply、设备与Event Viewer继续开发。完整命令、权限边界与wire schema见 [本地会话控制](SESSION_CONTROL.zh-CN.md)。
+
+Windows Settings 的同一控制区显示 **Windows host endpoint**，粘贴所选 host 冷输出的完整 `control_endpoint` 值（无需单独填写 PID/FILETIME），再 **Query host**。host 需显式选择 `--control-pipe`；CLI/描述符格式见 [Windows说明](WINDOWS_USAGE.zh-CN.md)。GUI源码使用同一有界 parser、pinned client 和消息事务，每帧推进一步，不在界面等待循环或自动启动 host。冷 metadata/SDK 查询仍同步，不能保证无延迟。
+
+切换 endpoint、**Disconnect observer** 或连接失败会撤销可停止资格与二次确认。旧 pending 请求仍到有界结束，但其结果不会使 Stop 重新可用；已提交的 Stop 仍可能生效。最后观察会保留来源和 age，仅供查看；重新 Query 接受新结果后才能再次申请停止。Windows native factory/界面显示/实际 host 链仍待原生验证，当前通过的是 Linux scripted driver 与Unix socket回归。见 [ADR-0236](ADR-0236-windows-settings-status-stop.md)。

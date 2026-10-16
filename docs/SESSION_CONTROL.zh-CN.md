@@ -117,3 +117,7 @@ ADR-0235 已在源码接入 Windows host/CLI：显式 `run-windows --control-pip
 host 先监督再公开 IPC，Stop 走原 Supervisor 合作关闭，不伪造 worker progress；Starting 为 epoch0/generation unknown，只有实际进度后显示已准备代际。实际 exit 后有最多 500ms 最终服务窗，unknown exit 不制造 Exited。当前 Windows recovery_confirmed 始终 false，不能据 code0 推断恢复。重复 close 保留原绝对100ms期限，不重新续时。
 
 目前 Windows 专属 host/driver/CLI 源码尚未由原生 compiler/type checker/link/runtime 验证；新增 Windows snapshot test 也未运行。GUI 仍待 Windows 接入，完整无输入 Windows host 链和硬件验收不能用 Linux parser/API mock 成功替代。见 [ADR-0235](ADR-0235-windows-host-public-control.md)。
+
+ADR-0236 已在 Settings 源码接入 Windows 客户端，与 Linux 共用相同 Stop/session/freshness/二次确认语义。WindowsEndpoint 的唯一有界 parser 位于 progress DTO，host 原路径保留 re-export；UI接收完整 host descriptor，不按任意对端自报 PID 推导授权。
+
+Windows GUI request driver 每帧最多一次 transport 方法；绝对事务/清理期限不因 Pending 或帧刷新续时。切端点/断开/失败使旧观察不可操作，旧 pending 结果不得重新启用 Stop，但已提交请求不承诺撤销。设置关闭不终止 host。默认Linux1998通过，8个既有真实Unix IPC cases在独立获准环境全部通过；Windows GUI条件分支/native factory、真实窗口和host链仍未原生验收。见 [ADR-0236](ADR-0236-windows-settings-status-stop.md)。
