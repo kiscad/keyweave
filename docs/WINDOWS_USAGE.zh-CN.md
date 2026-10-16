@@ -40,3 +40,16 @@ control_endpoint=<pipe>|<host PID>|<完整 creation FILETIME> public_session=<�
 这些客户端命令不创建 worker 或开启输入。StopAccepted 仅表示意图已排队，不代表实际退出或输入恢复；状态中的 Exited 只来自 host 实际观察。当前 recovery_confirmed 始终 false，cold metadata/Starting 也不代表输入已就绪。host 实际退出后只继续最多 500ms 最终状态服务，端点消失不能当作退出/恢复证明。
 
 该版本的 Windows host/CLI 专属分支尚未原生编译执行。Linux 测试覆盖 parser、公共状态与 unsupported；transport 的 API mock 也不代替实际 Windows pipe/同 owned child 退出验证。GUI 仍待接入 Windows transport；开发边界与验收步骤见 [ADR-0235](ADR-0235-windows-host-public-control.md)。
+
+## 无输入公开控制原生验收工具（待执行）
+
+新增 `check_public_control` 示例和 `tools/check_host.ps1 -PublicControl`。先用当前源码快照运行既有 `tools/validate_windows.ps1`，取得它输出的 Windows-local `ValidationRoot` 并检查 source-manifest；然后在对应 Windows PowerShell 环境运行：
+
+```powershell
+.\tools\check_host.ps1 -ValidationRoot '<该次验证输出的完整 ValidationRoot>' -Arch x64 -PublicControl
+# 对新的 x86 快照重复，使用 -Arch x86
+```
+
+工具只接受固定 `check_host_worker.exe` 无输入 fixture，保持 stdin 开放，实际经公开 CLI 请求 Stop。检查 Starting/epoch0、错误创建时间与陈旧session拒绝、StopAccepted不造退出、最终actual Exited、原owned child合作退出与密封配置删除；不会运行实际捕获worker、Hook或注入。输出/等待受限，日志和目录保留，失败不推断回收成功。
+
+这只是准备好的验收工具；本次没有执行 Windows 原生 gate，也没有重试既有原生审批额度拒绝。Linux编译、2项示例测试和明确exit78拒绝不代替 Windows 验收。见 [ADR-0237](ADR-0237-windows-public-control-native-gate.md)。

@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "34c6ae55c252b568e103b5390b1bc2c7b45423a4",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-host/examples/check_host_worker.rs": "111720e9519d5093adeed57c3034c4c8df40be5604d62ad713ae6c3ca63b11b2",
+    "crates/keyweave-host/examples/check_public_control.rs": "5df88cf2939b04ba614b5cb58e237b0df7350c5d506800d8a67ef89830cfeb8d",
+    "tools/check_host.ps1": "bf2be3a5c53efb6a1685c5cb0c662429fba58c1582e7eab012b103da29be3144"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1998,
+    "new_default_tests": 0,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/clippy.log",
+        "sha256": "bcb74884a78099501f6bfc31de29d15aae4eb48dcd18d5c99bdde44d75b90089"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/tests.log",
+        "sha256": "1daa8feca9c80b0d4e3c5e1ccc156e9154d86a1df3c70a2d5a1b8ed5205822f7"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    },
+    "example_tests_passed": 2,
+    "extra_checks": [
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "keyweave-host",
+          "--example",
+          "check_public_control",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-gate/example-tests.log",
+        "sha256": "5c212812769c86835ac2674f5f177fab84373ee2b05a646027a11b6f05dd2738"
+      },
+      {
+        "command": [
+          "cargo",
+          "run",
+          "-p",
+          "keyweave-host",
+          "--example",
+          "check_public_control",
+          "--locked",
+          "--offline",
+          "--",
+          "must-not-open-this-path"
+        ],
+        "exit_code": 78,
+        "expected_exit_code": 78,
+        "log": "target/validation/linux-20261016-windows-control-gate/unsupported-entry.log",
+        "sha256": "407878ffd79097a772cccfca6917cd91cef168a05fbff74af4d606989a30ecbd"
+      }
+    ]
+  },
+  "initial_failures": [
+    {
+      "exit_code": 101,
+      "log": "target/public-control-gate-clippy.log",
+      "sha256": "7870df5347cdf7ac95d354a062cb918dce78b1668ba26b80c5e868a7024c6d7a",
+      "reason": "A command variable was mutable only in the Windows branch; Linux unused_mut lint failed. Corrected with cfg-scoped shadowing before final gates."
+    }
+  ],
+  "limitations": [
+    "The actual Windows public-control native gate was prepared but not executed. No retry/bypass of the existing Windows native automatic approval quota rejection. No claim of actual Windows SDK, pipe, host or hardware acceptance.",
+    "Most verifier orchestration uses portable std APIs and is compiled/linted on Linux. Two explicit example tests cover descriptor parsing and bounded diagnostics. The actual non-Windows entry returned expected exit78 before path lookup or child launch. This is not a Windows execution substitute.",
+    "The modified cfg(windows) fixture body, Windows creation_flags branch and PowerShell -PublicControl runner were not type-checked/executed natively here. Existing Windows active/standby/terminal/console fixture cases must also be re-run for the new snapshot.",
+    "Native success requires actual selected host/CLI, kernel pipe/token path, owned no-input worker exit, zero progress and final actual Exited snapshot. A late/missing final snapshot or timeout fails instead of assuming exit/cleanup. Passed marker is created only after all required observations; all case directories/logs are retained.",
+    "Fixed executable basenames prevent accidental capture-worker selection but are not image authentication. Trusted source snapshot/manifest and Windows-local validation directory remain premises; same-user deliberate replacement/handle transfer is not proven safe by a filename check.",
+    "Verifier only operates on retained Child handles and has bounded memory/output/waits; failure Drop requests kill of its own child without inferring successful exit. No input devices, Hook, driver or injection are used by the designated fixture.",
+    "Eight existing Unix IPC tests remain ignored in the default run and were not re-run for this Windows-tooling-only slice. Full migration, GUI Start/Resume/Apply/discovery, native/hardware acceptance, Wayland and packaging remain unfinished."
+  ]
+}

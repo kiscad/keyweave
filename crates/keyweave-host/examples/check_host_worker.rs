@@ -38,12 +38,13 @@ fn main() {
         "startup_stall",
         "terminal_loop",
         "terminal_cleanup",
+        "public_control",
     ]
     .contains(&mode.as_str())
     {
         std::process::exit(26)
     }
-    let mut epoch = 1u64;
+    let mut epoch = if mode == "public_control" { 0u64 } else { 1u64 };
     loop {
         if mode == "startup_stall" {
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -76,17 +77,21 @@ fn main() {
                     drop(client);
                     std::process::exit(outcome.native_i32());
                 }
-                std::process::exit(0)
+                // Synthetic no-input protocol owners still need bounded Drop.
+                drop(client);
+                return;
             }
             Ok(RequestEvent::Challenge) => {
-                if mode != "standby" {
+                if !matches!(mode.as_str(), "standby" | "public_control") {
                     epoch += 1;
                 }
             }
             Ok(RequestEvent::Pending) => (),
             Err(_) => std::process::exit(27),
         }
-        if mode != "standby" && client.publish(epoch, ProgressPhase::Active).is_err() {
+        if !matches!(mode.as_str(), "standby" | "public_control")
+            && client.publish(epoch, ProgressPhase::Active).is_err()
+        {
             std::process::exit(28)
         }
         std::thread::sleep(std::time::Duration::from_millis(1));

@@ -5,7 +5,8 @@ param(
     [ValidateSet('x64','x86')][string]$Arch='x64',
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$Toolchain='1.97.1',
     [switch]$ConsoleEvents,
-    [switch]$TerminalEvidence
+    [switch]$TerminalEvidence,
+    [switch]$PublicControl
 )
 $ErrorActionPreference='Stop'
 if ($ValidationRoot -match '[%!^"\r\n]' -or $ValidationRoot.StartsWith('\\')) { throw 'Windows-local validation path required' }
@@ -22,7 +23,7 @@ $lines=@('@echo off','setlocal DisableDelayedExpansion',
  ('cd /d "'+$project+'"'),('set "CARGO_HOME='+ (Join-Path $ValidationRoot 'cargo-home')+'"'),
  ('set "CARGO_TARGET_DIR='+ (Join-Path $ValidationRoot 'target')+'"'),
  ('"'+$cargo+'" +'+$Toolchain+' fmt --all --check > "'+(Join-Path $ValidationRoot 'fmt.log')+'" 2>&1'),'if errorlevel 1 exit /b %errorlevel%',
- ('"'+$cargo+'" +'+$Toolchain+' build --locked --offline -p keyweave-host --bin keyweave-host --example check_host_worker --example check_console_host --target '+$target+' > "'+(Join-Path $ValidationRoot 'host-build.log')+'" 2>&1'),
+ ('"'+$cargo+'" +'+$Toolchain+' build --locked --offline -p keyweave-host --bin keyweave-host --example check_host_worker --example check_console_host --example check_public_control --target '+$target+' > "'+(Join-Path $ValidationRoot 'host-build.log')+'" 2>&1'),
  'if errorlevel 1 exit /b %errorlevel%','exit /b 0')
 $cmd=Join-Path $ValidationRoot 'host-build.cmd'
 [IO.File]::WriteAllText($cmd,($lines -join "`r`n"),(New-Object Text.UTF8Encoding $false))
@@ -138,3 +139,23 @@ if ($ConsoleEvents) {
     $consoleResults | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $ValidationRoot 'console-results.json') -Encoding UTF8
 }
 Write-Output ('HostCasesRoot='+$casesRoot)
+
+if ($PublicControl) {
+    $probeExe=Join-Path $ValidationRoot ('target\'+$target+'\debug\examples\check_public_control.exe')
+    $info=New-Object Diagnostics.ProcessStartInfo
+    $info.FileName=$probeExe
+    $info.Arguments='"'+$hostExe+'" "'+$fixture+'" "'+$casesRoot+'"'
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $info.RedirectStandardInput=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    $p=New-Object Diagnostics.Process;$p.StartInfo=$info
+    try {
+        if (-not $p.Start()) {throw 'public control no-input helper start failed'}
+        $out=$p.StandardOutput.ReadToEndAsync();$err=$p.StandardError.ReadToEndAsync();$p.StandardInput.Close()
+        if (-not $p.WaitForExit(30000)) {$p.Kill();$null=$p.WaitForExit(5000);throw 'public control helper timed out; cleanup/exit not inferred'}
+        $stdout=$out.GetAwaiter().GetResult();$stderr=$err.GetAwaiter().GetResult()
+        [IO.File]::WriteAllText((Join-Path $ValidationRoot 'public-control.stdout.log'),$stdout)
+        [IO.File]::WriteAllText((Join-Path $ValidationRoot 'public-control.stderr.log'),$stderr)
+        if ($p.ExitCode -ne 0 -or $stdout -notmatch 'Public control no-input gate passed') {throw ('public control native gate failed: '+$stdout+' '+$stderr)}
+        Write-Output ('public control no-input gate passed: '+$Arch)
+    } finally {$p.Dispose()}
+}
