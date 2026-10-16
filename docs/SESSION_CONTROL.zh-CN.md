@@ -97,3 +97,7 @@ ADR-0230 已提供冷阶段 `ControlIdentity` 与明确用户/SYSTEM 的 `Contro
 ADR-0231 已实现独立的 Windows 服务端/客户端消息事务（`keyweave_windows::session_control`），沿用 KWCC/KWSC。一连接一请求，完整 Read 后鉴权，再执行一次业务处理器；回复后客户端主动关闭，服务端有界观察关闭并清理后复用。默认 1 秒绝对事务期限和额外 100ms 关闭期限，每 poll 至多一个 transport 方法或一次 handler；无内部重试/阻塞 flush。机器只借用 transport，不拥有 OS 资源：fatal error/panic/关闭未完成时仍需 native owner 独立回收，不能调用新 machine 假装取消完成。
 
 目前仅双机内存 transport 与 callback guard 经过测试。尚无 Windows 实际公开 pipe、host 接入或 status/stop 客户端命令，GUI 也仍只接 Linux 控制。消息鉴权必须绑定最后已读消息并恢复原线程身份，ADR-0230 的任意 PID primary-token 比较不能独自承担它。见 [ADR-0231](ADR-0231-windows-control-message-transactions.md)。
+
+ADR-0232 新增底层 `ControlMessagePipe`：可显式创建／打开本地 `\\.\pipe\keyweave-control-<32 lowercase hex>` 消息管道，使用具体用户 DACL、非继承、异步单 flight 和明确 message read mode。它是未鉴权 I/O owner，尚未实现可信控制 transport，不是新的 Status/Stop 命令入口。不能在消息主体鉴权完成前把读出的 Request 交给业务处理器。
+
+`close()` 是零等待回收快照；Pending 要在上层绝对 deadline 内继续 poll，取消请求不是完成。Drop 仅一次有限回退，未知飞行资源会保留到进程退出并阻止该线程继续建管道。新 Win32 调用目前通过 API mock 验证，实际 SDK/link 和真实管道验收尚未执行。见 [ADR-0232](ADR-0232-windows-control-message-pipe-owner.md)。

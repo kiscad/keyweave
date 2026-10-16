@@ -9,6 +9,13 @@ fn production_native_symbols_link_without_installation_or_injection() {
     };
     type Control = fn() -> Result<WaitPlan, HookFault>;
     let addresses = [
+        keyweave_windows::ControlMessagePipe::listen as *const () as usize,
+        keyweave_windows::ControlMessagePipe::open as *const () as usize,
+        keyweave_windows::ControlMessagePipe::poll_accept as *const () as usize,
+        keyweave_windows::ControlMessagePipe::poll_read as *const () as usize,
+        keyweave_windows::ControlMessagePipe::poll_write as *const () as usize,
+        keyweave_windows::ControlMessagePipe::poll_disconnect as *const () as usize,
+        keyweave_windows::ControlMessagePipe::close as *const () as usize,
         keyweave_windows::ControlIdentity::capture as *const () as usize,
         keyweave_windows::ControlIdentity::same_primary_token_scope_of as *const () as usize,
         keyweave_windows::ControlIdentity::security_descriptor as *const () as usize,

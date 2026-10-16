@@ -382,6 +382,14 @@ impl std::fmt::Debug for ControlSecurity {
     }
 }
 impl ControlSecurity {
+    /// Borrow only for one synchronous native factory call; no pointer escapes.
+    pub(super) fn with_descriptor<T>(&self, call: impl FnOnce(Handle) -> T) -> Result<T, Error> {
+        context()?;
+        if self.pointer.is_null() {
+            return Err(Error::Malformed);
+        }
+        Ok(call(self.pointer))
+    }
     pub fn close(&mut self) -> Result<(), Error> {
         if self.pointer.is_null() {
             return Ok(());
@@ -408,3 +416,9 @@ impl Drop for ControlSecurity {
 }
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) fn reset_pipe_test_identity() {
+    POISONED.set(false);
+    api_mock::MOCK.with(|m| *m.borrow_mut() = api_mock::Mock::default());
+}

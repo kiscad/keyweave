@@ -31,7 +31,10 @@ pub use supervisor::{
     SupervisorConfigCleanup, SupervisorConfigResources, SupervisorError, SupervisorSpawnError,
     SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
 };
+mod control_message_pipe;
 mod progress_pipe;
+#[cfg(windows)]
+pub use control_message_pipe::{ControlMessagePipe, ControlPipeCleanup, ControlPipeCreateError};
 mod session;
 mod session_info;
 mod session_notifications;

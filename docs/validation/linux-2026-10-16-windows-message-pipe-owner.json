@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "bb8e8cdf3a397576ea81d90c34bd714ec83a37d9",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/lib.rs": "0c1758c986c498d2b458fff3c4822ad43b0582ea28ac940e99f054644ddb2876",
+    "crates/keyweave-windows/src/native.rs": "62867a3bf193964bba51b6b3a949accb90940022bf0ae671a61d403266df29af",
+    "crates/keyweave-windows/src/native/control_identity.rs": "9579d66962673487cb024ccc29a9956c1a2b8682934034bdddae85e4fb15b486",
+    "crates/keyweave-windows/src/native/control_message_pipe.rs": "076efba6af34116812a0f34a09c622915c2b37afcea384ffdd1e63f5b246ddda",
+    "crates/keyweave-windows/src/native/control_message_pipe/api.rs": "21c69ad1f45769c5c79190ff753a962ff3ccd4d2a9e83b274f319eab1cb145de",
+    "crates/keyweave-windows/src/native/control_message_pipe/api_mock.rs": "68cbf99c9f145030c5d98148270f3bd96379bed2cfe9bc95ea646348fe201dcc",
+    "crates/keyweave-windows/src/native/control_message_pipe/tests.rs": "2b99819badbc6f8b3604b8fb26e502cb20df4533aa38fc4f55c0e098cdbaa7af",
+    "crates/keyweave-windows/tests/native_link.rs": "68a1b4645d77e33cf666a7f4c13e13bae1dbc464f1eed06af4c695c13746a866",
+    "tools/windows_input_abi.c": "603b8066b9e3fc1c0b5d68be07f53a54b8a510ba716f4d249dcbed63db5635b2"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 1973,
+    "new_default_tests": 13,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/clippy.log",
+        "sha256": "90fe7a5ceb2aaaee430f279b4c4dc32bb5b5fd8061ec4fd53c6e8a55af740d23"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/tests.log",
+        "sha256": "b537a6530fbdad814faa351593296b6b5d87c5ec159c1b6d046846d7048cf681"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-message-pipe-owner/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "exit_code": 101,
+      "log": "target/control-message-pipe-tests.log",
+      "sha256": "9ce720c76a2a66a04fdad30459a603a960b21629a72b234e42714bb82bf0c419",
+      "reason": "Initial compile: test attempted to access private mock event/pending fields. Replaced with explicit mock completion helper."
+    },
+    {
+      "exit_code": 101,
+      "log": "target/control-message-pipe-clippy.log",
+      "sha256": "971a51d1c95c39c37fb6f6f61dabc4c4511145ad2123b8825117ae1f644141dc",
+      "reason": "Initial lint: collapsible nested if in pending-memory Drop retention. Corrected before final checks."
+    }
+  ],
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-server-using-overlapped-i-o",
+    "https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile",
+    "https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getoverlappedresult",
+    "https://learn.microsoft.com/en-us/windows/win32/fileio/canceling-pending-i-o-operations"
+  ],
+  "limitations": [
+    "New native production message-pipe owner is exercised through Win32 API mocks on Linux, including a real transaction machine calling that owner with explicitly synthetic authorization. This is not an actual Windows pipe, peer-authentication or adversarial OS acceptance test.",
+    "Raw owner intentionally does not implement trusted ServerTransport/ClientTransport. Last-read-message token authorization/restoration, actual connected-server validation, host/CLI/GUI public transport integration remain required.",
+    "New SDK assertions/signatures and production native_link function-address retention were edited but not compiled or executed natively. Prior Windows automatic approval quota rejection was not retried or bypassed. Linux pointer-width layout test and existing Linux/X11 ABI checks do not prove Windows SDK/ABI or x86 build correctness.",
+    "close/disconnect never wait; owners require repeated bounded cleanup polls within an outer absolute deadline. Drop makes one nonblocking fallback and may deliberately retain pending memory/handles until process exit. Returned factory cleanup is a snapshot before any later Drop fallback, not a proof later cleanup succeeded.",
+    "Client open uses strict local namespace and overlapped flags but Windows scheduling/CreateFile latency is not a hard realtime guarantee. DACL does not attest logon/session/last-message origin. No arbitrary or inherited handle adoption.",
+    "Eight existing Linux IPC native tests remain ignored in this default run. No keyboard capture, Hook, injection, Windows native desktop or hardware tests were performed.",
+    "Full migration including actual Windows public control, GUI start/resume/apply, Wayland, native/hardware acceptance and packaging remains unfinished."
+  ]
+}

@@ -67,3 +67,6 @@ pub use native::{
 
 #[cfg(target_os = "windows")]
 pub use native::{ControlIdentity, ControlSecurity};
+
+#[cfg(windows)]
+pub use native::{ControlMessagePipe, ControlPipeCleanup, ControlPipeCreateError};
