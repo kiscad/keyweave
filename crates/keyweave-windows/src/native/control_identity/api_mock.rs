@@ -4,7 +4,10 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
 };
-pub(super) struct Mock {
+pub(in crate::native) struct Mock {
+    pub process_created: u64,
+    pub process_wait: u32,
+    pub fail_times: bool,
     pub after_message_session: Option<u32>,
     pub fail_impersonate: bool,
     pub fail_revert: bool,
@@ -51,6 +54,9 @@ pub(super) struct Mock {
 impl Default for Mock {
     fn default() -> Self {
         Self {
+            process_created: 123456,
+            process_wait: 258,
+            fail_times: false,
             after_message_session: None,
             fail_impersonate: false,
             fail_revert: false,
@@ -145,7 +151,7 @@ pub(super) unsafe fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle 
     MOCK.with(|m| {
         let mut m = m.borrow_mut();
         m.calls += 1;
-        if access != 0x1000 || inherit != 0 || pid != 42 {
+        if !matches!(access, 0x1000 | 0x101000) || inherit != 0 || pid != 42 {
             m.error = 5;
             return null_mut();
         }
@@ -423,5 +429,47 @@ pub(super) unsafe fn RevertToSelf() -> i32 {
             m.current_session = session;
         }
         1
+    })
+}
+
+pub(super) unsafe fn GetCurrentProcessId() -> u32 {
+    42
+}
+pub(super) unsafe fn GetProcessTimes(
+    _: Handle,
+    created: *mut FileTime,
+    exit: *mut FileTime,
+    kernel: *mut FileTime,
+    user: *mut FileTime,
+) -> i32 {
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.calls += 1;
+        if m.fail_times {
+            m.error = 5;
+            return 0;
+        }
+        // SAFETY: four initialized, distinct synchronous caller outputs.
+        unsafe {
+            *created = FileTime {
+                low: m.process_created as u32,
+                high: (m.process_created >> 32) as u32,
+            };
+            *exit = FileTime::default();
+            *kernel = FileTime::default();
+            *user = FileTime::default();
+        }
+        1
+    })
+}
+pub(super) unsafe fn WaitForSingleObject(_: Handle, millis: u32) -> u32 {
+    assert_eq!(millis, 0);
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.calls += 1;
+        if m.process_wait == u32::MAX {
+            m.error = 5;
+        }
+        m.process_wait
     })
 }

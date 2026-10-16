@@ -110,7 +110,7 @@ fn last() -> u32 {
     // SAFETY: same-thread scalar immediately after failed API.
     unsafe { api::GetLastError() }
 }
-fn name(value: &str) -> io::Result<Vec<u16>> {
+pub(super) fn name(value: &str) -> io::Result<Vec<u16>> {
     let suffix = value
         .strip_prefix(r"\\.\pipe\keyweave-control-")
         .ok_or_else(|| io::Error::other("invalid local control pipe name"))?;
@@ -715,4 +715,53 @@ pub(super) fn server_test_peer_closed() {
 #[cfg(test)]
 pub(super) fn server_test_writes() -> Vec<Vec<u8>> {
     api_mock::MOCK.with(|m| m.borrow().writes.clone())
+}
+
+impl ControlMessagePipe {
+    /// Kernel-reported creator PID for this actual client connection. It must
+    /// be compared with an independently retained expected process instance.
+    pub(super) fn server_process_id(&self) -> io::Result<u32> {
+        context()?;
+        if self.server || !self.connected || self.closing || self.failed || self.handle.is_null() {
+            return Err(io::Error::other("invalid control client peer query"));
+        }
+        let mut pid = 0;
+        // SAFETY: owned live local client handle, initialized ULONG output.
+        if unsafe { api::GetNamedPipeServerProcessId(self.handle, &mut pid) } == 0 {
+            return Err(os_error(last()));
+        }
+        if pid == 0 {
+            return Err(io::Error::other("missing control pipe server PID"));
+        }
+        Ok(pid)
+    }
+}
+
+#[cfg(test)]
+pub(super) fn change_client_test_pipe(change: impl FnOnce(&mut api_mock::Mock)) {
+    api_mock::MOCK.with(|m| change(&mut m.borrow_mut()));
+}
+
+#[cfg(test)]
+pub(super) fn server_test_open_count() -> usize {
+    api_mock::MOCK.with(|m| {
+        m.borrow()
+            .calls
+            .iter()
+            .filter(|call| **call == "open-client")
+            .count()
+    })
+}
+
+#[cfg(test)]
+pub(super) fn client_test_pending_read() {
+    api_mock::MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        m.read = api_mock::Mode::Pending;
+        m.defer_cancel = true;
+    });
+}
+#[cfg(test)]
+pub(super) fn client_test_finish_pending() {
+    api_mock::finish_pending();
 }

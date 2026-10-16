@@ -132,3 +132,27 @@ mod tests {
         assert!(Sid::text(&format!("S-1-5{}", "-1".repeat(16))).is_err());
     }
 }
+
+/// Explicit expected instance, not an authorization secret or image identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ControlServerInstance {
+    process_id: u32,
+    creation_time: u64,
+}
+impl ControlServerInstance {
+    pub fn from_parts(process_id: u32, creation_time: u64) -> Result<Self, ControlIdentityError> {
+        if process_id == 0 || creation_time == 0 {
+            return Err(ControlIdentityError::Malformed);
+        }
+        Ok(Self {
+            process_id,
+            creation_time,
+        })
+    }
+    pub fn process_id(self) -> u32 {
+        self.process_id
+    }
+    pub fn creation_time(self) -> u64 {
+        self.creation_time
+    }
+}

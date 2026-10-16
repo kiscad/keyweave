@@ -1,6 +1,7 @@
 //! Cold, read-only primary-token identity and explicit-user DACL ownership.
 use crate::control_identity::{
-    ControlIdentityError as Error, ControlIdentityFailure as Failure, Principal, Sid,
+    ControlIdentityError as Error, ControlIdentityFailure as Failure, ControlServerInstance,
+    Principal, Sid,
 };
 use std::{cell::Cell, ffi::c_void, marker::PhantomData, mem::size_of, ptr::null_mut, rc::Rc};
 type Handle = *mut c_void;
@@ -513,4 +514,147 @@ pub(super) fn server_test_restored() -> bool {
         let m = m.borrow();
         !m.impersonating && m.reversions == 1
     })
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct FileTime {
+    low: u32,
+    high: u32,
+}
+fn creation_time(process: Handle) -> Result<u64, Error> {
+    let mut times: [FileTime; 4] = std::array::from_fn(|_| FileTime::default());
+    let [created, exited, kernel, user] = &mut times;
+    // SAFETY: borrowed process handle, four distinct initialized FILETIME
+    // outputs, synchronous query. Only creation time is retained.
+    if unsafe { api::GetProcessTimes(process, created, exited, kernel, user) } == 0 {
+        return Err(error("GetProcessTimes(control server)"));
+    }
+    let value = u64::from(created.low) | (u64::from(created.high) << 32);
+    if value == 0 {
+        return Err(Error::Malformed);
+    }
+    Ok(value)
+}
+impl ControlServerInstance {
+    pub fn current() -> Result<Self, Failure> {
+        context().map_err(Failure::operation)?;
+        // SAFETY: process-local scalar/pseudo handle, never adopted or closed.
+        let pid = unsafe { api::GetCurrentProcessId() };
+        let created =
+            creation_time(unsafe { api::GetCurrentProcess() }).map_err(Failure::operation)?;
+        Self::from_parts(pid, created).map_err(Failure::operation)
+    }
+}
+/// Retained read-only server process object. Never resolve its PID again.
+pub(super) struct ServerPeer {
+    process: Handle,
+    instance: ControlServerInstance,
+    _thread: PhantomData<Rc<()>>,
+}
+impl ServerPeer {
+    fn live_instance(&self) -> Result<(), Error> {
+        if self.process.is_null() {
+            return Err(Error::Malformed);
+        }
+        // SAFETY: retained process with SYNCHRONIZE. Zero timeout does not wait.
+        match unsafe { api::WaitForSingleObject(self.process, 0) } {
+            258 => (),
+            0 => return Err(Error::Changed),
+            u32::MAX => return Err(error("WaitForSingleObject(control server)")),
+            _ => return Err(Error::Malformed),
+        }
+        // SAFETY: same retained process object, scalar identity checks.
+        if unsafe { api::GetProcessId(self.process) } != self.instance.process_id()
+            || creation_time(self.process)? != self.instance.creation_time()
+        {
+            return Err(Error::Changed);
+        }
+        Ok(())
+    }
+    pub(super) fn check(&self, identity: &ControlIdentity) -> Result<(), Failure> {
+        let before = ControlIdentity::capture()?;
+        if before.principal != identity.principal {
+            return Err(Failure::operation(Error::CallerChanged));
+        }
+        let mut resources = Resources::default();
+        let result = (|| {
+            self.live_instance()?;
+            let (principal, _) = read_principal(&mut resources, self.process)?;
+            self.live_instance()?;
+            if principal != identity.principal {
+                return Err(Error::CallerChanged);
+            }
+            Ok(())
+        })();
+        resources.finish(result)?;
+        let after = ControlIdentity::capture()?;
+        if after.principal != identity.principal {
+            return Err(Failure::operation(Error::CallerChanged));
+        }
+        Ok(())
+    }
+    pub(super) fn open(
+        identity: &ControlIdentity,
+        instance: ControlServerInstance,
+    ) -> Result<Self, Failure> {
+        context().map_err(Failure::operation)?;
+        // Check caller before allocating the process owner; never open while
+        // impersonating or under a replaced caller baseline.
+        let current = ControlIdentity::capture()?;
+        if current.principal != identity.principal {
+            return Err(Failure::operation(Error::CallerChanged));
+        }
+        // SAFETY: explicit expected PID, limited read-only query/SYNCHRONIZE,
+        // never inherited. PID alone is not accepted as a pipe peer identity.
+        let process = unsafe { api::OpenProcess(0x101000, 0, instance.process_id()) };
+        if process.is_null() {
+            return Err(Failure::operation(error("OpenProcess(control server pin)")));
+        }
+        let mut peer = Self {
+            process,
+            instance,
+            _thread: PhantomData,
+        };
+        if let Err(mut failure) = peer.check(identity) {
+            if let Err(Error::Api { code, .. }) = peer.close() {
+                failure.process_close = Some(code);
+            }
+            return Err(failure);
+        }
+        Ok(peer)
+    }
+    pub(super) fn process_id(&self) -> u32 {
+        self.instance.process_id()
+    }
+    pub(super) fn released(&self) -> bool {
+        self.process.is_null()
+    }
+    pub(super) fn close(&mut self) -> Result<(), Error> {
+        if self.process.is_null() {
+            return Ok(());
+        }
+        if !super::outside_callback() {
+            return Err(Error::InCallback);
+        }
+        // SAFETY: unique real process owner, no async operations use this handle.
+        if unsafe { api::CloseHandle(self.process) } == 0 {
+            POISONED.set(true);
+            return Err(error("CloseHandle(control server pin)"));
+        }
+        self.process = null_mut();
+        Ok(())
+    }
+}
+impl Drop for ServerPeer {
+    fn drop(&mut self) {
+        if self.close().is_err() {
+            POISONED.set(true);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) fn change_client_test_identity(change: impl FnOnce(&mut api_mock::Mock)) {
+    api_mock::MOCK.with(|m| change(&mut m.borrow_mut()));
 }

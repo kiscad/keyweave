@@ -437,3 +437,45 @@ fn caller_changes_existing_impersonation_and_callback_cannot_authorize_a_message
     assert_eq!(before, MOCK.with(|m| m.borrow().calls));
     clear();
 }
+
+#[test]
+fn server_instance_pin_checks_full_filetime_liveness_query_errors_and_callback() {
+    use std::mem::{align_of, offset_of, size_of};
+    assert_eq!(
+        (
+            size_of::<FileTime>(),
+            align_of::<FileTime>(),
+            offset_of!(FileTime, high)
+        ),
+        (8, 4, 4)
+    );
+    assert!(ControlServerInstance::from_parts(0, 1).is_err());
+    assert!(ControlServerInstance::from_parts(42, 0).is_err());
+    reset(|m| m.process_created = 0xfedc_ba98_7654_3210);
+    let instance = ControlServerInstance::current().unwrap();
+    assert_eq!(instance.process_id(), 42);
+    assert_eq!(instance.creation_time(), 0xfedc_ba98_7654_3210);
+    let identity = ControlIdentity::capture().unwrap();
+    let mut peer = ServerPeer::open(&identity, instance).unwrap();
+    peer.check(&identity).unwrap();
+    peer.close().unwrap();
+    clear();
+    for mode in 0..4 {
+        reset(|m| match mode {
+            0 => m.process_wait = 0,
+            1 => m.process_wait = u32::MAX,
+            2 => m.fail_times = true,
+            _ => m.process_created = 0,
+        });
+        let identity = ControlIdentity::capture().unwrap();
+        let expected = ControlServerInstance::from_parts(42, 123456).unwrap();
+        assert!(ServerPeer::open(&identity, expected).is_err());
+        clear();
+    }
+    reset(|_| {});
+    let before = MOCK.with(|m| m.borrow().calls);
+    super::super::hook_thread::with_callback_borrow(|| {
+        assert!(ControlServerInstance::current().is_err())
+    });
+    assert_eq!(before, MOCK.with(|m| m.borrow().calls));
+}

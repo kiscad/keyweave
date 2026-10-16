@@ -1,0 +1,148 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "471b835aed901dd55cd031380b789fc291571e53",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-windows/src/control_identity.rs": "0bb1c9c34d98d3d04e6b8d3469f5cf9fbc35b32eae83faf72b17dbba14e06de3",
+    "crates/keyweave-windows/src/lib.rs": "6834586717a9323d6d4f44a451b921feafd82369f8ce129221327efb9e5ea38f",
+    "crates/keyweave-windows/src/native.rs": "1b8ce43ecd87fcdef85f855c5bbb63bbad792c92810ece933591cc6303e6836d",
+    "crates/keyweave-windows/src/native/control_client.rs": "931dbccc7b2ef8ea19b2b5181babd45f95a7426feac0abb91d3a1bc257a6803a",
+    "crates/keyweave-windows/src/native/control_client/tests.rs": "a39a1858fda8816a7ea0ab4b17f3107350b14f2c14414cd5096dfa53da3885ac",
+    "crates/keyweave-windows/src/native/control_identity.rs": "96ce92f354d7d9a329bf48790409e2a7af5960070a300048ddfc0c706ab19116",
+    "crates/keyweave-windows/src/native/control_identity/api.rs": "4f6d85e1330fc71808693c3ffa51be001919b01583827b8a3add397ad079a8d6",
+    "crates/keyweave-windows/src/native/control_identity/api_mock.rs": "a915d5218fce08d3f53de1ce88eaedc8d81b2c23d6d4db9f0fc43778568fe9b6",
+    "crates/keyweave-windows/src/native/control_identity/tests.rs": "fb7bb5dfc2c74b937acc364aa455e38b8275f35f66d4ab2d1a2f592b36a29d3b",
+    "crates/keyweave-windows/src/native/control_message_pipe.rs": "73e7224914f5147053e97517e2c0a57872f7f901146145e8961ea5fec8db470a",
+    "crates/keyweave-windows/src/native/control_message_pipe/api.rs": "2e9b5d0951bb7ff688c6d7f2a28db91bffa6d8aacd91a087d0a5df77a1960b63",
+    "crates/keyweave-windows/src/native/control_message_pipe/api_mock.rs": "d7d14519cabc5b62ced2a919242cc1d5a7b0f109ad97a5dbc7ebc754cb14415c",
+    "crates/keyweave-windows/tests/native_link.rs": "ee8aa291452c274308c8c30978160829e4432e5bd97124810794cb478fac0f87",
+    "tools/windows_input_abi.c": "424cba9218ce5b8247aa5f3b1d40b0c398381916cbfcce41900886dd2b420236"
+  },
+  "rust": "1.97.1 (8bab26f4f 2026-07-14)",
+  "linux": {
+    "workspace_test_cases_passed": 1988,
+    "new_default_tests": 8,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/clippy.log",
+        "sha256": "a41051563a4cb5fc1b1bcdd9aa0ba28ca80f7736d629d90cc138218756e8e3a9"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/tests.log",
+        "sha256": "14c7477e54bc5f577a1d25c0088bedf7787799b3c9f5e9bbeb36fa4eab971544"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-windows-control-client/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [
+    {
+      "exit_code": 101,
+      "log": "target/control-client-tests.log",
+      "sha256": "f3396edd1b8aa858bbab9b9b578737e4fa86ffe184e68e0aa2a1a1cd070ce6e7",
+      "reason": "Initial compile missed the open_error field used by the BUSY mock."
+    },
+    {
+      "exit_code": 101,
+      "log": "target/control-client-second-tests.log",
+      "sha256": "3f56668d097c6df22630074a7e0b10eefc64d16a9e7ca71b9b306fdbe980df98",
+      "reason": "Mock callback helpers exposed types with narrower visibility than native sibling tests; restricted shared visibility to crate::native for test-only Mock/Mode types."
+    },
+    {
+      "exit_code": 101,
+      "log": "target/control-client-clippy.log",
+      "sha256": "f6c3466070b49af5c58bf7702b08af964539129dc8144834158ce7a5ee6e04e5",
+      "reason": "Initial Clippy encountered the same private mock-type compilation errors."
+    },
+    {
+      "exit_code": 101,
+      "log": "target/control-client-corrected-clippy.log",
+      "sha256": "1638b103ee1a0ed490f5918aee08d5ef70f7eeb2247e173871563b8693e7ef3c",
+      "reason": "Two collapsible-if lint errors corrected before final gates."
+    }
+  ],
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeserverprocessid",
+    "https://learn.microsoft.com/en-us/windows/win32/etw/process-v2-typegroup1",
+    "https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-process",
+    "https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes"
+  ],
+  "limitations": [
+    "Actual production Client machine/adapter/owned pipe/retained process/token query path exercised with Win32 API mocks. No actual Windows named pipe, server PID/lifetime behavior or adversarial handle transfer was exercised.",
+    "Explicit expected PID+creation metadata is an instance/staleness fence, not a secret or image/signature credential. Selected host metadata publication/discovery, Windows host Supervisor/CLI/GUI wiring remain required. Same-subject intentional delegation/proxying is outside this scope claim; real creator-PID reuse/handle-transfer tests remain mandatory.",
+    "A read-only limited-query/SYNCHRONIZE process owner is acquired before pipe open and kept until close confirmation. Checks are snapshots, not an atomic OS-wide guarantee across all future token changes. Previously submitted requests may already have taken effect when later peer checks fail.",
+    "Only NOT_FOUND/PIPE_BUSY failures with confirmed factory cleanup retry, once per outer poll under existing absolute deadline. Cold preparation and synchronous SDK calls are not hard realtime guarantees.",
+    "New Windows SDK assertions/signatures and native_link retention were not compiled or executed on Windows. Existing automatic approval quota rejection was not retried or bypassed. Linux FILETIME layout test and ABI gates do not prove Windows x64/x86 behavior.",
+    "Eight existing Linux native IPC tests remain ignored by default; they are not re-counted as passed. No keyboard capture, Hook, injection, native GUI, Windows desktop or hardware acceptance was performed.",
+    "Full migration including host/public control integration, GUI start/resume/apply, Wayland, hardware acceptance and packaging is still unfinished."
+  ]
+}

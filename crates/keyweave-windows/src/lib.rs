@@ -73,3 +73,8 @@ pub use native::{ControlMessagePipe, ControlPipeCleanup, ControlPipeCreateError}
 
 #[cfg(windows)]
 pub use native::ControlServerTransport;
+
+#[cfg(windows)]
+pub use control_identity::ControlServerInstance;
+#[cfg(windows)]
+pub use native::{ControlClientCleanup, ControlClientTransport};

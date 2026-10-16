@@ -2,7 +2,7 @@
 use super::*;
 use std::{cell::RefCell, collections::BTreeMap};
 #[derive(Clone, Copy, Default)]
-pub(super) enum Mode {
+pub(in crate::native) enum Mode {
     #[default]
     Immediate,
     Pending,
@@ -17,7 +17,9 @@ struct Pending {
     event: usize,
 }
 #[derive(Default)]
-pub(super) struct Mock {
+pub(in crate::native) struct Mock {
+    pub server_pid: Option<u32>,
+    pub open_error: Option<u32>,
     pub fail: Vec<&'static str>,
     pub calls: Vec<&'static str>,
     pub closes: Vec<usize>,
@@ -101,6 +103,9 @@ pub(super) unsafe fn CreateFileW(
     MOCK.with(|m| {
         let mut m = m.borrow_mut();
         if !call(&mut m, "open-client") {
+            if let Some(error) = m.open_error {
+                m.error = error;
+            }
             return usize::MAX as Handle;
         }
         m.next += 1;
@@ -428,4 +433,19 @@ pub(super) fn finish_pending() {
             *m.events.get_mut(&p.event).unwrap() = true;
         }
     });
+}
+
+pub(super) unsafe fn GetNamedPipeServerProcessId(handle: Handle, pid: *mut u32) -> i32 {
+    MOCK.with(|m| {
+        let mut m = m.borrow_mut();
+        assert!(!m.handles[&(handle as usize)]);
+        if !call(&mut m, "server-pid") {
+            return 0;
+        }
+        // SAFETY: initialized ULONG output supplied by current synchronous call.
+        unsafe {
+            *pid = m.server_pid.unwrap_or(42);
+        }
+        1
+    })
 }

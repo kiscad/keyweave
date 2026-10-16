@@ -1,6 +1,7 @@
 use super::*;
 #[link(name = "kernel32")]
 unsafe extern "system" {
+    pub(super) fn GetNamedPipeServerProcessId(pipe: Handle, pid: *mut u32) -> i32;
     pub(super) fn CreateNamedPipeW(
         name: *const u16,
         open: u32,

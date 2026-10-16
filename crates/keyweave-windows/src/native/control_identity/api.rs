@@ -3,6 +3,15 @@ use super::*;
 unsafe extern "system" {
     pub(super) fn GetCurrentThread() -> Handle;
     pub(super) fn GetCurrentProcess() -> Handle;
+    pub(super) fn GetCurrentProcessId() -> u32;
+    pub(super) fn GetProcessTimes(
+        process: Handle,
+        created: *mut FileTime,
+        exit: *mut FileTime,
+        kernel: *mut FileTime,
+        user: *mut FileTime,
+    ) -> i32;
+    pub(super) fn WaitForSingleObject(process: Handle, millis: u32) -> u32;
     pub(super) fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
     pub(super) fn GetProcessId(process: Handle) -> u32;
     pub(super) fn CloseHandle(handle: Handle) -> i32;

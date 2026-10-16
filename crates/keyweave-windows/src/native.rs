@@ -31,8 +31,11 @@ pub use supervisor::{
     SupervisorConfigCleanup, SupervisorConfigResources, SupervisorError, SupervisorSpawnError,
     SupervisorStatus, TerminationReason, WORKER_ARGUMENT,
 };
+mod control_client;
 mod control_message_pipe;
 mod control_server;
+#[cfg(windows)]
+pub use control_client::{ControlClientCleanup, ControlClientTransport};
 #[cfg(windows)]
 pub use control_server::ControlServerTransport;
 mod progress_pipe;

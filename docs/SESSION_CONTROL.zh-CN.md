@@ -105,3 +105,9 @@ ADR-0232 新增底层 `ControlMessagePipe`：可显式创建／打开本地 `\\.
 ADR-0233 已新增 `ControlServerTransport`，可与 `keyweave_windows::session_control::Server` 组合：完整读取后以最后消息的 thread token 鉴权，恢复原线程身份后才允许业务处理与回复。每连接只尝试一次鉴权；未读完、截断、提前或重复鉴权都拒绝，断开/新连接撤销旧授权。原始 `ControlMessagePipe` 仍是不带授权的 I/O owner。
 
 鉴权只接受定义客户端 SQOS 对应的 SecurityIdentification，精确比较 SID、登录 LUID、session；不会因 token 查询失败回退为进程身份。恢复线程身份失败时生产进程立即终止，不能将它解释为 Stop 成功或输入恢复。当前组合链经过 API mock 测试，没有运行实际 Windows pipe/abort；客户端 server attestation、host/CLI/GUI 接入及 SDK/原生验收仍待完成。见 [ADR-0233](ADR-0233-windows-message-token-authorization.md)。
+
+ADR-0234 已新增 `ControlClientTransport`，与原 `Client` 消息事务机组合。冷准备接收所选 host 的 endpoint 和 `ControlServerInstance`（PID＋Windows creation FILETIME）；host 可由 `ControlServerInstance::current()` 生成自身 metadata。实例提示用于拒绝陈旧目标，不是 secret 或 executable attestation。打开 pipe 前先持有预期进程 owner，实际连接的 kernel server PID 还要匹配，收发前后继续检查主体、创建时间和存活。
+
+每 poll 仅在 NOT_FOUND/BUSY 且无未回收资源时重试一次；不等待、不拉起 host、不延长事务期限。关闭时保留进程 pin 到 pipe close 确认，`ControlClientCleanup` 分别报告 pipe 与 peer 资源事实。请求已经发出后出现错误，仍可能已经生效，不能把传输错误解释为 Stop 未执行。
+
+目前客户端与服务端生产 adapter 都经 Win32 API mock 组合测试；Windows host/CLI/GUI 尚未接入该公开通道，host metadata 发布/发现、实际 Windows SDK/pipe 与 PID 复用/句柄转交对抗验收继续。见 [ADR-0234](ADR-0234-windows-control-client-peer-pin.md)。
