@@ -67,3 +67,5 @@ Linux只读元数据CLI现可用 `keyweave-host list-linux-devices`；它与 **C
 生成操作保留为未提交设备编辑，必须 **Commit device draft** → **Use edited JSON** → **Validate** → 保存新副本。现有未提交设备编辑必须先提交或放弃，不能被生成操作覆盖。它不自动选择抓取路径、不修改 Runtime 条件上下文，也不说明目标支持、设备就绪或硬件验收完成。Windows 设备发现和实际桌面/硬件验收仍待接入。见 [ADR-0241](ADR-0241-settings-linux-device-discovery.md)。
 
 公开 Apply 的事务协议和确认协调器已实现，但设置界面仍未提供运行时 Apply。保存新副本与 **Use edited JSON** 都只更新文档；只有后续接上原生 worker ACK 后才能标记配置已应用。watcher/GUI 仲裁、端点/正文绑定与 native gate 要求见 [公开 Apply 协议](SESSION_APPLY.zh-CN.md)。
+
+Linux 宿主的单一热更新确认归属和实际 worker ACK adapter 已具备，并通过无输入自有子进程组合验收；公开传输和界面按钮仍未开放。外部更新不会被未变的监控文件自动回退，丢确认不报成功。具体接线边界见 [Apply 文档](SESSION_APPLY.zh-CN.md#linux-宿主-adapter-与调用顺序)。

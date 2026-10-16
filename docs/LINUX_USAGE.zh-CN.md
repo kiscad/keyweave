@@ -141,3 +141,5 @@ keyweave-host list-linux-devices
 最多1024目录项和256候选，目录/探测间检查2秒观察预算；同步FS/内核/provider调用不是硬实时可中断。当前环境实际 `/dev/input` 缺失，诊断返回不完整快照，物理FD/ioctl路径尚未验收。GUI发现/选择后续接入，现有Runtime准入与root-trust要求保持。见 [ADR-0240](ADR-0240-linux-readonly-device-inventory.md)。
 
 设置界面现可在 visual editor 的 **Linux device metadata** 显式后台刷新，并从分类已知的节点生成未提交选择器草稿。来源/年龄、不完整结果、未知分类与逐节点错误单独显示；不会自动抓取或更新 Runtime。步骤和限制见 [GUI说明](GUI_USAGE.zh-CN.md#从-linux-设备元数据生成选择器)。
+
+Linux 的 watcher/外部 Apply 确认仲裁与原生私有 ACK adapter 已实现并通过无输入 worker 组合验收，但尚未开放公开 Apply 命令或 GUI 按钮。现有文件监控的用户用法不变；组件调用顺序和确认归属见 [Apply 接线文档](SESSION_APPLY.zh-CN.md#linux-宿主-adapter-与调用顺序)。

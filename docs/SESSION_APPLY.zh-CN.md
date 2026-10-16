@@ -50,9 +50,22 @@ Transaction 不拥有 worker/Job/设备，也不会因 Drop 停止 worker 或回
 ## 生产接入必须完成的工作
 
 1. 提供有界 Linux/Windows 传输：头校验后才分配最多8MiB；限制连接/候选数量、每次 IO 和总期限；在调用 backend 前完成消息终止和 peer 认证。保留独立 Status/Stop 的响应能力与监督优先级。
-2. 为实际宿主建立独占 Backend adapter：ticket 绑定真实私有 reload 请求、精确正文/base/target；只从该请求的实际 worker ACK 生成 Completion。不得依据公共 Status 的代号变化猜测“这份正文已应用”。
-3. 统一 watcher 和 GUI 的 reload source/outcome 仲裁。现有 watcher 独占确认队列，不能让两个消费者并行 take 同一个 ACK；外部 Apply 成功还要更新 active baseline，并定义文件未变时不意外回退的策略。
+2. 为实际宿主建立独占 Backend adapter（Linux 组件现已具备，仍须接入公开传输；Windows 待实现）：ticket 绑定真实私有 reload 请求、精确正文/base/target；只从该请求的实际 worker ACK 生成 Completion。不得依据公共 Status 的代号变化猜测“这份正文已应用”。
+3. 统一 watcher 和 GUI 的 reload source/outcome 仲裁（Linux 组件已实现，公开入口接线仍待完成）。现有 watcher 独占确认队列，不能让两个消费者并行 take 同一个 ACK；外部 Apply 成功还要更新 active baseline，并定义文件未变时不意外回退的策略。
 4. GUI 请求绑定 endpoint/session/base、文档精确正文/revision、目标与执行模式。文档或端点改变时旧结果只能显示历史事实，不能使当前草稿显示已应用。按钮要显示 Pending/Committed/Rejected/Unknown，不把保存副本当运行时 Apply。
 5. 增加真实 host→实际 worker→私有 ACK→公开回复的无输入验收，覆盖错误 session/base、busy、编译拒绝、实际激活后丢 ACK、Stop 并发和 owned child 退出；分别跑 Linux 和 Windows 原生。最后再进行授权的实际输入/持键恢复与桌面测试。
 
 现有10项新增测试包括8项确定性协议/状态机测试和2项真实冷编译→Engine.activate 的组合测试。组合使用 test-only ticket adapter 和合成 Engine 输入，不是实际 worker ACK 或原生输入验收。完整接入前不得启用 GUI Apply 或声称平台运行时链已验证。参见 [ADR-0242](ADR-0242-public-configuration-apply-transactions.md)。
+
+
+## Linux 宿主 adapter 与调用顺序
+
+`keyweave_host::linux::watcher::ConfigWatcher` 保留原文件监控 API，并提供 `apply_only(initial)` 冷构造模式。二者都必须以初始 sealed generation1 的精确正文创建。首次 poll 绑定原 NativeSession 的 source owner；该归属不可释放/转绑。原始 `request_reload` 在运行中返回 PermissionDenied，原始 `take_reload_outcome` 不再消费确认。若首次绑定前原始 lane 仍有事务/未领取结果，也不能接管它。
+
+宿主每次先 `coordinator.poll(&mut session)`，再读取该 session 的公共 Snapshot，并用临时 `coordinator.apply_backend(&mut session)` 调用公开 `Transaction::step`。adapter 本身不驱动进程、不执行冷编译，只通过原私有 reload lane 入队，并领取同一 scheduler 按实际 ACK 核验的结果。处于文件读取、已有候选、在途事务或未领取外部结果时，外部提交得到明确 Busy；不排队重试或抢占已有文件更新。
+
+最初 step 结束后，应保留该 adapter 的 `queued_ticket()` 返回值。即使 step 因后置时钟错误返回 Failure，也可能已实际入队；若传输断开、事务失败或 UI 不再等待，用原 ticket 调用 `abandon_apply`，继续正常轮询 coordinator/同一 NativeSession。如果 completion 已被领取后才发生公开事务的后置时钟错误，槽位已经释放，abandon_apply 会返回无匹配 ticket 的错误；这不表示仍有在途资源，也不能解释成取消或进程失败。放弃只是丢弃回复归属，实际 Accepted 仍更新 active。不要用新 ticket 清理旧请求，也不要在仍等待确认时丢弃唯一 coordinator 后新建另一个；新的 owner 不能接管原 session。
+
+外部 Accepted 更新 active，保留 seen（最后观察文件正文）。未改变的旧文件返回 Seen，不触发回退；新文件内容仍可正常提交。外部结果单独保存在一个槽位，即使随后文件请求完成也不会覆盖它。ticket 匹配错误不消费缓存；领取一次后再次查询返回错误。没有对应 ACK 的 generation 变化不能生成 Committed。关闭/原进程退出而没有 ACK 时，公开结果保持不确定。
+
+当前无输入原生组合验收实际创建自有 fixture worker，经原私有管道完成公开 Transaction→Linux adapter→worker 冷准备/Engine 激活→ACK→公开回复；也覆盖编译拒绝、激活后丢 ACK、原始接口无法偷取确认及 owned child 的 Stop/实际退出。worker 只有合成 Engine 输入，没有 evdev/uinput、Hook、输入注入或终止恢复证明。尚未经过公开 socket/pipe、真实 GUI Apply 或 Windows 原生链。见 [ADR-0243](ADR-0243-linux-reload-source-arbitration.md)。

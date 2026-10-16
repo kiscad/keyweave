@@ -1,0 +1,142 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "663994a513397eb639c4c1c9eb10ef86ed2e1bf6",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-host/src/linux/drive.rs": "59f2301ed8e159cedf38795dc8e4879828e79d702710baf7937899f5ae8abb7e",
+    "crates/keyweave-host/src/linux/watcher.rs": "2a0698491f796f464ffc46a77bfae7401feb918b5e1c8d1ebbf358f003733bea",
+    "crates/keyweave-host/tests/linux_reload.rs": "42e413349d76fa154ab9d2688cfa2d665733d927009513a078a6c805a316ede7"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 2038,
+    "new_default_tests": 7,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/clippy.log",
+        "sha256": "c662e8a12f8fd374eba31bcb8029fc3e789ef833bece1ab1a27134524740b288"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/tests.log",
+        "sha256": "69033565b97d9323ad745398eaa8592ed66d8973ef57e3fa73435aefce6e23cd"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-apply-arbitration-final/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "native_no_input_reload_harness": {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "-p",
+      "keyweave-host",
+      "--test",
+      "linux_reload"
+    ],
+    "covered_by_final_workspace_tests": true,
+    "modes": [
+      "accepted",
+      "lost_ack",
+      "watcher",
+      "apply",
+      "apply_lost_ack"
+    ],
+    "new_modes": [
+      "apply",
+      "apply_lost_ack"
+    ],
+    "evidence": "The final workspace test log contains the successful harness marker. Custom harness modes are not counted as additional ordinary Rust test cases.",
+    "checks": [
+      "Original owned child/private pipes/parent group and progress supervision retained.",
+      "Public request codec and Transaction use actual Linux ApplyBackend/ConfigWatcher/NativeSession; actual worker reload preparation activates its Engine and returns private ACK. Committed requires confirmed generation2; invalid next body returns Rejected generation2.",
+      "Raw request_reload returns PermissionDenied under a claimed source. Parent separately drives its original NativeSession until actual ACK/Idle generation2, proves raw take cannot steal completion, then the bound coordinator consumes it.",
+      "A second coordinator is rejected without faulting the original session; unit test additionally rejects rebinding an existing coordinator to another unclaimed peer with the same run ID.",
+      "Worker commits generation2 and exits before sending private ACK in apply_lost_ack. Public transaction fails with may_have_applied, host observed generation remains1, and no Cancelled/Committed reply is fabricated.",
+      "Normal apply retains old held a→b release and new a→c mapping; actual own host SIGINT/Stop observes the same child exit0. Missing terminal report is not recovery proof."
+    ]
+  },
+  "initial_failures": [],
+  "verification_notes": [
+    "After an earlier successful full run, source claim was hardened to prevent rebinding a coordinator to a different unclaimed NativeSession with the same run ID. All seven checks were rerun against final source; only the final run is source-bound evidence."
+  ],
+  "limitations": [
+    "No public Apply socket/pipe, CLI command or GUI Apply button is wired yet. The new adapter is used by the actual no-input worker harness and available to the future host public service. Existing run-linux --watch uses the same strengthened production scheduler.",
+    "Source ownership is sticky for the original NativeSession. Closing/dropping a coordinator does not release/rebind it, cancel a queued reload, prove cleanup/recovery or authorize a fresh worker. Original supervision must continue.",
+    "External tickets contain process-local owner/sequence only. One outstanding external reply slot is bounded; reads/file candidates/inflight work/unclaimed result produce Busy. Only the actual exclusive private ACK advances active or provides completion. Unknown or wrong ACK generation closes and faults the same owner.",
+    "External Accepted changes active but not file seen. An unchanged seen file does not revert it. Actual later file changes can still apply and advance generation before an earlier cached external reply is collected; that reply is a historical commit fact, not a current-state guarantee.",
+    "Abandoning reply ownership still permits later actual ACK to advance active. Close/exit before confirmation remains Unknown; an already cached real completion may be collected after close. Callers must retain queued_ticket even when public Transaction post-call timing fails; no matching ticket after completion consumption is not a cancellation/resource fact.",
+    "Native harness uses actual owned processes and private pipes but synthetic Engine input only. It does not open evdev/uinput, install Hook, inject OS input, run a native GUI, prove public peer authentication or keyboard recovery.",
+    "Windows source arbitration/adapter/native gates, public transport, GUI Start/Resume/Apply, hardware/Wayland/drivers/packaging remain unfinished. No new ABI/dependencies/lock change; eight unrelated native Unix socket gates were not rerun. Prior Windows native approval quota rejection was not retried."
+  ]
+}

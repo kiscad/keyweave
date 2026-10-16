@@ -13,6 +13,9 @@ fn main() {
         worker::ReportingStartup,
     };
     use keyweave_progress::reload::Outcome;
+    use keyweave_progress::session_apply::{
+        Outcome as ApplyOutcome, Request as ApplyRequest, Transaction,
+    };
     use keyweave_progress::{ProgressClient, ProgressPhase, RequestEvent};
     use keyweave_types::{
         ConfigGeneration, DeviceInstanceId, InputEnvelope, InputEvent, KeyEdge, KeyId, MonoTime,
@@ -97,7 +100,7 @@ fn main() {
             assert!(before < parent_until);
             let request = progress.receive_command(epoch).unwrap();
             if request == RequestEvent::Stop {
-                assert!(mode == "accepted" || mode == "watcher");
+                assert!(mode == "accepted" || mode == "watcher" || mode == "apply");
                 assert_eq!(actor.config_generation(), ConfigGeneration(2));
                 seq += 1;
                 assert_eq!(
@@ -146,7 +149,7 @@ fn main() {
                     })
                 })
                 .unwrap();
-            if mode == "lost_ack" && reload.step() == Step::Acknowledging {
+            if mode.ends_with("lost_ack") && reload.step() == Step::Acknowledging {
                 assert_eq!(actor.config_generation(), ConfigGeneration(2));
                 assert_eq!(actor.state().binding_generations, vec![ConfigGeneration(1)]);
                 // Commit occurred, no ack write. Original selected FDs remain
@@ -158,7 +161,7 @@ fn main() {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
-    for mode in ["accepted", "lost_ack", "watcher"] {
+    for mode in ["accepted", "lost_ack", "watcher", "apply", "apply_lost_ack"] {
         let signals = HostSignals::install().unwrap();
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.env(MODE, mode);
@@ -196,7 +199,140 @@ fn main() {
         body.extend_from_slice(b" */\n");
         body.extend_from_slice(NEW);
         let mut watcher = None;
-        if mode == "watcher" {
+        if mode.starts_with("apply") {
+            let mut coordinator = ConfigWatcher::apply_only(std::sync::Arc::from(OLD)).unwrap();
+            assert!(matches!(
+                coordinator.poll(&mut session).unwrap(),
+                DriveStatus::Pending(_)
+            ));
+            let mut foreign = ConfigWatcher::apply_only(std::sync::Arc::from(OLD)).unwrap();
+            assert_eq!(
+                foreign.poll(&mut session),
+                Err(keyweave_host::linux::watcher::WatchError::Identity)
+            );
+            assert!(session.fault().is_none());
+            let started_apply = Instant::now();
+            let request = ApplyRequest {
+                id: 1,
+                session: 99,
+                base: 1,
+                target: 2,
+                byte_length: body.len() as u64,
+            };
+            let mut transaction = Transaction::new(
+                ApplyRequest::decode(&request.encode().unwrap()).unwrap(),
+                body.into_boxed_slice(),
+                MonoTime(0),
+                5_000_000_000,
+            )
+            .unwrap();
+            let mut claimed = None;
+            loop {
+                let status = coordinator.poll(&mut session).unwrap();
+                let snapshot = session.control_snapshot(99);
+                let result = {
+                    let mut backend = coordinator.apply_backend(&mut session);
+                    let result = transaction.step(snapshot, &mut backend, || {
+                        MonoTime(started_apply.elapsed().as_nanos() as u64)
+                    });
+                    if let Some(ticket) = backend.queued_ticket() {
+                        assert!(claimed.replace(ticket).is_none());
+                    }
+                    result
+                };
+                if claimed.is_some()
+                    && mode == "apply"
+                    && transaction.may_have_applied()
+                    && session.observed_config_generation() == Some(ConfigGeneration(1))
+                {
+                    assert_eq!(
+                        session.request_reload(NEW.into()).unwrap_err().kind(),
+                        io::ErrorKind::PermissionDenied
+                    );
+                    // Drive the original owner until its actual ACK is queued,
+                    // then prove the public raw consumer cannot steal it.
+                    loop {
+                        assert!(matches!(session.poll_once(), DriveStatus::Pending(_)));
+                        if session.reload_state() == Some(ReloadState::Idle)
+                            && session.observed_config_generation() == Some(ConfigGeneration(2))
+                        {
+                            break;
+                        }
+                        assert!(started_apply.elapsed() < Duration::from_secs(5));
+                    }
+                    assert_eq!(session.take_reload_outcome(), None);
+                }
+                match result {
+                    Ok(Some(reply)) => {
+                        assert_eq!(mode, "apply");
+                        assert!(reply.matches(request));
+                        assert_eq!(reply.outcome, ApplyOutcome::Committed);
+                        assert_eq!(reply.observed, Some(2));
+                        assert_eq!(
+                            keyweave_progress::session_apply::Reply::decode(
+                                &reply.encode().unwrap()
+                            )
+                            .unwrap(),
+                            reply
+                        );
+                        break;
+                    }
+                    Err(failure) => {
+                        assert_eq!(mode, "apply_lost_ack");
+                        assert!(failure.may_have_applied);
+                        assert!(matches!(status, DriveStatus::Exited(_)));
+                        coordinator.abandon_apply(&claimed.unwrap()).unwrap();
+                        assert_eq!(
+                            session.observed_config_generation(),
+                            Some(ConfigGeneration(1))
+                        );
+                        break;
+                    }
+                    Ok(None) => {}
+                }
+                assert!(started_apply.elapsed() < Duration::from_secs(5));
+            }
+            assert!(claimed.is_some());
+            if mode == "apply" {
+                let bytes = b"invalid private configuration";
+                let request = ApplyRequest {
+                    id: 2,
+                    session: 99,
+                    base: 2,
+                    target: 3,
+                    byte_length: bytes.len() as u64,
+                };
+                let mut rejected =
+                    Transaction::new(request, Box::new(*bytes), MonoTime(0), 5_000_000_000)
+                        .unwrap();
+                let started_rejected = Instant::now();
+                loop {
+                    assert!(matches!(
+                        coordinator.poll(&mut session).unwrap(),
+                        DriveStatus::Pending(_)
+                    ));
+                    let snapshot = session.control_snapshot(99);
+                    if let Some(reply) = rejected
+                        .step(
+                            snapshot,
+                            &mut coordinator.apply_backend(&mut session),
+                            || MonoTime(started_rejected.elapsed().as_nanos() as u64),
+                        )
+                        .unwrap()
+                    {
+                        assert_eq!(reply.outcome, ApplyOutcome::Rejected);
+                        assert_eq!(reply.observed, Some(2));
+                        break;
+                    }
+                    assert!(started_rejected.elapsed() < Duration::from_secs(5));
+                }
+                assert_eq!(
+                    session.observed_config_generation(),
+                    Some(ConfigGeneration(2))
+                );
+            }
+            watcher = Some(coordinator);
+        } else if mode == "watcher" {
             // Own newly created fixture file only; no input/session provider.
             let path = std::env::temp_dir()
                 .join(format!("keyweave-watcher-fixture-{}", std::process::id()));
@@ -308,7 +444,7 @@ fn main() {
                 );
             }
         }
-        if mode == "watcher" {
+        if mode == "watcher" || mode == "apply" {
             assert!(
                 Command::new("kill")
                     .args(["-INT", &std::process::id().to_string()])
@@ -339,7 +475,7 @@ fn main() {
             }
         }
         assert!(report.signal_close_failure.is_none());
-        if mode != "lost_ack" {
+        if !mode.ends_with("lost_ack") {
             assert!(report.worker.fault.is_none());
             assert_eq!(
                 report.worker.reason,
@@ -358,9 +494,13 @@ fn main() {
         assert_eq!(session.reload_state(), Some(ReloadState::Closed));
         assert_eq!(
             session.observed_config_generation(),
-            Some(ConfigGeneration(if mode != "lost_ack" { 2 } else { 1 }))
+            Some(ConfigGeneration(if !mode.ends_with("lost_ack") {
+                2
+            } else {
+                1
+            }))
         );
-        if mode == "lost_ack" {
+        if mode.ends_with("lost_ack") {
             assert_eq!(session.take_reload_outcome(), None);
         }
         assert_eq!(
@@ -370,7 +510,7 @@ fn main() {
         assert!(matches!(session.poll_once(),DriveStatus::Exited(cached) if cached==report));
     }
     println!(
-        "linux_reload: owned actual-main accepted/rejected/lost-ack/watcher-notifications-debounce/Stop/progress passed; synthetic Engine only, no device/recovery claims"
+        "linux_reload: owned actual-main accepted/rejected/lost-ack/watcher-notifications-debounce/public-apply-actual-ACK/public-apply-lost-ACK/Stop/progress passed; synthetic Engine only, no device/recovery claims"
     );
 }
 #[cfg(not(target_os = "linux"))]

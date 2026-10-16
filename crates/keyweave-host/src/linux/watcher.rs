@@ -2,8 +2,34 @@
 use super::file_source::{Compared, FileSource, MAX_SOURCE_BYTES, SourceError, SourceStep};
 use super::{DriveStatus, NativeSession};
 use keyweave_progress::reload::Outcome;
+use keyweave_progress::session_apply::{self, Admission, BackendError, Completion, Refusal};
 use keyweave_types::{ConfigGeneration, MonoTime};
-use std::{io, path::PathBuf, sync::Arc};
+use std::{
+    io,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+fn owner_id() -> Result<u64, WatchError> {
+    NEXT_OWNER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .map_err(|_| WatchError::Identity)
+}
+/// Local correlation only; never an authentication token or serialized run ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ApplyTicket {
+    owner: u64,
+    sequence: u64,
+}
+struct External {
+    ticket: ApplyTicket,
+    result: Option<(Outcome, ConfigGeneration)>,
+    abandoned: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WatchEvent {
     Unchanged,
@@ -23,6 +49,7 @@ pub enum WatchError {
     Clock,
     Generation,
     Submit,
+    Disabled,
 }
 impl std::fmt::Display for WatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -31,6 +58,9 @@ impl std::fmt::Display for WatchError {
 }
 impl std::error::Error for WatchError {}
 trait Source {
+    fn enabled(&self) -> bool {
+        true
+    }
     fn request(&mut self, seen: Arc<[u8]>, active: Arc<[u8]>) -> Result<(), SourceError>;
     fn take_ready(&mut self) -> Option<Result<Compared, SourceError>>;
     fn notice(&mut self) -> bool {
@@ -60,17 +90,53 @@ impl Source for FileSource {
         self.reap_closed()
     }
 }
+struct SourceMode(Option<FileSource>);
+impl Source for SourceMode {
+    fn enabled(&self) -> bool {
+        self.0.is_some()
+    }
+    fn request(&mut self, seen: Arc<[u8]>, active: Arc<[u8]>) -> Result<(), SourceError> {
+        self.0
+            .as_mut()
+            .ok_or(SourceError::Closed)?
+            .request_compare(seen, active)
+    }
+    fn take_ready(&mut self) -> Option<Result<Compared, SourceError>> {
+        self.0.as_mut().and_then(Source::take_ready)
+    }
+    fn notice(&mut self) -> bool {
+        self.0.as_mut().is_some_and(Source::notice)
+    }
+    fn close(&mut self) {
+        if let Some(source) = &mut self.0 {
+            source.close();
+        }
+    }
+    fn reap(&mut self) -> Result<bool, SourceError> {
+        self.0.as_mut().map_or(Ok(true), FileSource::reap_closed)
+    }
+}
+impl SourceMode {
+    #[cfg(test)]
+    fn job_pending(&self) -> bool {
+        self.0.as_ref().is_some_and(FileSource::job_pending)
+    }
+}
 trait Peer {
+    fn claim(&mut self, owner: u64, allow_new: bool) -> bool;
     fn drive(&mut self) -> DriveStatus;
     fn at(&self) -> MonoTime;
     fn run(&self) -> Option<u64>;
     fn ready(&self) -> bool;
-    fn submit(&mut self, body: Box<[u8]>) -> io::Result<()>;
-    fn outcome(&mut self) -> Option<Outcome>;
+    fn submit(&mut self, owner: u64, body: Box<[u8]>) -> io::Result<()>;
+    fn outcome(&mut self, owner: u64) -> Option<Outcome>;
     fn generation(&self) -> Option<ConfigGeneration>;
     fn fail(&mut self, error: io::Error);
 }
 impl Peer for NativeSession {
+    fn claim(&mut self, owner: u64, allow_new: bool) -> bool {
+        self.watcher_claim(owner, allow_new)
+    }
     fn drive(&mut self) -> DriveStatus {
         self.poll_once()
     }
@@ -83,11 +149,11 @@ impl Peer for NativeSession {
     fn ready(&self) -> bool {
         self.watcher_ready()
     }
-    fn submit(&mut self, body: Box<[u8]>) -> io::Result<()> {
-        self.request_reload(body)
+    fn submit(&mut self, owner: u64, body: Box<[u8]>) -> io::Result<()> {
+        self.watcher_submit(owner, body)
     }
-    fn outcome(&mut self) -> Option<Outcome> {
-        self.take_reload_outcome()
+    fn outcome(&mut self, owner: u64) -> Option<Outcome> {
+        self.watcher_outcome(owner)
     }
     fn generation(&self) -> Option<ConfigGeneration> {
         self.observed_config_generation()
@@ -114,8 +180,112 @@ struct Scheduler<S: Source> {
     manual: bool,
     event: Option<WatchEvent>,
     closed: bool,
+    owner: u64,
+    sequence: u64,
+    external: Option<External>,
+    dispatching: bool,
+    claimed: bool,
 }
 impl<S: Source> Scheduler<S> {
+    fn submit_external<P: Peer>(
+        &mut self,
+        peer: &mut P,
+        body: Box<[u8]>,
+        base: u64,
+        target: u64,
+    ) -> Result<Admission<ApplyTicket>, BackendError> {
+        if self.closed
+            || self.run.is_none()
+            || self.run != peer.run()
+            || !peer.claim(self.owner, false)
+        {
+            return Ok(Admission::NotSubmitted(Refusal::Unavailable));
+        }
+        if base == 0
+            || base.checked_add(1) != Some(target)
+            || peer.generation() != Some(ConfigGeneration(base))
+        {
+            return Ok(Admission::NotSubmitted(Refusal::Unavailable));
+        }
+        if body.is_empty() || body.len() > MAX_SOURCE_BYTES {
+            return Ok(Admission::NotSubmitted(Refusal::Rejected));
+        }
+        if self.external.is_some()
+            || self.reading
+            || self.candidate.is_some()
+            || self.inflight.is_some()
+            || !peer.ready()
+        {
+            return Ok(Admission::NotSubmitted(Refusal::Busy));
+        }
+        if self.last.is_some_and(|last| peer.at() < last) {
+            self.close();
+            peer.fail(io::Error::other(WatchError::Clock));
+            return Err(BackendError);
+        }
+        let Some(sequence) = self.sequence.checked_add(1) else {
+            return Ok(Admission::NotSubmitted(Refusal::Unavailable));
+        };
+        self.sequence = sequence;
+        let ticket = ApplyTicket {
+            owner: self.owner,
+            sequence,
+        };
+        self.inflight = Some(Arc::from(body.as_ref()));
+        self.base = Some(ConfigGeneration(base));
+        self.external = Some(External {
+            ticket,
+            result: None,
+            abandoned: false,
+        });
+        // A panicking callback must never permit this body to be replayed or
+        // an unrelated result to be consumed as its completion.
+        self.dispatching = true;
+        if peer.submit(self.owner, body).is_err() {
+            self.dispatching = false;
+            self.close();
+            peer.fail(io::Error::other(WatchError::Submit));
+            return Err(BackendError);
+        }
+        self.dispatching = false;
+        self.event = Some(WatchEvent::Submitted);
+        Ok(Admission::Queued(ticket))
+    }
+    fn external_completion(
+        &mut self,
+        ticket: &ApplyTicket,
+    ) -> Result<Option<Completion<ApplyTicket>>, BackendError> {
+        let external = self
+            .external
+            .as_ref()
+            .filter(|external| external.ticket == *ticket && !external.abandoned)
+            .ok_or(BackendError)?;
+        if let Some((outcome, generation)) = external.result {
+            self.external = None;
+            return Ok(Some(Completion {
+                ticket: *ticket,
+                outcome,
+                generation: generation.0,
+            }));
+        }
+        if self.closed || self.dispatching {
+            return Err(BackendError);
+        }
+        Ok(None)
+    }
+    fn abandon_external(&mut self, ticket: &ApplyTicket) -> Result<(), BackendError> {
+        let external = self
+            .external
+            .as_mut()
+            .filter(|external| external.ticket == *ticket)
+            .ok_or(BackendError)?;
+        if external.result.is_some() || self.closed {
+            self.external = None;
+        } else {
+            external.abandoned = true;
+        }
+        Ok(())
+    }
     fn close(&mut self) {
         if self.closed {
             return;
@@ -130,6 +300,17 @@ impl<S: Source> Scheduler<S> {
         if self.run.is_some_and(|old| peer.run() != Some(old)) {
             self.close();
             return Err(WatchError::Identity);
+        }
+        if !peer.claim(self.owner, !self.claimed) {
+            self.close();
+            return Err(WatchError::Identity);
+        }
+        self.claimed = true;
+        if self.dispatching {
+            self.dispatching = false;
+            self.close();
+            peer.fail(io::Error::other(WatchError::Submit));
+            return Err(WatchError::Submit);
         }
         let status = peer.drive();
         if !matches!(
@@ -174,7 +355,7 @@ impl<S: Source> Scheduler<S> {
         }
         // Confirmation processing never waits behind a user status notification.
         if self.inflight.is_some()
-            && let Some(outcome) = peer.outcome()
+            && let Some(outcome) = peer.outcome(self.owner)
         {
             let generation = peer.generation().ok_or(WatchError::Generation)?;
             let base = self.base.ok_or(WatchError::Generation)?;
@@ -185,6 +366,17 @@ impl<S: Source> Scheduler<S> {
             };
             if generation != expected {
                 return Err(WatchError::Generation);
+            }
+            if let Some(external) = self
+                .external
+                .as_mut()
+                .filter(|external| external.result.is_none())
+            {
+                if external.abandoned {
+                    self.external = None;
+                } else {
+                    external.result = Some((outcome, generation));
+                }
             }
             if let Some(bytes) = self.inflight.take()
                 && outcome == Outcome::Accepted
@@ -238,14 +430,16 @@ impl<S: Source> Scheduler<S> {
                 return Err(WatchError::Generation);
             }
             let (body, retained) = self.candidate.take().ok_or(WatchError::Submit)?;
-            peer.submit(body).map_err(|_| WatchError::Submit)?;
+            peer.submit(self.owner, body)
+                .map_err(|_| WatchError::Submit)?;
             self.seen = retained.clone();
             self.inflight = Some(retained);
             self.base = Some(base);
             self.event = Some(WatchEvent::Submitted);
             return Ok(());
         }
-        if !self.reading
+        if self.source.enabled()
+            && !self.reading
             && self.candidate.is_none()
             && peer.ready()
             && (self.manual
@@ -275,7 +469,7 @@ impl<S: Source> Scheduler<S> {
 /// A different session is rejected before driving it.
 /// close stops source work; it does not retract an already submitted reload.
 pub struct ConfigWatcher {
-    inner: Scheduler<FileSource>,
+    inner: Scheduler<SourceMode>,
 }
 impl ConfigWatcher {
     pub fn new(path: PathBuf, initial: Arc<[u8]>, interval_ns: u64) -> Result<Self, WatchError> {
@@ -286,9 +480,23 @@ impl ConfigWatcher {
             return Err(WatchError::Baseline);
         }
         let source = FileSource::with_notifications(path).map_err(WatchError::Source)?;
+        Self::build(Some(source), initial, interval_ns)
+    }
+    /// Cold external-only mode: no file reader or directory notification owner.
+    pub fn apply_only(initial: Arc<[u8]>) -> Result<Self, WatchError> {
+        Self::build(None, initial, 100_000_000)
+    }
+    fn build(
+        source: Option<FileSource>,
+        initial: Arc<[u8]>,
+        interval_ns: u64,
+    ) -> Result<Self, WatchError> {
+        if initial.is_empty() || initial.len() > MAX_SOURCE_BYTES {
+            return Err(WatchError::Baseline);
+        }
         Ok(Self {
             inner: Scheduler {
-                source,
+                source: SourceMode(source),
                 active: initial.clone(),
                 seen: initial,
                 candidate: None,
@@ -304,8 +512,27 @@ impl ConfigWatcher {
                 manual: false,
                 event: None,
                 closed: false,
+                owner: owner_id()?,
+                sequence: 0,
+                external: None,
+                dispatching: false,
+                claimed: false,
             },
         })
+    }
+    /// Borrow the sole ACK owner; neither method drives the session. The host
+    /// must poll this coordinator first on every iteration, then step Apply.
+    pub fn apply_backend<'a>(&'a mut self, session: &'a mut NativeSession) -> ApplyBackend<'a> {
+        ApplyBackend {
+            coordinator: self,
+            session,
+            queued_ticket: None,
+        }
+    }
+    /// Abandon reply ownership, not the actual reload. Continue polling this
+    /// coordinator so any later real ACK updates its baseline exactly once.
+    pub fn abandon_apply(&mut self, ticket: &ApplyTicket) -> Result<(), BackendError> {
+        self.inner.abandon_external(ticket)
     }
     pub fn poll(&mut self, session: &mut NativeSession) -> Result<DriveStatus, WatchError> {
         self.inner.poll(session)
@@ -315,12 +542,19 @@ impl ConfigWatcher {
         if self.inner.closed {
             return Err(WatchError::Source(SourceError::Closed));
         }
+        if !self.inner.source.enabled() {
+            return Err(WatchError::Disabled);
+        }
         self.inner.manual = true;
         Ok(())
     }
     /// Cached notification failure; periodic source reading still continues.
     pub fn notification_error(&self) -> Option<SourceError> {
-        self.inner.source.notification_error()
+        self.inner
+            .source
+            .0
+            .as_ref()
+            .and_then(FileSource::notification_error)
     }
     pub fn take_event(&mut self) -> Option<WatchEvent> {
         self.inner.event.take()
@@ -333,6 +567,50 @@ impl ConfigWatcher {
             return Err(WatchError::Source(SourceError::Busy));
         }
         self.inner.source.reap().map_err(WatchError::Source)
+    }
+}
+
+/// Actual Linux reload adapter; private NativeSession ACK validation remains
+/// authoritative. Do not also consume NativeSession.take_reload_outcome.
+pub struct ApplyBackend<'a> {
+    coordinator: &'a mut ConfigWatcher,
+    session: &'a mut NativeSession,
+    queued_ticket: Option<ApplyTicket>,
+}
+impl ApplyBackend<'_> {
+    /// Retain this after the initial Transaction step, even if its post-call
+    /// clock check fails. Use it to abandon reply ownership on timeout/Drop.
+    pub fn queued_ticket(&self) -> Option<ApplyTicket> {
+        self.queued_ticket
+    }
+}
+impl session_apply::Backend for ApplyBackend<'_> {
+    type Ticket = ApplyTicket;
+    fn submit(
+        &mut self,
+        body: Box<[u8]>,
+        base: u64,
+        target: u64,
+    ) -> Result<Admission<ApplyTicket>, BackendError> {
+        let result = self
+            .coordinator
+            .inner
+            .submit_external(self.session, body, base, target);
+        if let Ok(Admission::Queued(ticket)) = &result {
+            self.queued_ticket = Some(*ticket);
+        }
+        result
+    }
+    fn completion(
+        &mut self,
+        ticket: &ApplyTicket,
+    ) -> Result<Option<Completion<ApplyTicket>>, BackendError> {
+        if self.coordinator.inner.run != self.session.watcher_run()
+            || !self.session.watcher_owned(self.coordinator.inner.owner)
+        {
+            return Err(BackendError);
+        }
+        self.coordinator.inner.external_completion(ticket)
     }
 }
 
@@ -379,8 +657,18 @@ mod tests {
         submissions: Vec<Box<[u8]>>,
         outcome: Option<Outcome>,
         faults: usize,
+        submit_calls: usize,
+        submit_fails: bool,
+        submit_panics: bool,
+        owner: Option<u64>,
     }
     impl Peer for FakePeer {
+        fn claim(&mut self, owner: u64, allow_new: bool) -> bool {
+            if self.owner.is_none() && allow_new {
+                self.owner = Some(owner);
+            }
+            self.owner == Some(owner)
+        }
         fn drive(&mut self) -> DriveStatus {
             self.drives += 1;
             self.status
@@ -394,13 +682,20 @@ mod tests {
         fn ready(&self) -> bool {
             self.ready
         }
-        fn submit(&mut self, body: Box<[u8]>) -> io::Result<()> {
+        fn submit(&mut self, owner: u64, body: Box<[u8]>) -> io::Result<()> {
             assert!(self.ready);
+            assert_eq!(self.owner, Some(owner));
+            self.submit_calls += 1;
+            assert!(!self.submit_panics, "synthetic external submit panic");
+            if self.submit_fails {
+                return Err(io::Error::other("synthetic submit failure"));
+            }
             self.submissions.push(body);
             self.ready = false;
             Ok(())
         }
-        fn outcome(&mut self) -> Option<Outcome> {
+        fn outcome(&mut self, owner: u64) -> Option<Outcome> {
+            assert_eq!(self.owner, Some(owner));
             self.outcome.take()
         }
         fn generation(&self) -> Option<ConfigGeneration> {
@@ -430,6 +725,11 @@ mod tests {
                 manual: false,
                 event: None,
                 closed: false,
+                owner: owner_id().unwrap(),
+                sequence: 0,
+                external: None,
+                dispatching: false,
+                claimed: false,
             },
             FakePeer {
                 status: DriveStatus::Pending(SupervisorStatus::Running),
@@ -441,6 +741,10 @@ mod tests {
                 submissions: Vec::new(),
                 outcome: None,
                 faults: 0,
+                submit_calls: 0,
+                submit_fails: false,
+                submit_panics: false,
+                owner: None,
             },
         )
     }
@@ -730,5 +1034,272 @@ mod tests {
         s.event.take();
         s.poll(&mut p).unwrap();
         assert_eq!(s.source.requests.len(), 2);
+    }
+    fn idle() -> (Scheduler<FakeSource>, FakePeer) {
+        let (mut s, mut p) = setup();
+        s.poll(&mut p).unwrap();
+        s.source.result = Some(Ok(Compared::Seen));
+        s.poll(&mut p).unwrap();
+        s.event.take();
+        (s, p)
+    }
+    fn external(s: &mut Scheduler<FakeSource>, p: &mut FakePeer, base: u64) -> ApplyTicket {
+        match s
+            .submit_external(p, Box::new(*b"external"), base, base + 1)
+            .unwrap()
+        {
+            Admission::Queued(ticket) => ticket,
+            _ => panic!("external candidate was not admitted"),
+        }
+    }
+    #[test]
+    fn external_ack_is_separate_from_file_seen_and_survives_later_file_ack() {
+        let (mut s, mut p) = idle();
+        let ticket = external(&mut s, &mut p, 1);
+        assert!(s.external_completion(&ticket).unwrap().is_none());
+        let wrong = ApplyTicket {
+            owner: ticket.owner + 1,
+            ..ticket
+        };
+        assert!(s.external_completion(&wrong).is_err());
+        p.outcome = Some(Outcome::Accepted);
+        p.generation = ConfigGeneration(2);
+        p.ready = true;
+        s.poll(&mut p).unwrap();
+        s.event.take();
+        assert_eq!(&*s.active, b"external");
+        assert_eq!(&*s.seen, b"initial");
+        s.manual = true;
+        s.poll(&mut p).unwrap();
+        assert_eq!(&*s.source.requests.last().unwrap().0, b"initial");
+        assert_eq!(&*s.source.requests.last().unwrap().1, b"external");
+        s.source.result = Some(Ok(Compared::Seen));
+        s.poll(&mut p).unwrap();
+        s.event.take();
+        assert_eq!(p.submit_calls, 1); // unchanged old file does not revert Apply.
+        s.manual = true;
+        s.poll(&mut p).unwrap();
+        changed(&mut s, b"changed file");
+        s.poll(&mut p).unwrap();
+        p.outcome = Some(Outcome::Accepted);
+        p.generation = ConfigGeneration(3);
+        p.ready = true;
+        s.poll(&mut p).unwrap();
+        s.event.take();
+        assert_eq!(&*s.active, b"changed file");
+        assert_eq!(&*s.seen, b"changed file");
+        let reply = s.external_completion(&ticket).unwrap().unwrap();
+        assert_eq!(reply.ticket, ticket);
+        assert_eq!(reply.outcome, Outcome::Accepted);
+        assert_eq!(reply.generation, 2);
+        assert!(s.external_completion(&ticket).is_err());
+        assert_eq!(p.submit_calls, 2);
+    }
+    #[test]
+    fn external_never_preempts_read_candidate_pending_or_unclaimed_result() {
+        let (mut s, mut p) = setup();
+        s.poll(&mut p).unwrap();
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Busy)
+        ));
+        changed(&mut s, b"file");
+        p.ready = false;
+        s.poll(&mut p).unwrap();
+        assert!(s.candidate.is_some());
+        p.ready = true;
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Busy)
+        ));
+        s.poll(&mut p).unwrap();
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Busy)
+        ));
+        let (mut s, mut p) = idle();
+        let ticket = external(&mut s, &mut p, 1);
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Busy)
+        ));
+        p.outcome = Some(Outcome::Accepted);
+        p.generation = ConfigGeneration(2);
+        p.ready = true;
+        s.poll(&mut p).unwrap();
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 2, 3).unwrap(),
+            Admission::NotSubmitted(Refusal::Busy)
+        ));
+        s.external_completion(&ticket).unwrap().unwrap();
+        assert_ne!(external(&mut s, &mut p, 2), ticket);
+    }
+    #[test]
+    fn external_rejection_cancellation_abandonment_and_close_preserve_facts() {
+        for outcome in [Outcome::Rejected, Outcome::Cancelled] {
+            let (mut s, mut p) = idle();
+            let ticket = external(&mut s, &mut p, 1);
+            p.outcome = Some(outcome);
+            p.ready = true;
+            s.poll(&mut p).unwrap();
+            assert_eq!(&*s.active, b"initial");
+            assert_eq!(&*s.seen, b"initial");
+            s.close(); // An already confirmed reply remains a historical fact.
+            let reply = s.external_completion(&ticket).unwrap().unwrap();
+            assert_eq!(reply.outcome, outcome);
+            assert_eq!(reply.generation, 1);
+        }
+        let (mut s, mut p) = idle();
+        let ticket = external(&mut s, &mut p, 1);
+        s.abandon_external(&ticket).unwrap();
+        assert!(s.external_completion(&ticket).is_err());
+        p.outcome = Some(Outcome::Accepted);
+        p.generation = ConfigGeneration(2);
+        p.ready = true;
+        s.poll(&mut p).unwrap();
+        assert_eq!(&*s.active, b"external");
+        assert!(s.external.is_none());
+        let next = external(&mut s, &mut p, 2);
+        s.close();
+        assert!(s.external_completion(&next).is_err()); // no invented Cancelled
+        s.abandon_external(&next).unwrap();
+        assert!(s.external.is_none());
+    }
+    #[test]
+    fn external_fences_refuse_wrong_owner_generation_length_and_exhaustion() {
+        let (mut s, mut p) = idle();
+        let drives = p.drives;
+        p.run += 1;
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Unavailable)
+        ));
+        assert_eq!(p.drives, drives);
+        assert_eq!(p.faults, 0);
+        assert_eq!(p.submit_calls, 0);
+        p.run -= 1;
+        for (base, target) in [(0, 1), (2, 3), (1, 3), (u64::MAX, 0)] {
+            assert!(matches!(
+                s.submit_external(&mut p, Box::new(*b"x"), base, target)
+                    .unwrap(),
+                Admission::NotSubmitted(Refusal::Unavailable)
+            ));
+        }
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new([]), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Rejected)
+        ));
+        assert!(matches!(
+            s.submit_external(
+                &mut p,
+                vec![0; MAX_SOURCE_BYTES + 1].into_boxed_slice(),
+                1,
+                2
+            )
+            .unwrap(),
+            Admission::NotSubmitted(Refusal::Rejected)
+        ));
+        s.sequence = u64::MAX;
+        assert!(matches!(
+            s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+            Admission::NotSubmitted(Refusal::Unavailable)
+        ));
+        assert_eq!(p.submit_calls, 0);
+    }
+    #[test]
+    fn external_submit_fault_or_panic_latches_and_never_replays() {
+        for panic in [false, true] {
+            let (mut s, mut p) = idle();
+            p.submit_panics = panic;
+            p.submit_fails = !panic;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                s.submit_external(&mut p, Box::new(*b"x"), 1, 2)
+            }));
+            if panic {
+                assert!(result.is_err());
+                assert_eq!(s.poll(&mut p), Err(WatchError::Submit));
+            } else {
+                assert!(result.unwrap().is_err());
+            }
+            assert!(s.closed);
+            assert_eq!(p.faults, 1);
+            assert_eq!(p.submit_calls, 1);
+            assert!(matches!(
+                s.submit_external(&mut p, Box::new(*b"x"), 1, 2).unwrap(),
+                Admission::NotSubmitted(Refusal::Unavailable)
+            ));
+            s.poll(&mut p).unwrap();
+            assert_eq!(p.submit_calls, 1);
+            assert_eq!(p.faults, 1);
+        }
+    }
+    #[test]
+    fn apply_only_has_no_reader_and_foreign_tickets_do_not_consume_confirmations() {
+        let (_, mut p) = setup();
+        let mut coordinator = ConfigWatcher::apply_only(Arc::from(b"initial".as_slice())).unwrap();
+        coordinator.inner.poll(&mut p).unwrap();
+        assert!(!coordinator.inner.source.enabled());
+        assert!(!coordinator.inner.reading);
+        assert!(coordinator.notification_error().is_none());
+        assert_eq!(coordinator.request_read(), Err(WatchError::Disabled));
+        let Admission::Queued(ticket) = coordinator
+            .inner
+            .submit_external(&mut p, Box::new(*b"x"), 1, 2)
+            .unwrap()
+        else {
+            panic!("not queued")
+        };
+        let (mut other, mut other_peer) = idle();
+        let foreign = external(&mut other, &mut other_peer, 1);
+        assert!(coordinator.inner.external_completion(&foreign).is_err());
+        p.outcome = Some(Outcome::Accepted);
+        p.generation = ConfigGeneration(2);
+        p.ready = true;
+        coordinator.inner.poll(&mut p).unwrap();
+        assert!(
+            coordinator
+                .inner
+                .external_completion(&ticket)
+                .unwrap()
+                .is_some()
+        );
+        coordinator.close();
+        assert!(coordinator.reap_closed().unwrap());
+    }
+    #[test]
+    fn external_generation_without_ack_is_not_completion_and_source_claim_is_sticky() {
+        let (mut s, mut p) = idle();
+        let ticket = external(&mut s, &mut p, 1);
+        p.generation = ConfigGeneration(2);
+        p.ready = true;
+        s.poll(&mut p).unwrap();
+        assert!(s.external_completion(&ticket).unwrap().is_none());
+        assert_eq!(&*s.active, b"initial");
+        let (_, mut other_peer) = setup();
+        assert_eq!(other_peer.run, p.run);
+        assert_eq!(s.poll(&mut other_peer), Err(WatchError::Identity));
+        assert_eq!(other_peer.drives, 0);
+        assert_eq!(other_peer.faults, 0);
+        assert!(other_peer.owner.is_none());
+        // Use a separate healthy transaction for the malformed-ACK checks.
+        let (mut s, mut p) = idle();
+        let ticket = external(&mut s, &mut p, 1);
+        let (mut foreign, _) = setup();
+        let drives = p.drives;
+        assert_eq!(foreign.poll(&mut p), Err(WatchError::Identity));
+        assert_eq!(p.drives, drives);
+        assert_eq!(p.faults, 0);
+        p.generation = ConfigGeneration(3);
+        p.outcome = Some(Outcome::Accepted);
+        assert_eq!(s.poll(&mut p), Err(WatchError::Generation));
+        assert!(s.external_completion(&ticket).is_err());
+        assert_eq!(p.faults, 1);
+        let (mut s, mut p) = idle();
+        s.last = Some(MonoTime(10));
+        p.now = MonoTime(9);
+        assert!(s.submit_external(&mut p, Box::new(*b"x"), 1, 2).is_err());
+        assert!(s.closed);
+        assert_eq!(p.faults, 1);
+        assert_eq!(p.submit_calls, 0);
     }
 }

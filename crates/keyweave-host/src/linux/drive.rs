@@ -236,6 +236,7 @@ impl<O: Owner, S: Schedule> Pump<O, S> {
 /// bounded observation is five seconds; expiry retains this same owner.
 pub struct NativeSession {
     pump: Pump<keyweave_linux::supervisor::Supervisor, NativeSchedule>,
+    reload_owner: Option<u64>,
 }
 impl NativeSession {
     pub fn new(session: Session, signals: HostSignals, clock: MonotonicClock) -> Self {
@@ -254,6 +255,7 @@ impl NativeSession {
             MonoTime(0)
         };
         Self {
+            reload_owner: None,
             pump: Pump {
                 controller,
                 schedule: NativeSchedule {
@@ -282,6 +284,43 @@ impl NativeSession {
             }
         }
     }
+    /// Sticky source ownership for this original session; no release/rebind on
+    /// coordinator Drop. Raw submit/take cannot bypass a claimed ACK owner.
+    pub(crate) fn watcher_claim(&mut self, owner: u64, allow_new: bool) -> bool {
+        match self.reload_owner {
+            Some(current) => current == owner,
+            None if allow_new
+                && owner != 0
+                && self
+                    .pump
+                    .reload
+                    .as_ref()
+                    .is_some_and(|lane| lane.can_submit()) =>
+            {
+                self.reload_owner = Some(owner);
+                true
+            }
+            _ => false,
+        }
+    }
+    pub(crate) fn watcher_owned(&self, owner: u64) -> bool {
+        self.reload_owner == Some(owner)
+    }
+    pub(crate) fn watcher_submit(&mut self, owner: u64, body: Box<[u8]>) -> io::Result<()> {
+        self.request_reload_for(Some(owner), body)
+    }
+    pub(crate) fn watcher_outcome(
+        &mut self,
+        owner: u64,
+    ) -> Option<keyweave_progress::reload::Outcome> {
+        if !self.watcher_owned(owner) {
+            return None;
+        }
+        self.pump
+            .reload
+            .as_mut()
+            .and_then(|lane| lane.take_completion())
+    }
     pub(crate) fn watcher_run(&self) -> Option<u64> {
         self.pump.reload.as_ref().map(|lane| lane.run_id())
     }
@@ -309,6 +348,9 @@ impl NativeSession {
     /// Queue one bounded raw candidate after an actual Active progress receipt.
     /// Queue admission is not preparation/activation/confirmation.
     pub fn request_reload(&mut self, body: Box<[u8]>) -> io::Result<()> {
+        self.request_reload_for(None, body)
+    }
+    fn request_reload_for(&mut self, owner: Option<u64>, body: Box<[u8]>) -> io::Result<()> {
         if self.pump.finished.is_some()
             || self.pump.controller.fault.is_some()
             || !matches!(self.status(), SupervisorStatus::Running)
@@ -316,6 +358,12 @@ impl NativeSession {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 "worker session not running",
+            ));
+        }
+        if self.reload_owner != owner {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "reload source belongs to its original coordinator",
             ));
         }
         if self.pump.controller.owner.progress_phase()
@@ -349,6 +397,9 @@ impl NativeSession {
         self.pump.reload.as_ref().map(|lane| lane.generation())
     }
     pub fn take_reload_outcome(&mut self) -> Option<keyweave_progress::reload::Outcome> {
+        if self.reload_owner.is_some() {
+            return None;
+        }
         self.pump
             .reload
             .as_mut()
