@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "733475dcae9832d105d52f3438de300a1baf7ac9",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "Cargo.lock": "ac8065ff39198fb054edce59dd2ea91c5dfb8d73a44b62e4423caee8a71e9aac",
+    "crates/keyweave-host/Cargo.toml": "e7cddf45c64bac91536225400be8360ae5825d6ba4c54798a1fee8f20b835f0f",
+    "crates/keyweave-host/src/main.rs": "3bae5a77442c01b8bfd08dcce474971eb2e7abb933649215f8f98ee0b9898ca7",
+    "crates/keyweave-linux/src/device.rs": "953cf7f88db5658119e8471d4c7c49aa171c91265fa34d755bf1bf6b31bfe10e",
+    "crates/keyweave-linux/src/inventory.rs": "f2bc8ac879119ab35c77f9eb05c138a9a033e7bbf5db2d01a39a06bc51ba6137",
+    "crates/keyweave-linux/src/inventory/tests.rs": "04b92943b66a64643c8183d0ebf78a5358b1b463b50f6e1bad9ecb1be1a615a5",
+    "crates/keyweave-linux/src/lib.rs": "c5f282413af7bf046f2f9839f45e75ab2d60ec402e7d6482c2acb00b0e284a80"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 2015,
+    "new_default_tests": 5,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/clippy.log",
+        "sha256": "f0788aa36d1c86b6ccdfb7f4042a5574102d82061c046422a2d42e008a1e4710"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/tests.log",
+        "sha256": "4c561638709534f8bc07824f3efadc4e2fde33ce9df58e14d78571475f10064d"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-device-inventory/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "native_readonly_diagnostic": {
+    "command": [
+      "cargo",
+      "run",
+      "--locked",
+      "--offline",
+      "-p",
+      "keyweave-host",
+      "--",
+      "list-linux-devices"
+    ],
+    "exit_code": 1,
+    "stdout": "target/validation/linux-20261016-device-inventory/native-inventory.json",
+    "stdout_sha256": "6d38e883b125817306ae5f1d4c0a48f8f8b9b503a7b9f9c0beec4f777717f088",
+    "stderr": "target/validation/linux-20261016-device-inventory/native-inventory.stderr.log",
+    "stderr_sha256": "b47846a68f7d21cf85d8a4dd331ba4bff4ae1324bdff22b7cde13d1670bc12f4",
+    "scan_complete": false,
+    "probes_complete": false,
+    "entries": 0,
+    "issues": [
+      "input_directory: Failure { kind: \"NotFound\", os_code: Some(2) }"
+    ]
+  },
+  "initial_failures": [],
+  "limitations": [
+    "Native diagnostic returned incomplete snapshot/exit1 because /dev/input is absent in this environment. No actual device node was opened, so the new native inspect ioctl path and physical classification were not exercised here. This is environment evidence, not hardware acceptance.",
+    "Default inventory tests inject synthetic directory names, metadata/probe failures and clocks. Capture EvdevDevice::open still configures its private monotonic clock; inspect reuses the metadata query code without clock/state/event/grab/output operations and returns data only, not a native owner/readiness token.",
+    "Scan scope is canonical evdev nodes, not stable/physical/global device inventory. Hotplug, aliases, virtual outputs, fd/path reuse and unavailable type provider remain independently relevant. No automatic capture selection or Runtime context update occurs.",
+    "Directory/candidate counts and issue samples are bounded, clock failure latches and no lease is renewed; budgets are observed between synchronous filesystem/ioctl/provider calls, not hard realtime cancellation guarantees.",
+    "Unknown trusted udev classification remains null. Root trust was not weakened; name/capability heuristics are not substituted. GUI discovery/selection and hardware LEDs/Fn/ignore remain pending.",
+    "Cargo.lock only adds already-workspace serde_json as a direct host dependency, no new external version/network fetch. Eight existing Unix IPC tests remain ignored and were not rerun for this metadata-only slice.",
+    "No device capture/state read, Hook, injection, native GUI or Windows SDK gate was executed. Prior Windows native approval quota rejection was not retried. Full migration/native/hardware/Wayland/packaging remains unfinished."
+  ]
+}

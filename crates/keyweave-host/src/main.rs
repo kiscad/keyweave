@@ -35,6 +35,8 @@ enum Command {
         #[arg(long)]
         control_socket: Option<PathBuf>,
     },
+    /// List bounded evdev metadata only; no event read, grab or worker creation.
+    ListLinuxDevices,
     /// Query a Linux host; no input access or worker creation.
     StatusLinux {
         #[arg(long)]
@@ -287,6 +289,7 @@ fn main() -> ExitCode {
         Command::StopWindows { endpoint, session } => {
             windows_local_control(endpoint, Some(session))
         }
+        Command::ListLinuxDevices => list_linux_devices(),
         Command::StatusLinux { socket } => local_control(socket, None),
         Command::StopLinux { socket, session } => local_control(socket, Some(session)),
         Command::CheckLinux {
@@ -1488,5 +1491,46 @@ mod windows_control_cli_tests {
                 ..
             }
         ));
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn list_linux_devices() -> ExitCode {
+    eprintln!("Linux evdev metadata inventory requires Linux");
+    ExitCode::from(78)
+}
+#[cfg(target_os = "linux")]
+fn list_linux_devices() -> ExitCode {
+    let report = keyweave_linux::inventory::scan();
+    let complete = report.scan_complete && report.probes_complete;
+    match serde_json::to_string_pretty(&report) {
+        Ok(text) => {
+            println!("{text}");
+            ExitCode::from(if complete { 0 } else { 1 })
+        }
+        Err(error) => {
+            eprintln!("inventory serialization failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod inventory_cli_tests {
+    use super::*;
+    #[test]
+    fn metadata_inventory_is_a_standalone_command_without_capture_parameters() {
+        assert!(matches!(
+            Cli::try_parse_from(["host", "list-linux-devices"])
+                .unwrap()
+                .command,
+            Command::ListLinuxDevices
+        ));
+        assert!(
+            Cli::try_parse_from(["host", "list-linux-devices", "--input", "/dev/input/event0"])
+                .is_err()
+        );
+        assert!(Cli::try_parse_from(["host", "list-linux-devices", "--worker", "unused"]).is_err());
     }
 }

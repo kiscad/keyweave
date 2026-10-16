@@ -24,6 +24,8 @@ pub mod graphical_session;
 #[cfg(target_os = "linux")]
 pub mod host_signals;
 #[cfg(target_os = "linux")]
+pub mod inventory;
+#[cfg(target_os = "linux")]
 mod ioctl;
 pub mod keys;
 pub mod output;

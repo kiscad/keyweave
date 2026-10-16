@@ -52,3 +52,5 @@ Windows Settings 的同一控制区显示 **Windows host endpoint**，粘贴所�
 全局simple行的 **Update**、profile名的 **Rename**、新行的 **Add mapping** 都会先处理各自输入buffer。输入尚未完成时会计入未保存状态，并阻止切换profile、结构删除和 **Use edited JSON**；这些完成按钮仍可使用，不会因pending状态被禁用。
 
 **Discard row input** 放弃单行输入；**Discard simple inputs** 放弃未提交的全局行、名称和新行输入，保留已提交draft及独立的规则/设备buffer。无效按键或过期raw值会拒绝Update/Rename且保留输入，不会覆盖其他编辑操作已改变的值。新增mapping只有成功后重置输入。最终仍需Use edited JSON、Validate及保存新副本；这不表示运行时已应用。见 [ADR-0239](ADR-0239-global-visual-buffer-fences.md)。
+
+Linux只读元数据CLI现可用 `keyweave-host list-linux-devices`；它与 **Configured devices** 分离，不自动将节点加入抓取或运行上下文。GUI后台刷新/选择仍待接入；类型null、partial和capability诊断不能当设备已就绪。命令边界和当前无`/dev/input`限制见 [Linux说明](LINUX_USAGE.zh-CN.md)。

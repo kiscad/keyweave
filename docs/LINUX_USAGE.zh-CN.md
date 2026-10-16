@@ -127,3 +127,15 @@ Linux Evdev 冷启动现已连接可选 libudev 静态类型 provider（见下�
 ## 显式本地 Status / Stop
 
 在已验证的run-linux命令增加 `--control-socket /absolute/private-dir/control.sock`，目录必须现有、同euid且0700；默认不启用，不替换已有路径。随后CLI可用 `status-linux --socket ...` 取得独立public session，再以 `stop-linux --socket ... --session ID` 请求同会话停止。GUI使用同一客户端。公开Stop不伪造信号/进度、重复不续deadline；EOF不是exit，恢复事实也不由exit0推断。详见 [使用和协议](SESSION_CONTROL.zh-CN.md)。native gate在获准IPC环境中8项通过，含实际host→自有无输入worker的完整退出链；不证明真实键盘/指针捕获可用。
+
+## 只读 evdev 元数据列表
+
+```sh
+keyweave-host list-linux-devices
+```
+
+该显式命令列举 `/dev/input/eventN` 元数据并输出JSON，读取版本/ID/name/能力及可选可信类型，不读事件或按键状态、不设置事件时钟、不grab、不创建uinput/worker。每节点元数据复制后释放FD owner。结果只覆盖规范evdev接口，可能包括虚拟接口，不是完整物理设备宇宙或启动许可。
+
+`scan_complete` 表示限定目录枚举结束，`probes_complete` 表示选定候选探测完成；任一为false时exit1并保留可用条目和错误。缺目录/权限、限额、热插拔或probe失败不能解释为“系统没有设备”。type unavailable为null，不按name/能力猜分类；capability issues只是支持表诊断，不证明neutral、consumer readiness、输出接收或lease。
+
+最多1024目录项和256候选，目录/探测间检查2秒观察预算；同步FS/内核/provider调用不是硬实时可中断。当前环境实际 `/dev/input` 缺失，诊断返回不完整快照，物理FD/ioctl路径尚未验收。GUI发现/选择后续接入，现有Runtime准入与root-trust要求保持。见 [ADR-0240](ADR-0240-linux-readonly-device-inventory.md)。

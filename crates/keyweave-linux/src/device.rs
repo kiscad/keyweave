@@ -43,14 +43,37 @@ pub fn is_event_node(path: &Path) -> bool {
                 })
             })
 }
+#[derive(Clone, Debug)]
+pub struct DeviceInspection {
+    pub probe: Probe,
+    pub device_types: Option<crate::device_types::DeviceTypes>,
+    pub device_number: (u32, u32),
+}
 impl EvdevDevice {
     /// Explicit path only. Symlinks resolve to /dev/input/eventN; final open is
     /// no-follow, read-only and nonblocking. This does not grab the keyboard.
     pub fn open(path: &Path) -> io::Result<Self> {
+        Self::open_impl(path, true)
+    }
+    /// Metadata only: no event/state read, clock configuration, grab or output.
+    /// Direct final no-follow path; not an alias/capture admission token.
+    pub fn inspect(path: &Path) -> io::Result<DeviceInspection> {
+        let device = Self::open_impl(path, false)?;
+        Ok(DeviceInspection {
+            probe: device.probe.clone(),
+            device_types: device.device_types,
+            device_number: device.device_number,
+        })
+    }
+    fn open_impl(path: &Path, configure_clock: bool) -> io::Result<Self> {
         let layout = native_layout().ok_or_else(|| {
             io::Error::new(io::ErrorKind::Unsupported, "unaudited native evdev ABI")
         })?;
-        let path = fs::canonicalize(path)?;
+        let path = if configure_clock {
+            fs::canonicalize(path)?
+        } else {
+            path.to_path_buf()
+        };
         if !is_event_node(&path) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -104,7 +127,9 @@ impl EvdevDevice {
             libc::major(dev),
             libc::minor(dev)
         ))?;
-        ioctl::monotonic_clock(file.as_fd())?;
+        if configure_clock {
+            ioctl::monotonic_clock(file.as_fd())?;
+        }
         let number = (libc::major(dev), libc::minor(dev));
         let device_types = crate::device_types::observe(number, &input_syspath).ok();
         // Classification never changes the opened input identity. Verify the
