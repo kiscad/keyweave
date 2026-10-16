@@ -403,3 +403,25 @@ fn parsed_chord_offline_admission_requires_explicit_staged_mode_without_private_
     assert_eq!(fs::read(&path).unwrap(), body);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(not(windows))]
+#[test]
+fn windows_public_control_is_explicitly_unavailable_without_config_worker_or_input_access() {
+    let endpoint = r"\\.\pipe\keyweave-control-0123456789abcdef0123456789abcdef|42|123456";
+    for command in [
+        vec!["status-windows", "--endpoint", endpoint],
+        vec!["stop-windows", "--endpoint", endpoint, "--session", "71"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_keyweave-host"))
+            .args(command)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(78));
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("requires Windows")
+        );
+    }
+}

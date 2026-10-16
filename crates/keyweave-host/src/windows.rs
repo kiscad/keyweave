@@ -138,7 +138,7 @@ fn cleanup_spawn(error: &mut SupervisorSpawnError, errors: &mut Vec<String>) -> 
             .as_mut()
             .is_none_or(|owner| cleanup_job(owner, errors)),
         SupervisorSpawnError::Resume { owner, .. } => {
-            let report = drive(owner, &AtomicBool::new(true), Instant::now(), None);
+            let report = drive(owner, &AtomicBool::new(true), Instant::now(), None, None, 1);
             let complete = report.worker_exit.is_some() && report.resources_complete;
             for e in report.diagnostics {
                 record(errors, e)
@@ -156,11 +156,14 @@ fn drive(
     stop: &AtomicBool,
     start: Instant,
     console: Option<&keyweave_windows::ConsoleControl>,
+    mut control: Option<&mut crate::windows_control::Control>,
+    generation: u64,
 ) -> Report {
     let mut diagnostics = Vec::new();
     let mut requested = false;
     let mut stopping = None;
     let mut last = MonoTime(0);
+    let mut control_fault = false;
     loop {
         let now = match u64::try_from(start.elapsed().as_nanos()) {
             Ok(ns) => MonoTime(ns),
@@ -173,7 +176,12 @@ fn drive(
             }
         };
         last = now;
-        if should_stop(stop, console) && !requested {
+        if (should_stop(stop, console)
+            || control
+                .as_deref()
+                .is_some_and(crate::windows_control::Control::stop_requested))
+            && !requested
+        {
             requested = true;
             if let Err(e) = owner.request_shutdown(now) {
                 record(&mut diagnostics, e)
@@ -220,9 +228,64 @@ fn drive(
                 diagnostics,
             };
         }
+        // Native supervision/expiration/actual-exit observation above always
+        // precedes one bounded public message step. IPC never renews progress.
+        if !control_fault && let Some(service) = control.as_deref_mut() {
+            let snapshot = control_snapshot(
+                service.session(),
+                generation,
+                owner.status(),
+                owner.progress_epoch(),
+                !diagnostics.is_empty(),
+            );
+            if let Err(error) = service.poll(start.elapsed(), snapshot) {
+                control_fault = true;
+                record(&mut diagnostics, error);
+                if let Err(error) = owner.request_stop() {
+                    record(&mut diagnostics, error);
+                }
+                stopping.get_or_insert_with(Instant::now);
+            }
+        }
         let wait =
             Duration::from_nanos(owner.deadline().0.saturating_sub(now.0)).min(POLL_INTERVAL);
         std::thread::sleep(wait.max(Duration::from_millis(1)));
+    }
+}
+fn control_snapshot(
+    session: u64,
+    generation: u64,
+    status: SupervisorStatus,
+    epoch: u64,
+    fault: bool,
+) -> keyweave_progress::session_control::Snapshot {
+    use keyweave_progress::session_control::{Exit, Phase, Snapshot};
+    let (phase, exit, failed) = match status {
+        SupervisorStatus::Running => (
+            if epoch == 0 {
+                Phase::Starting
+            } else {
+                Phase::Active
+            },
+            None,
+            false,
+        ),
+        SupervisorStatus::ShutdownRequested { .. } => (Phase::StopRequested, None, false),
+        SupervisorStatus::Stopping { .. } => (Phase::StopRequested, None, true),
+        SupervisorStatus::Exited { code, reason } => (
+            Phase::Exited,
+            Some(Exit::Code(code)),
+            code != 0 || !matches!(reason, None | Some(TerminationReason::Cooperative)),
+        ),
+    };
+    Snapshot {
+        session,
+        phase,
+        progress_epoch: epoch,
+        generation: if epoch > 0 { Some(generation) } else { None },
+        exit,
+        recovery_confirmed: false,
+        fault: fault || failed,
     }
 }
 fn cancelled(artifact: Option<&mut keyweave_windows::ConfigArtifact>) -> Report {
@@ -267,6 +330,7 @@ pub fn run(
         identity,
         stop,
         None,
+        None,
     )
 }
 /// Combine user input with an existing process-lifetime console control owner.
@@ -287,8 +351,33 @@ pub fn run_with_console(
         identity,
         stop,
         Some(console),
+        None,
     )
 }
+/// Explicit public control, already cold-bound and published by the caller.
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_console_control(
+    executable: &Path,
+    diagnostic_path: &Path,
+    directory: &Path,
+    prepared: PreparedConfig,
+    identity: IdentityPolicy,
+    stop: &AtomicBool,
+    console: &keyweave_windows::ConsoleControl,
+    control: &mut crate::windows_control::Control,
+) -> Result<Report, String> {
+    run_impl(
+        executable,
+        diagnostic_path,
+        directory,
+        prepared,
+        identity,
+        stop,
+        Some(console),
+        Some(control),
+    )
+}
+#[allow(clippy::too_many_arguments)]
 fn run_impl(
     executable: &Path,
     diagnostic_path: &Path,
@@ -297,6 +386,7 @@ fn run_impl(
     identity: IdentityPolicy,
     stop: &AtomicBool,
     console: Option<&keyweave_windows::ConsoleControl>,
+    mut control: Option<&mut crate::windows_control::Control>,
 ) -> Result<Report, String> {
     keyweave_windows::startup::ensure_preparation_context().map_err(|e| e.to_string())?;
     if should_stop(stop, console) {
@@ -306,6 +396,7 @@ fn run_impl(
     let args = prepared
         .worker_arguments(diagnostic_path, fresh.tag(), identity)
         .map_err(|e| e.to_string())?;
+    let generation = prepared.snapshot().generation.0;
     let mut artifact=prepared.seal(directory).map_err(|mut e|{
         let mut errors=Vec::new();let mut complete=true;
         if let Some(owner)=e.owner.as_mut(){match owner.close(){Ok(r) if r.complete()=>(),other=>{complete=false;record(&mut errors,format!("artifact cleanup: {other:?}"));}}}
@@ -329,7 +420,43 @@ fn run_impl(
         let complete = cleanup_spawn(&mut e, &mut errors);
         format!("worker startup failed: {e}; resources_complete={complete}; diagnostics={errors:?}")
     })?;
-    Ok(drive(&mut owner, stop, start, console))
+    let mut report = drive(
+        &mut owner,
+        stop,
+        start,
+        console,
+        control.as_deref_mut(),
+        generation,
+    );
+    if let Some(service) = control {
+        if let Some(code) = report.worker_exit {
+            // Bounded final service only after actual owned-child exit. A clean
+            // scalar does not establish recovery; snapshot keeps it false.
+            let until = Instant::now() + Duration::from_millis(500);
+            let snapshot = control_snapshot(
+                service.session(),
+                generation,
+                SupervisorStatus::Exited {
+                    code,
+                    reason: report.reason,
+                },
+                report.progress_epoch,
+                !report.diagnostics.is_empty() || !report.resources_complete,
+            );
+            while Instant::now() < until {
+                if let Err(error) = service.poll(start.elapsed(), snapshot) {
+                    record(&mut report.diagnostics, error);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        if let Err(error) = service.close() {
+            report.resources_complete = false;
+            record(&mut report.diagnostics, error);
+        }
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -494,6 +621,50 @@ mod cancellation_tests {
                 _ => assert!(start.elapsed() < Duration::from_secs(2)),
             }
             std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+#[cfg(test)]
+mod public_snapshot_tests {
+    use super::*;
+    use keyweave_progress::session_control::{Exit, Phase};
+    #[test]
+    fn public_facts_require_epoch_and_actual_exit_and_never_infer_recovery() {
+        let starting = control_snapshot(7, 1, SupervisorStatus::Running, 0, false);
+        assert_eq!(starting.phase, Phase::Starting);
+        assert!(starting.generation.is_none());
+        assert!(starting.validate().is_ok());
+        let active = control_snapshot(7, 1, SupervisorStatus::Running, 2, false);
+        assert_eq!(active.phase, Phase::Active);
+        assert_eq!(active.generation, Some(1));
+        assert!(active.exit.is_none());
+        assert!(active.validate().is_ok());
+        let stopping = control_snapshot(
+            7,
+            1,
+            SupervisorStatus::ShutdownRequested {
+                deadline: MonoTime(10),
+                request_sent: false,
+            },
+            0,
+            false,
+        );
+        assert_eq!(stopping.phase, Phase::StopRequested);
+        assert!(stopping.exit.is_none());
+        assert!(stopping.validate().is_ok());
+        for code in [0, u32::MAX] {
+            let exited = control_snapshot(
+                7,
+                1,
+                SupervisorStatus::Exited { code, reason: None },
+                0,
+                false,
+            );
+            assert_eq!(exited.exit, Some(Exit::Code(code)));
+            assert!(!exited.recovery_confirmed);
+            assert_eq!(exited.fault, code != 0);
+            assert!(exited.validate().is_ok());
         }
     }
 }

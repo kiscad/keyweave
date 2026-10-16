@@ -47,6 +47,18 @@ enum Command {
         #[arg(long,value_parser=clap::value_parser!(u64).range(1..))]
         session: u64,
     },
+    /// Query a selected Windows host instance; no worker creation or input access.
+    StatusWindows {
+        #[arg(long)]
+        endpoint: keyweave_host::public_control::WindowsEndpoint,
+    },
+    /// Request stop of the observed Windows public session; does not imply exit.
+    StopWindows {
+        #[arg(long)]
+        endpoint: keyweave_host::public_control::WindowsEndpoint,
+        #[arg(long,value_parser=clap::value_parser!(u64).range(1..))]
+        session: u64,
+    },
     /// Check Linux configuration against the full supported output table; no input access.
     CheckLinux {
         #[arg(long, value_enum, default_value = "legacy")]
@@ -81,6 +93,9 @@ enum Command {
         /// Existing local directory for owned temporary configuration files.
         #[arg(long)]
         artifact_directory: Option<PathBuf>,
+        /// Explicit local named-pipe endpoint; publishes cold host instance metadata.
+        #[arg(long)]
+        control_pipe: Option<String>,
     },
 }
 #[derive(clap::Args)]
@@ -268,6 +283,10 @@ fn main() -> ExitCode {
             vt,
             (watch, execution_mode, x11, control_socket),
         ),
+        Command::StatusWindows { endpoint } => windows_local_control(endpoint, None),
+        Command::StopWindows { endpoint, session } => {
+            windows_local_control(endpoint, Some(session))
+        }
         Command::StatusLinux { socket } => local_control(socket, None),
         Command::StopLinux { socket, session } => local_control(socket, Some(session)),
         Command::CheckLinux {
@@ -320,6 +339,7 @@ fn main() -> ExitCode {
             identity,
             worker,
             artifact_directory,
+            control_pipe,
         } => run(
             config,
             identity.into(),
@@ -327,6 +347,7 @@ fn main() -> ExitCode {
             artifact_directory,
             execution_mode,
             capture_scope,
+            control_pipe,
         ),
     }
 }
@@ -338,6 +359,7 @@ fn run(
     _: Option<PathBuf>,
     _: WindowsExecution,
     _: WindowsScope,
+    _: Option<String>,
 ) -> ExitCode {
     eprintln!("run-windows requires Windows");
     ExitCode::from(78)
@@ -350,6 +372,7 @@ fn run(
     directory: Option<PathBuf>,
     execution_mode: WindowsExecution,
     capture_scope: WindowsScope,
+    control_pipe: Option<String>,
 ) -> ExitCode {
     use std::{
         io::Read,
@@ -416,18 +439,63 @@ fn run(
     } else {
         eprintln!("Starting Windows session; input or EOF requests stop.");
     }
-    let result = keyweave_host::windows::run_with_console(
-        &executable,
-        &path,
-        &directory,
-        prepared,
-        identity,
-        &stop,
-        &console,
-    );
+    let mut public_control = match control_pipe
+        .as_deref()
+        .map(keyweave_host::windows_control::Control::listen)
+        .transpose()
+    {
+        Ok(service) => service,
+        Err(error) => {
+            let cleanup = console.close();
+            eprintln!(
+                "public control setup failed before worker start: {error}; console_cleanup={cleanup:?}"
+            );
+            return ExitCode::from(1);
+        }
+    };
+    // Cold output only: a blocked consumer cannot stall an active worker lease.
+    if let Some(service) = &public_control {
+        println!(
+            "control_endpoint={} public_session={}",
+            service.endpoint(),
+            service.session()
+        );
+    }
+    let result = if let Some(service) = public_control.as_mut() {
+        keyweave_host::windows::run_with_console_control(
+            &executable,
+            &path,
+            &directory,
+            prepared,
+            identity,
+            &stop,
+            &console,
+            service,
+        )
+    } else {
+        keyweave_host::windows::run_with_console(
+            &executable,
+            &path,
+            &directory,
+            prepared,
+            identity,
+            &stop,
+            &console,
+        )
+    };
+    let public_cleanup = public_control
+        .as_mut()
+        .map(keyweave_host::windows_control::Control::close)
+        .transpose();
     // Restore default processing before final stdio; no active worker remains
     // on a successful result. Cleanup failure is independent and fails the host.
     let cleanup = console.close();
+    if let Err(error) = public_cleanup {
+        eprintln!(
+            "public control cleanup failed: {error}; host_result={result:?}; console_cleanup={cleanup:?}"
+        );
+        return ExitCode::from(1);
+    }
     match result {
         Ok(report) => {
             println!("{report}");
@@ -1317,6 +1385,108 @@ mod control_cli_tests {
             .unwrap()
             .command,
             Command::StopLinux { session: 123, .. }
+        ));
+    }
+}
+
+#[cfg(not(windows))]
+fn windows_local_control(
+    _: keyweave_host::public_control::WindowsEndpoint,
+    _: Option<u64>,
+) -> ExitCode {
+    eprintln!("local Windows control requires Windows");
+    ExitCode::from(78)
+}
+#[cfg(windows)]
+fn windows_local_control(
+    endpoint: keyweave_host::public_control::WindowsEndpoint,
+    session: Option<u64>,
+) -> ExitCode {
+    use keyweave_progress::session_control::{Command, Outcome, Request};
+    let request = Request {
+        id: 1,
+        command: session.map_or(Command::Status, |session| Command::Stop { session }),
+    };
+    match keyweave_host::windows_control::request(&endpoint, request) {
+        Ok(reply) => {
+            let s = reply.snapshot;
+            println!(
+                "outcome={:?}, public_session={}, phase={:?}, progress_epoch={}, last_observed_generation={:?}, worker_exit={:?}, recovery_confirmed={}, host_fault={}",
+                reply.outcome,
+                s.session,
+                s.phase,
+                s.progress_epoch,
+                s.generation,
+                s.exit,
+                s.recovery_confirmed,
+                s.fault
+            );
+            ExitCode::from(u8::from(reply.outcome == Outcome::StaleSession))
+        }
+        Err(error) => {
+            eprintln!(
+                "local control unavailable; request may have taken effect; worker exit/recovery unconfirmed: {error}"
+            );
+            ExitCode::from(1)
+        }
+    }
+}
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod windows_control_cli_tests {
+    use super::*;
+    #[test]
+    fn endpoint_and_positive_stop_session_are_required_without_worker_arguments() {
+        let endpoint = r"\\.\pipe\keyweave-control-0123456789abcdef0123456789abcdef|42|123456";
+        assert!(Cli::try_parse_from(["host", "status-windows"]).is_err());
+        assert!(Cli::try_parse_from(["host", "status-windows", "--endpoint", "bad"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["host", "status-windows", "--endpoint", endpoint])
+                .unwrap()
+                .command,
+            Command::StatusWindows { .. }
+        ));
+        assert!(
+            Cli::try_parse_from([
+                "host",
+                "stop-windows",
+                "--endpoint",
+                endpoint,
+                "--session",
+                "0"
+            ])
+            .is_err()
+        );
+        assert!(matches!(
+            Cli::try_parse_from([
+                "host",
+                "stop-windows",
+                "--endpoint",
+                endpoint,
+                "--session",
+                "77"
+            ])
+            .unwrap()
+            .command,
+            Command::StopWindows { session: 77, .. }
+        ));
+        let cli = Cli::try_parse_from([
+            "host",
+            "run-windows",
+            "--config",
+            "unused.json",
+            "--identity",
+            "strict",
+            "--control-pipe",
+            r"\\.\pipe\keyweave-control-0123456789abcdef0123456789abcdef",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::RunWindows {
+                control_pipe: Some(_),
+                ..
+            }
         ));
     }
 }

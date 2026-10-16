@@ -1,5 +1,8 @@
 //! User host preparation and owned worker lifecycle. No automatic capture.
 use std::path::{Path, PathBuf};
+pub mod public_control;
+#[cfg(windows)]
+pub mod windows_control;
 /// Resolve a packaged sibling or an explicitly chosen absolute developer image.
 /// No PATH/shell search. Filesystem permissions/trust remain deployment premises.
 pub fn locate_worker(host: &Path, explicit: Option<&Path>) -> std::io::Result<PathBuf> {

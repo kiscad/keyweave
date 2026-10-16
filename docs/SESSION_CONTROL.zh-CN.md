@@ -111,3 +111,9 @@ ADR-0234 已新增 `ControlClientTransport`，与原 `Client` 消息事务机组
 每 poll 仅在 NOT_FOUND/BUSY 且无未回收资源时重试一次；不等待、不拉起 host、不延长事务期限。关闭时保留进程 pin 到 pipe close 确认，`ControlClientCleanup` 分别报告 pipe 与 peer 资源事实。请求已经发出后出现错误，仍可能已经生效，不能把传输错误解释为 Stop 未执行。
 
 目前客户端与服务端生产 adapter 都经 Win32 API mock 组合测试；Windows host/CLI/GUI 尚未接入该公开通道，host metadata 发布/发现、实际 Windows SDK/pipe 与 PID 复用/句柄转交对抗验收继续。见 [ADR-0234](ADR-0234-windows-control-client-peer-pin.md)。
+
+ADR-0235 已在源码接入 Windows host/CLI：显式 `run-windows --control-pipe` 冷监听并发布 `pipe|PID|creation FILETIME` 的 endpoint 描述符与独立 public session。`status-windows --endpoint '...'` 和 `stop-windows --endpoint '...' --session N` 复用现有客户端 machine/pin/transport，不创建 worker。非 Windows 上明确 exit 78。
+
+host 先监督再公开 IPC，Stop 走原 Supervisor 合作关闭，不伪造 worker progress；Starting 为 epoch0/generation unknown，只有实际进度后显示已准备代际。实际 exit 后有最多 500ms 最终服务窗，unknown exit 不制造 Exited。当前 Windows recovery_confirmed 始终 false，不能据 code0 推断恢复。重复 close 保留原绝对100ms期限，不重新续时。
+
+目前 Windows 专属 host/driver/CLI 源码尚未由原生 compiler/type checker/link/runtime 验证；新增 Windows snapshot test 也未运行。GUI 仍待 Windows 接入，完整无输入 Windows host 链和硬件验收不能用 Linux parser/API mock 成功替代。见 [ADR-0235](ADR-0235-windows-host-public-control.md)。
