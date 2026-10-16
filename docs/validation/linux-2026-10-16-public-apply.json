@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-16",
+  "source_base_head": "873b6489599126e9824b5610eb423268749fc9ea",
+  "working_tree_changes_present": true,
+  "source_sha256": {
+    "crates/keyweave-progress/src/lib.rs": "c91f8fa3ff8698e6941d3cbe81d5197c934bfb43f826e110c302ad09410eeb32",
+    "crates/keyweave-progress/src/session_apply.rs": "923f992b99406cee8382e597de93c741d4488da18f8e0898cb8140df60fd13c7",
+    "crates/keyweave-progress/src/session_apply/tests.rs": "a734f752aa42ae75010bc232707ca742636e1032e76969dbb658706f080f4dfc",
+    "crates/keyweave-host/tests/public_apply.rs": "803b0ba0c935c534ca192cf7b6f3f2942f29b6bb6c6d8997950beae0a23f64cd"
+  },
+  "rust": "1.97.1",
+  "linux": {
+    "workspace_test_cases_passed": 2031,
+    "new_default_tests": 10,
+    "workspace_tests_ignored": 8,
+    "source_hashes_verified": 62,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/clippy.log",
+        "sha256": "07b963fdcbc0bfc2c4b13e0ccc64d89a3258bfe3dcc4c2183f8bd7e3b39e40ce"
+      },
+      "tests": {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/tests.log",
+        "sha256": "01c3060700f94886927f4e0118fffd81edc5d66e6501fd56968bccf9100511d9"
+      },
+      "regex-oracle": {
+        "command": [
+          "python3",
+          "tools/verify_regex_oracle.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/regex-oracle.log",
+        "sha256": "d1f024e773101ad6769b653c5a10d13ddb77434d0ab67be0fa3d96f815ffb359"
+      },
+      "sources": {
+        "command": [
+          "python3",
+          "tools/verify_sources.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/sources.log",
+        "sha256": "83ada27af271e90efe3d0b2f686d4dda3997b03a0971f7413ce351290d18d406"
+      },
+      "abi": {
+        "command": [
+          "python3",
+          "tools/verify_linux_abi.py"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/abi.log",
+        "sha256": "7233a721eba2398836e5bbc69312a571e4a4d3f2fd593ddbac593d996a411799"
+      },
+      "x11-sdk": {
+        "command": [
+          "python3",
+          "tools/verify_x11_abi.py",
+          "--include",
+          "target/validation/x11-sdk-20261014/include"
+        ],
+        "exit_code": 0,
+        "log": "target/validation/linux-20261016-public-apply-final/x11-sdk.log",
+        "sha256": "190e64b785f944fb4b2d7ed7348595dcea11f518087d63be43ccbdabbff842a6"
+      }
+    }
+  },
+  "initial_failures": [],
+  "verification_notes": [
+    "An earlier full regression also passed 2031 tests. After tightening false StaleGeneration reply validation and clearing ambiguity for validated Rejected/Cancelled completions, all seven checks were rerun against final source. Only the final rerun is used as source-bound evidence."
+  ],
+  "limitations": [
+    "KWAQ/KWAR public Apply DTOs and Transaction are platform-neutral components only. No Linux/Windows public Apply transport, host adapter, CLI command or GUI Apply button is wired yet. Existing Status/Stop and private reload frame formats are unchanged.",
+    "Eight new deterministic tests use trusted mock Backend tickets. Two integration tests use actual cold Linux preparation and Engine.activate with a test-only synchronous ticket adapter and synthetic physical events. They do not execute a native worker/ACK channel, input capture, injection, progress receipt or recovery operation.",
+    "Backend must exclusively own actual reload request/ACK correlation for exact bytes/base/target. This trust boundary is documented; the generic trait cannot authenticate a process or prove an arbitrary implementer tells the truth. Watcher/external source arbitration and production ACK adapters remain mandatory.",
+    "Absolute injected time is checked before and after each backend method; callbacks themselves must be bounded by the platform owner. A public transaction timeout/Drop does not cancel or roll back an actual reload. Pending never renews deadlines; late commit/lost ACK remains potentially applied with no automatic replay.",
+    "Final replies are cached historical facts; repeating step on Finished does no new backend IO/clock query and does not renew transport deadlines or establish current active configuration. Native transports and GUI must enforce independent send deadlines and exact document/endpoint request binding.",
+    "No native GUI, device, Windows SDK or new native IPC gate was run for this protocol-only slice. Eight existing Unix IPC tests remain default-ignored and were not rerun. Prior Windows approval quota rejection was not retried. Full migration/GUI/native hardware/Wayland/drivers/packaging remains unfinished."
+  ]
+}

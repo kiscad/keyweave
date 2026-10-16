@@ -65,3 +65,5 @@ Linux只读元数据CLI现可用 `keyweave-host list-linux-devices`；它与 **C
 在已知分类的节点上点击 **Generate selector draft**，会填入 vendor/product ID 和两种类型标志。观察超过30秒或刷新进行中时需要重新刷新；这只是避免误用旧显示的编辑门槛，不保证设备仍在线。已知节点可以来自部分快照。名字与 event 路径不写入匹配选择器，型号相同且类型相同的多个设备会共同匹配。
 
 生成操作保留为未提交设备编辑，必须 **Commit device draft** → **Use edited JSON** → **Validate** → 保存新副本。现有未提交设备编辑必须先提交或放弃，不能被生成操作覆盖。它不自动选择抓取路径、不修改 Runtime 条件上下文，也不说明目标支持、设备就绪或硬件验收完成。Windows 设备发现和实际桌面/硬件验收仍待接入。见 [ADR-0241](ADR-0241-settings-linux-device-discovery.md)。
+
+公开 Apply 的事务协议和确认协调器已实现，但设置界面仍未提供运行时 Apply。保存新副本与 **Use edited JSON** 都只更新文档；只有后续接上原生 worker ACK 后才能标记配置已应用。watcher/GUI 仲裁、端点/正文绑定与 native gate 要求见 [公开 Apply 协议](SESSION_APPLY.zh-CN.md)。
